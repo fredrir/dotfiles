@@ -5,7 +5,7 @@ ssh archie
    ├── USB          10.77.77.1 → 10.77.77.2
    ├── direct Wi-Fi 10.77.78.1 → 10.77.78.2
    ├── regular LAN  filtered mDNS on 192.168.1.0/24
-   └── Tailscale    100.75.71.79 → 100.126.231.24
+   └── Tailscale    100.75.71.79 → 100.124.205.100
 ```
 
 
@@ -84,7 +84,7 @@ ssh archie                 first reachable route in the four-path order
 ssh 10.77.77.2             the cable, or nothing
 ssh wifi-archie            direct Wi-Fi, or nothing
 ssh lan-archie             filtered regular LAN, or nothing
-ssh 100.126.231.24         tailscale, or nothing
+ssh 100.124.205.100        tailscale, or nothing
 ```
 
 
@@ -187,7 +187,7 @@ Pass SSH names or addresses to inspect the configuration the next connection
 would use. Every target is resolved independently with `ssh -G`:
 
 ```console
-$ hwire -i archie lan-archie 100.126.231.24
+$ hwire -i archie lan-archie 100.124.205.100
 ```
 
 `hwire -iv HOST...` adds the resolved hostname, binding or proxy, and

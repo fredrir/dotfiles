@@ -76,6 +76,8 @@ linux/arch {
   nft                 = nftables
   iptables
   mosh
+  socat
+  avahi-daemon        = avahi
   wezterm-mux-server  = aur:wezterm-nightly-bin
   fan2go              = aur:fan2go-git
   lact

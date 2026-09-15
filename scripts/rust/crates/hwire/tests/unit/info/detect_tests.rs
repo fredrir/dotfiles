@@ -5,7 +5,7 @@ fn ssh_addresses_identify_every_fixed_route() {
     let cases = [
         ("10.77.77.2", Route::Cable),
         ("10.77.78.2", Route::Wifi),
-        ("100.126.231.24", Route::Tailscale),
+        ("100.124.205.100", Route::Tailscale),
         ("192.168.1.162", Route::Lan),
     ];
     for (server, route) in cases {

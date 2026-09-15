@@ -27,19 +27,19 @@ reached through `socat`.
 | Restart                                 | Restarting localmux terminates its active sessions; save work first                  |
 
 
-| Route     | macie `tls_servers` | macie peer-facing  | archie `tls_servers` | archie peer-facing  |
-| --------- | ------------------- | ------------------ | -------------------- | ------------------- |
-| cable     | 127.0.0.1:8443      | 10.77.77.1:8443    | 10.77.77.2:8443      | 10.77.77.2:8443     |
-| wifi      | 127.0.0.1:8444      | 10.77.78.1:8443    | 10.77.78.2:8443      | 10.77.78.2:8443     |
-| lan       | 127.0.0.1:8446      | `<macie-lan>`:8443 | 127.0.0.1:8446       | `<archie-lan>`:8443 |
-| tailscale | 127.0.0.1:8445      | 100.75.71.79:8443  | 100.126.231.24:8443  | 100.126.231.24:8443 |
+| Route     | macie `tls_servers` | macie peer-facing  | archie `tls_servers` | archie peer-facing   |
+| --------- | ------------------- | ------------------ | -------------------- | -------------------- |
+| cable     | 127.0.0.1:8443      | 10.77.77.1:8443    | 10.77.77.2:8443      | 10.77.77.2:8443      |
+| wifi      | 127.0.0.1:8444      | 10.77.78.1:8443    | 10.77.78.2:8443      | 10.77.78.2:8443      |
+| lan       | 127.0.0.1:8446      | `<macie-lan>`:8443 | 127.0.0.1:8446       | `<archie-lan>`:8443  |
+| tailscale | 127.0.0.1:8445      | 100.75.71.79:8443  | 100.124.205.100:8443 | 100.124.205.100:8443 |
 
 | Route     | `tls_clients` name | macie `remote_address` | archie `remote_address` |
 | --------- | ------------------ | ---------------------- | ----------------------- |
 | cable     | `<peer>-cable`     | 10.77.77.2:8443        | 10.77.77.1:8443         |
 | wifi      | `<peer>-wifi`      | 10.77.78.2:8443        | 10.77.78.1:8443         |
 | lan       | `<peer>-lan`       | 127.0.0.1:8447         | 127.0.0.1:8447          |
-| tailscale | `<peer>-tailscale` | 100.126.231.24:8443    | 100.75.71.79:8443       |
+| tailscale | `<peer>-tailscale` | 100.124.205.100:8443   | 100.75.71.79:8443       |
 
 ## The LAN route
 
@@ -48,7 +48,7 @@ Both LAN addresses are DHCP, so neither is a literal in `hosts.lua`, and
 
 | Name         | Value                                                                 |
 | ------------ | --------------------------------------------------------------------- |
-| Resolver     | `~/.ssh/bin/home-lan-connect --resolve <peer>.local`                  |
+| Resolver     | `~/dotfiles/scripts/bin/home-lan-connect --resolve <peer>.local`                  |
 | Accepted     | both ends inside 192.168.1.0/24                                       |
 | Server relay | `<own-lan>:8443` → `127.0.0.1:8446`, `range=<peer-lan>/32`            |
 | Client relay | `127.0.0.1:8447` → `<peer-lan>:8443`, sourced from `<own-lan>`        |
@@ -125,7 +125,7 @@ lsof -nP -iTCP -sTCP:LISTEN | grep 844          # exactly the intended addresses
 shared/wezterm/domain/hosts.lua        addresses, binds, dials, PEM paths
 shared/wezterm/domain/tls.lua          tls_servers and tls_clients
 shared/wezterm/bin/wezterm-mux-route   static and LAN socat relays
-shared/ssh/bin/home-lan-connect        the filtered LAN pair both relays read
+scripts/bin/home-lan-connect           the filtered LAN pair both relays read
 shared/wezterm/domain/unix.lua         localmux, default_domain, no_serve_automatically
 shared/wezterm/bin/wezterm-mtls        CA, CSR, issue, install, doctor
 shared/wezterm/keymap/init.lua         the attach chord: CMD+. on macie, ALT+. on archie

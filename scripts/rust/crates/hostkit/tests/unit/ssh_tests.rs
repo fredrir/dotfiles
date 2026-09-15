@@ -31,7 +31,7 @@ fn the_filtered_lan_is_named_by_its_proxy_rather_than_its_address() {
 fn anything_else_resolved_is_tailscale() {
     assert_eq!(classify("hostname archie\n"), Some(Route::Tailscale));
     assert_eq!(
-        classify("hostname 100.126.231.24\n"),
+        classify("hostname 100.124.205.100\n"),
         Some(Route::Tailscale)
     );
 }
@@ -53,7 +53,7 @@ fn a_valueless_line_is_skipped_rather_than_abandoning_the_config() {
 fn a_resolved_config_carries_every_field_a_caller_reads() {
     let resolved = parse(concat!(
         "user fredrir\n",
-        "hostname 100.126.231.24\n",
+        "hostname 100.124.205.100\n",
         "port 2222\n",
         "bindaddress 10.77.77.1\n",
         "bindinterface en11\n",
@@ -61,7 +61,7 @@ fn a_resolved_config_carries_every_field_a_caller_reads() {
         "controlpath /tmp/ssh-archie\n",
     ))
     .unwrap();
-    assert_eq!(resolved.hostname, "100.126.231.24");
+    assert_eq!(resolved.hostname, "100.124.205.100");
     assert_eq!(resolved.user.as_deref(), Some("fredrir"));
     assert_eq!(resolved.port, Some(2222));
     assert_eq!(resolved.bound.as_deref(), Some("en11"));

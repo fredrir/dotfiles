@@ -10,7 +10,7 @@ PROGRAM=wezterm-mux-route
 
 POLL_SECONDS=${WEZTERM_MUX_ROUTE_POLL_SECONDS:-5}
 SOCAT=${WEZTERM_MUX_ROUTE_SOCAT:-}
-CONNECTOR=${WEZTERM_MUX_ROUTE_CONNECTOR:-$HOME/.ssh/bin/home-lan-connect}
+CONNECTOR=${WEZTERM_MUX_ROUTE_CONNECTOR:-$HOME/dotfiles/scripts/bin/home-lan-connect}
 
 SOCAT_CANDIDATES='/opt/homebrew/bin/socat /usr/local/bin/socat /usr/bin/socat'
 

@@ -38,7 +38,7 @@ local hosts = {
       { name = "cable", address = "10.77.77.2", bind = "10.77.77.2:8443" },
       { name = "wifi", address = "10.77.78.2", bind = "10.77.78.2:8443" },
       { name = "lan", bind = "127.0.0.1:8446", dial = "127.0.0.1:8447" },
-      { name = "tailscale", address = "100.126.231.24", bind = "100.126.231.24:8443" },
+      { name = "tailscale", address = "100.124.205.100", bind = "100.124.205.100:8443" },
     },
   },
 }

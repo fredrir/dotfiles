@@ -24,7 +24,7 @@ fn snapshot() -> Snapshot {
             RouteState {
                 route: Route::Tailscale,
                 local: Some(Ipv4Addr::new(100, 75, 71, 79)),
-                peer: Some(Ipv4Addr::new(100, 126, 231, 24)),
+                peer: Some(Ipv4Addr::new(100, 124, 205, 100)),
                 available: true,
                 elapsed: Duration::from_millis(3),
                 error: None,

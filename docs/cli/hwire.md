@@ -85,10 +85,10 @@ OpenSSH configuration. Compact mode prints one route and endpoint line per
 target. For example:
 
 ```console
-$ hwire -i archie lan-archie 100.126.231.24
+$ hwire -i archie lan-archie 100.124.205.100
 CABLE macie --> archie
 LAN macie --> lan-archie
-TAILSCALE macie --> 100.126.231.24
+TAILSCALE macie --> 100.124.205.100
 ```
 
 Use verbose mode when the chosen route alone is not enough:

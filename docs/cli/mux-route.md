@@ -38,7 +38,7 @@ $ mux-route --list
 down  cable      10.77.77.2:8443
 down  wifi       10.77.78.2:8443
 up    lan        192.168.1.162:8443  archie-lan
-up    tailscale  100.126.231.24:8443 archie-tailscale
+up    tailscale  100.124.205.100:8443 archie-tailscale
 ```
 
 Columns are state, route, peer socket, and the domain to attach over. A route
