@@ -50,6 +50,7 @@ Both LAN addresses are DHCP, so neither is a literal in `hosts.lua`, and
 | ------------ | --------------------------------------------------------------------- |
 | Resolver     | `~/dotfiles/scripts/shell/home-lan-connect --resolve <peer>.local`                  |
 | Accepted     | both ends inside 192.168.1.0/24                                       |
+| mDNS scope   | avahi denies `macie0`, `macie1` and `archie0`; see [ssh.md](ssh.md)   |
 | Server relay | `<own-lan>:8443` → `127.0.0.1:8446`, `range=<peer-lan>/32`            |
 | Client relay | `127.0.0.1:8447` → `<peer-lan>:8443`, sourced from `<own-lan>`        |
 | Restart      | relay exits when the resolved pair moves; launchd or systemd restarts |

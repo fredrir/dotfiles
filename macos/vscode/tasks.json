@@ -21,8 +21,8 @@
     {
       "label": "Copy active file content",
       "type": "shell",
-      "command": "copy_file_content",
-      "args": ["${relativeFile}", "${file}"],
+      "command": "copy-file-pretty",
+      "args": ["${file}"],
       "options": {
         "shell": {
           "executable": "/bin/zsh",

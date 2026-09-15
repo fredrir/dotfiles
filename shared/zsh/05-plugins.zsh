@@ -41,3 +41,5 @@ zstyle ':omz:plugins:eza' git-status yes
 zstyle ':omz:plugins:eza' icons yes
 
 [[ -f "$ZSH/oh-my-zsh.sh" ]] && source "$ZSH/oh-my-zsh.sh"
+
+unsetopt AUTO_CD

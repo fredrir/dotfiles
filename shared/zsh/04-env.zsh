@@ -7,11 +7,11 @@ export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 
 has_cmd less &&
   export PAGER=less \
-  export LESS="-R -F --mouse --wheel-lines=3"
+    export LESS="-R -F --mouse --wheel-lines=3"
 has_cmd nvim &&
   export MANPAGER='nvim +Man!' \
-  export MANWIDTH=999
+    export MANWIDTH=999
 has_cmd nvim &&
   export NVIM="$DOTFILES/shared/nvim" \
-  export EDITOR=nvim \
-  export SUDO_EDITOR="$(command -v nvim)"
+    export EDITOR=nvim \
+    export SUDO_EDITOR="$(command -v nvim)"

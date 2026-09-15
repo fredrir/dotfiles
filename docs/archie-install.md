@@ -52,7 +52,9 @@ mount --mkdir /dev/nvme0n1p1 /mnt/efi
 | user configs | `dotfile sync` |
 | root-owned configs | `dotfile system install` |
 | UKI with the tracked command line | `sudo mkinitcpio -P` |
-| services | `sudo systemctl enable --now fan2go lactd nvidia-persistenced fstrim.timer` |
+| services | `sudo systemctl enable --now fan2go lactd nvidia-persistenced fstrim.timer macie-usb-dhcp` |
+| user services | `systemctl --user enable --now wezterm-mux wezterm-mux-route-lan wezterm-mux-dial-lan` |
+| mux without a login session | `sudo loginctl enable-linger fredrir` |
 | energy counters without reboot | `sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=powercap --action=add` |
 | sysctl without reboot | `sudo sysctl --system` |
 | verify | `hwtune status`, `hwtune bios check`, `dotfile doctor` |

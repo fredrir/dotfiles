@@ -58,6 +58,7 @@ linux/common/xremap = ~/.config/xremap
 # linux/arch
 linux/arch/archie-direct/etc = /etc
 linux/arch/archie-direct/usr/local/libexec = /usr/local/libexec
+linux/arch/avahi/etc = /etc
 linux/arch/cargo/config.toml = ~/.cargo/config.toml
 linux/arch/cpu-power/etc = /etc
 linux/arch/fan2go/etc = /etc
@@ -66,6 +67,7 @@ linux/arch/git/.gitconfig = ~/.gitconfig
 linux/arch/kernel/etc = /etc
 linux/arch/lact/etc = /etc
 linux/arch/macie-usb/etc = /etc
+linux/arch/macie-usb/usr/lib = /usr/lib
 linux/arch/nvidia/etc = /etc
 linux/arch/rapl/etc = /etc
 linux/arch/ssh = ~/.ssh

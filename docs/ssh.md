@@ -35,6 +35,26 @@ new session uses USB
 | Plug cable in                      | Existing connection unchanged | **USB**           |
 | Leave home and direct AP           | Dead session stays dead       | **Tailscale**     |
 
+## mDNS scope
+
+`<peer>.local` answers on every link the peer advertises on, and
+`avahi-resolve-host-name` returns one address without regard to interface. With
+the cable up it returned `10.77.77.1` for `macie-2.local` every time, so the
+subnet filter rejected it and the LAN route went dead for as long as the cable
+was plugged in.
+
+| Name | Value |
+| --- | --- |
+| Setting | `deny-interfaces=macie0,macie1,archie0` in `/etc/avahi/avahi-daemon.conf` |
+| Package | `linux/arch/avahi` |
+| Effect | `<peer>.local` is learned on the home LAN only |
+| Unchanged | cable, direct Wi-Fi and Tailscale address literals; none of them use mDNS |
+| Still enforced | the `192.168.1.0/24` filter in `home-lan-connect`, as defence in depth |
+
+```console
+$ avahi-browse -a -r -t -p | grep macie-2.local
+```
+
 ## Direct Wi-Fi AP
 
 Nothing starts at boot. On Macie, use:
@@ -120,18 +140,22 @@ macos
 │   │   ├── NetworkManager/conf.d
 │   │   └── systemd/system
 │   └── usr/local/libexec/archie-direct-host
+├── avahi
+│   └── etc/avahi/avahi-daemon.conf
 ├── macie-usb
-│   └── etc
-│       ├── dnsmasq-macie-usb.conf
-│       ├── NetworkManager
-│       │   └── conf.d
-│       │       └── 90-macie-usb-secondary.conf
-│       └── systemd
-│           ├── network
-│           │   ├── 10-macie-usb.link
-│           │   └── 11-macie-usb-secondary.link
-│           └── system
-│               └── macie-usb-dhcp.service
+│   ├── etc
+│   │   ├── dnsmasq-macie-usb.conf
+│   │   ├── NetworkManager
+│   │   │   └── conf.d
+│   │   │       └── 90-macie-usb-secondary.conf
+│   │   └── systemd
+│   │       ├── network
+│   │       │   ├── 10-macie-usb.link
+│   │       │   └── 11-macie-usb-secondary.link
+│   │       └── system
+│   │           └── macie-usb-dhcp.service
+│   └── usr/lib/NetworkManager/system-connections
+│       └── macie-usb.nmconnection.tmpl
 ├── ssh
 │   └── config.d
 │       ├── 05-macie-cabled-first
