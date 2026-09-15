@@ -75,7 +75,7 @@
 - `waybar` — Status bar configuration
 - `wlogout` — Logout menu configuration
 - `wofi` — Application launcher configuration
-- `zsh` — Hyprland-specific Z shell configuration
+- `zsh`
 
 ## `macos`
 

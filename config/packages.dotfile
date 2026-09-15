@@ -73,6 +73,7 @@ linux/hyprland {
   waybar    = Status bar configuration
   wlogout   = Logout menu configuration
   wofi      = Application launcher configuration
+  zsh
 }
 
 macos {
