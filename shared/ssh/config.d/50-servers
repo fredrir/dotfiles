@@ -4,14 +4,14 @@
 
 # Hetzner CCX23
 Host fredrir-04
-    HostName fredrir-04-1
+    HostName fredrir-04
     User root
     IdentityFile ~/.ssh/id_ed25519
     IdentitiesOnly yes
 
 # Hetzner CPX22
 Host fredrir-05
-    HostName fredrir-05-1
+    HostName fredrir-05
     User root
     IdentityFile ~/.ssh/id_ed25519
     IdentitiesOnly yes

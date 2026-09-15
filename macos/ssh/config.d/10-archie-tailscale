@@ -1,12 +1,12 @@
 Host archie
-    HostName 100.126.231.24
+    HostName 100.124.205.100
     User fredrir
     HostKeyAlias archie
     ServerAliveInterval 15
     ServerAliveCountMax 4
 
-Host 100.126.231.24
-    HostName 100.126.231.24
+Host 100.124.205.100
+    HostName 100.124.205.100
     User fredrir
     HostKeyAlias archie
     ServerAliveInterval 15
