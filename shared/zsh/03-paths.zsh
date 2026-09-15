@@ -13,4 +13,5 @@ add_path \
   "$HOME/.bun/bin" \
   "$HOME/Library/pnpm" \
   "$HOME/.nix-profile/bin" \
-  "$HOME/.local/share/npm-global/bin"
+  "$HOME/.local/share/npm-global/bin" \
+  "$HOME/llama.cpp/build/bin"

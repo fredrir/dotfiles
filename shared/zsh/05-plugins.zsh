@@ -7,7 +7,6 @@ add_fpath \
   "$HOME/.zfunc" \
   "${HOMEBREW_PREFIX:-/opt/homebrew}/share/zsh-completions"
 
-
 add_plugins \
   git \
   zsh:gitignore \
