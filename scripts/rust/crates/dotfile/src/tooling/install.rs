@@ -126,7 +126,10 @@ fn completions_dir(context: &Context) -> PathBuf {
 fn completions(context: &Context) -> Result<usize, String> {
     let directory = completions_dir(context);
     crate::surface::completions::write_all(context, &directory).map_err(|error| {
-        format!("cannot write shell completions to {}: {error}", directory.display())
+        format!(
+            "cannot write shell completions to {}: {error}",
+            directory.display()
+        )
     })
 }
 

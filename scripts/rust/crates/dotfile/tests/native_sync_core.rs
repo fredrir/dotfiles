@@ -1088,10 +1088,7 @@ fn an_edited_secret_is_restored_when_the_prompt_is_answered() {
         .sync_answering(&cli(), Some(Choice::Overwrite), &VecSink::default())
         .expect("restored secret");
     assert_eq!(restored.secrets, 1);
-    assert_eq!(
-        fs::read_to_string(&destination).unwrap(),
-        "literal-token\n"
-    );
+    assert_eq!(fs::read_to_string(&destination).unwrap(), "literal-token\n");
 }
 
 #[cfg(unix)]
@@ -1116,10 +1113,7 @@ fn a_symlinked_secret_destination_is_replaced_once_approved() {
             .file_type()
             .is_symlink()
     );
-    assert_eq!(
-        fs::read_to_string(&destination).unwrap(),
-        "literal-token\n"
-    );
+    assert_eq!(fs::read_to_string(&destination).unwrap(), "literal-token\n");
     assert_eq!(fs::read_to_string(&elsewhere).unwrap(), "elsewhere\n");
 }
 

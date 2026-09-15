@@ -397,7 +397,13 @@ pub fn remove(args: RemoveArgs, context: &Context) -> Result<ExitCode, String> {
     validate_remove(context, &configuration, &source, &relative)?;
     let metadata = packages::load_metadata(&context.packages_config)?;
     let mut transaction = Transaction::new(context)?;
-    materialize(context, &configuration, &mut transaction, &source, &relative)?;
+    materialize(
+        context,
+        &configuration,
+        &mut transaction,
+        &source,
+        &relative,
+    )?;
     let mut parent = source.parent();
     while let Some(directory) = parent {
         if !directory.starts_with(&package_root) {
@@ -570,7 +576,13 @@ fn materialize(
     transaction.mkdir(&destination)?;
     for child in entries(source)? {
         let name = child.file_name().ok_or("source has no name")?;
-        materialize(context, configuration, transaction, &child, &full.join(name))?;
+        materialize(
+            context,
+            configuration,
+            transaction,
+            &child,
+            &full.join(name),
+        )?;
     }
     transaction.remove_empty(source)
 }

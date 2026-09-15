@@ -12,7 +12,9 @@ def vault(tool, tmp_path):
     (home / ".ssh").mkdir()
     (root / "environment" / "test").mkdir(parents=True)
     (root / "environment" / "test" / "manifest").write_text("shared\n")
-    (root / "config" / "targets.dotfile").write_text("shared/ssh = ~/.ssh\nshared/test = ~/.config/test\n")
+    (root / "config" / "targets.dotfile").write_text(
+        "shared/ssh = ~/.ssh\nshared/test = ~/.config/test\n"
+    )
     (root / ".gitignore").write_text("config/age/keys.txt\n")
     (root / "config" / "scan.dotfile").write_text("allow {\n  config/age/keys.txt\n}\n")
     (root / "shared").mkdir()

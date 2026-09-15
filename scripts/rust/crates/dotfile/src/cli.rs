@@ -75,7 +75,10 @@ pub struct SyncCli {
     )]
     pub native_only: bool,
 
-    #[arg(long, help = "Rebuild every command even when its sources are unchanged")]
+    #[arg(
+        long,
+        help = "Rebuild every command even when its sources are unchanged"
+    )]
     pub rebuild: bool,
 }
 

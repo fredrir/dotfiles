@@ -53,7 +53,7 @@
       "type": "disk",
       "key": "{$2}󰋊  Disk",
       "folders": "/:/home",
-      "format": "{mountpoint}  {size-used} / {size-total} [{size-percentage}]"
+      "format": "{size-used} / {size-total} [{size-percentage}]"
     },
     "break",
 

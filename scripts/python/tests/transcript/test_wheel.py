@@ -34,8 +34,19 @@ def test_wheel_installs_only_retained_tools_and_runs_outside_repository(tmp_path
     assert packages == {"hyprland", "transcript"}
     requirements = tmp_path / "pylock.toml"
     requirements.write_text(
-        run("uv", "export", "--project", str(project), "--locked", "--offline", "--no-dev",
-            "--no-emit-project", "--no-header", "--format", "pylock.toml")
+        run(
+            "uv",
+            "export",
+            "--project",
+            str(project),
+            "--locked",
+            "--offline",
+            "--no-dev",
+            "--no-emit-project",
+            "--no-header",
+            "--format",
+            "pylock.toml",
+        )
     )
     environment = tmp_path / "environment"
     run("uv", "venv", "--offline", "--python", sys.executable, str(environment))

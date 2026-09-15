@@ -76,13 +76,12 @@ def test_setup_builds_installs_then_hands_over_to_dotfile_sync(tmp_path):
 def test_every_argument_reaches_dotfile_sync_verbatim(tmp_path):
     _, environment, log = repository(tmp_path)
 
-    result = run_setup(environment, "arch-linux/hyprland",
-                       "--override", "linux/hyprland=none", "-n")
+    result = run_setup(
+        environment, "arch-linux/hyprland", "--override", "linux/hyprland=none", "-n"
+    )
 
     assert result.returncode == 0, result.stderr
-    assert calls(log)[-1] == (
-        "sync arch-linux/hyprland --override linux/hyprland=none -n"
-    )
+    assert calls(log)[-1] == ("sync arch-linux/hyprland --override linux/hyprland=none -n")
 
 
 def test_the_bootstrap_does_not_interpret_arguments(tmp_path):

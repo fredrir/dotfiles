@@ -14,12 +14,19 @@ def test_prepared_binary_excludes_test_harnesses(resolve, tmp_path, monkeypatch)
         path.write_text("#!/bin/sh\nexit 0\n")
         path.chmod(0o755)
     manifest = tmp_path / "artifacts.jsonl"
-    manifest.write_text("\n".join(json.dumps({
-        "reason": "compiler-artifact",
-        "target": {"name": "dotfile"},
-        "profile": {"test": test},
-        "executable": str(path),
-    }) for path, test in [(prepared, False), (harness, True)]))
+    manifest.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "reason": "compiler-artifact",
+                    "target": {"name": "dotfile"},
+                    "profile": {"test": test},
+                    "executable": str(path),
+                }
+            )
+            for path, test in [(prepared, False), (harness, True)]
+        )
+    )
     monkeypatch.setenv("DOTFILE_DEV_BUILD_MANIFEST", str(manifest))
     native.prepared_binaries.cache_clear()
     try:

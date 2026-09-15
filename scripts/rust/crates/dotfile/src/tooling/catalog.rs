@@ -81,9 +81,7 @@ impl Toolchain {
     }
 
     pub fn stage(&self, language: Language) -> Option<&Stage> {
-        self.stages
-            .iter()
-            .find(|stage| stage.language == language)
+        self.stages.iter().find(|stage| stage.language == language)
     }
 
     pub fn binaries(&self) -> impl Iterator<Item = &str> {

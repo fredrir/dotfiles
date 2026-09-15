@@ -1179,7 +1179,10 @@ fn write_document(path: &Path, document: &Value) -> Result<(), String> {
 
 fn baseline_path(context: &Context, destination: &Path) -> PathBuf {
     let digest = sha256(destination.to_string_lossy().as_bytes());
-    context.root_config.join("merge").join(format!("{digest}.json"))
+    context
+        .root_config
+        .join("merge")
+        .join(format!("{digest}.json"))
 }
 
 fn load_baseline(context: &Context, destination: &Path) -> Result<Option<Value>, String> {

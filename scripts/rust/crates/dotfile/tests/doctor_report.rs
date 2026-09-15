@@ -33,7 +33,9 @@ fn rows_with_optional() -> Vec<Row> {
             package(None, "mystery", false),
         ],
     );
-    tools.details.push(("~/.config/hypr/wallpaper.png".into(), String::new()));
+    tools
+        .details
+        .push(("~/.config/hypr/wallpaper.png".into(), String::new()));
     let mut optional = Row::new(Status::Note, "optional", "1 not installed", 0);
     optional
         .packages
@@ -128,5 +130,8 @@ fn issues_align_columns_and_truncate_without_all() {
     assert!(!output.contains("Packages:"), "{output}");
     let output = plain(&rows, true);
     assert!(!output.contains("more"), "{output}");
-    assert!(output.contains("commands   cmd10        missing\n"), "{output}");
+    assert!(
+        output.contains("commands   cmd10        missing\n"),
+        "{output}"
+    );
 }

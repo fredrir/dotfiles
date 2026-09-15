@@ -7,8 +7,13 @@ fn context() -> (tempfile::TempDir, Context) {
     let root = temporary.path().join("repo");
     std::fs::create_dir_all(root.join("config")).unwrap();
     let home = temporary.path().join("home");
-    let context =
-        Context::new(root.clone(), home.clone(), root.join("config"), home.join(".config")).unwrap();
+    let context = Context::new(
+        root.clone(),
+        home.clone(),
+        root.join("config"),
+        home.join(".config"),
+    )
+    .unwrap();
     (temporary, context)
 }
 

@@ -91,7 +91,6 @@ def test_a_name_with_no_binary_behind_it_is_still_an_error(tool, tmp_path):
     result = tool("dotfile", "nonesuch", env={"PATH": str(tmp_path), "COLUMNS": "200"})
     assert result.returncode == 2
     assert "command not found: nonesuch" in result.stderr
-    
 
 
 def test_profiles_lists_every_manifest(tool, sandbox):

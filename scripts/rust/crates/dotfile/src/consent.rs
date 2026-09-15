@@ -84,10 +84,12 @@ pub fn preview(path: &Path) -> Option<String> {
     if metadata.len() as usize > PREVIEW_BYTES {
         return Some(format!("{} bytes", metadata.len()));
     }
-    fs::read(path).ok().map(|bytes| match String::from_utf8(bytes) {
-        Ok(text) => text,
-        Err(error) => format!("binary, {} bytes", error.into_bytes().len()),
-    })
+    fs::read(path)
+        .ok()
+        .map(|bytes| match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(error) => format!("binary, {} bytes", error.into_bytes().len()),
+        })
 }
 
 pub fn describe(path: &Path) -> String {

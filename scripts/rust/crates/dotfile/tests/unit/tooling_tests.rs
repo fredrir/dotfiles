@@ -3,7 +3,10 @@ use super::*;
 #[test]
 fn installed_means_the_executable_lives_in_the_dotfiles_bin_directory() {
     let home = Path::new("/home/user");
-    assert!(is_installed(home, Path::new("/home/user/dotfiles/.bin/dotfile")));
+    assert!(is_installed(
+        home,
+        Path::new("/home/user/dotfiles/.bin/dotfile")
+    ));
     assert!(!is_installed(home, Path::new("/home/user/dotfiles/.bin")));
     assert!(!is_installed(
         home,

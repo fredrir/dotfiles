@@ -154,7 +154,9 @@ class Cascade:
         if first:
             lift = min(offsets[first:])
             offsets = [offset - lift for offset in offsets]
-            height = max(offsets[at] + len(self.columns[at].options) for at in range(first, last + 1))
+            height = max(
+                offsets[at] + len(self.columns[at].options) for at in range(first, last + 1)
+            )
         heading = [(INDENT, ""), (self.title, BOLD)]
         if first:
             walked = " › ".join(one.options[one.index] for one in self.columns[:first])

@@ -295,7 +295,11 @@ fn doctor_reports_missing_links_requirements_and_version_pins_without_writes() {
             result.stdout
         );
     }
-    assert!(!result.stdout.contains("missing-doctor-test"), "{}", result.stdout);
+    assert!(
+        !result.stdout.contains("missing-doctor-test"),
+        "{}",
+        result.stdout
+    );
     assert!(!fixture.home.join(".config/widget").exists());
 }
 

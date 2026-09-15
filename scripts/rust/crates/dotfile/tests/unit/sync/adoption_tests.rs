@@ -250,7 +250,10 @@ fn baseline_records_are_hashed_distinct_plain_json_and_preserve_empty_objects() 
     let digest = format!("{:x}", Sha256::digest(first.as_os_str().as_encoded_bytes()));
     assert_eq!(
         baseline_path(&context, first),
-        context.root_config.join("merge").join(format!("{digest}.json"))
+        context
+            .root_config
+            .join("merge")
+            .join(format!("{digest}.json"))
     );
     assert_eq!(load_baseline(&context, first).unwrap(), None);
     let document = json!({"git.autofetch":true,"[lua]":{"editor.tabSize":2}});

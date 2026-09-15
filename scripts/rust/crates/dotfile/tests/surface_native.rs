@@ -13,8 +13,13 @@ fn sandbox() -> (tempfile::TempDir, Context) {
     let home = temp.path().join("home");
     fs::create_dir_all(root.join("config/cli")).unwrap();
     fs::create_dir_all(&home).unwrap();
-    let context = Context::new(root.clone(), home.clone(), root.join("config"), home.join(".config"))
-        .unwrap();
+    let context = Context::new(
+        root.clone(),
+        home.clone(),
+        root.join("config"),
+        home.join(".config"),
+    )
+    .unwrap();
     (temp, context)
 }
 

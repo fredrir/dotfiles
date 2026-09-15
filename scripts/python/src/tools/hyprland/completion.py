@@ -45,6 +45,10 @@ def emit(ctx, value):
 
 
 COMPLETIONS = typer.Option(
-    None, "--completions", metavar="SHELL", is_eager=True,
-    callback=emit, help="Print shell completions and exit",
+    None,
+    "--completions",
+    metavar="SHELL",
+    is_eager=True,
+    callback=emit,
+    help="Print shell completions and exit",
 )

@@ -1,22 +1,22 @@
 shared {
   atuin
   direnv
-  fastfetch  = System information display, and the fallback for unstyled platforms
+  fastfetch
   gh
-  git        = Git configuration and global ignore rules
-  nvim       = Neovim editor configuration
-  obsidian   = Obsidian theme generated from the active theme profile
-  rsync      = Shared exclusion rules for home-directory transfers
-  ssh        = OpenSSH entry point, shared servers and defaults; host routing lives in the platform groups
-  starship   = Cross-shell prompt configuration
-  tmux       = Persistent project workspaces, pane tools, navigation and generated theme
+  git
+  nvim
+  obsidian
+  rsync
+  ssh
+  starship
+  tmux
   tools
   transcript
-  ui         = Shared terminal palette generated from the active theme profile
-  vscode     = VS Code user settings: shared base with platform overlays merged on link
+  ui
+  vscode
   wezterm
-  yazi       = Terminal file manager configuration
-  zsh        = Shared Z shell configuration
+  yazi
+  zsh
 }
 
 linux/common {

@@ -72,7 +72,8 @@ impl Refresh {
         }
         let _lock = crate::lock::SetupLock::acquire(&context)?;
         let report = install::ensure(&context, &self.options, events)?;
-        self.replaced.store(report.dotfile_changed, Ordering::SeqCst);
+        self.replaced
+            .store(report.dotfile_changed, Ordering::SeqCst);
         crate::cancel::check()?;
         Ok(Summary {
             profile: String::new(),

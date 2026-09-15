@@ -34,7 +34,6 @@ return function(editor, ui, keys)
         end
       end,
     },
-    { "OXY2DEV/markview.nvim", lazy = false },
     {
       "folke/todo-comments.nvim",
       event = "VimEnter",
@@ -49,7 +48,7 @@ return function(editor, ui, keys)
 
     -- Editing and languages
     { "NMAC427/guess-indent.nvim", opts = {} },
-    { "windwp/nvim-ts-autotag", event = { "BufReadPre", "BufNewFile" }, opts = {} },
+    { "windwp/nvim-ts-autotag",    event = { "BufReadPre", "BufNewFile" }, opts = {} },
     {
       "saghen/blink.cmp",
       event = "VimEnter",
@@ -91,7 +90,7 @@ return function(editor, ui, keys)
         { "mason-org/mason.nvim", opts = editor.tools.mason },
         "mason-org/mason-lspconfig.nvim",
         "WhoIsSethDaniel/mason-tool-installer.nvim",
-        { "j-hui/fidget.nvim", opts = {} },
+        { "j-hui/fidget.nvim",    opts = {} },
       },
       config = function()
         require("languages.lsp").setup(keys.lsp)
@@ -148,9 +147,9 @@ return function(editor, ui, keys)
       cmd = "Telescope",
       dependencies = {
         "nvim-lua/plenary.nvim",
-        { "nvim-telescope/telescope-fzf-native.nvim", build = "make", cond = runtime.has_make },
+        { "nvim-telescope/telescope-fzf-native.nvim", build = "make",        cond = runtime.has_make },
         "nvim-telescope/telescope-ui-select.nvim",
-        { "nvim-tree/nvim-web-devicons", enabled = ui.nerd_font },
+        { "nvim-tree/nvim-web-devicons",              enabled = ui.nerd_font },
       },
       config = function()
         local telescope = require "telescope"

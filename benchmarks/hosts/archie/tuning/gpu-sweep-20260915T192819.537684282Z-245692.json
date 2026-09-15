@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "kind": "gpu-sweep",
+  "session": "gpu-sweep-20260915T192819.537684282Z-245692",
+  "host": "archie",
+  "gpu": "10DE:2C05-1458:4181-0000:01:00.0",
+  "started": "2026-09-15T19:28:19.537Z",
+  "finished": "2026-09-15T19:28:47.049Z",
+  "original_cap_w": 350.0,
+  "caps_w": [
+    350
+  ],
+  "families": [
+    "ai"
+  ],
+  "settle_seconds": 15,
+  "trials": [
+    {
+      "cap_w": 350,
+      "run_id": null,
+      "grade": null,
+      "medians": {},
+      "error": "no benchmark produced a result"
+    }
+  ],
+  "status": "partial",
+  "error": "1 cap(s) failed to measure",
+  "restored": true
+}

@@ -52,7 +52,15 @@ def test_direct_pytest_runs_can_build_binaries_in_a_custom_target_directory(tmp_
         return type(
             "Build",
             (),
-            {"stdout": json.dumps({"reason": "compiler-artifact", "target": {"name": "demo"}, "executable": str(binary)})},
+            {
+                "stdout": json.dumps(
+                    {
+                        "reason": "compiler-artifact",
+                        "target": {"name": "demo"},
+                        "executable": str(binary),
+                    }
+                )
+            },
         )()
 
     monkeypatch.setattr("native.subprocess.run", build)

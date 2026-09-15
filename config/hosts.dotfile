@@ -1,7 +1,6 @@
 archie {
-  hostnames  = archie, archie.local
-  role       = desktop
-
+  hostnames     = archie, archie.local
+  role          = desktop
   CPU           = AMD Ryzen 7 9800X3D
   CPU_COOLER    = ARCTIC Liquid Freezer III 420
   MOTHERBOARD   = ASUS TUF GAMING B850-PLUS WIFI
@@ -14,4 +13,6 @@ archie {
 macie {
   hostnames  = macie, macie.local
   role       = laptop
+  CPU        = M5 Pro
+  MEMORY     = APPLE Unified 24 GB
 }

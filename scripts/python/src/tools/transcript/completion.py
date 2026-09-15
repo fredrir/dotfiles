@@ -23,8 +23,12 @@ def emit(ctx, value):
 
 
 COMPLETIONS = typer.Option(
-    None, "--completions", metavar="SHELL", is_eager=True,
-    callback=emit, help="Print shell completions and exit",
+    None,
+    "--completions",
+    metavar="SHELL",
+    is_eager=True,
+    callback=emit,
+    help="Print shell completions and exit",
 )
 
 
@@ -53,8 +57,10 @@ def lines(source, arguments):
     try:
         return [
             f"{escape(value[0])}:{' '.join(str(value[1]).split())}"
-            if isinstance(value, tuple) else escape(value)
-            for value in values(source, arguments) if value
+            if isinstance(value, tuple)
+            else escape(value)
+            for value in values(source, arguments)
+            if value
         ]
     except (OSError, ValueError, KeyError, RuntimeError):
         return []

@@ -368,7 +368,9 @@ impl UiModel {
 
     pub fn answers_on_key(&self) -> bool {
         matches!(
-            self.decision.as_ref().map(|decision| &decision.request.prompt),
+            self.decision
+                .as_ref()
+                .map(|decision| &decision.request.prompt),
             Some(Prompt::Overwrite { .. })
         )
     }

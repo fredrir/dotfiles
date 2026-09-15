@@ -219,9 +219,17 @@ fn link_rows(context: &Context, configuration: &Configuration) -> Result<Vec<Row
     .collect::<Vec<_>>()
     .join(", ");
     let mut row = Row::new(
-        if problems > 0 { Status::Bad } else { Status::Ok },
+        if problems > 0 {
+            Status::Bad
+        } else {
+            Status::Ok
+        },
         "links",
-        if summary.is_empty() { "nothing linked".into() } else { summary },
+        if summary.is_empty() {
+            "nothing linked".into()
+        } else {
+            summary
+        },
         problems,
     );
     row.details = details;
@@ -300,9 +308,17 @@ fn environment_rows(
             }
         }
         if !details.is_empty() {
-            let summary = match details.iter().map(|(_, hint)| hint.as_str()).collect::<BTreeSet<_>>() {
+            let summary = match details
+                .iter()
+                .map(|(_, hint)| hint.as_str())
+                .collect::<BTreeSet<_>>()
+            {
                 reasons if reasons.len() == 1 => {
-                    format!("{} {}", details.len(), reasons.into_iter().next().unwrap_or_default())
+                    format!(
+                        "{} {}",
+                        details.len(),
+                        reasons.into_iter().next().unwrap_or_default()
+                    )
                 }
                 _ => format!("{} need attention", details.len()),
             };
@@ -535,7 +551,11 @@ fn pin_rows(context: &Context, groups: &[String], probes: &Probes<'_>) -> Result
         }
     }
     let mut row = Row::new(
-        if wrong.is_empty() { Status::Ok } else { Status::Bad },
+        if wrong.is_empty() {
+            Status::Ok
+        } else {
+            Status::Bad
+        },
         "pins",
         if wrong.is_empty() {
             format!("{} pinned", pins.len())
@@ -769,7 +789,11 @@ fn package_rows(
     let mut skipped = BTreeSet::new();
     for (label, manager, wanted) in sources {
         // AUR packages show up in pacman's database like any other.
-        let inventory = if manager == Manager::Brew { "brew" } else { "pacman" };
+        let inventory = if manager == Manager::Brew {
+            "brew"
+        } else {
+            "pacman"
+        };
         if probes.path(inventory).is_none() {
             if skipped.insert(inventory) {
                 rows.push(Row::new(

@@ -7,7 +7,12 @@ from tools.transcript import config
 
 
 def resolve_repo(path):
-    result = capture(["git", "-C", str(path), "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False)
+    result = capture(
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     output = (result.stdout or "").strip()
     if result.returncode == 0 and output:
         return Path(output)

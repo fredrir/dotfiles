@@ -179,9 +179,7 @@ fn real_sops_rotation_rekeys_and_revocation_excludes_old_key() {
     repo.ok(&["revoke", "recovery"]);
     assert!(!repo.decrypts(&encrypted, &recovery));
     assert!(repo.decrypts(&encrypted, &repo.identity()));
-    assert!(
-        !repo.root.join("config/secret-transaction").exists()
-    );
+    assert!(!repo.root.join("config/secret-transaction").exists());
 }
 
 #[test]

@@ -223,7 +223,12 @@ pub fn materialize(
         .as_ref()
         .is_some_and(|value| value.file_type().is_symlink())
     {
-        if !replace_destination(&entry.destination, "destination is a symlink", consent, dry_run)? {
+        if !replace_destination(
+            &entry.destination,
+            "destination is a symlink",
+            consent,
+            dry_run,
+        )? {
             return Ok(SecretResult {
                 changed: false,
                 blocked: true,
@@ -345,12 +350,8 @@ pub fn plan(configuration: &Configuration) -> Result<Vec<SecretEntry>, String> {
     let mut entries = Vec::new();
     for package in &configuration.packages {
         match package.kind {
-            PackageKind::Secret => {
-                collect_entries(configuration, package, true, &mut entries)?
-            }
-            PackageKind::Link => {
-                collect_entries(configuration, package, false, &mut entries)?
-            }
+            PackageKind::Secret => collect_entries(configuration, package, true, &mut entries)?,
+            PackageKind::Link => collect_entries(configuration, package, false, &mut entries)?,
             PackageKind::NoLink | PackageKind::System => {}
         }
     }
