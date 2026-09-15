@@ -8,7 +8,7 @@
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>exec "$HOME/dotfiles/scripts/bin/wezterm-mux-serve"</string>
+    <string>exec "$HOME/dotfiles/scripts/shell/wezterm-mux-serve"</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>

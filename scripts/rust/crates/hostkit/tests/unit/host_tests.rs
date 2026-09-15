@@ -60,7 +60,7 @@ const ROUTED: [&str; 10] = [
     "linux/arch/ssh/config.d/06-macie-wifi-first",
     "linux/arch/ssh/config.d/07-macie-lan-first",
     "linux/arch/ssh/config.d/40-cabled",
-    "scripts/bin/home-lan-connect",
+    "scripts/shell/home-lan-connect",
     "shared/wezterm/domain/hosts.lua",
 ];
 

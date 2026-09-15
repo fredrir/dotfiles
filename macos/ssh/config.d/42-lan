@@ -2,6 +2,6 @@ Host lan-archie
     HostName archie.local
     User fredrir
     HostKeyAlias archie
-    ProxyCommand ~/dotfiles/scripts/bin/home-lan-connect %h %p
+    ProxyCommand ~/dotfiles/scripts/shell/home-lan-connect %h %p
     ServerAliveInterval 10
     ServerAliveCountMax 3

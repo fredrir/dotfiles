@@ -8,7 +8,7 @@
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>exec "$HOME/dotfiles/scripts/bin/wezterm-mux-gc"</string>
+    <string>exec "$HOME/dotfiles/scripts/shell/wezterm-mux-gc"</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>

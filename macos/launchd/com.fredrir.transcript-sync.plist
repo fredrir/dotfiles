@@ -8,7 +8,7 @@
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>exec env PATH="$HOME/dotfiles/.bin:$HOME/dotfiles/scripts/bin:$PATH" "$HOME/dotfiles/.bin/transcript" sync --quiet</string>
+    <string>exec env PATH="$HOME/dotfiles/.bin:$HOME/dotfiles/scripts/shell:$PATH" "$HOME/dotfiles/.bin/transcript" sync --quiet</string>
   </array>
   <key>StartInterval</key>
   <integer>3600</integer>

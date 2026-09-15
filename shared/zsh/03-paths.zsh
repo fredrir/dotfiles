@@ -1,6 +1,6 @@
 add_path \
   "$DOTFILES/.bin" \
-  "$DOTFILES/scripts/bin" \
+  "$DOTFILES/scripts/shell" \
   "$HOME/.local/bin" \
   "$HOME/.cargo/bin" \
   "/Applications/PyCharm.app/Contents/MacOS" \

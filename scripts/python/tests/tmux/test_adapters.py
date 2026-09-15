@@ -27,7 +27,7 @@ def test_wezterm_routing(system, environment):
 )
 def test_config_shims_forward_to_native_binary(name, args, environment):
     result = subprocess.run(
-        [ROOT / "scripts/bin" / name, *args],
+        [ROOT / "scripts/shell" / name, *args],
         env=environment,
         capture_output=True,
         text=True,
@@ -45,7 +45,7 @@ def test_config_shims_forward_to_native_binary(name, args, environment):
 def test_missing_native_binary_fails_without_recursion(environment, tmp_path):
     environment["DOTFILES_TMUX_BINARY"] = str(tmp_path / "missing")
     result = subprocess.run(
-        [ROOT / "scripts/bin/tmux-workspace", "--version"],
+        [ROOT / "scripts/shell/tmux-workspace", "--version"],
         env=environment,
         capture_output=True,
         text=True,

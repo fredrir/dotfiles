@@ -133,7 +133,7 @@ pub(crate) fn lan_pair_with_timeout(
     timeout: Duration,
 ) -> Result<(Ipv4Addr, Ipv4Addr), String> {
     let home = std::env::var_os("HOME").ok_or_else(|| "HOME is not set".to_string())?;
-    let helper = PathBuf::from(home).join("dotfiles/scripts/bin/home-lan-connect");
+    let helper = PathBuf::from(home).join("dotfiles/scripts/shell/home-lan-connect");
     let mut child = Command::new(&helper)
         .args(["--resolve", this.peer().lan_name()])
         .stdout(Stdio::piped())

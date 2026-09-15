@@ -48,7 +48,7 @@ Both LAN addresses are DHCP, so neither is a literal in `hosts.lua`, and
 
 | Name         | Value                                                                 |
 | ------------ | --------------------------------------------------------------------- |
-| Resolver     | `~/dotfiles/scripts/bin/home-lan-connect --resolve <peer>.local`                  |
+| Resolver     | `~/dotfiles/scripts/shell/home-lan-connect --resolve <peer>.local`                  |
 | Accepted     | both ends inside 192.168.1.0/24                                       |
 | Server relay | `<own-lan>:8443` → `127.0.0.1:8446`, `range=<peer-lan>/32`            |
 | Client relay | `127.0.0.1:8447` → `<peer-lan>:8443`, sourced from `<own-lan>`        |
@@ -125,7 +125,7 @@ lsof -nP -iTCP -sTCP:LISTEN | grep 844          # exactly the intended addresses
 shared/wezterm/domain/hosts.lua        addresses, binds, dials, PEM paths
 shared/wezterm/domain/tls.lua          tls_servers and tls_clients
 shared/wezterm/bin/wezterm-mux-route   static and LAN socat relays
-scripts/bin/home-lan-connect           the filtered LAN pair both relays read
+scripts/shell/home-lan-connect           the filtered LAN pair both relays read
 shared/wezterm/domain/unix.lua         localmux, default_domain, no_serve_automatically
 shared/wezterm/bin/wezterm-mtls        CA, CSR, issue, install, doctor
 shared/wezterm/keymap/init.lua         the attach chord: CMD+. on macie, ALT+. on archie
