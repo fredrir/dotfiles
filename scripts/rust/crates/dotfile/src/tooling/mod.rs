@@ -2,87 +2,84 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Instant, SystemTime};
+use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
 use crate::cli::SyncCli;
 use crate::context::Context;
 use crate::event::{Event, EventSink, Phase, Summary};
 
-#[derive(Clone)]
-pub struct Refresh {
-    root: PathBuf,
-    executable: PathBuf,
-}
-
+pub mod catalog;
+pub mod digest;
+pub mod install;
 pub mod requirements;
 
+#[derive(Clone)]
+pub struct Refresh {
+    executable: PathBuf,
+    options: Arc<install::Options>,
+    replaced: Arc<AtomicBool>,
+}
+
+/// The toolchain work a sync has to do before it can reconcile anything: an
+/// explicit install, or the rebuild an out-of-date `.bin` implies.
 pub fn pending(cli: &SyncCli) -> Result<Option<Refresh>, String> {
-    if cli.dry_run || std::env::var_os("DOTFILE_REEXECED").is_some() {
+    if cli.dry_run {
         return Ok(None);
     }
     let context = Context::discover()?;
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-    if !is_installed(&context.home, &executable) || !stale(&context.root, &executable)? {
-        return Ok(None);
+    let options = install::Options {
+        rebuild: cli.rebuild,
+        ..if cli.native_only {
+            install::Options::native()
+        } else if cli.commands_only {
+            install::Options::commands()
+        } else {
+            install::Options::everything()
+        }
+    };
+    let requested = cli.installs_only() || cli.rebuild;
+    if !requested {
+        // Re-execing into a rebuilt binary already installed the toolchain, and a
+        // build tree copy of dotfile is not this machine's installed toolchain.
+        if std::env::var_os("DOTFILE_REEXECED").is_some()
+            || !is_installed(&context.home, &executable)
+            || current(&context, &options)?
+        {
+            return Ok(None);
+        }
     }
     Ok(Some(Refresh {
-        root: context.root,
         executable,
+        options: Arc::new(options),
+        replaced: Arc::new(AtomicBool::new(false)),
     }))
 }
 
 impl Refresh {
     pub fn run(&self, events: &dyn EventSink) -> Result<Summary, String> {
         let started = Instant::now();
+        let context = Context::discover()?;
         events.emit(Event::PhaseStarted {
             phase: Phase::Tooling,
             total: None,
         });
-        events.emit(Event::Progress {
-            phase: Phase::Tooling,
-            completed: 0,
-            total: None,
-            label: "updating workstation commands".to_string(),
-        });
         if !std::io::stderr().is_terminal() {
             eprintln!("dotfile: updating workstation commands…");
         }
-        let output = crate::process::output(
-            Command::new(self.root.join("setup.sh"))
-                .arg("--native-only")
-                .stdin(Stdio::null()),
-            hostkit::process::CaptureLimits::default(),
-            std::time::Duration::from_secs(15 * 60),
-        )
-        .map_err(|error| format!("cannot update workstation commands: {error}"))?;
-        if !output.status.success() {
-            let message = String::from_utf8_lossy(&output.stderr)
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
-                .unwrap_or("command update failed")
-                .to_string();
-            events.emit(Event::Failed {
-                phase: Phase::Tooling,
-                message: message.clone(),
-                hint: None,
-            });
-            return Err(message);
-        }
+        let _lock = crate::lock::SetupLock::acquire(&context)?;
+        let report = install::ensure(&context, &self.options, events)?;
+        self.replaced.store(report.dotfile_changed, Ordering::SeqCst);
         crate::cancel::check()?;
-        events.emit(Event::Progress {
-            phase: Phase::Tooling,
-            completed: 1,
-            total: Some(1),
-            label: "workstation commands ready".to_string(),
-        });
         Ok(Summary {
             profile: String::new(),
             peer: None,
             remote_changed: None,
             checked: 0,
-            changed: 0,
+            changed: report.installed.len(),
             links: 0,
             merges: 0,
             secrets: 0,
@@ -92,15 +89,39 @@ impl Refresh {
         })
     }
 
+    /// Only the binary running this sync needs a restart to take effect.
+    pub fn replaced_running_binary(&self) -> bool {
+        self.replaced.load(Ordering::SeqCst)
+    }
+
     pub fn reexec(&self, arguments: &[OsString]) -> Result<(), String> {
         reexec(&self.executable, arguments)
     }
 }
 
+/// Whether every compiled command in `.bin` was built from the current sources.
 pub(crate) fn native_current() -> Result<bool, String> {
     let context = Context::discover()?;
-    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-    Ok(!stale(&context.root, &executable)?)
+    current(&context, &install::Options::native())
+}
+
+fn current(context: &Context, options: &install::Options) -> Result<bool, String> {
+    let toolchain = catalog::Toolchain::read(&context.root)?;
+    let bin = install::binary_dir(context);
+    let stamps = context.root_config.join("sync");
+    for language in &options.languages {
+        let Some(stage) = toolchain.stage(*language) else {
+            continue;
+        };
+        if !stage.binaries.iter().all(|name| bin.join(name).is_file()) {
+            return Ok(false);
+        }
+        let saved = fs::read_to_string(stamps.join(language.key())).unwrap_or_default();
+        if saved.trim() != digest::of(&stage.inputs)? {
+            return Ok(false);
+        }
+    }
+    Ok(install::completions_current(context))
 }
 
 fn is_installed(home: &Path, executable: &Path) -> bool {
@@ -110,49 +131,6 @@ fn is_installed(home: &Path, executable: &Path) -> bool {
             || fs::canonicalize(parent).ok() == fs::canonicalize(&bin).ok()
                 && fs::canonicalize(&bin).is_ok()
     })
-}
-
-fn stale(root: &Path, executable: &Path) -> Result<bool, String> {
-    let installed = fs::metadata(executable)
-        .and_then(|metadata| metadata.modified())
-        .map_err(|error| format!("{}: {error}", executable.display()))?;
-    let inputs = [
-        root.join("setup.sh"),
-        root.join("scripts/rust"),
-        root.join("shared/tools"),
-    ];
-    for input in inputs {
-        if newest(&input)? > installed {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-fn newest(path: &Path) -> Result<SystemTime, String> {
-    if matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some("target" | ".venv" | "__pycache__")
-    ) {
-        return Ok(SystemTime::UNIX_EPOCH);
-    }
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(SystemTime::UNIX_EPOCH);
-        }
-        Err(error) => return Err(format!("{}: {error}", path.display())),
-    };
-    let mut latest = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-    if metadata.is_dir() {
-        for entry in fs::read_dir(path).map_err(|error| format!("{}: {error}", path.display()))? {
-            let child = entry
-                .map_err(|error| format!("{}: {error}", path.display()))?
-                .path();
-            latest = latest.max(newest(&child)?);
-        }
-    }
-    Ok(latest)
 }
 
 fn reexec(executable: &Path, arguments: &[OsString]) -> Result<(), String> {

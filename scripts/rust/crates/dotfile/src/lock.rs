@@ -18,6 +18,10 @@ impl SyncLock {
     }
 
     fn at(path: &Path) -> Result<Self, String> {
+        Self::held(path, false, &|| {})
+    }
+
+    fn held(path: &Path, wait: bool, announce: &dyn Fn()) -> Result<Self, String> {
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
         #[cfg(unix)]
@@ -29,14 +33,21 @@ impl SyncLock {
             .open(path)
             .map_err(|e| format!("lock {}: {e}", path.display()))?;
         #[cfg(unix)]
-        let mut file = nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusiveNonblock)
-            .map_err(|(_, e)| {
-            if e == nix::errno::Errno::EWOULDBLOCK {
-                "another dotfile mutation is already running".to_string()
-            } else {
-                format!("lock {}: {e}", path.display())
+        let mut file = {
+            use nix::fcntl::{Flock, FlockArg};
+            match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
+                Ok(file) => file,
+                Err((file, nix::errno::Errno::EWOULDBLOCK)) if wait => {
+                    announce();
+                    Flock::lock(file, FlockArg::LockExclusive)
+                        .map_err(|(_, e)| format!("lock {}: {e}", path.display()))?
+                }
+                Err((_, nix::errno::Errno::EWOULDBLOCK)) => {
+                    return Err("another dotfile mutation is already running".to_string());
+                }
+                Err((_, e)) => return Err(format!("lock {}: {e}", path.display())),
             }
-        })?;
+        };
         #[cfg(not(unix))]
         let mut file = file;
         file.set_len(0)
@@ -44,6 +55,24 @@ impl SyncLock {
         file.rewind().map_err(|e| e.to_string())?;
         writeln!(file, "{}", std::process::id()).map_err(|e| e.to_string())?;
         Ok(Self { _file: file })
+    }
+}
+
+/// Serializes toolchain installation. Unlike a mutation, a second setup wants
+/// exactly the result the first is producing, so it waits instead of failing.
+pub struct SetupLock {
+    _state: SyncLock,
+}
+
+impl SetupLock {
+    pub fn acquire(context: &Context) -> Result<Self, String> {
+        fs::create_dir_all(&context.root_config)
+            .map_err(|e| format!("{}: {e}", context.root_config.display()))?;
+        Ok(Self {
+            _state: SyncLock::held(&context.root_config.join("setup.lock"), true, &|| {
+                println!("another setup is running; waiting");
+            })?,
+        })
     }
 }
 

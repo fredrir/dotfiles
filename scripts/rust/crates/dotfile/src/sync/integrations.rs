@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::context::{Context, write_atomic};
 use crate::event::{Action, Event, EventSink, Phase};
@@ -49,6 +49,7 @@ pub fn synchronize(
     {
         hyprland(context, dry_run, events, &mut outcome, &mut warnings)?;
     }
+    git_settings(context, dry_run, &mut outcome, &mut warnings);
     secret_health(context, events, &mut outcome, &mut warnings);
     if let Some((message, hint)) = warnings.first() {
         events.emit(Event::Warning {
@@ -259,6 +260,57 @@ fn hyprland(
         let _ = Command::new("hyprctl").arg("reload").output();
     }
     Ok(())
+}
+
+/// Repository-local Git settings this repository depends on: hooks that run the
+/// secret scan, and a SOPS diff filter that never caches plaintext in `.git`.
+fn git_settings(
+    context: &Context,
+    dry_run: bool,
+    outcome: &mut IntegrationOutcome,
+    warnings: &mut Vec<(String, Option<String>)>,
+) {
+    if !context.root.join(".git").exists() {
+        return;
+    }
+    let identity = crate::secret::vault::identity_path(context);
+    let wanted = [
+        (
+            "core.hooksPath",
+            context.root.join(".githooks").display().to_string(),
+        ),
+        (
+            "diff.sops.textconv",
+            format!("SOPS_AGE_KEY_FILE={} sops -d", identity.display()),
+        ),
+        ("diff.sops.cachetextconv", "false".to_string()),
+    ];
+    for (key, value) in wanted {
+        outcome.checked += 1;
+        if git_config(context, &["--get", key]).as_deref() == Some(value.as_str()) {
+            continue;
+        }
+        if dry_run {
+            outcome.generated += 1;
+            continue;
+        }
+        let set = Command::new("git")
+            .arg("-C")
+            .arg(&context.root)
+            .args(["config", key])
+            .arg(&value)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        match set {
+            Ok(status) if status.success() => outcome.generated += 1,
+            _ => warnings.push((
+                format!("could not set git {key}"),
+                Some(format!("git config {key} {value}")),
+            )),
+        }
+    }
 }
 
 fn secret_health(

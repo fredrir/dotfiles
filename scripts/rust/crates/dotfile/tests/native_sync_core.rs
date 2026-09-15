@@ -91,13 +91,8 @@ impl Sandbox {
 fn cli() -> SyncCli {
     SyncCli {
         profile: Some("test".to_string()),
-        dry_run: false,
-        overrides: Vec::new(),
-        force: false,
         resolve: Resolution::Skip,
-        push: false,
-        to: None,
-        verbose: false,
+        ..Default::default()
     }
 }
 

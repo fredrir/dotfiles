@@ -115,6 +115,19 @@ fn normalized(path: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("invalid transaction path: {}", path.display()))?;
     Ok(crate::fs::resolved(absolute.parent().ok_or("path has no parent")?)?.join(name))
 }
+fn kept(metadata: &fs::Metadata, mode: Option<u32>) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        mode.is_none_or(|mode| metadata.permissions().mode() & 0o7777 == mode)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (metadata, mode);
+        true
+    }
+}
+
 fn sync_directory(path: &Path) -> Result<(), String> {
     fs::File::open(path)
         .and_then(|file| file.sync_all())
@@ -544,6 +557,16 @@ impl Transaction {
         self.rename(&staged, &path, true)
     }
     pub fn write(&mut self, path: &Path, bytes: &[u8]) -> Result<(), String> {
+        self.write_mode(path, bytes, None)
+    }
+
+    /// An installed program gets its mode set rather than inherited, so a binary
+    /// that lost its exec bit comes back executable.
+    pub fn write_executable(&mut self, path: &Path, bytes: &[u8]) -> Result<(), String> {
+        self.write_mode(path, bytes, Some(0o755))
+    }
+
+    fn write_mode(&mut self, path: &Path, bytes: &[u8], mode: Option<u32>) -> Result<(), String> {
         let path = normalized(path)?;
         self.mkdir(path.parent().ok_or("file has no parent")?)?;
         let metadata = match fs::symlink_metadata(&path) {
@@ -556,7 +579,7 @@ impl Transaction {
         };
         if metadata
             .as_ref()
-            .is_some_and(|metadata| metadata.len() == bytes.len() as u64)
+            .is_some_and(|metadata| metadata.len() == bytes.len() as u64 && kept(metadata, mode))
             && crate::fs::content_matches(&path, bytes)?
         {
             return Ok(());
@@ -564,11 +587,22 @@ impl Transaction {
         let staging = self.staging(path.parent().unwrap())?;
         let staged = staging.join("file");
         crate::fs::write_generated(&staged, bytes)?;
-        if let Some(metadata) = metadata {
-            fs::set_permissions(&staged, metadata.permissions()).map_err(|e| e.to_string())?;
+        let permissions = match (mode, &metadata) {
+            #[cfg(unix)]
+            (Some(mode), _) => {
+                use std::os::unix::fs::PermissionsExt;
+                Some(fs::Permissions::from_mode(mode))
+            }
+            (_, Some(metadata)) => Some(metadata.permissions()),
+            _ => None,
+        };
+        if let Some(permissions) = permissions {
+            fs::set_permissions(&staged, permissions).map_err(|e| e.to_string())?;
             fs::File::open(&staged)
                 .and_then(|f| f.sync_all())
                 .map_err(|e| e.to_string())?;
+        }
+        if metadata.is_some() {
             return self.replace(&staged, &path);
         }
         self.rename(&staged, &path, false)

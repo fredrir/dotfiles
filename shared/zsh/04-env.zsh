@@ -3,7 +3,7 @@ export DISABLE_MAGIC_FUNCTIONS=true
 export NVM_DIR="$HOME/.config/nvm"
 export NVIM="$DOTFILES/shared/nvim"
 export ZSH="$HOME/.oh-my-zsh"
-export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+export ZSH_AUTOSUGGEST_STRATEGY=(history)
 
 has_cmd less &&
   export PAGER=less \

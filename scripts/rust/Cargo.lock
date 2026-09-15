@@ -1081,6 +1081,7 @@ dependencies = [
  "ui-cli",
  "ui-diff-view",
  "ui-gallery",
+ "ui-picker",
  "ui-progress",
  "ui-terminal",
  "ui-theme",

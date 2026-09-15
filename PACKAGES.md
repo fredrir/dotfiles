@@ -8,7 +8,6 @@
 - `git` — Git configuration and global ignore rules
 - `nvim` — Neovim editor configuration
 - `obsidian` — Obsidian theme generated from the active theme profile
-- `oh-my-zsh`
 - `rsync` — Shared exclusion rules for home-directory transfers
 - `ssh` — OpenSSH entry point, shared servers and defaults; host routing lives in the platform groups
 - `starship` — Cross-shell prompt configuration
@@ -76,7 +75,6 @@
 - `waybar` — Status bar configuration
 - `wlogout` — Logout menu configuration
 - `wofi` — Application launcher configuration
-- `zsh`
 
 ## `macos`
 

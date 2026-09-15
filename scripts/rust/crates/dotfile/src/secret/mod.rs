@@ -1,5 +1,5 @@
 mod canaries;
-mod cli;
+pub mod cli;
 mod doctor;
 mod patterns;
 pub mod recipients;

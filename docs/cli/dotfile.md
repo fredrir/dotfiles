@@ -6,7 +6,7 @@
 | Command                  | Description                                                                                         |
 | ------------------------ | --------------------------------------------------------------------------------------------------- |
 | `dotfile`                | Manages this repository's symlinks, packages, themes, secrets, and system files.                    |
-| `dotfile sync`           | Refreshes generated metadata and reconciles `$HOME` with a selected profile.                        |
+| `dotfile sync`           | Installs the workstation commands, refreshes generated metadata, and reconciles `$HOME`.            |
 | `dotfile dev`            | Tests and lints the repository.                                                                     |
 | `dotfile dev test`       | Runs the selected test suites.                                                                      |
 | `dotfile dev lint`       | Runs the selected linters.                                                                          |
@@ -61,6 +61,9 @@
 | `-p`, `--push`                | Pushes commits, then pulls and syncs the peer.                                                      |
 | `--to <HOST>`                 | Selects the peer and implies `--push`.                                                              |
 | `-v`, `--verbose`             | Shows detailed sync actions or live development commands, output, and timings.                      |
+| `--commands-only`             | Installs the workstation commands and stops.                                                        |
+| `--native-only`               | Installs the compiled commands only and stops.                                                      |
+| `--rebuild`                   | Rebuilds every command even when its sources are unchanged.                                         |
 | `-p`, `--pkg <TARGET>`        | Selects development targets or names an added config, secret, or system package.                    |
 | `-l`, `--lang <LANGUAGE>`     | Selects languages; repeat or comma-separate.                                                        |
 | `--changed <REF>`             | Selects affected packages and dependents from working changes or --changed=REF.                     |

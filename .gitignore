@@ -10,6 +10,7 @@ config/overrides
 config/links
 config/sync.lock
 config/mutation.lock
+config/setup.lock
 config/canaries
 config/merge/
 config/secret-transaction/

@@ -231,14 +231,9 @@ fn lock_cancellation() -> MutexGuard<'static, ()> {
 
 fn cli() -> SyncCli {
     SyncCli {
-        profile: None,
-        dry_run: false,
-        overrides: Vec::new(),
-        force: false,
         resolve: Resolution::Skip,
         push: true,
-        to: None,
-        verbose: false,
+        ..Default::default()
     }
 }
 

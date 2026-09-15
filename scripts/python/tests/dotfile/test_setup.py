@@ -1,409 +1,171 @@
-import hashlib
+"""setup.sh is a bootstrap: build `dotfile`, install it, hand over to `dotfile sync`.
+
+Everything it used to do itself now lives in sync, covered by
+scripts/rust/crates/dotfile/tests/tooling_install.rs and sync_selection.rs.
+"""
+
 import os
-import shutil
-import signal
 import subprocess
-import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
-RUST_BINARIES = [
-    "agent-hop",
-    "bench-workloads",
-    "count",
-    "dcloud",
-    "doc-purge",
-    "dotfile",
-    "dotfile-format",
-    "dotfmt",
-    "flatten",
-    "gget",
-    "git-discard",
-    "gppf",
-    "hpull",
-    "hpush",
-    "hwire",
-    "hwtune",
-    "mux-route",
-    "path",
-    "size",
-    "sysinfo",
-    "tmux-workspace",
-]
+SETUP = ROOT / "setup.sh"
+
+DOTFILE_STUB = """#!/bin/sh
+printf '%s\\n' "$*" >> "$DOTFILE_TEST_LOG"
+exit 0
+"""
+
+CARGO_STUB = """#!/bin/sh
+printf 'cargo %s\\n' "$*" >> "$DOTFILE_TEST_LOG"
+exit 0
+"""
 
 
-def executable(path, body="#!/bin/sh\nexit 0\n"):
+def executable(path, body):
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body)
     path.chmod(0o755)
 
 
-def digest(paths):
-    value = hashlib.sha256()
-    for path in paths:
-        value.update(path.read_bytes())
-    return value.hexdigest()
-
-
-def rust_inputs(root=ROOT):
-    found = []
-    for directory in (root / "scripts/rust", root / "shared/tools"):
-        for parent, directories, files in os.walk(directory):
-            directories[:] = [name for name in directories if name != "target"]
-            found.extend(
-                path
-                for name in files
-                if (path := Path(parent, name)).is_file() and not path.is_symlink()
-            )
-    return sorted(found, key=lambda path: os.fsencode(path))
-
-
-def setup_environment(tmp_path):
-    home = tmp_path / "home"
-    dotfiles = tmp_path / "home" / "dotfiles"
-    binaries = dotfiles / ".bin"
-    for f in ["scripts/python/pyproject.toml", "scripts/python/uv.lock", "scripts/rust/Cargo.toml", "scripts/rust/Cargo.lock", "scripts/rust/src", "scripts/rust/crates", "shared/tools/dummy", "environment/test/manifest", "environment/arch-linux/hyprland/manifest", "environment/macos/manifest", "config/setup.lock.d"]:
-        (dotfiles / f).parent.mkdir(parents=True, exist_ok=True)
-        if f != "config/setup.lock.d": (dotfiles / f).write_text("")
-    state = home / ".config/dotfile/sync"
-    fake_path = tmp_path / "path"
-    binaries.mkdir(parents=True)
-    state.mkdir(parents=True)
-    fake_path.mkdir()
+def repository(tmp_path, *, cargo: str = CARGO_STUB, built: str | None = DOTFILE_STUB):
+    """A repository whose `cargo` has already produced the release binary."""
+    root = tmp_path / "dotfiles"
     log = tmp_path / "dotfile.log"
-    driver = '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$DOTFILE_TEST_LOG"\nexit 0\n'
-    for name in RUST_BINARIES:
-        executable(binaries / name, driver if name == "dotfile" else "#!/bin/sh\nexit 0\n")
-    executable(binaries / "transcript")
-    executable(fake_path / "install", r"""#!/bin/sh
-for arg do dest="$arg"; done
-name=${dest##*/}
-if [ "$name" = dotfile ]; then
-printf "#!/bin/sh\nprintf '%%s\\n' \"\$*\" >> \"$DOTFILE_TEST_LOG\"\nexit 0\n" > "$dest"
-else
-echo "#!/bin/sh\nexit 0" > "$dest"
-fi
-chmod +x "$dest"
-""")
-    for name in ("cargo", "git", "uv"):
-        executable(fake_path / name)
-    python_hash = digest([ROOT / "scripts/python/pyproject.toml", ROOT / "scripts/python/uv.lock"])
-    (state / "python").write_text(f"{python_hash}\n")
-    (state / "rust").write_text(f"{digest(rust_inputs())}\n")
+    path = tmp_path / "path"
+    path.mkdir(parents=True, exist_ok=True)
+    executable(path / "cargo", cargo)
+    if built is not None:
+        executable(root / "scripts/rust/target/release/dotfile", built)
     environment = dict(os.environ)
     environment.update(
-        HOME=str(home),
-        XDG_CONFIG_HOME=str(home / ".config"),
-        XDG_DATA_HOME=str(home / ".local/share"),
+        DOTFILE_ROOT=str(root),
         DOTFILE_TEST_LOG=str(log),
-        PATH=f"{fake_path}:{environment['PATH']}",
+        PATH=f"{path}:/usr/bin:/bin",
     )
-    return environment, log
+    return root, environment, log
 
 
-def run_setup(tmp_path, *arguments):
-    environment, log = setup_environment(tmp_path)
-    result = subprocess.run(
-        [ROOT / "setup.sh", *arguments],
+def run_setup(environment, *arguments):
+    return subprocess.run(
+        [SETUP, *arguments],
         capture_output=True,
         text=True,
         env=environment,
         cwd=ROOT,
         check=False,
     )
-    if not log.exists(): print("RC:", result.returncode, "STDOUT:", result.stdout, "STDERR:", result.stderr); raise RuntimeError(result.stderr)
-    calls = log.read_text().splitlines()
-    return result, calls
 
 
-def setup_process(environment, *arguments):
-    return subprocess.Popen(
-        [ROOT / "setup.sh", *arguments],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        env=environment,
-        cwd=ROOT,
+def calls(log):
+    return log.read_text().splitlines() if log.exists() else []
+
+
+def test_setup_builds_installs_then_hands_over_to_dotfile_sync(tmp_path):
+    root, environment, log = repository(tmp_path)
+
+    result = run_setup(environment)
+
+    assert result.returncode == 0, result.stderr
+    manifest = root / "scripts/rust/Cargo.toml"
+    build = f"cargo build --release --locked --quiet --manifest-path {manifest} --bin dotfile"
+    assert calls(log) == [build, "sync"]
+    assert os.access(root / ".bin/dotfile", os.X_OK)
+
+
+def test_every_argument_reaches_dotfile_sync_verbatim(tmp_path):
+    _, environment, log = repository(tmp_path)
+
+    result = run_setup(environment, "arch-linux/hyprland",
+                       "--override", "linux/hyprland=none", "-n")
+
+    assert result.returncode == 0, result.stderr
+    assert calls(log)[-1] == (
+        "sync arch-linux/hyprland --override linux/hyprland=none -n"
     )
 
 
-def wait_for(path, timeout=5):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if path.exists():
-            return
-        time.sleep(0.01)
-    raise AssertionError(f"timed out waiting for {path}")
+def test_the_bootstrap_does_not_interpret_arguments(tmp_path):
+    _, environment, log = repository(tmp_path)
+
+    result = run_setup(environment, "--macos", "-n")
+
+    assert result.returncode == 0, result.stderr
+    assert calls(log)[-1] == "sync --macos -n"
 
 
-def test_setup_sync_forwards_native_sync_arguments(tmp_path):
-    result, calls = run_setup(
+def test_a_missing_binary_directory_is_created(tmp_path):
+    root, environment, _ = repository(tmp_path)
+    assert not (root / ".bin").exists()
+
+    result = run_setup(environment)
+
+    assert result.returncode == 0, result.stderr
+    assert (root / ".bin/dotfile").is_file()
+
+
+def test_an_unchanged_binary_is_not_reinstalled(tmp_path):
+    root, environment, _ = repository(tmp_path)
+    assert run_setup(environment).returncode == 0
+    installed = root / ".bin/dotfile"
+    os.utime(installed, (0, 0))
+
+    assert run_setup(environment).returncode == 0
+
+    assert installed.stat().st_mtime == 0, "an identical binary keeps its mtime"
+
+
+def test_a_rebuilt_binary_replaces_the_installed_one(tmp_path):
+    root, environment, _ = repository(tmp_path)
+    assert run_setup(environment).returncode == 0
+    executable(
+        root / "scripts/rust/target/release/dotfile",
+        DOTFILE_STUB.replace("exit 0", "exit 0 # rebuilt"),
+    )
+
+    assert run_setup(environment).returncode == 0
+
+    assert "rebuilt" in (root / ".bin/dotfile").read_text()
+
+
+def test_a_failed_build_installs_nothing(tmp_path):
+    root, environment, _ = repository(
         tmp_path,
-        "--sync",
-        "arch-linux/hyprland",
-        "--",
-        "--override",
-        "linux/hyprland=none",
-        "-n",
-    )
-    assert result.returncode == 0, result.stderr
-    assert calls[-1] == "sync arch-linux/hyprland --override linux/hyprland=none -n"
-    assert not any(call.startswith("link ") for call in calls)
-
-
-def test_native_refresh_does_not_install_or_execute_python(tmp_path):
-    environment, log = setup_environment(tmp_path)
-    marker = tmp_path / "python-called"
-    for name in ("uv", "python", "python3"):
-        executable(tmp_path / "path" / name, f"#!/bin/sh\ntouch '{marker}'\nexit 91\n")
-    result = subprocess.run(
-        [ROOT / "setup.sh", "--native-only"],
-        capture_output=True, text=True, env=environment, cwd=tmp_path, check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    assert not marker.exists()
-    assert "completions --dir" in log.read_text()
-
-
-def test_native_only_install_creates_missing_binary_directory(tmp_path):
-    environment, _ = setup_environment(tmp_path)
-    dotfiles = Path(environment["HOME"]) / "dotfiles"
-    binaries = dotfiles / ".bin"
-    for f in ["scripts/python/pyproject.toml", "scripts/python/uv.lock", "scripts/rust/Cargo.toml", "scripts/rust/Cargo.lock", "scripts/rust/src", "scripts/rust/crates", "shared/tools/dummy", "environment/test/manifest", "environment/arch-linux/hyprland/manifest", "environment/macos/manifest", "config/setup.lock.d"]:
-        (dotfiles / f).parent.mkdir(parents=True, exist_ok=True)
-        if f != "config/setup.lock.d": (dotfiles / f).write_text("")
-    shutil.rmtree(binaries)
-    marker = tmp_path / "python-called"
-    for name in ("uv", "python", "python3"):
-        executable(tmp_path / "path" / name, f"#!/bin/sh\ntouch '{marker}'\nexit 91\n")
-    executable(
-        tmp_path / "path/install",
-        "#!/bin/sh\n"
-        'for argument do destination="$argument"; done\n'
-        "printf '#!/bin/sh\\nexit 0\\n' > \"$destination\"\n"
-        'chmod 0755 "$destination"\n',
+        cargo="#!/bin/sh\necho 'error: could not compile' >&2\nexit 101\n",
+        built=None,
     )
 
-    result = subprocess.run(
-        [ROOT / "setup.sh", "--native-only"],
-        capture_output=True, text=True, env=environment, cwd=tmp_path, check=False,
-    )
+    result = run_setup(environment)
 
-    assert result.returncode == 0, result.stderr
-    assert all(os.access(binaries / name, os.X_OK) for name in RUST_BINARIES)
-    assert not marker.exists()
-    assert not list(binaries.glob(".dotfile-native.*"))
+    assert result.returncode != 0
+    assert "could not compile" in result.stderr
+    assert not (root / ".bin/dotfile").exists()
 
 
-def test_first_setup_uses_the_same_native_sync_engine(tmp_path):
-    result, calls = run_setup(tmp_path, "--macos", "--", "-n")
-    assert result.returncode == 0, result.stderr
-    assert "secret init" in calls
-    assert calls[-1] == "sync macos -n"
-    assert not any(call.startswith("link ") or call == "secret doctor" for call in calls)
+def test_a_failed_build_keeps_the_installed_binary(tmp_path):
+    root, environment, _ = repository(tmp_path)
+    assert run_setup(environment).returncode == 0
+    executable(tmp_path / "path/cargo", "#!/bin/sh\nexit 101\n")
+
+    assert run_setup(environment).returncode != 0
+
+    assert os.access(root / ".bin/dotfile", os.X_OK)
 
 
-def test_concurrent_setups_serialize_installation(tmp_path):
-    environment, _ = setup_environment(tmp_path)
-    dotfiles = Path(environment["HOME"]) / "dotfiles"
-    state = dotfiles / "config/sync"
-    state.mkdir(parents=True, exist_ok=True)
-    (state / "python").unlink(missing_ok=True)
-    activity = tmp_path / "uv.activity"
-    environment["DOTFILE_UV_ACTIVITY"] = str(activity)
-    executable(
-        tmp_path / "path/uv",
-        "#!/bin/sh\n"
-        'if [ "$1 $2" = "tool install" ]; then\n'
-        "  printf 'begin\\n' >> \"$DOTFILE_UV_ACTIVITY\"\n"
-        "  sleep 0.4\n"
-        "  printf 'end\\n' >> \"$DOTFILE_UV_ACTIVITY\"\n"
-        "fi\n"
-        "exit 0\n",
-    )
+def test_a_missing_cargo_reports_how_to_get_one(tmp_path):
+    _, environment, _ = repository(tmp_path)
+    (tmp_path / "path/cargo").unlink()
 
-    first = setup_process(environment, "--commands-only")
-    wait_for(activity)
-    second = setup_process(environment, "--commands-only")
-    first_stdout, first_stderr = first.communicate(timeout=10)
-    second_stdout, second_stderr = second.communicate(timeout=10)
-
-    assert first.returncode == 0, first_stderr
-    assert second.returncode == 0, second_stderr
-    assert activity.read_text().splitlines() == ["begin", "end"]
-    assert "another setup is running; waiting" in second_stdout
-    assert "workstation commands are current" in second_stdout
-    assert not (Path(environment["HOME"]) / "dotfiles/config/setup.lock.d").exists()
-    assert "installing workstation commands" in first_stdout
-
-
-def test_setup_recovers_lock_owned_by_dead_process(tmp_path):
-    environment, _ = setup_environment(tmp_path)
-    lock = Path(environment["HOME"]) / "dotfiles/config/setup.lock.d"
-    lock.mkdir()
-    (lock / "pid").write_text("2147483647\n")
-
-    result = subprocess.run(
-        [ROOT / "setup.sh", "--commands-only"],
-        capture_output=True,
-        text=True,
-        env=environment,
-        cwd=ROOT,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert not lock.exists()
-    assert not list(lock.parent.glob("setup.lock.d.stale.*"))
-
-
-def test_failed_staged_binary_validation_preserves_installed_tools(tmp_path):
-    environment, _ = setup_environment(tmp_path)
-    dotfiles = Path(environment["HOME"]) / "dotfiles"
-    binaries = dotfiles / ".bin"
-    for f in ["scripts/python/pyproject.toml", "scripts/python/uv.lock", "scripts/rust/Cargo.toml", "scripts/rust/Cargo.lock", "scripts/rust/src", "scripts/rust/crates", "shared/tools/dummy", "environment/test/manifest", "environment/arch-linux/hyprland/manifest", "environment/macos/manifest", "config/setup.lock.d"]:
-        (dotfiles / f).parent.mkdir(parents=True, exist_ok=True)
-        if f != "config/setup.lock.d": (dotfiles / f).write_text("")
-    dotfiles = Path(environment["HOME"]) / "dotfiles"
-    state = dotfiles / "config/sync"
-    state.mkdir(parents=True, exist_ok=True)
-    (state / "rust").write_text("outdated\n")
-    before = {name: (binaries / name).read_bytes() for name in RUST_BINARIES}
-    executable(
-        tmp_path / "path/install",
-        "#!/bin/sh\n"
-        'for argument do destination="$argument"; done\n'
-        'if [ "${destination##*/}" = dotfile ]; then\n'
-        "  printf '#!/bin/sh\\nexit 71\\n' > \"$destination\"\n"
-        "else\n"
-        "  printf '#!/bin/sh\\nexit 0\\n' > \"$destination\"\n"
-        "fi\n"
-        'chmod 0755 "$destination"\n',
-    )
-
-    result = subprocess.run(
-        [ROOT / "setup.sh", "--commands-only"],
-        capture_output=True,
-        text=True,
-        env=environment,
-        cwd=ROOT,
-        check=False,
-    )
-
-    assert result.returncode == 71
-    assert {name: (binaries / name).read_bytes() for name in RUST_BINARIES} == before
-    assert (state / "rust").read_text() == "outdated\n"
-    assert not list(binaries.glob(".dotfile-native.*"))
-    assert not (Path(environment["HOME"]) / "dotfiles/config/setup.lock.d").exists()
-
-
-def test_failed_native_rename_rolls_back_every_installed_tool(tmp_path):
-    environment, _ = setup_environment(tmp_path)
-    dotfiles = Path(environment["HOME"]) / "dotfiles"
-    binaries = dotfiles / ".bin"
-    for f in ["scripts/python/pyproject.toml", "scripts/python/uv.lock", "scripts/rust/Cargo.toml", "scripts/rust/Cargo.lock", "scripts/rust/src", "scripts/rust/crates", "shared/tools/dummy", "environment/test/manifest", "environment/arch-linux/hyprland/manifest", "environment/macos/manifest", "config/setup.lock.d"]:
-        (dotfiles / f).parent.mkdir(parents=True, exist_ok=True)
-        if f != "config/setup.lock.d": (dotfiles / f).write_text("")
-    dotfiles = Path(environment["HOME"]) / "dotfiles"
-    state = dotfiles / "config/sync"
-    state.mkdir(parents=True, exist_ok=True)
-    (state / "rust").write_text("outdated\n")
-    for name in RUST_BINARIES:
-        executable(binaries / name, f"#!/bin/sh\n# old-{name}\nexit 0\n")
-    before = {name: (binaries / name).read_bytes() for name in RUST_BINARIES}
-    executable(
-        tmp_path / "path/install",
-        "#!/bin/sh\n"
-        'for argument do destination="$argument"; done\n'
-        "name=${destination##*/}\n"
-        'printf \'#!/bin/sh\\n# new-%s\\nexit 0\\n\' "$name" > "$destination"\n'
-        'chmod 0755 "$destination"\n',
-    )
-    environment["DOTFILE_REAL_MV"] = shutil.which("mv") or "/bin/mv"
-    environment["DOTFILE_MV_FAILED"] = str(tmp_path / "mv.failed")
-    executable(
-        tmp_path / "path/mv",
-        "#!/bin/sh\n"
-        "previous=\n"
-        "for argument do source=$previous; previous=$argument; done\n"
-        'case "$source" in\n'
-        "*/.dotfile-native.*/doc-purge)\n"
-        '  if [ ! -e "$DOTFILE_MV_FAILED" ]; then\n'
-        '    : > "$DOTFILE_MV_FAILED"\n'
-        "    exit 79\n"
-        "  fi\n"
-        "  ;;\n"
-        "esac\n"
-        'exec "$DOTFILE_REAL_MV" "$@"\n',
-    )
-
-    result = subprocess.run(
-        [ROOT / "setup.sh", "--commands-only"],
-        capture_output=True,
-        text=True,
-        env=environment,
-        cwd=ROOT,
-        check=False,
-    )
+    result = run_setup(environment)
 
     assert result.returncode == 1
-    assert "could not install native tool 'doc-purge'" in result.stderr
-    assert {name: (binaries / name).read_bytes() for name in RUST_BINARIES} == before
-    assert (state / "rust").read_text() == "outdated\n"
-    assert not list(binaries.glob(".dotfile-native.*"))
-    assert not (Path(environment["HOME"]) / "dotfiles/config/setup.lock.d").exists()
+    assert "cargo is required" in result.stderr
+    assert "rustup.rs" in result.stderr
 
 
-def test_signal_during_native_commit_finishes_batch_then_returns_signal(tmp_path):
-    environment, _ = setup_environment(tmp_path)
-    dotfiles = Path(environment["HOME"]) / "dotfiles"
-    binaries = dotfiles / ".bin"
-    for f in ["scripts/python/pyproject.toml", "scripts/python/uv.lock", "scripts/rust/Cargo.toml", "scripts/rust/Cargo.lock", "scripts/rust/src", "scripts/rust/crates", "shared/tools/dummy", "environment/test/manifest", "environment/arch-linux/hyprland/manifest", "environment/macos/manifest", "config/setup.lock.d"]:
-        (dotfiles / f).parent.mkdir(parents=True, exist_ok=True)
-        if f != "config/setup.lock.d": (dotfiles / f).write_text("")
-    dotfiles = Path(environment["HOME"]) / "dotfiles"
-    state = dotfiles / "config/sync"
-    state.mkdir(parents=True, exist_ok=True)
-    (state / "rust").write_text("outdated\n")
-    for name in RUST_BINARIES:
-        executable(binaries / name, f"#!/bin/sh\n# old-{name}\nexit 0\n")
-    executable(
-        tmp_path / "path/install",
-        "#!/bin/sh\n"
-        'for argument do destination="$argument"; done\n'
-        "name=${destination##*/}\n"
-        'printf \'#!/bin/sh\\n# new-%s\\nexit 0\\n\' "$name" > "$destination"\n'
-        'chmod 0755 "$destination"\n',
-    )
-    environment["DOTFILE_REAL_MV"] = shutil.which("mv") or "/bin/mv"
-    environment["DOTFILE_MV_SIGNALED"] = str(tmp_path / "mv.signaled")
-    executable(
-        tmp_path / "path/mv",
-        "#!/bin/sh\n"
-        "previous=\n"
-        "for argument do source=$previous; previous=$argument; done\n"
-        '"$DOTFILE_REAL_MV" "$@" || exit $?\n'
-        'case "$source" in\n'
-        "*/.dotfile-native.*/bench-workloads)\n"
-        '  if [ ! -e "$DOTFILE_MV_SIGNALED" ]; then\n'
-        '    : > "$DOTFILE_MV_SIGNALED"\n'
-        "    kill -TERM 0\n"
-        "  fi\n"
-        "  ;;\n"
-        "esac\n",
-    )
+def test_no_staging_files_are_left_behind(tmp_path):
+    root, environment, _ = repository(tmp_path)
 
-    result = subprocess.run(
-        [ROOT / "setup.sh", "--commands-only"],
-        capture_output=True,
-        text=True,
-        env=environment,
-        cwd=ROOT,
-        check=False,
-        start_new_session=True,
-    )
+    assert run_setup(environment).returncode == 0
 
-    assert result.returncode == 128 + signal.SIGTERM
-    assert all(f"# new-{name}\n" in (binaries / name).read_text() for name in RUST_BINARIES)
-    assert (state / "rust").read_text().strip() == digest(rust_inputs(dotfiles))
-    assert not list(binaries.glob(".dotfile-native.*"))
-    assert not (Path(environment["HOME"]) / "dotfiles/config/setup.lock.d").exists()
+    assert not list((root / ".bin").glob(".dotfile.*"))

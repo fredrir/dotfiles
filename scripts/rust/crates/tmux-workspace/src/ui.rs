@@ -408,7 +408,7 @@ enum Row {
     Hint,
 }
 
-const REPORT_HINT: &str = "q close · y copy all · v or drag to select";
+const REPORT_HINT: &str = "[q] Close [y] Copy [v] Select";
 
 fn fit(wanted: usize, least: usize, total: usize, percent: usize) -> usize {
     let most = (total * percent / 100).max(1);

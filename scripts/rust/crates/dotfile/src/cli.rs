@@ -10,7 +10,7 @@ pub enum Resolution {
     Live,
 }
 
-#[derive(Clone, Debug, Parser)]
+#[derive(Clone, Debug, Default, Parser)]
 #[command(
     name = "dotfile sync",
     version,
@@ -64,9 +64,26 @@ pub struct SyncCli {
         help = "Show every link, merge, generated file, and remote action"
     )]
     pub verbose: bool,
+
+    #[arg(long, help = "Install the workstation commands and stop")]
+    pub commands_only: bool,
+
+    #[arg(
+        long,
+        conflicts_with = "commands_only",
+        help = "Install the compiled commands only and stop; skips the Python toolchain"
+    )]
+    pub native_only: bool,
+
+    #[arg(long, help = "Rebuild every command even when its sources are unchanged")]
+    pub rebuild: bool,
 }
 
 impl SyncCli {
+    pub fn installs_only(&self) -> bool {
+        self.commands_only || self.native_only
+    }
+
     pub fn parse_tail(arguments: impl IntoIterator<Item = OsString>) -> Result<Self, clap::Error> {
         let values = std::iter::once(OsString::from("dotfile sync")).chain(arguments);
         workstation::cli::try_parse_from(values)
@@ -164,6 +181,13 @@ pub fn dispatch(arguments: Vec<OsString>) -> std::process::ExitCode {
     {
         return code;
     }
+    let arguments = if arguments.first().is_some_and(|a| a == "sync") {
+        std::iter::once(OsString::from("sync"))
+            .chain(crate::sync::selection::normalize(arguments[1..].to_vec()))
+            .collect()
+    } else {
+        arguments
+    };
     let original_arguments = arguments.clone();
     use std::process::ExitCode;
     let cli = match workstation::cli::try_parse_from::<Cli, _, _>(
@@ -291,9 +315,7 @@ fn execute(
                 overrides: args.overrides,
                 force: args.force,
                 resolve: args.resolve,
-                push: false,
-                to: None,
-                verbose: false,
+                ..Default::default()
             };
             let _lock = if cli.dry_run {
                 None
@@ -351,28 +373,51 @@ fn external(arguments: Vec<OsString>) -> std::process::ExitCode {
     ExitCode::from(2)
 }
 
-fn synchronize(cli: SyncCli, original_arguments: Vec<OsString>) -> std::process::ExitCode {
-    let refresh = match crate::tooling::pending(&cli) {
-        Ok(refresh) => refresh,
+pub(crate) fn synchronize(
+    mut cli: SyncCli,
+    original_arguments: Vec<OsString>,
+) -> std::process::ExitCode {
+    use std::process::ExitCode;
+    let context = match crate::context::Context::discover() {
+        Ok(context) => context,
         Err(error) => return failure(error),
     };
-    if let Some(refresh) = refresh {
-        crate::cancel::reset();
-        let (sender, receiver) = crossbeam_channel::bounded(256);
-        let (_decision_client, decision_server) = crate::decision::channel();
-        let update = refresh.clone();
-        let worker = std::thread::spawn(move || update.run(&sender));
-        if let Err(error) = crate::ui::run(receiver, decision_server, worker, cli.verbose) {
-            return failure(error);
+    match crate::tooling::pending(&cli) {
+        Err(error) => return failure(error),
+        Ok(None) => {}
+        Ok(Some(refresh)) => {
+            crate::cancel::reset();
+            let (sender, receiver) = crossbeam_channel::bounded(256);
+            let (_decision_client, decision_server) = crate::decision::channel();
+            let update = refresh.clone();
+            let worker = std::thread::spawn(move || update.run(&sender));
+            let summary = match crate::ui::run(receiver, decision_server, worker, cli.verbose) {
+                Ok(summary) => summary,
+                Err(error) => return failure(error),
+            };
+            if cli.installs_only() {
+                println!("{}", installed_line(summary.changed));
+                return ExitCode::SUCCESS;
+            }
+            if refresh.replaced_running_binary() {
+                return match refresh.reexec(&original_arguments) {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(error) => failure(error),
+                };
+            }
         }
-        return match refresh.reexec(&original_arguments) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(error) => failure(error),
-        };
     }
-    if let Ok(context) = crate::context::Context::discover()
-        && let Err(error) = crate::tooling::requirements::secret_tools(&context)
-    {
+    if cli.installs_only() {
+        println!("{}", installed_line(0));
+        return ExitCode::SUCCESS;
+    }
+    if let Err(error) = crate::tooling::requirements::secret_tools(&context) {
+        return failure(error);
+    }
+    if let Err(error) = crate::sync::selection::resolve(&context, &mut cli) {
+        return failure(error);
+    }
+    if let Err(error) = crate::sync::selection::identity(&context, cli.dry_run) {
         return failure(error);
     }
     let verbose = cli.verbose;
@@ -384,9 +429,17 @@ fn synchronize(cli: SyncCli, original_arguments: Vec<OsString>) -> std::process:
     match crate::ui::run(receiver, decision_server, worker, verbose) {
         Ok(summary) => {
             println!("{}", crate::ui::completion_line(&summary));
-            std::process::ExitCode::SUCCESS
+            ExitCode::SUCCESS
         }
         Err(error) => failure(error),
+    }
+}
+
+fn installed_line(installed: usize) -> String {
+    match installed {
+        0 => "workstation commands are current".to_string(),
+        1 => "installed 1 workstation command".to_string(),
+        count => format!("installed {count} workstation commands"),
     }
 }
 
