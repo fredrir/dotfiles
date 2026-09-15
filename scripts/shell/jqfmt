@@ -1,0 +1,68 @@
+#!/bin/zsh
+
+config="${DOTFILES}/tools/jqfmt.dotfile"
+
+indent=2
+align=false
+align_max=24
+blank_lines=0
+final_newline=true
+
+if [[ -f "$config" ]]; then
+    while IFS= read -r line; do
+        # Remove comments.
+        line="${line%%#*}"
+
+        # Ignore braces/empty lines.
+        [[ "$line" == *"="* ]] || continue
+
+        key="${line%%=*}"
+        value="${line#*=}"
+
+        # Trim whitespace.
+        key="${key//[[:space:]]/}"
+        value="${value//[[:space:]]/}"
+
+        case "$key" in
+            indent)
+                indent="$value"
+                ;;
+            align)
+                align="$value"
+                ;;
+            align_max)
+                align_max="$value"
+                ;;
+            blank_lines)
+                blank_lines="$value"
+                ;;
+            final_newline)
+                final_newline="$value"
+                ;;
+        esac
+    done < "$config"
+fi
+
+opts=(
+    --monochrome-output
+    --indent "$indent"
+)
+
+if [[ "$align" == true ]]; then
+    print -u2 "jqfmt: warning: jq does not support align"
+fi
+
+if (( align_max != 24 )); then
+    print -u2 "jqfmt: warning: jq does not support align_max"
+fi
+
+if (( blank_lines != 0 )); then
+    print -u2 "jqfmt: warning: jq does not support blank_lines"
+fi
+
+if [[ "$final_newline" == false ]]; then
+    setopt pipefail
+    jq "${opts[@]}" '.' "$@" | perl -pe 'chomp if eof'
+else
+    exec jq "${opts[@]}" '.' "$@"
+fi

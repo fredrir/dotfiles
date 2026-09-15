@@ -32,6 +32,7 @@ shared {
   zoxide
   direnv
   openssl
+  jq
   ?wezterm
   ?ncdu
   ?gh     = github-cli

@@ -20,18 +20,11 @@
       "preset": "recommended"
     }
   },
-  "json": {
-    "formatter": {
-      "enabled": true
-    },
-    "parser": {
-      "allowComments": true
-    }
-  },
   "javascript": {
     "formatter": {
       "quoteStyle": "double"
     }
+
   },
   "assist": {
     "enabled": true,
@@ -41,4 +34,6 @@
       }
     }
   }
+
+
 }

@@ -33,7 +33,7 @@
     "editor.defaultFormatter": "biomejs.biome"
   },
   "[json]": {
-    "editor.defaultFormatter": "biomejs.biome"
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[jsonc]": {
     "editor.defaultFormatter": "biomejs.biome"
@@ -81,6 +81,10 @@
     {
       "command": "sqlfluff format -",
       "languages": ["sql"]
+    },
+    {
+      "command": "jqfmt",
+      "languages": ["json"]
     },
     {
       "command": "$DOTFILES_COMPILED/dotfmt --stdin \"${file}\"",
