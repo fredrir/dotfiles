@@ -5,6 +5,8 @@ mod alternate;
 #[cfg(feature = "ratatui")]
 mod inline;
 #[cfg(feature = "crossterm")]
+mod input;
+#[cfg(feature = "crossterm")]
 mod raw;
 #[cfg(feature = "ratatui")]
 mod sgr;
@@ -25,6 +27,8 @@ pub use surface::{ScriptedSurface, Surface};
 pub use alternate::{Alternate, MouseCapture};
 #[cfg(feature = "ratatui")]
 pub use inline::{Inline, Teardown};
+#[cfg(feature = "crossterm")]
+pub use input::{Input, Waited};
 #[cfg(feature = "crossterm")]
 pub use raw::RawSession;
 pub use screen::{

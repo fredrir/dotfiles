@@ -5,11 +5,11 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crossterm::event::{
-    self, Event as TerminalEvent, KeyCode, KeyModifiers, MouseButton, MouseEventKind,
+    Event as TerminalEvent, KeyCode, KeyModifiers, MouseButton, MouseEventKind,
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ui_terminal::{Alternate, MouseCapture, SignalGuard, termination_requested};
+use ui_terminal::{Alternate, Input, MouseCapture, SignalGuard, termination_requested};
 use unicode_width::UnicodeWidthStr;
 
 use super::{
@@ -55,6 +55,7 @@ pub(crate) fn run(
     model.set_view(options.initial_view);
     terminal.draw(&model, options, theme.palette())?;
     worker.send(WorkerRequest::Refresh)?;
+    let keys = Input::new().map_err(|error| format!("could not open terminal input: {error}"))?;
     let mut effect = Effect::None;
     let mut redraw = false;
     let mut next_animation_frame: Option<Instant> = None;
@@ -104,13 +105,14 @@ pub(crate) fn run(
                     .min(INPUT_POLL)
             })
             .unwrap_or(INPUT_POLL);
-        if !event::poll(poll_timeout)
-            .map_err(|error| format!("could not poll terminal input: {error}"))?
+        let terminal_event = match keys
+            .wait(poll_timeout)
+            .map_err(|error| format!("could not read terminal input: {error}"))?
         {
-            continue;
-        }
-        let terminal_event =
-            event::read().map_err(|error| format!("could not read terminal input: {error}"))?;
+            ui_terminal::Waited::HangUp => return Ok(PickerOutcome::Cancelled(model.view())),
+            ui_terminal::Waited::Idle => continue,
+            ui_terminal::Waited::Event(event) => event,
+        };
         effect = match terminal_event {
             TerminalEvent::Key(key)
                 if key.code == KeyCode::Char('c')

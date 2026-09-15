@@ -4,7 +4,7 @@ use std::os::fd::AsFd;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
-use nix::fcntl::{FcntlArg, OFlag, fcntl};
+use nix::fcntl::{FcntlArg, FdFlag, OFlag, fcntl};
 use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
 
 pub fn open_pty(rows: u16, cols: u16) -> (File, File, libc::termios) {
@@ -18,6 +18,9 @@ pub fn open_pty(rows: u16, cols: u16) -> (File, File, libc::termios) {
     let state = terminal_state(&pair.slave);
     let flags = OFlag::from_bits_retain(fcntl(&pair.master, FcntlArg::F_GETFL).unwrap());
     fcntl(&pair.master, FcntlArg::F_SETFL(flags | OFlag::O_NONBLOCK)).unwrap();
+    // A child inheriting the master keeps its own terminal alive, so closing
+    // the parent's copy would never hang the pty up.
+    fcntl(&pair.master, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).unwrap();
     (File::from(pair.master), File::from(pair.slave), state)
 }
 

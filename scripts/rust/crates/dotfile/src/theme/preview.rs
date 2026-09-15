@@ -18,6 +18,9 @@ use std::{
     time::Duration,
 };
 use ui_theme::{ColorMode, Role, ThemeHandle};
+
+const INPUT_POLL: Duration = Duration::from_millis(50);
+
 pub fn interactive() -> bool {
     io::stdin().is_terminal() && io::stdout().is_terminal()
 }
@@ -331,6 +334,7 @@ pub fn choose(
     .map_err(|e| e.to_string())?;
     let mut surface = ui_terminal::Alternate::new(ui_terminal::MouseCapture::Disabled)
         .map_err(|e| e.to_string())?;
+    let keys = ui_terminal::Input::new().map_err(|e| e.to_string())?;
     let mut theme = ThemeHandle::from_path(repo.root.join("config/theme/theme.json"));
     let mode = if ColorMode::Auto.enabled(true) {
         ColorMode::Always
@@ -444,11 +448,11 @@ pub fn choose(
                 );
             })
             .map_err(|e| e.to_string())?;
-        if !event::poll(Duration::from_millis(50)).map_err(|e| e.to_string())? {
-            continue;
-        }
-        let Event::Key(key) = event::read().map_err(|e| e.to_string())? else {
-            continue;
+        let key = match keys.wait(INPUT_POLL).map_err(|e| e.to_string())? {
+            ui_terminal::Waited::HangUp => return Ok(None),
+            ui_terminal::Waited::Idle => continue,
+            ui_terminal::Waited::Event(Event::Key(key)) => key,
+            ui_terminal::Waited::Event(_) => continue,
         };
         if key.kind == event::KeyEventKind::Release {
             continue;

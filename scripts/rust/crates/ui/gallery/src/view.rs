@@ -2,7 +2,7 @@ use std::io::{self, IsTerminal};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier};
@@ -12,6 +12,8 @@ use ui_diff_view::{DiffDocument, DiffView, ViewState};
 use ui_picker::{Item, Mode, SelectionState};
 use ui_progress::{PhaseState, Progress, ProgressBar};
 use ui_theme::{ColorMode, Palette, Role, ThemeHandle};
+
+const INPUT_POLL: Duration = Duration::from_millis(250);
 
 struct Gallery {
     selection: SelectionState<usize>,
@@ -328,6 +330,7 @@ pub fn run(palette: Option<Palette>) -> io::Result<()> {
     let _signals = ui_terminal::SignalGuard::new()?;
     let mut terminal = ui_terminal::Alternate::new(ui_terminal::MouseCapture::Disabled)?;
     let mut gallery = Gallery::default();
+    let keys = ui_terminal::Input::new()?;
     let start = Instant::now();
     let mut dirty = true;
     while !ui_terminal::termination_requested() {
@@ -348,17 +351,17 @@ pub fn run(palette: Option<Palette>) -> io::Result<()> {
             })?;
             dirty = false;
         }
-        if event::poll(Duration::from_millis(250))? {
-            match event::read()? {
-                Event::Key(key) => {
-                    if input(&mut gallery, key, terminal.terminal().size()?.height) {
-                        break;
-                    }
-                    dirty = true;
+        match keys.wait(INPUT_POLL)? {
+            ui_terminal::Waited::HangUp => break,
+            ui_terminal::Waited::Idle => {}
+            ui_terminal::Waited::Event(Event::Key(key)) => {
+                if input(&mut gallery, key, terminal.terminal().size()?.height) {
+                    break;
                 }
-                Event::Resize(_, _) => dirty = true,
-                _ => {}
+                dirty = true;
             }
+            ui_terminal::Waited::Event(Event::Resize(_, _)) => dirty = true,
+            ui_terminal::Waited::Event(_) => {}
         }
     }
     Ok(())

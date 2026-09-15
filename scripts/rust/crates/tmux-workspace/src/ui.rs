@@ -447,56 +447,10 @@ pub fn report(ctx: &Context, report: &Report) -> Result<()> {
     ctx.float(&command, &report.title, report.failed, width, height)
 }
 
-const POLL_INTERVAL: u16 = 100;
-
-enum Input {
-    Ready,
-    Idle,
-    HangUp,
-}
-
-/// The terminal crossterm reads from, watched for hangup it cannot report.
-enum Tty {
-    Stdin(io::Stdin),
-    Device(fs::File),
-}
-
-impl Tty {
-    fn open() -> Result<Self> {
-        let stdin = io::stdin();
-        if stdin.is_terminal() {
-            return Ok(Self::Stdin(stdin));
-        }
-        let device = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open("/dev/tty")?;
-        Ok(Self::Device(device))
-    }
-
-    fn wait(&self, timeout: u16) -> Result<Input> {
-        let descriptor = match self {
-            Self::Stdin(stdin) => stdin.as_fd(),
-            Self::Device(device) => device.as_fd(),
-        };
-        let mut ready = [PollFd::new(descriptor, PollFlags::POLLIN)];
-        match poll(&mut ready, timeout) {
-            Ok(0) | Err(nix::errno::Errno::EINTR) => return Ok(Input::Idle),
-            result => {
-                result?;
-            }
-        }
-        let revents = ready[0].revents().unwrap_or(PollFlags::empty());
-        let lost = PollFlags::POLLHUP | PollFlags::POLLERR | PollFlags::POLLNVAL;
-        if revents.intersects(lost) {
-            return Ok(Input::HangUp);
-        }
-        Ok(Input::Ready)
-    }
-}
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 pub fn show_report(ctx: &Context, path: &Path) -> Result<i32> {
-    use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, read};
+    use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 
     let report: Report = serde_json::from_str(&fs::read_to_string(path)?)?;
     let _ = fs::remove_file(path);
@@ -538,23 +492,16 @@ pub fn show_report(ctx: &Context, path: &Path) -> Result<i32> {
         ctx.tmux
             .run(&["send-keys", "-X", "-t", pane, "history-top"])?;
     }
-    let tty = Tty::open()?;
+    let input = ui_terminal::Input::new()?;
     loop {
         if ui_terminal::termination_requested() {
             break;
         }
-        let buffered = match crossterm::event::poll(Duration::ZERO) {
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            result => result?,
-        };
-        if !buffered {
-            match tty.wait(POLL_INTERVAL)? {
-                Input::HangUp => break,
-                Input::Idle | Input::Ready => continue,
-            }
-        }
-        let Event::Key(key) = read()? else {
-            continue;
+        let key = match input.wait(POLL_INTERVAL)? {
+            ui_terminal::Waited::HangUp => break,
+            ui_terminal::Waited::Idle => continue,
+            ui_terminal::Waited::Event(Event::Key(key)) => key,
+            ui_terminal::Waited::Event(_) => continue,
         };
         if key.kind != KeyEventKind::Press {
             continue;
