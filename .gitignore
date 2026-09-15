@@ -1,6 +1,7 @@
 config/age/keys.txt
 config/sync
 .bin/
+.cache/
 
 config/sync
 config/profile

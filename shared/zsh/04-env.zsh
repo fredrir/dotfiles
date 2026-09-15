@@ -3,7 +3,6 @@ export DISABLE_MAGIC_FUNCTIONS=true
 export NVM_DIR="$HOME/.config/nvm"
 export NVIM="$DOTFILES/shared/nvim"
 export ZSH="$HOME/.oh-my-zsh"
-export ZSH_CUSTOM="$ZCONF/omz-custom"
 export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 
 has_cmd less &&

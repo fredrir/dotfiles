@@ -3,6 +3,11 @@ add_plugin_path \
   /usr/share/zsh/plugins \
   /usr/local/share
 
+add_fpath \
+  "$HOME/.zfunc" \
+  "${HOMEBREW_PREFIX:-/opt/homebrew}/share/zsh-completions"
+
+
 add_plugins \
   git \
   zsh:gitignore \

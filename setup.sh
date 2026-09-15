@@ -4,9 +4,10 @@ shopt -s nullglob
 
 DOTFILES="$HOME/dotfiles"
 CONFIG_DIR="$DOTFILES/config"
+DOTFILE_CACHE="$DOTFILES/.cache"
 TOOL_BIN_DIR="$DOTFILES/.bin"
 UV_TOOL_DIR="$DOTFILES/.uv"
-DOTFILE_BIN="$TOOL_BIN_DIR/dotfile"
+DOTFILES_BIN="$TOOL_BIN_DIR/dotfile"
 PYTHON_TOOL_BIN="$TOOL_BIN_DIR/transcript"
 
 COMMANDS_ONLY=0
@@ -320,7 +321,7 @@ rust_current() {
   for name in $RUST_BINARIES; do
     [ -x "$TOOL_BIN_DIR/$name" ] || return 1
   done
-  "$DOTFILE_BIN" sync --version >/dev/null 2>&1 || return 1
+  "$DOTFILES_BIN" sync --version >/dev/null 2>&1 || return 1
   unchanged rust "$RUST_HASH"
 }
 
@@ -359,7 +360,7 @@ else
         exit 1
       fi
     done
-    if ! settled mv -f "$SETUP_STAGE/dotfile" "$DOTFILE_BIN"; then
+    if ! settled mv -f "$SETUP_STAGE/dotfile" "$DOTFILES_BIN"; then
       echo "setup: could not install dotfile" >&2
       rollback_native_install || true
       finish_deferred_signal
@@ -381,12 +382,12 @@ else
   fi
 fi
 
-if ! "$DOTFILE_BIN" completions --dir "$HOME/.cache/zsh" >/dev/null 2>&1; then
+if ! "$DOTFILES_BIN" completions --dir "$DOTFILE_CACHE/zsh" >/dev/null 2>&1; then
   echo "setup: could not write shell completions (continuing)" >&2
 fi
 
 for retired in doc-keybinds sysinfo-collect tardirs cpa cpas acp update-readme-fastfetch; do
-  rm -f -- "$TOOL_BIN_DIR/$retired" "$HOME/.cache/zsh/$retired-completion.zsh"
+  rm -f -- "$TOOL_BIN_DIR/$retired" "$DOTFILE_CACHE/zsh/$retired-completion.zsh"
 done
 
 release_setup_lock
@@ -405,19 +406,19 @@ if [ "$SYNC" = 1 ]; then
     sync_args+=("$ARG_PROFILE")
   fi
   sync_args+=("${LINK_ARGS[@]}")
-  exec "$DOTFILE_BIN" "${sync_args[@]}"
+  exec "$DOTFILES_BIN" "${sync_args[@]}"
 fi
 
 PROFILE="$ARG_PROFILE"
 
-list_profiles() { "$DOTFILE_BIN" profiles; }
+list_profiles() { "$DOTFILES_BIN" profiles; }
 
 if [ -z "$PROFILE" ]; then
   if interactive; then
     profiles=()
     while IFS= read -r p; do
       profiles+=("$p")
-    done < <("$DOTFILE_BIN" profiles --relevant)
+    done < <("$DOTFILES_BIN" profiles --relevant)
     if [ "${#profiles[@]}" -eq 0 ]; then
       echo "setup: no relevant installed environment found" >&2
       echo "override detection with ./setup.sh --<environment>" >&2
@@ -472,11 +473,11 @@ fi
 
 if [ ! -f "$AGE_KEY_FILE" ]; then
   echo
-  "$DOTFILE_BIN" secret init || true
+  "$DOTFILES_BIN" secret init || true
 fi
 
 echo
 sync_args=(sync "$PROFILE")
 sync_args+=("${OVERRIDE_ARGS[@]}")
 sync_args+=("${LINK_ARGS[@]}")
-exec "$DOTFILE_BIN" "${sync_args[@]}"
+exec "$DOTFILES_BIN" "${sync_args[@]}"

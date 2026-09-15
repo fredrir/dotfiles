@@ -2,6 +2,7 @@ typeset -gU path PATH
 typeset -gU plugins
 typeset -gaU zsh_plugin_path
 typeset -gaU zsh_plugin_sources
+typeset -U fpath
 
 add_path() {
   local -a valid_paths=()
@@ -33,14 +34,22 @@ add_plugins() {
       done
     done
 
-    [[ -d $ZSH_CUSTOM/plugins/$name || -d $ZSH/plugins/$name ]] && plugins+=($name)
+    [[ -d $ZSH/plugins/$name ]] && plugins+=($name)
   done
 }
 
 has_cmd() { (($+commands[$1])); }
+dir_exists() { [[ -d "$1" ]] }
+
+add_fpath() {
+  local dir
+  for dir in "$@"; do
+    [[ -d "$dir" ]] && fpath=("$dir" $fpath)
+  done
+}
 
 cached_eval() {
-  local cache="$HOME/.cache/zsh/$1.zsh"
+  local cache="$DOTFILES_ZSH_CACHE/$1.zsh"
   shift
   has_cmd $1 || return 0
 
