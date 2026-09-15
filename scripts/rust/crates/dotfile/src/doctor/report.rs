@@ -129,19 +129,9 @@ pub fn render(report: &Report<'_>, style: &Style) -> String {
         out.push('\n');
     }
     if !issues.is_empty() {
-        out.push('\n');
         out.push_str(&heading(style, "Issues:"));
         out.push('\n');
         out.push_str(&issue_lines(&issues, style));
-    }
-    if !names.is_empty() {
-        out.push('\n');
-        out.push_str(&heading(style, "Packages:"));
-        out.push('\n');
-        for name in &names {
-            out.push_str(name);
-            out.push('\n');
-        }
     }
     if !by_manager.is_empty() {
         out.push('\n');
