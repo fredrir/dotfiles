@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::*;
+use crate::decision::{Choice, Prompt};
 
 fn summary() -> Summary {
     Summary {

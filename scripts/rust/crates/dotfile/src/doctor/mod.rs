@@ -4,55 +4,23 @@ use crate::config::{Configuration, blocks, profiles};
 use crate::context::Context;
 use crate::event::{Event, VecSink};
 use clap::Args as ClapArgs;
+use report::{Manager, Package, Row, Status};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Mutex;
 use std::time::Duration;
+use workstation::path::home_relative_in;
+
+pub mod report;
 
 #[derive(Debug, ClapArgs)]
 pub struct Args {
     pub profile: Option<String>,
+    /// Include optional packages and list every detail
     #[arg(long = "all")]
     pub show_all: bool,
-}
-
-struct Row {
-    kind: &'static str,
-    label: String,
-    summary: String,
-    details: Vec<(String, String)>,
-    problems: usize,
-}
-impl Row {
-    fn new(
-        kind: &'static str,
-        label: impl Into<String>,
-        summary: impl Into<String>,
-        problems: usize,
-    ) -> Self {
-        Self {
-            kind,
-            label: label.into(),
-            summary: summary.into(),
-            details: Vec::new(),
-            problems,
-        }
-    }
-    fn missing(label: &str, count: usize, details: Vec<(String, String)>) -> Self {
-        if details.is_empty() {
-            Self::new("ok", label, format!("{count} installed"), 0)
-        } else {
-            Self {
-                kind: "bad",
-                label: label.into(),
-                summary: format!("{} missing", details.len()),
-                problems: details.len(),
-                details,
-            }
-        }
-    }
 }
 
 struct Probes<'a> {
@@ -127,8 +95,10 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
     let configuration = Configuration::load(context, &profile, &[], &VecSink::default())?;
     let groups = crate::config::read_manifest(&context.manifest(&profile))?;
     let probes = Probes::new(context);
+    let platform = profiles::platform();
+    let manager = default_manager(&profile, &platform, &probes);
     let rows = std::thread::scope(|scope| -> Result<Vec<Row>, String> {
-        let requirements = scope.spawn(|| requirement_rows(context, &groups, &probes));
+        let requirements = scope.spawn(|| requirement_rows(context, &groups, manager, &probes));
         let pins = scope.spawn(|| pin_rows(context, &groups, &probes));
         let other = scope.spawn(|| -> Result<Vec<Row>, String> {
             let mut rows = plugin_rows(context, &groups, &probes)?;
@@ -140,6 +110,7 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
         rows.extend(environment_rows(
             context,
             &profile,
+            &platform,
             &groups,
             &configuration,
             &probes,
@@ -153,29 +124,17 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
         rows.extend(other.join().map_err(|_| "package probe panicked")??);
         Ok(rows)
     })?;
-    println!("\n  doctor  {profile}\n");
-    for row in &rows {
-        println!("  {:<5} {:<12} {}", row.kind, row.label, row.summary);
-        let limit = if args.show_all {
-            row.details.len()
-        } else {
-            row.details.len().min(12)
-        };
-        for (name, hint) in row.details.iter().take(limit) {
-            println!(
-                "          {name}{}",
-                if hint.is_empty() {
-                    String::new()
-                } else {
-                    format!("  {hint}")
-                }
-            );
-        }
-        if row.details.len() > limit {
-            println!("          … and {} more", row.details.len() - limit);
-        }
-    }
-    println!();
+    print!(
+        "{}",
+        report::render(
+            &report::Report {
+                profile: &profile,
+                rows: &rows,
+                show_all: args.show_all,
+            },
+            &workstation::Style::for_stdout(),
+        )
+    );
     Ok(if rows.iter().any(|row| row.problems > 0) {
         ExitCode::FAILURE
     } else {
@@ -183,12 +142,30 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
     })
 }
 
+/// The profile names its platform first; the host platform and PATH are fallbacks.
+fn default_manager(profile: &str, platform: &str, probes: &Probes<'_>) -> Option<Manager> {
+    Manager::for_platform(profile.split('/').next().unwrap_or_default())
+        .or_else(|| Manager::for_platform(platform))
+        .or_else(|| {
+            [Manager::Brew, Manager::Pacman, Manager::Apt]
+                .into_iter()
+                .find(|manager| probes.path(manager.program()).is_some())
+        })
+}
+
 fn link_rows(context: &Context, configuration: &Configuration) -> Result<Vec<Row>, String> {
     let (entries, merge_paths) = crate::sync::merge::discover(context, configuration)?;
     let events = VecSink::default();
-    let links =
-        crate::sync::links::synchronize(context, configuration, &merge_paths, true, &events);
-    let (client, _server) = crate::decision::channel();
+    let (decisions, _server) = crate::decision::channel_for(false);
+    let links = crate::sync::links::synchronize(
+        context,
+        configuration,
+        &merge_paths,
+        true,
+        &decisions,
+        &events,
+    );
+    let (client, _server) = crate::decision::channel_for(false);
     let merges = crate::sync::merge::synchronize(
         context,
         &entries,
@@ -221,9 +198,9 @@ fn link_rows(context: &Context, configuration: &Configuration) -> Result<Vec<Row
                 if fs::symlink_metadata(&path).is_err() {
                     missing += 1;
                 }
-                details.push((path.display().to_string(), detail));
+                details.push((home_relative_in(&path, &context.home), detail));
             } else if detail.contains("formatting") {
-                notes.push((path.display().to_string(), detail));
+                notes.push((home_relative_in(&path, &context.home), detail));
             }
         }
     }
@@ -231,15 +208,20 @@ fn link_rows(context: &Context, configuration: &Configuration) -> Result<Vec<Row
         .len()
         .max(merges.blocked)
         .max(usize::from(links.is_err()));
+    let summary = [
+        (checked.saturating_sub(problems), "linked"),
+        (missing, "missing"),
+        (problems.saturating_sub(missing), "differing"),
+    ]
+    .into_iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, word)| format!("{count} {word}"))
+    .collect::<Vec<_>>()
+    .join(", ");
     let mut row = Row::new(
-        if problems > 0 { "bad" } else { "ok" },
+        if problems > 0 { Status::Bad } else { Status::Ok },
         "links",
-        format!(
-            "{} linked, {} missing, {} differing",
-            checked.saturating_sub(problems),
-            missing,
-            problems.saturating_sub(missing)
-        ),
+        if summary.is_empty() { "nothing linked".into() } else { summary },
         problems,
     );
     row.details = details;
@@ -253,18 +235,18 @@ fn link_rows(context: &Context, configuration: &Configuration) -> Result<Vec<Row
 fn environment_rows(
     context: &Context,
     profile: &str,
+    platform: &str,
     groups: &[String],
     configuration: &Configuration,
     probes: &Probes<'_>,
 ) -> Result<Vec<Row>, String> {
     let mut rows = Vec::new();
-    let platform = profiles::platform();
     if !platform.is_empty()
-        && context.environment_dir.join(&platform).is_dir()
-        && profile.split('/').next() != Some(platform.as_str())
+        && context.environment_dir.join(platform).is_dir()
+        && profile.split('/').next() != Some(platform)
     {
         rows.push(Row::new(
-            "warn",
+            Status::Warn,
             "profile",
             format!("not a {platform} profile (host {platform})"),
             1,
@@ -292,17 +274,22 @@ fn environment_rows(
             .env("XDG_DATA_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| context.home.join(".local/share"));
-        let uv = context
-            .env("UV_TOOL_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| data.join("uv/tools"));
+        // setup.sh installs into ~/dotfiles/.uv; an explicit UV_TOOL_DIR is honored too.
+        let uv_dirs = [
+            context.home.join("dotfiles/.uv"),
+            context
+                .env("UV_TOOL_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| data.join("uv/tools")),
+        ]
+        .map(|dir| crate::fs::resolved(&dir).unwrap_or(dir));
         for name in commands {
             let installed = bin.join(&name);
             if !installed.is_file() {
                 details.push((name, "missing from ~/dotfiles/.bin".into()));
-            } else if !crate::fs::resolved(&installed).is_ok_and(|path| {
-                path.starts_with(crate::fs::resolved(&uv).unwrap_or_else(|_| uv.clone()))
-            }) {
+            } else if !crate::fs::resolved(&installed)
+                .is_ok_and(|path| uv_dirs.iter().any(|dir| path.starts_with(dir)))
+            {
                 details.push((name, "not installed by uv".into()));
             } else if probes
                 .path(&name)
@@ -313,7 +300,13 @@ fn environment_rows(
             }
         }
         if !details.is_empty() {
-            let mut row = Row::new("warn", "commands", "workstation commands need attention", 1);
+            let summary = match details.iter().map(|(_, hint)| hint.as_str()).collect::<BTreeSet<_>>() {
+                reasons if reasons.len() == 1 => {
+                    format!("{} {}", details.len(), reasons.into_iter().next().unwrap_or_default())
+                }
+                _ => format!("{} need attention", details.len()),
+            };
+            let mut row = Row::new(Status::Warn, "commands", summary, 1);
             row.details = details;
             rows.push(row);
         }
@@ -328,7 +321,7 @@ fn environment_rows(
         .collect::<Vec<_>>();
     if !pending.is_empty() {
         rows.push(Row::new(
-            "warn",
+            Status::Warn,
             "overrides",
             format!("unselected for {}", pending.join(" ")),
             1,
@@ -341,7 +334,7 @@ fn environment_rows(
             .is_some_and(|name| name != "zsh")
     {
         rows.push(Row::new(
-            "warn",
+            Status::Warn,
             "shell",
             format!("login shell is {shell}, not zsh"),
             1,
@@ -394,14 +387,21 @@ fn grouped(context: &Context, file: &str, groups: &[String]) -> Result<Vec<block
         .collect())
 }
 
+struct Requirement {
+    package: String,
+    manager: Option<Manager>,
+    optional: bool,
+}
+
 fn requirement_rows(
     context: &Context,
     groups: &[String],
+    default_manager: Option<Manager>,
     probes: &Probes<'_>,
 ) -> Result<Vec<Row>, String> {
-    let mut requirements = BTreeMap::<(String, String), (String, bool)>::new();
+    let mut requirements = BTreeMap::<(String, String), Requirement>::new();
     for entry in grouped(context, "requirements.dotfile", groups)? {
-        let (name, package) = entry.split();
+        let (name, value) = entry.split();
         let optional = name.starts_with('?');
         let name = name.trim_start_matches('?').trim();
         let (kind, name) = if let Some(name) = name.strip_prefix("font ") {
@@ -417,19 +417,27 @@ fn requirement_rows(
                 entry.number
             ));
         }
-        let key = (kind.to_string(), name.to_string());
-        if requirements
-            .get(&key)
-            .is_none_or(|(_, old_optional)| *old_optional && !optional)
-        {
-            requirements.insert(
-                key,
-                (
-                    if package.is_empty() { name } else { package }.into(),
-                    optional,
-                ),
-            );
-        }
+        let (manager, package) = match value.split_once(':') {
+            Some((tag, package)) if Manager::parse(tag).is_some() => {
+                (Manager::parse(tag), package.trim())
+            }
+            _ => (default_manager, value),
+        };
+        let package = if package.is_empty() && kind == "command" {
+            name
+        } else {
+            package
+        };
+        // Later blocks refine earlier ones: platform groups rename shared packages.
+        let previous = requirements.remove(&(kind.to_string(), name.to_string()));
+        requirements.insert(
+            (kind.to_string(), name.to_string()),
+            Requirement {
+                package: package.to_string(),
+                manager,
+                optional: optional && previous.is_none_or(|previous| previous.optional),
+            },
+        );
     }
     let fonts = if requirements.keys().any(|(kind, _)| kind == "font") {
         installed_fonts(context, probes)?
@@ -437,11 +445,12 @@ fn requirement_rows(
         BTreeSet::new()
     };
     let mut rows = Vec::new();
-    let mut optional = Vec::new();
+    let mut optional = Row::new(Status::Note, "optional", String::new(), 0);
     for (kind, label) in [("command", "tools"), ("font", "fonts"), ("file", "files")] {
-        let mut count = 0;
-        let mut missing = Vec::new();
-        for ((entry_kind, name), (package, is_optional)) in &requirements {
+        let mut wanted = 0;
+        let mut packages = Vec::new();
+        let mut details = Vec::new();
+        for ((entry_kind, name), requirement) in &requirements {
             if entry_kind != kind {
                 continue;
             }
@@ -450,33 +459,48 @@ fn requirement_rows(
                 "file" => !crate::manage::expand(context, Path::new(name))?.exists(),
                 _ => font_missing(name, &fonts),
             };
-            if !*is_optional {
-                count += 1;
+            if !requirement.optional {
+                wanted += 1;
             }
-            if gone {
-                let detail = (
-                    name.clone(),
-                    if package == name {
-                        String::new()
-                    } else {
-                        package.clone()
-                    },
-                );
-                if *is_optional {
-                    optional.push(detail);
+            if !gone {
+                continue;
+            }
+            if requirement.package.is_empty() {
+                let detail = (name.clone(), String::new());
+                if requirement.optional {
+                    optional.details.push(detail);
                 } else {
-                    missing.push(detail);
+                    details.push(detail);
                 }
+                continue;
+            }
+            let package = Package {
+                manager: requirement.manager,
+                name: requirement.package.clone(),
+                optional: requirement.optional,
+            };
+            if requirement.optional {
+                optional.packages.push(package);
+            } else {
+                packages.push(package);
             }
         }
-        if count > 0 {
-            rows.push(Row::missing(label, count, missing));
+        if wanted == 0 {
+            continue;
         }
-    }
-    if !optional.is_empty() {
-        let mut row = Row::new("note", "optional", format!("{} absent", optional.len()), 0);
-        row.details = optional;
+        let mut row = Row::missing(label, wanted, packages);
+        if !details.is_empty() {
+            row.status = Status::Bad;
+            row.problems += details.len();
+            row.summary = format!("{} of {wanted} missing", row.problems);
+            row.details = details;
+        }
         rows.push(row);
+    }
+    let absent = optional.packages.len() + optional.details.len();
+    if absent > 0 {
+        optional.summary = format!("{absent} not installed");
+        rows.push(optional);
     }
     Ok(rows)
 }
@@ -511,7 +535,7 @@ fn pin_rows(context: &Context, groups: &[String], probes: &Probes<'_>) -> Result
         }
     }
     let mut row = Row::new(
-        if wrong.is_empty() { "ok" } else { "bad" },
+        if wrong.is_empty() { Status::Ok } else { Status::Bad },
         "pins",
         if wrong.is_empty() {
             format!("{} pinned", pins.len())
@@ -653,9 +677,9 @@ fn plugin_rows(
         .unwrap_or_else(|| context.home.join(".oh-my-zsh"));
     if !zsh.is_dir() {
         return Ok(vec![Row::new(
-            "bad",
+            Status::Bad,
             "oh-my-zsh",
-            format!("not installed at {}", zsh.display()),
+            format!("not installed at {}", home_relative_in(&zsh, &context.home)),
             1,
         )]);
     }
@@ -667,10 +691,11 @@ fn plugin_rows(
                 .path("brew")
                 .and_then(|path| path.parent()?.parent().map(Path::to_path_buf))
         });
-    let missing = plugins
+    let missing: Vec<(String, String)> = plugins
         .iter()
         .filter(|name| {
             !zsh.join("custom/plugins").join(name).is_dir()
+                && !zsh.join("plugins").join(name).is_dir()
                 && !["/usr/share/zsh/plugins", "/usr/share", "/usr/local/share"]
                     .iter()
                     .any(|parent| Path::new(parent).join(name).is_dir())
@@ -680,7 +705,22 @@ fn plugin_rows(
         })
         .map(|name| (name.clone(), String::new()))
         .collect();
-    Ok(vec![Row::missing("plugins", plugins.len(), missing)])
+    if missing.is_empty() {
+        return Ok(vec![Row::new(
+            Status::Ok,
+            "plugins",
+            format!("{} installed", plugins.len()),
+            0,
+        )]);
+    }
+    let mut row = Row::new(
+        Status::Bad,
+        "plugins",
+        format!("{} of {} missing", missing.len(), plugins.len()),
+        missing.len(),
+    );
+    row.details = missing;
+    Ok(vec![row])
 }
 
 fn package_rows(
@@ -713,31 +753,36 @@ fn package_rows(
                 }
             }
         }
-        sources.push(("brewfile", "brew", names));
+        sources.push(("brewfile", Manager::Brew, names));
     }
-    for (file, label) in [("pkglist.txt", "pkglist"), ("aurlist.txt", "aurlist")] {
+    for (file, label, manager) in [
+        ("pkglist.txt", "pkglist", Manager::Pacman),
+        ("aurlist.txt", "aurlist", Manager::Aur),
+    ] {
         let path = context.environment_dir.join(profile).join(file);
         if path.is_file() {
-            sources.push((label, "pacman", crate::config::read_manifest(&path)?));
+            sources.push((label, manager, crate::config::read_manifest(&path)?));
         }
     }
     let mut rows = Vec::new();
     let mut cached = BTreeMap::<&str, Result<BTreeSet<String>, String>>::new();
     let mut skipped = BTreeSet::new();
     for (label, manager, wanted) in sources {
-        if probes.path(manager).is_none() {
-            if skipped.insert(manager) {
+        // AUR packages show up in pacman's database like any other.
+        let inventory = if manager == Manager::Brew { "brew" } else { "pacman" };
+        if probes.path(inventory).is_none() {
+            if skipped.insert(inventory) {
                 rows.push(Row::new(
-                    "note",
-                    manager,
+                    Status::Note,
+                    inventory,
                     "not installed, package lists skipped",
                     0,
                 ));
             }
             continue;
         }
-        let installed = cached.entry(manager).or_insert_with(|| {
-            if manager == "brew" {
+        let installed = cached.entry(inventory).or_insert_with(|| {
+            if inventory == "brew" {
                 let formula = probes.output(&["brew", "list", "--formula", "-1"])?;
                 let cask = probes.output(&["brew", "list", "--cask", "-1"])?;
                 Ok(formula
@@ -759,18 +804,35 @@ fn package_rows(
                 wanted.len(),
                 wanted
                     .into_iter()
-                    .filter(|name| !installed.contains(name))
-                    .map(|name| (name, String::new()))
+                    .filter(|name| {
+                        !inventory_has(installed, name, manager) && probes.path(name).is_none()
+                    })
+                    .map(|name| Package {
+                        manager: Some(manager),
+                        name,
+                        optional: false,
+                    })
                     .collect(),
             )),
             Err(error) => {
-                if skipped.insert(manager) {
-                    rows.push(Row::new("bad", manager, error.clone(), 1));
+                if skipped.insert(inventory) {
+                    rows.push(Row::new(Status::Bad, inventory, error.clone(), 1));
                 }
             }
         }
     }
     Ok(rows)
+}
+
+/// Brew lists versioned formulae like `python@3.14` for a Brewfile entry `python`.
+fn inventory_has(installed: &BTreeSet<String>, name: &str, manager: Manager) -> bool {
+    installed.contains(name)
+        || manager == Manager::Brew
+            && installed.iter().any(|package| {
+                package
+                    .strip_prefix(name)
+                    .is_some_and(|rest| rest.starts_with('@'))
+            })
 }
 
 fn benchmark_rows(context: &Context, probes: &Probes<'_>) -> Result<Vec<Row>, String> {
@@ -784,7 +846,7 @@ fn benchmark_rows(context: &Context, probes: &Probes<'_>) -> Result<Vec<Row>, St
     if host.is_empty() {
         let hosts = match sysinfo::inventory::load_hosts_from(&inventory.hosts_file()) {
             Ok(hosts) => hosts,
-            Err(error) => return Ok(vec![Row::new("bad", "benchmark", error, 1)]),
+            Err(error) => return Ok(vec![Row::new(Status::Bad, "benchmark", error, 1)]),
         };
         let hostname = context
             .env("HOSTNAME")
@@ -811,7 +873,7 @@ fn benchmark_rows(context: &Context, probes: &Probes<'_>) -> Result<Vec<Row>, St
     let runs = store.list_runs(Some(&host), hwtune::bench::record::CLEAN)?;
     if runs.is_empty() {
         return Ok(vec![Row::new(
-            "note",
+            Status::Note,
             "benchmark",
             format!("no runs recorded for {host}"),
             0,
@@ -820,7 +882,7 @@ fn benchmark_rows(context: &Context, probes: &Probes<'_>) -> Result<Vec<Row>, St
     let issues = hwtune::bench::health::issues_for_runs(&store, &host, &runs)?;
     if issues.is_empty() {
         return Ok(vec![Row::new(
-            "ok",
+            Status::Ok,
             "benchmark",
             format!("{} clean runs; newest {}", runs.len(), runs[0].started),
             0,
@@ -831,9 +893,9 @@ fn benchmark_rows(context: &Context, probes: &Probes<'_>) -> Result<Vec<Row>, St
         .map(|issue| {
             let mut row = Row::new(
                 if issue.severity == sysinfo::model::Severity::Error {
-                    "bad"
+                    Status::Bad
                 } else {
-                    "warn"
+                    Status::Warn
                 },
                 "benchmark",
                 issue.title,
@@ -864,17 +926,5 @@ fn walk_files(directory: &Path, visit: &mut impl FnMut(&Path)) -> Result<(), Str
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn font_family_and_weights_are_distinguished() {
-        let fonts = [
-            font_key("FiraCode Nerd Font Regular"),
-            font_key("FiraCode ExtraBold Italic"),
-        ]
-        .into_iter()
-        .collect();
-        assert!(!font_missing("FiraCode", &fonts));
-        assert!(font_missing("Fira", &fonts));
-    }
-}
+#[path = "../../tests/unit/doctor_tests.rs"]
+mod tests;

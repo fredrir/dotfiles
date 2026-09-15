@@ -819,7 +819,7 @@ fn protocol_session(
             Ok(Message::DecisionRequest { id, prompt }) if sync_ready => {
                 let prompt = qualify_remote_prompt(host, prompt);
                 let choice = match decisions.resolve_remote_prompt(prompt.clone()) {
-                    Ok(choice) if valid_prompt_choice(&prompt, choice) => choice,
+                    Ok(choice) if prompt.accepts(choice) => choice,
                     Ok(choice) => {
                         drop(stdin);
                         let _ = finish_child(child, stderr_thread, stdout_thread);
@@ -832,7 +832,7 @@ fn protocol_session(
                             &mut stdin,
                             &Message::DecisionResponse {
                                 id,
-                                choice: cancellation_choice(&prompt),
+                                choice: prompt.cancellation(),
                             },
                         );
                         drop(stdin);
@@ -979,30 +979,6 @@ fn send_decision(stdin: &mut impl Write, decision: &Message) -> Result<(), Failu
         .map_err(|error| Failure::remote(format!("cannot answer the remote: {error}")))
 }
 
-fn valid_prompt_choice(prompt: &crate::decision::Prompt, choice: crate::decision::Choice) -> bool {
-    use crate::decision::{Choice, Prompt};
-    match prompt {
-        Prompt::Merge { .. } => matches!(
-            choice,
-            Choice::Repo | Choice::Live | Choice::Ignore | Choice::Skip | Choice::Abort
-        ),
-        Prompt::MergeTarget { targets, .. } => match choice {
-            Choice::Target(index) => index < targets.len(),
-            Choice::Cancel => true,
-            _ => false,
-        },
-        Prompt::RemoteChanges { .. } => matches!(choice, Choice::Discard | Choice::Cancel),
-    }
-}
-
-fn cancellation_choice(prompt: &crate::decision::Prompt) -> crate::decision::Choice {
-    match prompt {
-        crate::decision::Prompt::Merge { .. } => crate::decision::Choice::Abort,
-        crate::decision::Prompt::MergeTarget { .. }
-        | crate::decision::Prompt::RemoteChanges { .. } => crate::decision::Choice::Cancel,
-    }
-}
-
 fn qualify_remote_prompt(host: &str, prompt: crate::decision::Prompt) -> crate::decision::Prompt {
     match prompt {
         crate::decision::Prompt::Merge {
@@ -1026,6 +1002,23 @@ fn qualify_remote_prompt(host: &str, prompt: crate::decision::Prompt) -> crate::
             key,
             targets,
             default,
+        },
+        crate::decision::Prompt::Overwrite {
+            subject,
+            path,
+            detail,
+            repo,
+            live,
+            index,
+            total,
+        } => crate::decision::Prompt::Overwrite {
+            subject,
+            path: PathBuf::from(format!("{host}:{}", path.display())),
+            detail,
+            repo,
+            live,
+            index,
+            total,
         },
         crate::decision::Prompt::RemoteChanges { changes, .. } => {
             crate::decision::Prompt::RemoteChanges {

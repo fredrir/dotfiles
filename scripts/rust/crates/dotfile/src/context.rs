@@ -67,6 +67,27 @@ impl Context {
             .or_else(|| std::env::var_os(name))
     }
 
+    pub fn program(&self, name: &str) -> Option<PathBuf> {
+        self.env("PATH").and_then(|paths| {
+            std::env::split_paths(&paths).find_map(|directory| {
+                let path = directory.join(name);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    path.metadata()
+                        .is_ok_and(|metadata| {
+                            metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+                        })
+                        .then_some(path)
+                }
+                #[cfg(not(unix))]
+                {
+                    path.is_file().then_some(path)
+                }
+            })
+        })
+    }
+
     pub fn command(&self, program: impl AsRef<OsStr>) -> Command {
         let mut command = Command::new(program);
         command.envs(&self.process_env);

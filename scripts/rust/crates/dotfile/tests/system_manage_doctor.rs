@@ -270,7 +270,7 @@ fn doctor_reports_missing_links_requirements_and_version_pins_without_writes() {
     fixture.write("shared/widget/config", "repo");
     fixture.write(
         "config/requirements.dotfile",
-        "shared {\n missing-doctor-test = install-me\n}\n",
+        "shared {\n missing-doctor-test = install-me\n tagged-doctor-test = aur:tagged-pkg\n}\n",
     );
     fixture.write(
         "config/pins.dotfile",
@@ -283,11 +283,11 @@ fn doctor_reports_missing_links_requirements_and_version_pins_without_writes() {
     let result = fixture.command().args(["doctor", "--all"]).run();
     assert_eq!(result.code(), Some(1), "{}", result.stderr);
     for text in [
-        "links",
-        "tools",
-        "pins",
-        "missing-doctor-test",
-        "expected-version",
+        "\nIssues:\nlinks  ~/.config/widget\n",
+        "pins   pinned-test  old-version, want expected-version\n",
+        "Packages:",
+        "install-me",
+        "yay -S --needed \\\n  tagged-pkg\n",
     ] {
         assert!(
             result.stdout.contains(text),
@@ -295,14 +295,16 @@ fn doctor_reports_missing_links_requirements_and_version_pins_without_writes() {
             result.stdout
         );
     }
+    assert!(!result.stdout.contains("missing-doctor-test"), "{}", result.stdout);
     assert!(!fixture.home.join(".config/widget").exists());
 }
 
 #[test]
-fn doctor_caches_package_inventory_and_preserves_section_order() {
+fn doctor_caches_package_inventory_and_reports_nothing_missing() {
     let fixture = Fixture::new();
-    fixture.write("environment/test/pkglist.txt", "one\n");
+    fixture.write("environment/test/pkglist.txt", "one\non-path\n");
     fixture.write("environment/test/aurlist.txt", "two\n");
+    executable(&fixture.bin.join("on-path"), "#!/bin/sh\n");
     let log = fixture.temporary.path().join("pacman-calls");
     executable(
         &fixture.bin.join("pacman"),
@@ -321,8 +323,7 @@ fn doctor_caches_package_inventory_and_preserves_section_order() {
         result.stderr
     );
     assert_eq!(fs::read_to_string(log).unwrap(), "call\n");
-    assert!(result.stdout.find("links").unwrap() < result.stdout.find("pkglist").unwrap());
-    assert!(result.stdout.find("pkglist").unwrap() < result.stdout.find("aurlist").unwrap());
+    assert_eq!(result.stdout, "nothing missing\n\n");
 }
 
 #[test]

@@ -4,7 +4,9 @@ pub use super::variables::{
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::consent::{Consent, Request};
 use crate::context::Context;
+use crate::decision::{Client, Subject};
 use crate::event::{Action, Event, EventSink, Phase};
 
 use crate::config::{Configuration, Package, PackageKind, never_fold};
@@ -39,6 +41,19 @@ pub fn synchronize(
     configuration: &Configuration,
     dry_run: bool,
     force: bool,
+    decisions: &Client,
+    events: &dyn EventSink,
+) -> Result<SecretOutcome, String> {
+    let consent = Consent::new(decisions, Subject::Secret, !dry_run && !force);
+    reconcile(context, configuration, dry_run, force, &consent, events)
+}
+
+pub fn reconcile(
+    context: &Context,
+    configuration: &Configuration,
+    dry_run: bool,
+    force: bool,
+    consent: &Consent<'_>,
     events: &dyn EventSink,
 ) -> Result<SecretOutcome, String> {
     let entries = plan(configuration)?;
@@ -57,7 +72,7 @@ pub fn synchronize(
     for (index, mut entry) in entries.into_iter().enumerate() {
         crate::cancel::check()?;
         outcome.checked += 1;
-        let result = materialize(context, &mut entry, &variables, dry_run, force)?;
+        let result = materialize(context, &mut entry, &variables, dry_run, force, consent)?;
         if result.changed {
             outcome.changed += 1;
             outcome.secrets += 1;
@@ -121,6 +136,36 @@ pub fn synchronize(
     }
 }
 
+fn replace_destination(
+    destination: &Path,
+    detail: &str,
+    consent: &Consent<'_>,
+    dry_run: bool,
+) -> Result<bool, String> {
+    if !consent.ask(Request {
+        path: destination,
+        detail: detail.to_string(),
+        repo: None,
+        live: crate::consent::preview(destination),
+        index: 0,
+        total: 0,
+    })? {
+        return Ok(false);
+    }
+    if dry_run {
+        return Ok(true);
+    }
+    let metadata = fs::symlink_metadata(destination)
+        .map_err(|error| format!("read {}: {error}", destination.display()))?;
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        fs::remove_dir_all(destination)
+    } else {
+        fs::remove_file(destination)
+    }
+    .map(|_| true)
+    .map_err(|error| format!("discard {}: {error}", destination.display()))
+}
+
 pub struct SecretResult {
     pub changed: bool,
     pub blocked: bool,
@@ -135,6 +180,7 @@ pub fn materialize(
     variables: &Variables,
     dry_run: bool,
     force: bool,
+    consent: &Consent<'_>,
 ) -> Result<SecretResult, String> {
     let produced = match production(context, entry, variables)? {
         Production::Ready(content) => content,
@@ -177,35 +223,74 @@ pub fn materialize(
         .as_ref()
         .is_some_and(|value| value.file_type().is_symlink())
     {
-        return Ok(SecretResult {
-            changed: false,
-            blocked: true,
-            warning: true,
-            detail: "destination is a symlink".to_string(),
-            hint: Some("move it aside before applying the secret".to_string()),
-        });
-    }
-    if let Some(metadata) = metadata {
-        if !metadata.is_file() {
+        if !replace_destination(&entry.destination, "destination is a symlink", consent, dry_run)? {
             return Ok(SecretResult {
                 changed: false,
                 blocked: true,
                 warning: true,
-                detail: "destination is not a regular file".into(),
+                detail: "destination is a symlink".to_string(),
+                hint: Some("answer yes at the restore prompt to replace it".to_string()),
+            });
+        }
+        if !dry_run {
+            write_private(&entry.destination, &produced)?;
+        }
+        return Ok(SecretResult {
+            changed: true,
+            blocked: false,
+            warning: false,
+            detail: "replaced symlinked destination".to_string(),
+            hint: None,
+        });
+    }
+    if let Some(metadata) = metadata {
+        if !metadata.is_file() {
+            if !replace_destination(
+                &entry.destination,
+                "destination is not a regular file",
+                consent,
+                dry_run,
+            )? {
+                return Ok(SecretResult {
+                    changed: false,
+                    blocked: true,
+                    warning: true,
+                    detail: "destination is not a regular file".into(),
+                    hint: Some("answer yes at the restore prompt to replace it".to_string()),
+                });
+            }
+            if !dry_run {
+                write_private(&entry.destination, &produced)?;
+            }
+            return Ok(SecretResult {
+                changed: true,
+                blocked: false,
+                warning: false,
+                detail: "replaced blocking destination".to_string(),
                 hint: None,
             });
         }
         if !matches_content(&entry.destination, &metadata, &produced)? {
-            if !force {
+            if !force
+                && !consent.ask(Request {
+                    path: &entry.destination,
+                    detail: format!(
+                        "edited on this machine; live {} bytes, encrypted source {} bytes",
+                        metadata.len(),
+                        produced.len()
+                    ),
+                    repo: None,
+                    live: None,
+                    index: 0,
+                    total: 0,
+                })?
+            {
                 return Ok(SecretResult {
                     changed: false,
                     blocked: true,
                     warning: true,
                     detail: "edited on this machine".to_string(),
-                    hint: Some(
-                        "use --force to discard it or adopt it with dotfile secret edit"
-                            .to_string(),
-                    ),
+                    hint: Some("adopt the local edit with dotfile secret edit".to_string()),
                 });
             }
             if !dry_run {

@@ -9,10 +9,18 @@ use crossbeam_channel::Receiver;
 use workstation::path::home_relative;
 use workstation::text::plural;
 
-use crate::decision::{Choice, Prompt, Request, Server};
+use crate::decision::{Request, Server};
 use crate::event::{Action, Event, Phase, Summary};
 
 pub use ui_terminal::UiPolicy;
+
+pub fn policy() -> UiPolicy {
+    UiPolicy::detect(
+        std::io::stdin().is_terminal(),
+        std::io::stderr().is_terminal(),
+        "DOTFILE_REDUCED_MOTION",
+    )
+}
 
 pub fn run(
     receiver: Receiver<Event>,
@@ -20,11 +28,7 @@ pub fn run(
     worker: JoinHandle<Result<Summary, String>>,
     verbose: bool,
 ) -> Result<Summary, String> {
-    let policy = UiPolicy::detect(
-        std::io::stdin().is_terminal(),
-        std::io::stderr().is_terminal(),
-        "DOTFILE_REDUCED_MOTION",
-    );
+    let policy = policy();
     if policy.interactive {
         tui::run(receiver, decisions, worker, verbose, policy)
     } else {
@@ -116,11 +120,11 @@ pub(crate) fn settle_worker_after_ui_error(
 ) {
     crate::cancel::request();
     if let Some(request) = pending {
-        let _ = decisions.respond(&request, cancellation_choice(&request.prompt));
+        let _ = decisions.respond(&request, request.prompt.cancellation());
     }
     while !worker.is_finished() {
         while let Some(request) = decisions.try_recv() {
-            let _ = decisions.respond(&request, cancellation_choice(&request.prompt));
+            let _ = decisions.respond(&request, request.prompt.cancellation());
         }
         while receiver.try_recv().is_ok() {}
         match receiver.recv_timeout(std::time::Duration::from_millis(25)) {
@@ -130,13 +134,6 @@ pub(crate) fn settle_worker_after_ui_error(
     }
     while receiver.try_recv().is_ok() {}
     let _ = worker.join();
-}
-
-pub(crate) fn cancellation_choice(prompt: &Prompt) -> Choice {
-    match prompt {
-        Prompt::Merge { .. } => Choice::Abort,
-        Prompt::MergeTarget { .. } | Prompt::RemoteChanges { .. } => Choice::Cancel,
-    }
 }
 
 pub(crate) fn action_name(action: Action) -> &'static str {

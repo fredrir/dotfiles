@@ -315,7 +315,7 @@ pub fn synchronize(
                     Choice::Abort | Choice::Cancel => {
                         return Err("merge decision cancelled".to_string());
                     }
-                    Choice::Target(_) => return Err("invalid merge decision".to_string()),
+                    _ => return Err("invalid merge decision".to_string()),
                 }
             }
         }

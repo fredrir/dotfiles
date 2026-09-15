@@ -15,6 +15,8 @@ pub struct Refresh {
     executable: PathBuf,
 }
 
+pub mod requirements;
+
 pub fn pending(cli: &SyncCli) -> Result<Option<Refresh>, String> {
     if cli.dry_run || std::env::var_os("DOTFILE_REEXECED").is_some() {
         return Ok(None);
@@ -102,7 +104,12 @@ pub(crate) fn native_current() -> Result<bool, String> {
 }
 
 fn is_installed(home: &Path, executable: &Path) -> bool {
-    executable == home.join("dotfiles/.bin")
+    let bin = home.join("dotfiles/.bin");
+    executable.parent().is_some_and(|parent| {
+        parent == bin
+            || fs::canonicalize(parent).ok() == fs::canonicalize(&bin).ok()
+                && fs::canonicalize(&bin).is_ok()
+    })
 }
 
 fn stale(root: &Path, executable: &Path) -> Result<bool, String> {
@@ -165,3 +172,7 @@ fn reexec(executable: &Path, arguments: &[OsString]) -> Result<(), String> {
         std::process::exit(status.code().unwrap_or(1));
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/tooling_tests.rs"]
+mod tests;

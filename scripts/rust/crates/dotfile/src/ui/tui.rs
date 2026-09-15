@@ -17,7 +17,7 @@ use ui_terminal::{Inline, SignalGuard, SignalOptions, Teardown, ui_style};
 use ui_theme::{Palette, Role, ThemeHandle};
 use workstation::text::plural;
 
-use crate::decision::{Choice, Prompt, Request, Server};
+use crate::decision::{Choice, Prompt, Request, Server, Subject};
 use crate::event::{Event, Phase, Summary};
 
 use super::UiPolicy;
@@ -35,6 +35,12 @@ const MERGE_CHOICES: [Choice; 5] = [
     Choice::Abort,
 ];
 const REMOTE_CHOICES: [Choice; 2] = [Choice::Discard, Choice::Cancel];
+const OVERWRITE_CHOICES: [Choice; 4] = [
+    Choice::Overwrite,
+    Choice::Keep,
+    Choice::OverwriteAll,
+    Choice::KeepAll,
+];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UiUpdate {
@@ -83,13 +89,18 @@ impl DecisionState {
             } if !targets.is_empty() => (*default).min(targets.len() - 1),
             prompt => choices
                 .iter()
-                .position(|choice| *choice == prompt.safe_default())
+                .position(|choice| *choice == prompt.preselected())
                 .unwrap_or(0),
         };
         let diff = match &request.prompt {
             Prompt::Merge { repo, live, .. } => {
                 Some(DiffDocument::new(&diff_value(repo), &diff_value(live)))
             }
+            Prompt::Overwrite {
+                repo: Some(repo),
+                live: Some(live),
+                ..
+            } => Some(DiffDocument::new(&diff_value(repo), &diff_value(live))),
             _ => None,
         };
         Self {
@@ -335,6 +346,33 @@ impl UiModel {
         }
     }
 
+    pub fn choice_for_key(&self, key: char) -> Option<Choice> {
+        let decision = self.decision.as_ref()?;
+        let candidates: &[Choice] = match key {
+            'r' => &[Choice::Repo],
+            'l' => &[Choice::Live],
+            'i' => &[Choice::Ignore],
+            's' => &[Choice::KeepAll, Choice::Skip],
+            'a' => &[Choice::OverwriteAll, Choice::Abort],
+            'd' => &[Choice::Discard],
+            'c' => &[Choice::Cancel],
+            'y' => &[Choice::Overwrite],
+            'n' => &[Choice::Keep],
+            _ => &[],
+        };
+        candidates
+            .iter()
+            .copied()
+            .find(|candidate| decision.choices.contains(candidate))
+    }
+
+    pub fn answers_on_key(&self) -> bool {
+        matches!(
+            self.decision.as_ref().map(|decision| &decision.request.prompt),
+            Some(Prompt::Overwrite { .. })
+        )
+    }
+
     pub fn select_index(&mut self, selected: usize) {
         if let Some(decision) = &mut self.decision
             && selected < decision.choices.len()
@@ -351,7 +389,7 @@ impl UiModel {
 
     pub fn cancel_response(&self) -> Option<(Request, Choice)> {
         self.decision.as_ref().map(|decision| {
-            let choice = super::cancellation_choice(&decision.request.prompt);
+            let choice = decision.request.prompt.cancellation();
             (decision.request.clone(), choice)
         })
     }
@@ -565,9 +603,17 @@ pub fn run(
                     model.select_next();
                     dirty = true;
                 }
-                InputAction::Select(choice) if model.decision_active() => {
-                    model.select_choice(choice);
-                    dirty = true;
+                InputAction::Letter(key) if model.decision_active() => {
+                    if let Some(choice) = model.choice_for_key(key) {
+                        model.select_choice(choice);
+                        if model.answers_on_key()
+                            && let Some((request, choice)) = model.decision_response()
+                        {
+                            decisions.respond(&request, choice)?;
+                            model.dismiss_decision();
+                        }
+                        dirty = true;
+                    }
                 }
                 InputAction::SelectIndex(selected) if model.decision_active() => {
                     model.select_index(selected);
@@ -788,11 +834,7 @@ fn render_decision(
                 Modifier::BOLD,
             ))
             .title(Span::styled(
-                if decision.diff.is_some() {
-                    " MERGE CONFLICT "
-                } else {
-                    " decision "
-                },
+                decision_title(&decision.request.prompt),
                 ui_style(color, theme_color(palette, Role::Ours), Modifier::BOLD),
             ));
         let inner = block.inner(area);
@@ -800,6 +842,28 @@ fn render_decision(
         render_decision_body(palette, decision, inner, buffer, color, true);
     } else {
         render_decision_body(palette, decision, area, buffer, color, false);
+    }
+}
+
+fn overwrite_spans(
+    palette: &Palette,
+    decision: &DecisionState,
+    subject: Subject,
+    color: bool,
+) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::styled(
+        format!("  {}", subject.question()),
+        ui_style(color, theme_color(palette, Role::Muted), Modifier::empty()),
+    )];
+    spans.extend(choice_spans(palette, decision, color));
+    spans
+}
+
+fn decision_title(prompt: &Prompt) -> String {
+    match prompt {
+        Prompt::Merge { .. } => " MERGE CONFLICT ".to_string(),
+        Prompt::Overwrite { subject, .. } => format!(" {} ", subject.title()),
+        _ => " decision ".to_string(),
     }
 }
 
@@ -1003,6 +1067,139 @@ fn render_decision_body(
                 );
             }
         }
+        Prompt::Overwrite {
+            subject,
+            path,
+            detail,
+            index,
+            total,
+            ..
+        } => {
+            let position = if *total > 1 {
+                format!("  ({index} of {total})")
+            } else {
+                String::new()
+            };
+            if area.height >= 9 && decision.diff.is_some() {
+                render_labeled_value(
+                    palette,
+                    area,
+                    0,
+                    "path",
+                    &format!("{}{position}", super::compact_path(path)),
+                    buffer,
+                    color,
+                );
+                render_labeled_value(
+                    palette,
+                    area,
+                    1,
+                    "found",
+                    &compact_text(detail, usize::from(area.width.saturating_sub(12))),
+                    buffer,
+                    color,
+                );
+                if let Some(document) = &decision.diff {
+                    DiffView {
+                        document,
+                        state: &decision.diff_view,
+                        palette,
+                        color,
+                        left_label: "repo",
+                        right_label: "live",
+                    }
+                    .render(
+                        Rect::new(
+                            area.x,
+                            area.y + 2,
+                            area.width,
+                            area.height.saturating_sub(4),
+                        ),
+                        buffer,
+                    );
+                }
+                render_decision_line(
+                    area,
+                    area.height.saturating_sub(2),
+                    Line::from(overwrite_spans(palette, decision, *subject, color)),
+                    buffer,
+                );
+                render_decision_line(
+                    area,
+                    area.height.saturating_sub(1),
+                    Line::from("  y yes · n no · a all · s skip · j/k scroll · q quit"),
+                    buffer,
+                );
+                return;
+            }
+            let display_path = compact_text(&super::compact_path(path), width.max(8));
+            if spacious {
+                render_decision_line(
+                    area,
+                    0,
+                    Line::from(Span::styled(
+                        format!("  {}{position}", subject.title()),
+                        ui_style(color, theme_color(palette, Role::Conflict), Modifier::BOLD),
+                    )),
+                    buffer,
+                );
+                render_labeled_value(palette, area, 1, "path", &display_path, buffer, color);
+                render_labeled_value(
+                    palette,
+                    area,
+                    2,
+                    "found",
+                    &compact_text(detail, width.max(8)),
+                    buffer,
+                    color,
+                );
+            } else {
+                render_decision_line(
+                    area,
+                    0,
+                    Line::from(vec![
+                        Span::styled(
+                            "  REPLACE  ",
+                            ui_style(color, theme_color(palette, Role::Conflict), Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            display_path,
+                            ui_style(color, theme_color(palette, Role::Plain), Modifier::empty()),
+                        ),
+                    ]),
+                    buffer,
+                );
+                render_labeled_value(
+                    palette,
+                    area,
+                    1,
+                    "found",
+                    &compact_text(detail, width.max(8)),
+                    buffer,
+                    color,
+                );
+            }
+            let choice_row = if spacious {
+                area.height.saturating_sub(2)
+            } else {
+                area.height.saturating_sub(1)
+            };
+            render_decision_line(
+                area,
+                choice_row,
+                Line::from(overwrite_spans(palette, decision, *subject, color)),
+                buffer,
+            );
+            if spacious {
+                render_decision_line(
+                    area,
+                    area.height.saturating_sub(1),
+                    Line::from("  y yes · n no · a all · s skip · q quit"),
+                    buffer,
+                );
+            }
+            return;
+        }
         Prompt::RemoteChanges { host, changes } => {
             let host = compact_text(host, width.max(8));
             let count = changes.len();
@@ -1196,6 +1393,7 @@ fn decision_choices(prompt: &Prompt) -> Vec<Choice> {
             .chain(std::iter::once(Choice::Cancel))
             .collect(),
         Prompt::RemoteChanges { .. } => REMOTE_CHOICES.to_vec(),
+        Prompt::Overwrite { .. } => OVERWRITE_CHOICES.to_vec(),
     }
 }
 
@@ -1209,6 +1407,10 @@ fn choice_name(choice: Choice) -> &'static str {
         Choice::Abort => "abort",
         Choice::Discard => "discard",
         Choice::Cancel => "cancel",
+        Choice::Overwrite => "yes",
+        Choice::Keep => "no",
+        Choice::OverwriteAll => "all",
+        Choice::KeepAll => "skip",
     }
 }
 
@@ -1220,6 +1422,10 @@ fn choice_color(palette: &Palette, choice: Choice) -> Color {
         Choice::Target(_) => theme_color(palette, Role::Theirs),
         Choice::Skip | Choice::Cancel => theme_color(palette, Role::Warning),
         Choice::Abort | Choice::Discard => theme_color(palette, Role::Danger),
+        Choice::Overwrite => theme_color(palette, Role::Ours),
+        Choice::OverwriteAll => theme_color(palette, Role::Danger),
+        Choice::Keep => theme_color(palette, Role::Muted),
+        Choice::KeepAll => theme_color(palette, Role::Warning),
     }
 }
 
@@ -1634,13 +1840,7 @@ impl InlineTerminal {
                         KeyCode::Left | KeyCode::Up | KeyCode::BackTab => InputAction::Previous,
                         KeyCode::Right | KeyCode::Down | KeyCode::Tab => InputAction::Next,
                         KeyCode::Enter | KeyCode::Char(' ') => InputAction::Confirm,
-                        KeyCode::Char('r') => InputAction::Select(Choice::Repo),
-                        KeyCode::Char('l') => InputAction::Select(Choice::Live),
-                        KeyCode::Char('i') => InputAction::Select(Choice::Ignore),
-                        KeyCode::Char('s') => InputAction::Select(Choice::Skip),
-                        KeyCode::Char('a') => InputAction::Select(Choice::Abort),
-                        KeyCode::Char('d') => InputAction::Select(Choice::Discard),
-                        KeyCode::Char('c') => InputAction::Select(Choice::Cancel),
+                        KeyCode::Esc => InputAction::Letter('n'),
                         KeyCode::Char('j') => InputAction::Diff(DiffAction::Down),
                         KeyCode::Char('k') => InputAction::Diff(DiffAction::Up),
                         KeyCode::PageUp => InputAction::Diff(DiffAction::PageUp),
@@ -1652,6 +1852,12 @@ impl InlineTerminal {
                         KeyCode::Char('v') => InputAction::Diff(DiffAction::ToggleMode),
                         KeyCode::Char('<') => InputAction::Diff(DiffAction::Left),
                         KeyCode::Char('>') => InputAction::Diff(DiffAction::Right),
+                        KeyCode::Char(value @ ('r' | 'l' | 'i' | 's' | 'a' | 'd' | 'y' | 'n')) => {
+                            InputAction::Letter(value)
+                        }
+                        KeyCode::Char(value @ ('R' | 'L' | 'I' | 'S' | 'A' | 'D' | 'Y' | 'N')) => {
+                            InputAction::Letter(value.to_ascii_lowercase())
+                        }
                         KeyCode::Char(value @ '1'..='9') => {
                             InputAction::SelectIndex(value.to_digit(10).unwrap_or(1) as usize - 1)
                         }
@@ -1676,7 +1882,7 @@ enum InputAction {
     Cancel,
     Previous,
     Next,
-    Select(Choice),
+    Letter(char),
     SelectIndex(usize),
     Confirm,
     Diff(DiffAction),

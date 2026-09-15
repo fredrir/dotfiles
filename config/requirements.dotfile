@@ -1,8 +1,11 @@
-#   name                a command that has to be on PATH
-#   name = package      ... installed under a different package name
-#   font <family>       a font family the configs ask for by name
-#   file <path>         a path that has to exist but is not tracked here
-#   ?name               wanted but not required: reported, never a failure
+#   name                    a command that has to be on PATH
+#   name = package          ... installed under a different package name
+#   name = manager:package  ... provided by aur, pacman, apt, brew, cargo or uv
+#                           instead of the platform's package manager
+#   font <family>           a font family the configs ask for by name
+#   file <path>             a path that has to exist but is not tracked here
+#   ?name                   wanted but not required: reported, never a failure
+#   A later block refines an earlier entry with the same name.
 
 shared {
   git
@@ -16,7 +19,6 @@ shared {
   age
   sops
   nvim    = neovim
-  ?wezterm
   yazi
   starship
   fastfetch
@@ -29,6 +31,8 @@ shared {
   rsync
   zoxide
   direnv
+  openssl
+  ?wezterm
   ?ncdu
   ?gh     = github-cli
   ?docker
@@ -39,7 +43,6 @@ shared {
   ?7z     = 7zip
   ?portview
   ?kondo
-  openssl
   ?shuck  = shuck-cli
   ?biome
   ?ruff
@@ -48,26 +51,21 @@ shared {
   ?yamlfmt
   ?yamllint
   ?sqlfluff
-  font Hack Nerd Font Mono
-  font JetBrains Mono
-  font Noto Sans
 }
 
 macos {
-  brew  = homebrew
+  brew                      = homebrew
   mosh
   socat
+  ?gh                       = gh
+  ?7z                       = sevenzip
+  font Hack Nerd Font Mono  = font-hack-nerd-font
+  font JetBrains Mono       = font-jetbrains-mono
+  font Noto Sans            = font-noto-sans
 }
 
 linux/common {
-  flameshot
-  xremap
-  ?glmark2
-  ?vkmark
   ?sensors  = lm_sensors
-  fc-cache  = fontconfig
-  wl-copy   = wl-clipboard
-  wl-paste  = wl-clipboard
 }
 
 linux/arch {
@@ -78,29 +76,38 @@ linux/arch {
   nft                 = nftables
   iptables
   mosh
-  wezterm-mux-server  = wezterm-nightly-bin
-  fan2go              = fan2go-git
+  wezterm-mux-server  = aur:wezterm-nightly-bin
+  fan2go              = aur:fan2go-git
   lact
-  hwtune
   nvme                = nvme-cli
   fwupdmgr            = fwupd
   mold
   sccache
   taskset             = util-linux
   ?memtester
-  ?y-cruncher
-  ?llama-cli
+  ?y-cruncher         = aur:y-cruncher
+  ?llama-cli          = aur:llama.cpp-cuda
 }
 
 linux/kde {
-  plasmashell  = plasma-desktop
+  plasmashell               = plasma-desktop
   konsole
   kate
   ?dolphin
+  flameshot
+  xremap                    = aur:xremap-kde-bin
+  fc-cache                  = fontconfig
+  wl-copy                   = wl-clipboard
+  wl-paste                  = wl-clipboard
+  ?glmark2
+  ?vkmark
+  font Hack Nerd Font Mono  = ttf-hack-nerd
+  font JetBrains Mono       = ttf-jetbrains-mono
+  font Noto Sans            = noto-fonts
 }
 
 linux/hyprland {
-  Hyprland  = hyprland
+  Hyprland                  = hyprland
   hyprlock
   hypridle
   waybar
@@ -112,11 +119,21 @@ linux/hyprland {
   swaybg
   qt5ct
   qt6ct
+  flameshot
+  xremap                    = aur:xremap-hypr-bin
+  fc-cache                  = fontconfig
+  wl-copy                   = wl-clipboard
+  wl-paste                  = wl-clipboard
   ?cliphist
   ?grimblast
   ?brightnessctl
   ?playerctl
   ?hyprsunset
-  font JetBrainsMono Nerd Font
+  ?glmark2
+  ?vkmark
+  font Hack Nerd Font Mono  = ttf-hack-nerd
+  font JetBrains Mono       = ttf-jetbrains-mono
+  font JetBrainsMono Nerd Font = ttf-jetbrains-mono-nerd
+  font Noto Sans            = noto-fonts
   file ~/.config/hypr/wallpaper.png
 }

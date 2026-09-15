@@ -62,6 +62,17 @@ impl Sandbox {
     }
 }
 
+fn linked_gitconfig_sandbox() -> Sandbox {
+    Sandbox::new(&[
+        (
+            "repo/config/targets.dotfile",
+            "shared/git/.gitconfig = ~/.gitconfig\n",
+        ),
+        ("repo/environment/test/manifest", "shared\n"),
+        ("repo/shared/git/.gitconfig", "[user]\nname = Test\n"),
+    ])
+}
+
 fn gitconfig_sandbox() -> Sandbox {
     Sandbox::new(&[
         (
@@ -131,6 +142,97 @@ fn sync_tui_teardown_reuses_the_viewport_origin_for_completion() {
         String::from_utf8_lossy(&output)
     );
     assert_eq!(last_cursor_column(before_completion), Some(1));
+}
+
+#[test]
+fn sync_tui_overwrite_prompt_answers_with_a_single_key() {
+    let sandbox = linked_gitconfig_sandbox();
+    let live = sandbox.path("home/.gitconfig");
+    fs::write(&live, "[user]\nname = Live\n").unwrap();
+
+    let (master, slave, _) = open_pty(24, 80);
+    let mut child = sandbox
+        .tui(Path::new(env!("CARGO_BIN_EXE_dotfile")), &slave)
+        .spawn()
+        .unwrap();
+    drop(slave);
+    let mut output = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut cursor_replies = 0;
+    let mut answered = false;
+    let status = loop {
+        read_available(&master, &mut output, 100);
+        reply_to_cursor_queries(&master, &output, &mut cursor_replies);
+        if !answered
+            && String::from_utf8_lossy(&output).contains("overwrite?")
+        {
+            (&master).write_all(b"y").unwrap();
+            answered = true;
+        }
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "overwrite prompt never settled: {:?}",
+            String::from_utf8_lossy(&output)
+        );
+    };
+    read_available(&master, &mut output, 0);
+    let rendered = String::from_utf8_lossy(&output).to_string();
+    assert!(answered, "prompt never appeared: {rendered}");
+    assert!(status.success(), "PTY output: {rendered}");
+    assert!(rendered.contains("UNMANAGED PATH"), "{rendered}");
+    assert!(
+        fs::symlink_metadata(&live).unwrap().file_type().is_symlink(),
+        "{rendered}"
+    );
+    assert_eq!(
+        fs::read_to_string(&live).unwrap(),
+        "[user]\nname = Test\n"
+    );
+}
+
+#[test]
+fn sync_tui_declined_overwrite_keeps_the_live_file_and_fails() {
+    let sandbox = linked_gitconfig_sandbox();
+    let live = sandbox.path("home/.gitconfig");
+    fs::write(&live, "[user]\nname = Live\n").unwrap();
+
+    let (master, slave, _) = open_pty(24, 80);
+    let mut child = sandbox
+        .tui(Path::new(env!("CARGO_BIN_EXE_dotfile")), &slave)
+        .spawn()
+        .unwrap();
+    drop(slave);
+    let mut output = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut cursor_replies = 0;
+    let mut answered = false;
+    let status = loop {
+        read_available(&master, &mut output, 100);
+        reply_to_cursor_queries(&master, &output, &mut cursor_replies);
+        if !answered && String::from_utf8_lossy(&output).contains("overwrite?") {
+            (&master).write_all(b"n").unwrap();
+            answered = true;
+        }
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "overwrite prompt never settled: {:?}",
+            String::from_utf8_lossy(&output)
+        );
+    };
+    read_available(&master, &mut output, 0);
+    let rendered = String::from_utf8_lossy(&output).to_string();
+    assert!(answered, "prompt never appeared: {rendered}");
+    assert!(!status.success(), "declined overwrite reported success");
+    assert_eq!(
+        fs::read_to_string(&live).unwrap(),
+        "[user]\nname = Live\n"
+    );
 }
 
 #[test]

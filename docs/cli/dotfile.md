@@ -3,50 +3,50 @@
 ## Commands
 
 <!-- cli:commands:start -->
-| Command                  | Description                                                                                  |
-| ------------------------ | -------------------------------------------------------------------------------------------- |
-| `dotfile`                | Manages this repository's symlinks, packages, themes, secrets, and system files.             |
-| `dotfile sync`           | Refreshes generated metadata and reconciles `$HOME` with a selected profile.                 |
-| `dotfile dev`            | Tests and lints the repository.                                                              |
-| `dotfile dev test`       | Runs the selected test suites.                                                               |
-| `dotfile dev lint`       | Runs the selected linters.                                                                   |
-| `dotfile dev check`      | Runs the selected linters and test suites.                                                   |
-| `dotfile docs`           | Generates and checks CLI reference, keybindings, package documentation, and README previews. |
-| `dotfile secret`         | Keeps private material out of the repository.                                                |
-| `dotfile secret scan`    | Scans for leaked tokens, private values, and encryption invariants.                          |
-| `dotfile secret init`    | Creates this machine's age identity and prints its public key.                               |
-| `dotfile secret enroll`  | Adds a recipient or enrolls this machine when no key is provided.                            |
-| `dotfile secret revoke`  | Removes a recipient and gives every encrypted file a new data key.                           |
-| `dotfile secret roll`    | Replaces a recipient's key while keeping its label.                                          |
-| `dotfile secret rekey`   | Gives every encrypted file a new data key without changing recipients.                       |
-| `dotfile secret keys`    | Lists the enrolled recipients.                                                               |
-| `dotfile secret sync`    | Regenerates `.sops.yaml` from `config/keys.dotfile`.                                         |
-| `dotfile secret doctor`  | Checks identities, recipients, hooks, and encrypted files.                                   |
-| `dotfile secret add`     | Encrypts a live file into the repository and keeps it in place.                              |
-| `dotfile secret edit`    | Opens a tracked secret in `$EDITOR` and reapplies it.                                        |
-| `dotfile secret apply`   | Decrypts every tracked secret to its destination.                                            |
-| `dotfile secret status`  | Shows what each tracked secret looks like on this machine.                                   |
-| `dotfile secret vars`    | Lists the names that secret templates can reference.                                         |
-| `dotfile secret clean`   | Removes materialized secrets from their destinations.                                        |
-| `dotfile system`         | Tracks root-owned files under `/etc` and installs them as root.                              |
-| `dotfile system status`  | Compares tracked system files with their installed versions.                                 |
-| `dotfile system diff`    | Shows what would change on disk without modifying anything.                                  |
-| `dotfile system install` | Installs tracked system files at their destinations as root.                                 |
-| `dotfile system add`     | Copies a root-owned file into the repository.                                                |
-| `dotfile theme`          | Stamps selected theme profiles into generated configuration files.                           |
-| `dotfile theme sync`     | Regenerates every config from the selected theme profiles.                                   |
-| `dotfile theme dry`      | Reports what theme generation would change without writing.                                  |
-| `dotfile theme check`    | Validates every profile and resolved application color pair.                                 |
-| `dotfile theme contrast` | Prints one or every profile's resolved contrast matrix.                                      |
-| `dotfile theme status`   | Shows each group's resolved profile and whether generated files have drifted.                |
-| `dotfile theme preview`  | Previews a profile's palette, roles, fonts, and terminal colors.                             |
-| `dotfile theme gallery`  | Shows the shared picker, progress, and comparison components using a theme profile.          |
-| `dotfile theme switch`   | Assigns a profile globally, to a group, or to a package.                                     |
-| `dotfile theme outputs`  | Prints the files owned by the theme generator.                                               |
-| `dotfile add`            | Moves a live config into the repository and symlinks it back.                                |
-| `dotfile remove`         | Moves a tracked path out of the repository and keeps it live.                                |
-| `dotfile doctor`         | Checks dotfiles health: profile's links, required tools, and packages.                       |
-| `dotfile format`         | Format configured files                                                                      |
+| Command                  | Description                                                                                         |
+| ------------------------ | --------------------------------------------------------------------------------------------------- |
+| `dotfile`                | Manages this repository's symlinks, packages, themes, secrets, and system files.                    |
+| `dotfile sync`           | Refreshes generated metadata and reconciles `$HOME` with a selected profile.                        |
+| `dotfile dev`            | Tests and lints the repository.                                                                     |
+| `dotfile dev test`       | Runs the selected test suites.                                                                      |
+| `dotfile dev lint`       | Runs the selected linters.                                                                          |
+| `dotfile dev check`      | Runs the selected linters and test suites.                                                          |
+| `dotfile docs`           | Generates and checks CLI reference, keybindings, package documentation, and README previews.        |
+| `dotfile secret`         | Keeps private material out of the repository.                                                       |
+| `dotfile secret scan`    | Scans for leaked tokens, private values, and encryption invariants.                                 |
+| `dotfile secret init`    | Creates this machine's age identity and prints its public key.                                      |
+| `dotfile secret enroll`  | Adds a recipient or enrolls this machine when no key is provided.                                   |
+| `dotfile secret revoke`  | Removes a recipient and gives every encrypted file a new data key.                                  |
+| `dotfile secret roll`    | Replaces a recipient's key while keeping its label.                                                 |
+| `dotfile secret rekey`   | Gives every encrypted file a new data key without changing recipients.                              |
+| `dotfile secret keys`    | Lists the enrolled recipients.                                                                      |
+| `dotfile secret sync`    | Regenerates `.sops.yaml` from `config/keys.dotfile`.                                                |
+| `dotfile secret doctor`  | Checks identities, recipients, hooks, and encrypted files.                                          |
+| `dotfile secret add`     | Encrypts a live file into the repository and keeps it in place.                                     |
+| `dotfile secret edit`    | Opens a tracked secret in `$EDITOR` and reapplies it.                                               |
+| `dotfile secret apply`   | Decrypts every tracked secret to its destination.                                                   |
+| `dotfile secret status`  | Shows what each tracked secret looks like on this machine.                                          |
+| `dotfile secret vars`    | Lists the names that secret templates can reference.                                                |
+| `dotfile secret clean`   | Removes materialized secrets from their destinations.                                               |
+| `dotfile system`         | Tracks root-owned files under `/etc` and installs them as root.                                     |
+| `dotfile system status`  | Compares tracked system files with their installed versions.                                        |
+| `dotfile system diff`    | Shows what would change on disk without modifying anything.                                         |
+| `dotfile system install` | Installs tracked system files at their destinations as root.                                        |
+| `dotfile system add`     | Copies a root-owned file into the repository.                                                       |
+| `dotfile theme`          | Stamps selected theme profiles into generated configuration files.                                  |
+| `dotfile theme sync`     | Regenerates every config from the selected theme profiles.                                          |
+| `dotfile theme dry`      | Reports what theme generation would change without writing.                                         |
+| `dotfile theme check`    | Validates every profile and resolved application color pair.                                        |
+| `dotfile theme contrast` | Prints one or every profile's resolved contrast matrix.                                             |
+| `dotfile theme status`   | Shows each group's resolved profile and whether generated files have drifted.                       |
+| `dotfile theme preview`  | Previews a profile's palette, roles, fonts, and terminal colors.                                    |
+| `dotfile theme gallery`  | Shows the shared picker, progress, and comparison components using a theme profile.                 |
+| `dotfile theme switch`   | Assigns a profile globally, to a group, or to a package.                                            |
+| `dotfile theme outputs`  | Prints the files owned by the theme generator.                                                      |
+| `dotfile add`            | Moves a live config into the repository and symlinks it back.                                       |
+| `dotfile remove`         | Moves a tracked path out of the repository and keeps it live.                                       |
+| `dotfile doctor`         | Checks the profile's links, tools, fonts and packages; prints install commands for what is missing. |
+| `dotfile format`         | Format configured files                                                                             |
 <!-- cli:commands:end -->
 
 ## Flags

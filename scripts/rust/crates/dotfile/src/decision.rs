@@ -25,6 +25,23 @@ pub enum Prompt {
         host: String,
         changes: Vec<String>,
     },
+    Overwrite {
+        subject: Subject,
+        path: PathBuf,
+        detail: String,
+        repo: Option<String>,
+        live: Option<String>,
+        index: usize,
+        total: usize,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Subject {
+    UnmanagedPath,
+    Secret,
+    Tool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -38,6 +55,10 @@ pub enum Choice {
     Abort,
     Discard,
     Cancel,
+    Overwrite,
+    Keep,
+    OverwriteAll,
+    KeepAll,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -57,6 +78,7 @@ pub struct Client {
     requests: Sender<Request>,
     responses: Receiver<Response>,
     next_id: Arc<AtomicU64>,
+    promptable: bool,
 }
 
 pub struct Server {
@@ -65,6 +87,11 @@ pub struct Server {
 }
 
 pub fn channel() -> (Client, Server) {
+    channel_for(true)
+}
+
+/// `promptable` is false when no interface can ask a question, only answer it safely.
+pub fn channel_for(promptable: bool) -> (Client, Server) {
     let (request_sender, request_receiver) = crossbeam_channel::bounded(1);
     let (response_sender, response_receiver) = crossbeam_channel::bounded(1);
     (
@@ -72,6 +99,7 @@ pub fn channel() -> (Client, Server) {
             requests: request_sender,
             responses: response_receiver,
             next_id: Arc::new(AtomicU64::new(1)),
+            promptable,
         },
         Server {
             requests: request_receiver,
@@ -81,6 +109,10 @@ pub fn channel() -> (Client, Server) {
 }
 
 impl Client {
+    pub fn promptable(&self) -> bool {
+        self.promptable
+    }
+
     pub fn choose(&self, prompt: Prompt) -> Result<Choice, String> {
         crate::cancel::check()?;
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
@@ -111,6 +143,10 @@ impl Server {
         self.requests.try_recv().ok()
     }
 
+    pub fn next(&self) -> Option<Request> {
+        self.requests.recv().ok()
+    }
+
     pub fn respond(&self, request: &Request, choice: Choice) -> Result<(), String> {
         self.responses
             .send(Response {
@@ -122,11 +158,74 @@ impl Server {
 }
 
 impl Prompt {
+    /// The answer used when nobody can be asked.
     pub fn safe_default(&self) -> Choice {
         match self {
             Self::Merge { .. } => Choice::Skip,
             Self::MergeTarget { .. } => Choice::Cancel,
             Self::RemoteChanges { .. } => Choice::Cancel,
+            Self::Overwrite { .. } => Choice::Keep,
+        }
+    }
+
+    pub fn preselected(&self) -> Choice {
+        match self {
+            Self::Overwrite { .. } => Choice::Overwrite,
+            prompt => prompt.safe_default(),
+        }
+    }
+
+    pub fn cancellation(&self) -> Choice {
+        match self {
+            Self::Merge { .. } => Choice::Abort,
+            Self::MergeTarget { .. } | Self::RemoteChanges { .. } => Choice::Cancel,
+            Self::Overwrite { .. } => Choice::Keep,
+        }
+    }
+
+    pub fn accepts(&self, choice: Choice) -> bool {
+        match self {
+            Self::Merge { .. } => matches!(
+                choice,
+                Choice::Repo | Choice::Live | Choice::Ignore | Choice::Skip | Choice::Abort
+            ),
+            Self::MergeTarget { targets, .. } => match choice {
+                Choice::Target(index) => index < targets.len(),
+                Choice::Cancel => true,
+                _ => false,
+            },
+            Self::RemoteChanges { .. } => matches!(choice, Choice::Discard | Choice::Cancel),
+            Self::Overwrite { .. } => matches!(
+                choice,
+                Choice::Overwrite | Choice::Keep | Choice::OverwriteAll | Choice::KeepAll
+            ),
+        }
+    }
+
+    /// Answers that settle every remaining prompt of the same subject.
+    pub fn batched(choice: Choice) -> Option<bool> {
+        match choice {
+            Choice::OverwriteAll => Some(true),
+            Choice::KeepAll => Some(false),
+            _ => None,
+        }
+    }
+}
+
+impl Subject {
+    pub fn question(self) -> &'static str {
+        match self {
+            Self::UnmanagedPath => "overwrite?",
+            Self::Secret => "restore?",
+            Self::Tool => "install?",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::UnmanagedPath => "UNMANAGED PATH",
+            Self::Secret => "SECRET CHANGED",
+            Self::Tool => "MISSING TOOL",
         }
     }
 }

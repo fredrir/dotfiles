@@ -53,8 +53,28 @@ impl Sandbox {
     }
 
     fn sync(&self, cli: &SyncCli) -> Result<dotfile_cli::event::Summary, String> {
-        let (decisions, _server) = decision::channel();
-        engine::reconcile(&self.context, "test", cli, &decisions, &VecSink::default())
+        self.sync_answering(cli, None, &VecSink::default())
+    }
+
+    fn sync_answering(
+        &self,
+        cli: &SyncCli,
+        choice: Option<Choice>,
+        sink: &VecSink,
+    ) -> Result<dotfile_cli::event::Summary, String> {
+        let (decisions, server) = decision::channel();
+        let responder = std::thread::spawn(move || {
+            while let Some(request) = server.next() {
+                let answer = choice.unwrap_or_else(|| request.prompt.safe_default());
+                if server.respond(&request, answer).is_err() {
+                    break;
+                }
+            }
+        });
+        let outcome = engine::reconcile(&self.context, "test", cli, &decisions, sink);
+        drop(decisions);
+        let _ = responder.join();
+        outcome
     }
 
     fn package_docs(&self, args: &[&str]) -> Ran {
@@ -361,13 +381,12 @@ fn later_file_never_removes_an_unmanaged_directory() {
 }
 
 #[test]
-fn unmanaged_conflict_is_reported_once_and_never_replaced() {
+fn declined_overwrite_reports_once_and_never_replaces() {
     let sandbox = Sandbox::new("shared\n", "shared/git/.gitconfig = ~/.gitconfig\n");
     sandbox.write("shared/git/.gitconfig", "repo\n");
     fs::write(sandbox.home.join(".gitconfig"), "live\n").expect("live file");
     let sink = VecSink::default();
-    let (decisions, _server) = decision::channel();
-    let result = engine::reconcile(&sandbox.context, "test", &cli(), &decisions, &sink);
+    let result = sandbox.sync_answering(&cli(), Some(Choice::Keep), &sink);
     assert!(result.is_err());
     assert_eq!(
         fs::read_to_string(sandbox.home.join(".gitconfig")).unwrap(),
@@ -379,6 +398,119 @@ fn unmanaged_conflict_is_reported_once_and_never_replaced() {
         .filter(|event| matches!(event, Event::Warning { .. }))
         .count();
     assert_eq!(warnings, 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn approved_overwrite_replaces_an_unmanaged_file_with_its_link() {
+    let sandbox = Sandbox::new("shared\n", "shared/git/.gitconfig = ~/.gitconfig\n");
+    sandbox.write("shared/git/.gitconfig", "repo\n");
+    let destination = sandbox.home.join(".gitconfig");
+    fs::write(&destination, "live\n").expect("live file");
+    let summary = sandbox
+        .sync_answering(&cli(), Some(Choice::Overwrite), &VecSink::default())
+        .expect("overwritten conflict");
+    assert_eq!(summary.links, 1);
+    assert_eq!(
+        fs::read_link(&destination).unwrap(),
+        sandbox.root.join("shared/git/.gitconfig")
+    );
+    assert_eq!(fs::read_to_string(&destination).unwrap(), "repo\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn one_answer_for_all_settles_every_remaining_conflict() {
+    let sandbox = Sandbox::new(
+        "shared\n",
+        "shared/git/.gitconfig = ~/.gitconfig\nshared/tmux/.tmux.conf = ~/.tmux.conf\n",
+    );
+    sandbox.write("shared/git/.gitconfig", "repo\n");
+    sandbox.write("shared/tmux/.tmux.conf", "repo\n");
+    fs::write(sandbox.home.join(".gitconfig"), "live\n").unwrap();
+    fs::write(sandbox.home.join(".tmux.conf"), "live\n").unwrap();
+    let (decisions, server) = decision::channel();
+    let asked = std::thread::spawn(move || {
+        let mut asked = 0;
+        while let Some(request) = server.next() {
+            asked += 1;
+            if server.respond(&request, Choice::OverwriteAll).is_err() {
+                break;
+            }
+        }
+        asked
+    });
+    let summary = engine::reconcile(
+        &sandbox.context,
+        "test",
+        &cli(),
+        &decisions,
+        &VecSink::default(),
+    )
+    .expect("batch overwrite");
+    drop(decisions);
+    assert_eq!(asked.join().expect("responder"), 1);
+    assert_eq!(summary.links, 2);
+    for name in [".gitconfig", ".tmux.conf"] {
+        assert!(
+            fs::symlink_metadata(sandbox.home.join(name))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn approved_overwrite_discards_an_unmanaged_directory_and_its_contents() {
+    let sandbox = Sandbox::new("shared\n", "shared/tmux/.tmux.conf = ~/.tmux.conf\n");
+    sandbox.write("shared/tmux/.tmux.conf", "repo\n");
+    let destination = sandbox.home.join(".tmux.conf");
+    fs::create_dir_all(destination.join("nested")).unwrap();
+    fs::write(destination.join("nested/mine.conf"), "mine\n").unwrap();
+    sandbox
+        .sync_answering(&cli(), Some(Choice::Overwrite), &VecSink::default())
+        .expect("overwritten directory");
+    assert_eq!(
+        fs::read_link(&destination).unwrap(),
+        sandbox.root.join("shared/tmux/.tmux.conf")
+    );
+    assert_eq!(fs::read_to_string(&destination).unwrap(), "repo\n");
+}
+
+#[test]
+fn a_dry_run_never_asks_and_never_touches_unmanaged_paths() {
+    let sandbox = Sandbox::new("shared\n", "shared/git/.gitconfig = ~/.gitconfig\n");
+    sandbox.write("shared/git/.gitconfig", "repo\n");
+    fs::write(sandbox.home.join(".gitconfig"), "live\n").unwrap();
+    let (decisions, server) = decision::channel();
+    let asked = std::thread::spawn(move || {
+        let mut asked = 0;
+        while let Some(request) = server.next() {
+            asked += 1;
+            let _ = server.respond(&request, Choice::Overwrite);
+        }
+        asked
+    });
+    let planning = SyncCli {
+        dry_run: true,
+        ..cli()
+    };
+    let result = engine::reconcile(
+        &sandbox.context,
+        "test",
+        &planning,
+        &decisions,
+        &VecSink::default(),
+    );
+    drop(decisions);
+    assert!(result.is_err());
+    assert_eq!(asked.join().expect("responder"), 0);
+    assert_eq!(
+        fs::read_to_string(sandbox.home.join(".gitconfig")).unwrap(),
+        "live\n"
+    );
 }
 
 #[cfg(unix)]
@@ -943,6 +1075,57 @@ fn secret_templates_materialize_privately_and_are_idempotent() {
         0o600
     );
     assert_eq!(sandbox.sync(&cli()).expect("current secret").changed, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_edited_secret_is_restored_when_the_prompt_is_answered() {
+    let sandbox = Sandbox::new("shared\n", "shared/credentials = ~/.config/credentials\n");
+    sandbox.directory("shared/credentials");
+    sandbox.write("shared/credentials/.secret", "");
+    sandbox.write("shared/credentials/token.tmpl", "literal-token\n");
+    sandbox.sync(&cli()).expect("materialize secret");
+    let destination = sandbox.home.join(".config/credentials/token");
+    fs::write(&destination, "edited\n").unwrap();
+    assert!(sandbox.sync(&cli()).is_err());
+    assert_eq!(fs::read_to_string(&destination).unwrap(), "edited\n");
+    let restored = sandbox
+        .sync_answering(&cli(), Some(Choice::Overwrite), &VecSink::default())
+        .expect("restored secret");
+    assert_eq!(restored.secrets, 1);
+    assert_eq!(
+        fs::read_to_string(&destination).unwrap(),
+        "literal-token\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_secret_destination_is_replaced_once_approved() {
+    let sandbox = Sandbox::new("shared\n", "shared/credentials = ~/.config/credentials\n");
+    sandbox.directory("shared/credentials");
+    sandbox.write("shared/credentials/.secret", "");
+    sandbox.write("shared/credentials/token.tmpl", "literal-token\n");
+    let destination = sandbox.home.join(".config/credentials/token");
+    fs::create_dir_all(destination.parent().unwrap()).unwrap();
+    let elsewhere = sandbox.home.join("elsewhere");
+    fs::write(&elsewhere, "elsewhere\n").unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &destination).unwrap();
+    assert!(sandbox.sync(&cli()).is_err());
+    sandbox
+        .sync_answering(&cli(), Some(Choice::Overwrite), &VecSink::default())
+        .expect("replaced symlinked secret");
+    assert!(
+        !fs::symlink_metadata(&destination)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        fs::read_to_string(&destination).unwrap(),
+        "literal-token\n"
+    );
+    assert_eq!(fs::read_to_string(&elsewhere).unwrap(), "elsewhere\n");
 }
 
 #[test]

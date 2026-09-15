@@ -19,14 +19,21 @@ pub fn reconcile(
     let configuration = Configuration::load(context, profile, &cli.overrides, &changed)?;
     let (merge_entries, merge_paths) = super::merge::discover(context, &configuration)?;
     crate::cancel::check()?;
-    let links =
-        super::links::synchronize(context, &configuration, &merge_paths, cli.dry_run, &changed)?;
+    let links = super::links::synchronize(
+        context,
+        &configuration,
+        &merge_paths,
+        cli.dry_run,
+        decisions,
+        &changed,
+    )?;
     crate::cancel::check()?;
     let secrets = crate::secret::vault::synchronize(
         context,
         &configuration,
         cli.dry_run,
         cli.force,
+        decisions,
         &changed,
     )?;
     crate::cancel::check()?;
@@ -60,7 +67,7 @@ pub fn reconcile(
                 if merges.blocked == 1 { "" } else { "s" }
             ));
         }
-        return Err(format!("{} need a decision", problems.join(" and ")));
+        return Err(format!("{} left unresolved", problems.join(" and ")));
     }
     super::links::save_index(context, &links.managed, cli.dry_run)?;
     Ok(Summary {

@@ -74,7 +74,7 @@ impl SyncCli {
 }
 
 #[derive(Parser)]
-#[command(name = "dotfile", version, about = "The dotfile manager")]
+#[command(name = "dotfile", version)]
 pub struct Cli {
     #[command(flatten)]
     pub completions: Completions,
@@ -108,7 +108,7 @@ pub enum Command {
     Add(crate::manage::AddArgs),
     #[command(about = "Move a tracked path out of the repository and keep it live")]
     Remove(crate::manage::RemoveArgs),
-    #[command(about = "Check the profile, links, tools and packages")]
+    #[command(about = "Check links, tools, fonts and packages; print install commands")]
     Doctor(crate::doctor::Args),
     #[command(hide = true)]
     Profiles {
@@ -303,7 +303,7 @@ fn execute(
             if cli.dry_run {
                 println!("  would: link {profile}");
             }
-            let (client, server) = crate::decision::channel();
+            let (client, server) = crate::decision::channel_for(crate::ui::policy().interactive);
             let (sender, receiver) = crossbeam_channel::bounded(256);
             let context = context.clone();
             let worker = std::thread::spawn(move || {
@@ -370,10 +370,16 @@ fn synchronize(cli: SyncCli, original_arguments: Vec<OsString>) -> std::process:
             Err(error) => failure(error),
         };
     }
+    if let Ok(context) = crate::context::Context::discover()
+        && let Err(error) = crate::tooling::requirements::secret_tools(&context)
+    {
+        return failure(error);
+    }
     let verbose = cli.verbose;
     crate::cancel::reset();
     let (sender, receiver) = crossbeam_channel::bounded(256);
-    let (decision_client, decision_server) = crate::decision::channel();
+    let (decision_client, decision_server) =
+        crate::decision::channel_for(crate::ui::policy().interactive);
     let worker = std::thread::spawn(move || crate::sync::run(&cli, &sender, &decision_client));
     match crate::ui::run(receiver, decision_server, worker, verbose) {
         Ok(summary) => {

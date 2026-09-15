@@ -4,6 +4,7 @@ pub mod artifacts;
 pub mod cancel;
 pub mod cli;
 pub mod config;
+pub mod consent;
 pub mod context;
 pub mod decision;
 pub mod dev;

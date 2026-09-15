@@ -4,24 +4,6 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
-fn have(context: &Context, program: &str) -> bool {
-    context.env("PATH").is_some_and(|paths| {
-        std::env::split_paths(&paths).any(|dir| {
-            let path = dir.join(program);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                path.metadata()
-                    .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-            }
-            #[cfg(not(unix))]
-            {
-                path.is_file()
-            }
-        })
-    })
-}
-
 pub fn suggested_label(context: &Context) -> String {
     let host = context
         .env("HOSTNAME")
@@ -61,7 +43,7 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
     };
     let missing: Vec<_> = ["age", "age-keygen", "sops"]
         .into_iter()
-        .filter(|p| !have(context, p))
+        .filter(|p| context.program(p).is_none())
         .collect();
     row(
         if missing.is_empty() { "ok" } else { "bad" },

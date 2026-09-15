@@ -7,7 +7,7 @@ use std::time::Duration;
 use crossbeam_channel::Receiver;
 
 use crate::cli::SyncCli;
-use crate::decision::{Choice, Prompt, Request, Server};
+use crate::decision::{Request, Server};
 use crate::event::{Event, Summary};
 use crate::push::protocol::{self, Message};
 
@@ -270,25 +270,10 @@ fn relay_decision(
             request.id
         ));
     }
-    if !valid_choice(&request.prompt, choice) {
+    if !request.prompt.accepts(choice) {
         return Err(format!("invalid choice {choice:?} for this decision"));
     }
     decisions.respond(request, choice)
-}
-
-fn valid_choice(prompt: &Prompt, choice: Choice) -> bool {
-    match prompt {
-        Prompt::Merge { .. } => matches!(
-            choice,
-            Choice::Repo | Choice::Live | Choice::Ignore | Choice::Skip | Choice::Abort
-        ),
-        Prompt::MergeTarget { targets, .. } => match choice {
-            Choice::Target(index) => index < targets.len(),
-            Choice::Cancel => true,
-            _ => false,
-        },
-        Prompt::RemoteChanges { .. } => matches!(choice, Choice::Discard | Choice::Cancel),
-    }
 }
 
 fn settle_worker(
@@ -299,24 +284,17 @@ fn settle_worker(
 ) {
     crate::cancel::request();
     if let Some(request) = pending {
-        let _ = decisions.respond(&request, cancellation_choice(&request.prompt));
+        let _ = decisions.respond(&request, request.prompt.cancellation());
     }
     while !worker.is_finished() {
         while events.try_recv().is_ok() {}
         while let Some(request) = decisions.try_recv() {
-            let _ = decisions.respond(&request, cancellation_choice(&request.prompt));
+            let _ = decisions.respond(&request, request.prompt.cancellation());
         }
         std::thread::sleep(Duration::from_millis(5));
     }
     while events.try_recv().is_ok() {}
     let _ = worker.join();
-}
-
-fn cancellation_choice(prompt: &Prompt) -> Choice {
-    match prompt {
-        Prompt::Merge { .. } => Choice::Abort,
-        Prompt::MergeTarget { .. } | Prompt::RemoteChanges { .. } => Choice::Cancel,
-    }
 }
 
 fn write_message(output: &mut impl Write, message: &Message) -> Result<(), String> {

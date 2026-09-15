@@ -65,6 +65,7 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
         }
         Command::Redact => canaries::stream(context)?,
         Command::Init => {
+            crate::tooling::requirements::ensure(context, &["age", "age-keygen", "sops"])?;
             let path = vault::identity_path(context);
             sops::generate(context, &path)?;
             let key = sops::public_key(context, &path)?;
@@ -191,7 +192,9 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
         Command::Apply { dry_run, force } => {
             let configuration = configuration(context)?;
             let sink = SecretSink;
-            let outcome = vault::synchronize(context, &configuration, dry_run, force, &sink)?;
+            let consent = crate::consent::Consent::settled(crate::decision::Subject::Secret, false);
+            let outcome =
+                vault::reconcile(context, &configuration, dry_run, force, &consent, &sink)?;
             println!(
                 "{} {} secrets, {} blocked",
                 if dry_run { "would apply" } else { "applied" },

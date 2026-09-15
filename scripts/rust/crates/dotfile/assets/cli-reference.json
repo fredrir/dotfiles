@@ -180,7 +180,7 @@
     "dotfile dev test": "Runs the selected test suites.",
     "dotfile dev lint": "Runs the selected linters.",
     "dotfile dev check": "Runs the selected linters and test suites.",
-    "dotfile doctor": "Checks dotfiles health: profile's links, required tools, and packages.",
+    "dotfile doctor": "Checks the profile's links, tools, fonts and packages; prints install commands for what is missing.",
     "dotfile secret": "Keeps private material out of the repository.",
     "dotfile secret scan": "Scans for leaked tokens, private values, and encryption invariants.",
     "dotfile secret init": "Creates this machine's age identity and prints its public key.",

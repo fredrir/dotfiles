@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use dotfile_cli::decision::{Choice, Prompt, Request};
+use dotfile_cli::decision::{Choice, Prompt, Request, Subject};
 use dotfile_cli::event::{Action, Event, Phase, Summary};
 use dotfile_cli::ui::plain;
 use dotfile_cli::ui::tui::{UiModel, render_buffer};
@@ -422,6 +422,88 @@ fn merge_arrays_show_the_changed_entries_with_context() {
         assert!(displayed.contains(value), "missing {value}: {displayed}");
     }
     assert_eq!(model.selected_choice(), Some(Choice::Skip));
+}
+
+#[test]
+fn overwrite_prompt_preselects_yes_and_keeps_no_as_the_safe_answer() {
+    let mut model = UiModel::new(false);
+    model.show_decision(Request {
+        id: 61,
+        prompt: Prompt::Overwrite {
+            subject: Subject::UnmanagedPath,
+            path: PathBuf::from("/tmp/.tmux.conf"),
+            detail: "unmanaged file".to_string(),
+            repo: Some("set -g mouse on\n".to_string()),
+            live: Some("set -g mouse off\n".to_string()),
+            index: 1,
+            total: 3,
+        },
+    });
+    assert_eq!(model.selected_choice(), Some(Choice::Overwrite));
+    assert_eq!(model.cancel_response().unwrap().1, Choice::Keep);
+    let rendered = render(&model, 100, 22);
+    for value in [
+        "UNMANAGED PATH",
+        "unmanaged file",
+        "overwrite?",
+        "yes",
+        "no",
+        "all",
+        "skip",
+        "set -g mouse off",
+        "(1 of 3)",
+    ] {
+        assert!(rendered.contains(value), "missing {value}: {rendered}");
+    }
+}
+
+#[test]
+fn overwrite_keys_answer_without_a_second_keystroke() {
+    let mut model = UiModel::new(false);
+    model.show_decision(Request {
+        id: 62,
+        prompt: Prompt::Overwrite {
+            subject: Subject::Secret,
+            path: PathBuf::from("/tmp/token"),
+            detail: "edited on this machine".to_string(),
+            repo: None,
+            live: None,
+            index: 0,
+            total: 0,
+        },
+    });
+    assert!(model.answers_on_key());
+    for (key, expected) in [
+        ('y', Choice::Overwrite),
+        ('n', Choice::Keep),
+        ('a', Choice::OverwriteAll),
+        ('s', Choice::KeepAll),
+    ] {
+        assert_eq!(model.choice_for_key(key), Some(expected));
+    }
+    model.select_choice(Choice::KeepAll);
+    assert_eq!(model.decision_response().unwrap().1, Choice::KeepAll);
+    let rendered = render(&model, 78, 4);
+    assert!(rendered.contains("SECRET CHANGED") || rendered.contains("REPLACE"));
+    assert!(rendered.contains("restore?"));
+}
+
+#[test]
+fn merge_keys_keep_selecting_before_confirming() {
+    let mut model = UiModel::new(false);
+    model.show_decision(Request {
+        id: 63,
+        prompt: Prompt::Merge {
+            path: PathBuf::from("/tmp/settings.json"),
+            key: "editor.fontFamily".to_string(),
+            repo: "repo".to_string(),
+            live: "live".to_string(),
+        },
+    });
+    assert!(!model.answers_on_key());
+    assert_eq!(model.choice_for_key('a'), Some(Choice::Abort));
+    assert_eq!(model.choice_for_key('s'), Some(Choice::Skip));
+    assert_eq!(model.choice_for_key('y'), None);
 }
 
 #[test]

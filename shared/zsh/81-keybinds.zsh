@@ -1,7 +1,7 @@
-bindkey -N fredrir emacs
+bindkey -e
 bindkey -N motion-select emacs
 
-key() { ((${+widgets[${@[-1]}]})) && bindkey -M fredrir "$@" && bindkey -M viins "$@"; }
+key() { ((${+widgets[${@[-1]}]})) && bindkey -M emacs "$@" && bindkey -M viins "$@"; }
 vikey() { key "$@" && bindkey -M vicmd "$@"; }
 selkey() { key "$@" && bindkey -M motion-select "$@"; }
 
@@ -39,5 +39,3 @@ select_key -R ' '-'~' motion-replace-selection
 select_key '^?' motion-kill-selection
 select_key '^H' motion-kill-selection
 select_key $'\e[3~' motion-kill-selection
-
-bindkey -A fredrir main

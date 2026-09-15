@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use crate::consent::{Consent, preview};
 use crate::context::Context;
+use crate::decision::{Client, Subject};
 use crate::event::{Action, Event, EventSink, Phase};
 
 use crate::config::{Configuration, Package, PackageKind, never_fold};
@@ -12,6 +14,7 @@ const PRUNE_DEPTH: usize = 6;
 #[derive(Clone, Debug)]
 enum Operation {
     Remove(PathBuf),
+    Discard(PathBuf),
     RemoveManagedLink {
         path: PathBuf,
         target: PathBuf,
@@ -30,6 +33,12 @@ struct Item {
     destination: PathBuf,
     detail: String,
     changed: bool,
+}
+
+#[derive(Clone, Debug)]
+struct Conflict {
+    source: PathBuf,
+    detail: String,
 }
 
 #[derive(Clone, Debug)]
@@ -97,82 +106,55 @@ pub fn synchronize(
     configuration: &Configuration,
     merge_paths: &HashSet<PathBuf>,
     dry_run: bool,
+    decisions: &Client,
     events: &dyn EventSink,
 ) -> Result<LinkOutcome, String> {
-    let desired = desired_layout(context, configuration, merge_paths)?;
     let linked_packages = configuration
         .packages
         .iter()
         .filter(|package| package.kind == PackageKind::Link)
         .count();
-    events.emit(Event::PhaseStarted {
-        phase: Phase::Plan,
-        total: Some(linked_packages),
-    });
-    let mut planner = Planner {
-        context,
-        configuration,
-        merge_paths,
-        filesystem: VirtualFileSystem::default(),
-        operations: Vec::new(),
-        items: Vec::new(),
-        conflicts: BTreeSet::new(),
-        directories: BTreeSet::new(),
-        managed: BTreeSet::new(),
-        expansion: BTreeMap::new(),
-        desired,
-    };
-    planner.prune()?;
-    let mut completed = 0;
-    for package in &configuration.packages {
-        if package.kind != PackageKind::Link {
-            continue;
+    let consent = Consent::new(decisions, Subject::UnmanagedPath, !dry_run);
+    let mut overwrite = BTreeSet::new();
+    let mut declined = BTreeSet::new();
+    let planner = loop {
+        let planner = plan(
+            context,
+            configuration,
+            merge_paths,
+            overwrite.clone(),
+            linked_packages,
+            events,
+        )?;
+        if planner.conflicts.is_empty() {
+            break planner;
         }
-        planner.walk_package(package)?;
-        completed += 1;
-        events.emit(Event::Progress {
-            phase: Phase::Plan,
-            completed,
-            total: Some(linked_packages),
-            label: package.name.clone(),
-        });
-    }
-    if !planner.conflicts.is_empty() {
-        for item in &planner.items {
-            events.emit(Event::Item {
-                action: item.action,
-                path: item.destination.clone(),
-                detail: item.detail.clone(),
-                changed: item.changed,
-            });
-        }
-        let first = planner.conflicts.first().expect("non-empty conflicts");
-        events.emit(Event::Warning {
-            message: format!(
-                "{} unmanaged path{} block sync; first: {}",
-                planner.conflicts.len(),
-                if planner.conflicts.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                },
-                first.display()
-            ),
-            hint: Some(
-                "move the conflicting paths aside and run dotfile sync again; use -v to list them"
-                    .to_string(),
-            ),
-        });
-        return Err(format!(
-            "{} unmanaged conflict{}",
-            planner.conflicts.len(),
-            if planner.conflicts.len() == 1 {
-                ""
+        let pending: Vec<(PathBuf, Conflict)> = planner
+            .conflicts
+            .iter()
+            .filter(|(path, _)| !declined.contains(*path) && replaceable(context, path))
+            .map(|(path, conflict)| (path.clone(), conflict.clone()))
+            .collect();
+        let mut approved = 0;
+        for (index, (path, conflict)) in pending.iter().enumerate() {
+            if consent.ask(crate::consent::Request {
+                path,
+                detail: conflict.detail.clone(),
+                repo: preview(&conflict.source),
+                live: preview(path),
+                index: index + 1,
+                total: pending.len(),
+            })? {
+                overwrite.insert(path.clone());
+                approved += 1;
             } else {
-                "s"
+                declined.insert(path.clone());
             }
-        ));
-    }
+        }
+        if approved == 0 {
+            return Err(report_conflicts(&planner, consent.interactive(), events));
+        }
+    };
     events.emit(Event::PhaseStarted {
         phase: Phase::Links,
         total: Some(planner.operations.len()),
@@ -205,6 +187,86 @@ pub fn synchronize(
         links,
         managed: planner.managed.into_iter().collect(),
     })
+}
+
+fn plan<'a>(
+    context: &'a Context,
+    configuration: &'a Configuration,
+    merge_paths: &'a HashSet<PathBuf>,
+    overwrite: BTreeSet<PathBuf>,
+    linked_packages: usize,
+    events: &dyn EventSink,
+) -> Result<Planner<'a>, String> {
+    let desired = desired_layout(context, configuration, merge_paths)?;
+    events.emit(Event::PhaseStarted {
+        phase: Phase::Plan,
+        total: Some(linked_packages),
+    });
+    let mut planner = Planner {
+        context,
+        configuration,
+        merge_paths,
+        overwrite,
+        filesystem: VirtualFileSystem::default(),
+        operations: Vec::new(),
+        items: Vec::new(),
+        conflicts: BTreeMap::new(),
+        directories: BTreeSet::new(),
+        managed: BTreeSet::new(),
+        expansion: BTreeMap::new(),
+        desired,
+    };
+    planner.prune()?;
+    let mut completed = 0;
+    for package in &configuration.packages {
+        if package.kind != PackageKind::Link {
+            continue;
+        }
+        planner.walk_package(package)?;
+        completed += 1;
+        events.emit(Event::Progress {
+            phase: Phase::Plan,
+            completed,
+            total: Some(linked_packages),
+            label: package.name.clone(),
+        });
+    }
+    Ok(planner)
+}
+
+fn report_conflicts(planner: &Planner<'_>, asked: bool, events: &dyn EventSink) -> String {
+    for item in &planner.items {
+        events.emit(Event::Item {
+            action: item.action,
+            path: item.destination.clone(),
+            detail: item.detail.clone(),
+            changed: item.changed,
+        });
+    }
+    let total = planner.conflicts.len();
+    let plural = if total == 1 { "" } else { "s" };
+    let first = planner
+        .conflicts
+        .keys()
+        .next()
+        .expect("non-empty conflicts")
+        .clone();
+    events.emit(Event::Warning {
+        message: format!(
+            "{total} unmanaged path{plural} left in place; first: {}",
+            first.display()
+        ),
+        hint: (!asked).then(|| {
+            "sync in a terminal without --dry-run to choose what happens; use -v to list them"
+                .to_string()
+        }),
+    });
+    format!("{total} unmanaged path{plural} kept")
+}
+
+/// Only paths owned by this user, below home, may be discarded for a link.
+fn replaceable(context: &Context, path: &Path) -> bool {
+    path.starts_with(&context.home) && path != context.home
 }
 
 pub fn save_index(context: &Context, managed: &[PathBuf], dry_run: bool) -> Result<(), String> {
@@ -374,10 +436,11 @@ struct Planner<'a> {
     context: &'a Context,
     configuration: &'a Configuration,
     merge_paths: &'a HashSet<PathBuf>,
+    overwrite: BTreeSet<PathBuf>,
     filesystem: VirtualFileSystem,
     operations: Vec<Operation>,
     items: Vec<Item>,
-    conflicts: BTreeSet<PathBuf>,
+    conflicts: BTreeMap<PathBuf, Conflict>,
     directories: BTreeSet<PathBuf>,
     managed: BTreeSet<PathBuf>,
     expansion: BTreeMap<PathBuf, bool>,
@@ -487,24 +550,11 @@ impl Planner<'_> {
                         changed: true,
                     });
                 } else {
-                    self.conflicts.insert(destination.to_path_buf());
-                    self.items.push(Item {
-                        action: Action::Check,
-                        destination: destination.to_path_buf(),
-                        detail: "blocked by unmanaged path".to_string(),
-                        changed: false,
-                    });
+                    self.replace_or_block(source, destination, "unmanaged directory");
                 }
             }
-            Node::Symlink(_) | Node::File => {
-                self.conflicts.insert(destination.to_path_buf());
-                self.items.push(Item {
-                    action: Action::Check,
-                    destination: destination.to_path_buf(),
-                    detail: "blocked by unmanaged path".to_string(),
-                    changed: false,
-                });
-            }
+            Node::Symlink(_) => self.replace_or_block(source, destination, "unmanaged symlink"),
+            Node::File => self.replace_or_block(source, destination, "unmanaged file"),
         }
         Ok(())
     }
@@ -561,14 +611,20 @@ impl Planner<'_> {
                 }
             }
             Node::Symlink(_) => {
-                self.conflicts.insert(destination.to_path_buf());
-                self.items.push(Item {
-                    action: Action::Check,
-                    destination: destination.to_path_buf(),
-                    detail: "blocked by unmanaged symlink".to_string(),
-                    changed: false,
-                });
-                return Ok(());
+                if !self.discard_unmanaged(source, destination, "unmanaged symlink") {
+                    return Ok(());
+                }
+                if !must_expand && !never_fold(self.context, destination) {
+                    self.ensure_parent(destination);
+                    self.symlink(source, destination);
+                    self.items.push(Item {
+                        action: Action::Link,
+                        destination: destination.to_path_buf(),
+                        detail: "replaced unmanaged symlink".to_string(),
+                        changed: true,
+                    });
+                    return Ok(());
+                }
             }
             Node::Missing => {
                 if !must_expand && !never_fold(self.context, destination) {
@@ -584,14 +640,20 @@ impl Planner<'_> {
                 }
             }
             Node::File => {
-                self.conflicts.insert(destination.to_path_buf());
-                self.items.push(Item {
-                    action: Action::Check,
-                    destination: destination.to_path_buf(),
-                    detail: "blocked by unmanaged file".to_string(),
-                    changed: false,
-                });
-                return Ok(());
+                if !self.discard_unmanaged(source, destination, "unmanaged file") {
+                    return Ok(());
+                }
+                if !must_expand && !never_fold(self.context, destination) {
+                    self.ensure_parent(destination);
+                    self.symlink(source, destination);
+                    self.items.push(Item {
+                        action: Action::Link,
+                        destination: destination.to_path_buf(),
+                        detail: "replaced unmanaged file".to_string(),
+                        changed: true,
+                    });
+                    return Ok(());
+                }
             }
             Node::Directory => {}
         }
@@ -682,6 +744,45 @@ impl Planner<'_> {
         self.managed.retain(|managed| !managed.starts_with(path));
     }
 
+    fn replace_or_block(&mut self, source: &Path, destination: &Path, detail: &str) {
+        if !self.discard_unmanaged(source, destination, detail) {
+            return;
+        }
+        self.ensure_parent(destination);
+        self.symlink(source, destination);
+        self.items.push(Item {
+            action: Action::Link,
+            destination: destination.to_path_buf(),
+            detail: format!("replaced {detail}"),
+            changed: true,
+        });
+    }
+
+    fn discard_unmanaged(&mut self, source: &Path, destination: &Path, detail: &str) -> bool {
+        if !self.overwrite.contains(destination) {
+            self.conflicts.insert(
+                destination.to_path_buf(),
+                Conflict {
+                    source: source.to_path_buf(),
+                    detail: detail.to_string(),
+                },
+            );
+            self.items.push(Item {
+                action: Action::Check,
+                destination: destination.to_path_buf(),
+                detail: format!("blocked by {detail}"),
+                changed: false,
+            });
+            return false;
+        }
+        self.operations
+            .push(Operation::Discard(destination.to_path_buf()));
+        self.filesystem.remove(destination);
+        self.managed
+            .retain(|managed| !managed.starts_with(destination));
+        true
+    }
+
     fn remove_managed_directory(&mut self, path: &Path) -> Result<bool, String> {
         let Some(operations) = managed_directory_removal_plan(self.context, path, &self.managed)?
         else {
@@ -713,6 +814,10 @@ fn apply(operations: &[Operation], events: &dyn EventSink) -> Result<(), String>
             Operation::Remove(path) => {
                 fs::remove_file(path)
                     .map_err(|error| format!("remove {}: {error}", path.display()))?;
+                replacing = true;
+            }
+            Operation::Discard(path) => {
+                discard(path)?;
                 replacing = true;
             }
             Operation::RemoveManagedLink { path, target } => {
@@ -756,6 +861,7 @@ fn emit_operation_progress(
 ) {
     let path = match operation {
         Operation::Remove(path)
+        | Operation::Discard(path)
         | Operation::RemoveDirectory(path)
         | Operation::CreateDirectory(path) => path,
         Operation::RemoveManagedLink { path, .. } => path,
@@ -767,6 +873,17 @@ fn emit_operation_progress(
         total: Some(total),
         label: path.display().to_string(),
     });
+}
+
+fn discard(path: &Path) -> Result<(), String> {
+    let metadata =
+        fs::symlink_metadata(path).map_err(|error| format!("read {}: {error}", path.display()))?;
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    }
+    .map_err(|error| format!("discard {}: {error}", path.display()))
 }
 
 #[cfg(unix)]

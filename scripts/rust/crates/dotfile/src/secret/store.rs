@@ -273,7 +273,14 @@ pub fn edit(context: &Context, path: &Path) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
     let variables = vault::load_variables(context);
-    let result = vault::materialize(context, &mut entry, &variables, false, true)?;
+    let result = vault::materialize(
+        context,
+        &mut entry,
+        &variables,
+        false,
+        true,
+        &crate::consent::Consent::settled(crate::decision::Subject::Secret, false),
+    )?;
     println!("{} {}", result.detail, entry.destination.display());
     Ok(if result.blocked {
         ExitCode::FAILURE
