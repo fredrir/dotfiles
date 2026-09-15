@@ -211,13 +211,33 @@ def test_report_opens_floating_pane_that_copies_and_closes(server):
     report = wait_for(lambda: report_pane(server))
     assert report["floating"]
     shown = wait_for(lambda: shown_text(server, report["id"], "unmanaged agent"))
-    assert "exit" in shown and "q close" in shown
+    assert "exit" in shown and "[q] Close" in shown
     title = server.tm("show-options", "-p", "-v", "-t", report["id"], "pane-border-format")
     assert "✗ Move execution" in title
     server.tm("send-keys", "-t", report["id"], "y")
     wait_for(lambda: "unmanaged agent" in server.tm("show-buffer", check=False))
     server.tm("send-keys", "-t", report["id"], "q")
     wait_for(lambda: report_pane(server) is None)
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def test_report_pane_exits_when_its_terminal_hangs_up(server):
+    client = server.attach()
+    agent_hop = Path(server.env["PATH"].split(os.pathsep)[0]) / "agent-hop"
+    agent_hop.write_text("#!/bin/sh\necho 'agent-hop: unmanaged agent' >&2\nexit 1\n")
+    agent_hop.chmod(0o700)
+    server.run("handoff", client=client.name)
+    report = wait_for(lambda: report_pane(server))
+    pid = int(server.tm("display-message", "-p", "-t", report["id"], "#{pane_pid}"))
+    server.stop()
+    wait_for(lambda: not alive(pid), timeout=10)
 
 
 def test_command_errors_open_the_error_modal_and_exit_clean(server):

@@ -447,6 +447,54 @@ pub fn report(ctx: &Context, report: &Report) -> Result<()> {
     ctx.float(&command, &report.title, report.failed, width, height)
 }
 
+const POLL_INTERVAL: u16 = 100;
+
+enum Input {
+    Ready,
+    Idle,
+    HangUp,
+}
+
+/// The terminal crossterm reads from, watched for hangup it cannot report.
+enum Tty {
+    Stdin(io::Stdin),
+    Device(fs::File),
+}
+
+impl Tty {
+    fn open() -> Result<Self> {
+        let stdin = io::stdin();
+        if stdin.is_terminal() {
+            return Ok(Self::Stdin(stdin));
+        }
+        let device = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/tty")?;
+        Ok(Self::Device(device))
+    }
+
+    fn wait(&self, timeout: u16) -> Result<Input> {
+        let descriptor = match self {
+            Self::Stdin(stdin) => stdin.as_fd(),
+            Self::Device(device) => device.as_fd(),
+        };
+        let mut ready = [PollFd::new(descriptor, PollFlags::POLLIN)];
+        match poll(&mut ready, timeout) {
+            Ok(0) | Err(nix::errno::Errno::EINTR) => return Ok(Input::Idle),
+            result => {
+                result?;
+            }
+        }
+        let revents = ready[0].revents().unwrap_or(PollFlags::empty());
+        let lost = PollFlags::POLLHUP | PollFlags::POLLERR | PollFlags::POLLNVAL;
+        if revents.intersects(lost) {
+            return Ok(Input::HangUp);
+        }
+        Ok(Input::Ready)
+    }
+}
+
 pub fn show_report(ctx: &Context, path: &Path) -> Result<i32> {
     use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, read};
 
@@ -490,15 +538,19 @@ pub fn show_report(ctx: &Context, path: &Path) -> Result<i32> {
         ctx.tmux
             .run(&["send-keys", "-X", "-t", pane, "history-top"])?;
     }
+    let tty = Tty::open()?;
     loop {
         if ui_terminal::termination_requested() {
             break;
         }
-        match crossterm::event::poll(Duration::from_millis(100)) {
-            Ok(false) => continue,
+        let buffered = match crossterm::event::poll(Duration::ZERO) {
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            result => {
-                result?;
+            result => result?,
+        };
+        if !buffered {
+            match tty.wait(POLL_INTERVAL)? {
+                Input::HangUp => break,
+                Input::Idle | Input::Ready => continue,
             }
         }
         let Event::Key(key) = read()? else {

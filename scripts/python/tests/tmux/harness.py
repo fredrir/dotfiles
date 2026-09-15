@@ -4,6 +4,7 @@ import os
 import pty
 import select
 import shutil
+import signal
 import struct
 import subprocess
 import tempfile
@@ -165,8 +166,6 @@ class Terminal:
             return bytes(self.buffer)
 
     def resize(self, rows, columns):
-        import signal
-
         fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
         os.kill(self.process.pid, signal.SIGWINCH)
 
@@ -296,9 +295,30 @@ class Server:
 
             wait_for(stopped)
 
+    def strays(self):
+        listing = subprocess.run(
+            ["ps", "-axo", "pid=,command="], capture_output=True, text=True, check=False
+        )
+        found = []
+        for line in listing.stdout.splitlines():
+            pid, _, command = line.strip().partition(" ")
+            if pid.isdigit() and self.socket in command:
+                found.append(int(pid))
+        return found
+
+    def reap(self):
+        for pid in self.strays():
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
     def close(self):
-        self.stop()
-        self.directory.cleanup()
+        try:
+            self.stop()
+        finally:
+            self.reap()
+            self.directory.cleanup()
 
 
 @pytest.fixture
