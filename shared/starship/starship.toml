@@ -1,5 +1,6 @@
-add_newline = false
-palette     = 'theme'
+add_newline  = false
+palette      = 'theme'
+scan_timeout = 60
 
 format = '$python$git_branch$directory$character'
 
