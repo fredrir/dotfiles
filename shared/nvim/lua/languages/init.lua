@@ -50,16 +50,20 @@ local catalog = {
     formatters = { "biome" },
     parsers = { "html" },
   },
+  yaml = { filetypes = { "yaml" }, formatters = { "yamlfmt" }, linters = { "yamllint" }, parsers = { "yaml" } },
+  sql = { filetypes = { "sql" }, formatters = { "sqlfluff" }, linters = { "sqlfluff" } },
+  toml = { filetypes = { "toml" }, servers = { "taplo" }, formatters = { "taplo" } },
   json = {
-    filetypes = { "json", "jsonc" },
+    filetypes = { "json" }, formatters = { "jqfmt" }
+  },
+  jsonc = {
+    filetypes = { "jsonc" },
     servers = { "jsonls", "biome" },
     formatters = { "biome" },
     linters = { "biomejs" },
     parsers = { "json" },
   },
-  yaml = { filetypes = { "yaml" }, formatters = { "yamlfmt" }, linters = { "yamllint" }, parsers = { "yaml" } },
-  sql = { filetypes = { "sql" }, formatters = { "sqlfluff" }, linters = { "sqlfluff" } },
-  toml = { filetypes = { "toml" }, servers = { "taplo" }, formatters = { "taplo" } },
+
   dotfile = {
     filetypes = { "conf", "dotfile" },
     formatters = { "dotfmt" },

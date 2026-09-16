@@ -26,7 +26,6 @@ local M = {
   ---@class FormatPreferences
   formatting = {
     notify_on_error = true,
-    disabled_on_save = { c = true, cpp = true },
     ---@type conform.FormatOpts
     manual = { async = true, lsp_format = "fallback" },
     ---@type conform.FormatOpts

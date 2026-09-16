@@ -5,14 +5,6 @@ local M = {}
 ---@type FormatPreferences
 local preferences
 
----@param bufnr integer
----@param err? string
-local function format_result(bufnr, err)
-  if vim.api.nvim_buf_is_valid(bufnr) and err then
-    vim.notify(err, vim.log.levels.ERROR)
-  end
-end
-
 ---@param opts conform.FormatOpts
 function M.format(opts)
   -- Requiring Conform runs its Lazy setup before we read its preferences.
@@ -25,7 +17,6 @@ function M.format(opts)
       if err and vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_get_changedtick(bufnr) ~= changedtick then
         return
       end
-      format_result(bufnr, err)
     end)
   else
     conform.format(opts)
@@ -44,12 +35,6 @@ function M.on_save(bufnr)
   local filetype = vim.bo[bufnr].filetype
   if preferences.disabled_on_save[filetype] then
     return nil
-  end
-  if languages.filetypes("shell")[filetype] then
-    return vim.tbl_extend("force", preferences.shell, { timeout_ms = preferences.shell_timeout_ms }),
-      function(err)
-        format_result(bufnr, err)
-      end
   end
   return (vim.deepcopy(preferences.on_save))
 end
