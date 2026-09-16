@@ -15,11 +15,11 @@
   "Lua.workspace.library": [
     "${workspaceFolder}/shared/wezterm/lua_modules/share/lua/5.5/wezterm/types",
     "${workspaceFolder}/shared/wezterm/_types",
-    "${env:HOME}/.local/share/nvim/lazy",
     "/opt/homebrew/share/nvim/runtime/lua",
-    "/usr/share/nvim/runtime/lua",
-    "~/.local/share/nvim/lazy/conform.nvim",
-    "~/.local/share/nvim/lazy"
+    "${env:HOME}/.local/share/nvim/lazy/LuaSnip/lua",
+    "${env:HOME}/.local/share/nvim/lazy/conform.nvim/lua",
+    "${env:HOME}/.local/share/nvim/lazy/diffview.nvim/lua",
+    "${env:HOME}/.local/share/nvim/lazy/neo-tree.nvim/lua"
   ],
   "Lua.workspace.checkThirdParty": false,
   "Lua.workspace.ignoreDir": [

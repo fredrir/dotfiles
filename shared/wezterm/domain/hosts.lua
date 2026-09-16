@@ -28,7 +28,6 @@ local hosts = {
       { name = "tailscale", address = "100.75.71.79", bind = "127.0.0.1:8445" },
     },
   },
-
   archie = {
     hostname = "archie",
     target = "macie",

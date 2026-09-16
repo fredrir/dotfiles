@@ -1,6 +1,6 @@
 root = true
 
-[{*.sh,*.bash,*.zsh,.bashrc,.bash_profile,.bash_login,.bash_logout,.profile,.zshrc,.zshenv,.zprofile,.zlogin,.zlogout}]
+[{*.sh,*.bash,.bashrc,.bash_profile,.bash_login,.bash_logout,.profile,.zshrc,.zshenv,.zprofile,.zlogin,.zlogout}]
 indent_style = space
 indent_size = 2
 insert_final_newline = false

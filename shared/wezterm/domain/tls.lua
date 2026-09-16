@@ -1,5 +1,6 @@
 local wezterm = require "wezterm"
 local host = require "domain.hosts"
+local ssh_domains = require "domain.ssh"
 
 local pem = host.origin.pem
 

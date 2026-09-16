@@ -39,7 +39,7 @@ add_plugins() {
 }
 
 has_cmd() { (($+commands[$1])); }
-dir_exists() { [[ -d "$1" ]] }
+dir_exists() { [[ -d "$1" ]]; }
 
 add_fpath() {
   local dir
@@ -49,11 +49,12 @@ add_fpath() {
 }
 
 cached_eval() {
-  local cache="$DOTFILES_ZSH_CACHE/$1.zsh"
+  local cache="$DOTFILES_ZSH_CACHE/$1.zsh" bin
   shift
-  has_cmd $1 || return 0
+  bin=${commands[$1]:-$1}
+  [[ -x $bin ]] || return 0
 
-  if [[ ! -f $cache || $commands[$1] -nt $cache ]]; then
+  if [[ ! -f $cache || $bin -nt $cache ]]; then
     mkdir -p "${cache:h}"
     "$@" >"$cache" 2>/dev/null || return 0
   fi
@@ -64,13 +65,13 @@ cached_eval() {
 typeset -ga _defer_queue
 
 defer() {
-  (( $#_defer_queue )) || _defer_schedule
+  (($#_defer_queue)) || _defer_schedule
   _defer_queue+=("$*")
 }
 
 _defer_schedule() {
   local fd
-  exec {fd}< /dev/null
+  exec {fd}</dev/null
   zle -F $fd _defer_flush
 }
 
@@ -79,13 +80,16 @@ _defer_flush() {
   zle -F $fd
   exec {fd}<&-
 
-  while (( $#_defer_queue )); do
+  while (($#_defer_queue)); do
     eval $_defer_queue[1]
     shift _defer_queue
-    (( KEYS_QUEUED_COUNT || PENDING )) && { _defer_schedule; return }
+    ((KEYS_QUEUED_COUNT || PENDING)) && {
+      _defer_schedule
+      return
+    }
   done
 
-  (( $+functions[_zsh_autosuggest_start] )) && _zsh_autosuggest_start
+  (($+functions[_zsh_autosuggest_start])) && _zsh_autosuggest_start
   zle reset-prompt
 }
 zle -N _defer_flush

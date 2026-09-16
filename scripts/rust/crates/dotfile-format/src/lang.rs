@@ -12,9 +12,10 @@ pub enum Lang {
     Sql,
     Shell,
     Go,
+    Json,
 }
 
-pub const LANGS: [Lang; 10] = [
+pub const LANGS: [Lang; 11] = [
     Lang::Dotfmt,
     Lang::Python,
     Lang::Web,
@@ -25,6 +26,7 @@ pub const LANGS: [Lang; 10] = [
     Lang::Sql,
     Lang::Shell,
     Lang::Go,
+    Lang::Json,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -47,8 +49,6 @@ pub enum Drift {
 
 const QUIET_RUST_LOG: &[(&str, &str)] = &[("RUST_LOG", "warn")];
 const SHUCK_FORMAT: &[(&str, &str)] = &[("SHUCK_EXPERIMENTAL", "1")];
-
-const ALLOW_COMMENTS: &str = "--json-parse-allow-comments=true";
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Step {
@@ -109,6 +109,7 @@ impl Lang {
             Lang::Sql => "sql",
             Lang::Shell => "shell",
             Lang::Go => "go",
+            Lang::Json => "json",
         }
     }
 
@@ -126,6 +127,7 @@ impl Lang {
             Lang::Sql => &["sql"],
             Lang::Shell => &["sh", "bash", "zsh"],
             Lang::Go => &["go"],
+            Lang::Json => &["json"],
         }
     }
 
@@ -154,19 +156,17 @@ impl Lang {
                 on_files("ruff", &["format", "--check"]),
                 on_files("ruff", &["check"]),
             ],
-
-            // `.json` in this repository is sometimes JSONC — a leading `//`
-            // in `shared/vscode/keybindings.json` is what editors write there
-            // — and biome refuses to parse one without being told. The flag
-            // takes an explicit value: bare `--json-parse-allow-comments`
-            // swallows the next argument as its value and the run dies on
-            // "provided string was not `true` or `false`".
             (Lang::Web, Mode::Write) => {
-                vec![on_files("biome", &["format", "--write", ALLOW_COMMENTS])]
+                vec![on_files("biome", &["format", "--write"])]
             }
-            (Lang::Web, Mode::Check) => vec![
-                on_files("biome", &["format", ALLOW_COMMENTS]),
-                on_files("biome", &["lint", ALLOW_COMMENTS]),
+            (Lang::Web, Mode::Check) => {
+                vec![on_files("biome", &["format"]), on_files("biome", &["lint"])]
+            }
+
+            (Lang::Json, Mode::Write) => vec![on_files("jqfmt", &[])],
+            (Lang::Json, Mode::Check) => vec![
+                on_files("jqfmt", &[]),
+                on_files("jq", &["--exit-status", "."]),
             ],
 
             (Lang::Lua, Mode::Write) => vec![on_files("stylua", &[])],
@@ -219,6 +219,7 @@ impl Lang {
     pub fn config(self) -> Option<(&'static str, &'static str)> {
         match self {
             Lang::Dotfmt => Some(("dotfmt.dotfile", "dotfmt.dotfile")),
+            Lang::Json => Some(("jq.dotfile", "jq.dotfile")),
             Lang::Python => Some(("ruff.toml", "ruff.toml")),
             Lang::Web => Some(("biome.global.json", "biome.json")),
             Lang::Lua => Some(("stylua.toml", "stylua.toml")),

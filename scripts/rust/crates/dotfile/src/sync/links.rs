@@ -1005,10 +1005,8 @@ fn source_is_filtered(
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| format!("repository path is not valid UTF-8: {}", source.display()))?;
-    Ok(matches!(
-        basename,
-        ".nolink" | ".secret" | ".system" | "merge.dotfile"
-    ) || vault_owned(source)
+    Ok(matches!(basename, ".nolink" | ".secret" | ".system")
+        || vault_owned(source)
         || generated_locally(context, source)?
         || merge_paths.contains(source))
 }

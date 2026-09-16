@@ -45,7 +45,6 @@ pub struct MergeEntry {
     layers: Vec<Layer>,
     destination: PathBuf,
     ignores: Vec<String>,
-    ignore_file: PathBuf,
     targets: Vec<AdoptionTarget>,
 }
 
@@ -165,7 +164,7 @@ pub fn discover(
             providers[0].source.clone(),
             &operations,
         );
-        let ignore_file = providers[0].package_directory.join("merge.dotfile");
+
         let layers = operations
             .into_iter()
             .map(|record| {
@@ -180,7 +179,7 @@ pub fn discover(
             layers,
             destination,
             ignores,
-            ignore_file,
+
             targets,
         });
     }
@@ -518,9 +517,6 @@ fn settle(
     } else {
         Vec::new()
     };
-    if !ignored_changes.is_empty() && !dry_run {
-        add_ignores(&entry.ignore_file, &ignored_changes)?;
-    }
     if !live_changes.is_empty() && !dry_run {
         adopt_changes(entry, &live_changes)?;
     }
