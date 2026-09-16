@@ -4,12 +4,17 @@
     {
       "label": "Copy active filename",
       "type": "shell",
-      "command": "copy_filename",
-      "args": ["${fileBasename}"],
+      "command": "copy-file-pretty",
+      "args": [
+        "-n",
+        "${file}"
+      ],
       "options": {
         "shell": {
           "executable": "/bin/zsh",
-          "args": ["-ic"]
+          "args": [
+            "-ic"
+          ]
         }
       },
       "problemMatcher": [],
@@ -22,11 +27,16 @@
       "label": "Copy active file content",
       "type": "shell",
       "command": "copy-file-pretty",
-      "args": ["${file}"],
+      "args": [
+        "-f",
+        "${file}"
+      ],
       "options": {
         "shell": {
           "executable": "/bin/zsh",
-          "args": ["-ic"]
+          "args": [
+            "-ic"
+          ]
         }
       },
       "problemMatcher": [],

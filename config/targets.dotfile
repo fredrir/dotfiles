@@ -36,7 +36,9 @@ macos:shared/vscode/keybindings.json = ~/Library/Application Support/Code/User/k
 macos:shared/vscode/settings.json = ~/Library/Application Support/Code/User/settings.json
 linux:shared/vscode/keybindings.json = ~/.config/Code/User/keybindings.json
 linux:shared/vscode/settings.json = ~/.config/Code/User/settings.json
-
+shared/vscode/chatLanguageModels.json = ~/Library/Application Support/Code/User/chatLanguageModels.json
+macos:shared/vscode/chatLanguageModels.json = ~/Library/Application Support/Code/User/chatLanguageModels.json
+linux:shared/vscode/chatLanguageModels.json = ~/.config/Code/User/chatLanguageModels.json
 # macos
 macos/fastfetch = ~/.config/fastfetch
 macos/git/.gitconfig = ~/.gitconfig
@@ -99,3 +101,4 @@ linux/kde/kvitals = ~/.local/share/plasma/plasmoids/org.kde.plasma.kvitals
 linux/kde/my-panel = ~/.config/my-panel
 linux/kde/panel-colorizer = ~/.config/panel-colorizer
 linux/kde/plasma = ~/.config
+

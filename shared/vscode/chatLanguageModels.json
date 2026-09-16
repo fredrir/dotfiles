@@ -1,0 +1,56 @@
+[
+  {
+    "name": "archie cable llama-server",
+    "vendor": "customendpoint",
+    "apiKey": "${input:chat.lm.secret.2ccc6bc2}",
+    "apiType": "chat-completions",
+    "models": [
+      {
+        "id": "qwen3.8-27b-q4",
+        "name": "Cable - Qwen3.8-27B Q4_K_XL",
+        "url": "http://10.77.77.2:8080/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 90000,
+        "maxOutputTokens": 8192
+      },
+      {
+        "id": "qwen3.8-27b-q6",
+        "name": "Cable - Qwen3.8-27B Q6_K_XL",
+        "url": "http://10.77.77.2:8080/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "thinking": false,
+        "maxInputTokens": 60000,
+        "maxOutputTokens": 8192
+      }
+    ]
+  },
+  {
+    "name": "archie tailscale llama-server",
+    "vendor": "customendpoint",
+    "apiKey": "${input:chat.lm.secret.2ccc6bc2}",
+    "apiType": "chat-completions",
+    "models": [
+      {
+        "id": "qwen3.8-27b-q4",
+        "name": "Tailscale - Qwen3.8-27B Q4_K_XL",
+        "url": "http://100.124.205.100:8080/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 90000,
+        "maxOutputTokens": 8192
+      },
+      {
+        "id": "qwen3.8-27b-q6",
+        "name": "Tailscale - Qwen3.8-27B Q6_K_XL",
+        "url": "http://100.124.205.100:8080/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "thinking": false,
+        "maxInputTokens": 60000,
+        "maxOutputTokens": 8192
+      }
+    ]
+  }
+]

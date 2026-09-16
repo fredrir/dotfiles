@@ -76,19 +76,27 @@
   "customLocalFormatters.formatters": [
     {
       "command": "yamlfmt -",
-      "languages": ["yaml"]
+      "languages": [
+        "yaml"
+      ]
     },
     {
       "command": "sqlfluff format -",
-      "languages": ["sql"]
+      "languages": [
+        "sql"
+      ]
     },
     {
       "command": "jqfmt",
-      "languages": ["json"]
+      "languages": [
+        "json"
+      ]
     },
     {
-      "command": "$DOTFILES_COMPILED/dotfmt --stdin \"${file}\"",
-      "languages": ["properties"]
+      "command": "dotfmt --stdin \"${file}\"",
+      "languages": [
+        "properties"
+      ]
     }
   ],
   "[yaml]": {
@@ -118,7 +126,8 @@
     "*.dotfile": "properties",
     "Cargo.lock": "properties",
     "uv.lock": "properties",
-    "settings.*.json": "jsonc"
+    "settings.*.json": "jsonc",
+    "*.json": "json"
   },
   "js/ts.updateImportsOnFileMove.enabled": "always",
   "json.schemaDownload.trustedDomains": {
