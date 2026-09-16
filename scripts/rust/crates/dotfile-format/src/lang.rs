@@ -118,7 +118,7 @@ impl Lang {
             Lang::Dotfmt => &["conf", "config", "dotfile"],
             Lang::Python => &["py", "pyi"],
             Lang::Web => &[
-                "js", "jsx", "ts", "tsx", "mjs", "cjs", "css", "html", "json", "jsonc",
+                "js", "jsx", "ts", "tsx", "mjs", "cjs", "css", "html", "jsonc",
             ],
             Lang::Lua => &["lua"],
             Lang::Rust => &["rs"],
@@ -164,10 +164,10 @@ impl Lang {
             }
 
             (Lang::Json, Mode::Write) => vec![on_files("jqfmt", &[])],
-            (Lang::Json, Mode::Check) => vec![
-                on_files("jqfmt", &[]),
-                on_files("jq", &["--exit-status", "."]),
-            ],
+            // `jqfmt --check` reads the file and writes nothing, which is what
+            // a check is: the pair this replaced ran the formatter over the
+            // working tree and then asked jq whether the result parsed.
+            (Lang::Json, Mode::Check) => vec![on_files("jqfmt", &["--check"])],
 
             (Lang::Lua, Mode::Write) => vec![on_files("stylua", &[])],
             (Lang::Lua, Mode::Check) => vec![on_files("stylua", &["--check"])],
@@ -219,7 +219,7 @@ impl Lang {
     pub fn config(self) -> Option<(&'static str, &'static str)> {
         match self {
             Lang::Dotfmt => Some(("dotfmt.dotfile", "dotfmt.dotfile")),
-            Lang::Json => Some(("jq.dotfile", "jq.dotfile")),
+            Lang::Json => Some(("jqfmt.dotfile", "jqfmt.dotfile")),
             Lang::Python => Some(("ruff.toml", "ruff.toml")),
             Lang::Web => Some(("biome.global.json", "biome.json")),
             Lang::Lua => Some(("stylua.toml", "stylua.toml")),
@@ -288,6 +288,9 @@ pub fn configured(program: &str) -> Option<Configured> {
         // that made this crate ask `--owns` rather than guess — so naming one
         // config for a whole run would override it everywhere.
         "dotfmt" => Configured::Found("resolves per file and owns that rule"),
+        "jqfmt" => {
+            Configured::Found("resolves per file and owns that rule, from jqfmt.dotfile upward")
+        }
         "ruff" => Configured::Found("reads ~/.config/ruff/ruff.toml, which this repository links"),
         "sqlfluff" => Configured::Found("reads ~/.sqlfluff, which this repository links"),
         "shuck" => Configured::Found("reads project config or ~/.config/shuck/shuck.toml"),

@@ -31,6 +31,10 @@ alias ....='cd ../../..'
 alias cd..="cd .."
 alias cd...="cd ../.."
 
+if [[ -n $VSCODE_INJECTION ]]; then
+  return 0
+fi
+
 alias mkdir="mkdir -p"
 
 alias grep="grep --color=auto"

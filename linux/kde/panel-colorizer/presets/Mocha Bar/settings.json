@@ -24,19 +24,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 0,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -58,7 +80,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -72,20 +98,40 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 5, "left": 5, "top": 5, "bottom": 5 }
+          "side": {
+            "right": 5,
+            "left": 5,
+            "top": 5,
+            "bottom": 5
+          }
         },
         "padding": {
           "enabled": true,
-          "side": { "left": 6, "right": 6, "top": 0, "bottom": 0 }
+          "side": {
+            "left": 6,
+            "right": 6,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 1, "bottom": 2, "right": 1, "top": 0 },
+            "widths": {
+              "left": 1,
+              "bottom": 2,
+              "right": 1,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -201,10 +247,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -271,19 +327,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -305,7 +383,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -319,20 +401,40 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "padding": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -377,10 +479,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -515,19 +627,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -549,7 +683,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -563,20 +701,40 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "padding": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -621,10 +779,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -759,19 +927,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -793,7 +983,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -807,20 +1001,40 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "padding": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -865,10 +1079,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -1003,19 +1227,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -1037,7 +1283,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -1051,20 +1301,40 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "padding": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -1109,10 +1379,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -1247,19 +1527,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 2,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": true,
@@ -1281,7 +1583,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 0
         },
         "radius": {
@@ -1295,17 +1601,32 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 4, "bottom": 4 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 4,
+            "bottom": 4
+          }
         },
         "spacing": 6,
         "border": {
           "enabled": false,
           "customSides": true,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -1419,10 +1740,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -1504,19 +1835,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -1538,7 +1891,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -1552,17 +1909,32 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "spacing": 4,
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -1607,10 +1979,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -1760,19 +2142,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -1794,7 +2198,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -1808,17 +2216,32 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "spacing": 4,
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -1863,10 +2286,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -2016,19 +2449,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -2050,7 +2505,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -2064,17 +2523,32 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "spacing": 4,
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -2119,10 +2593,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -2272,19 +2756,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -2306,7 +2812,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -2320,17 +2830,32 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "spacing": 4,
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -2375,10 +2900,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -2529,19 +3064,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": true,
@@ -2563,7 +3120,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 0
         },
         "radius": {
@@ -2577,16 +3138,31 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -2700,10 +3276,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -2770,19 +3356,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -2804,7 +3412,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -2818,16 +3430,31 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -2872,10 +3499,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -3010,19 +3647,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -3044,7 +3703,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -3058,16 +3721,31 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -3112,10 +3790,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -3250,19 +3938,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -3284,7 +3994,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -3298,16 +4012,31 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -3352,10 +4081,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -3490,19 +4229,41 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1,
           "gradient": {
             "stops": [
-              { "color": "#ff0000", "position": 0 },
-              { "color": "#f9f54e", "position": 0.25 },
-              { "color": "#21fd00", "position": 0.5 },
-              { "color": "#0e1eff", "position": 0.75 },
-              { "color": "#fd12ff", "position": 1 }
+              {
+                "color": "#ff0000",
+                "position": 0
+              },
+              {
+                "color": "#f9f54e",
+                "position": 0.25
+              },
+              {
+                "color": "#21fd00",
+                "position": 0.5
+              },
+              {
+                "color": "#0e1eff",
+                "position": 0.75
+              },
+              {
+                "color": "#fd12ff",
+                "position": 1
+              }
             ],
             "orientation": 0
           },
-          "image": { "source": "", "fillMode": 2 }
+          "image": {
+            "source": "",
+            "fillMode": 2
+          }
         },
         "foregroundColor": {
           "enabled": false,
@@ -3524,7 +4285,11 @@
           "followColor": 0,
           "saturationEnabled": false,
           "lightnessEnabled": false,
-          "animation": { "enabled": false, "interval": 3000, "smoothing": 800 },
+          "animation": {
+            "enabled": false,
+            "interval": 3000,
+            "smoothing": 800
+          },
           "sourceType": 1
         },
         "radius": {
@@ -3538,16 +4303,31 @@
         },
         "margin": {
           "enabled": false,
-          "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+          "side": {
+            "right": 0,
+            "left": 0,
+            "top": 0,
+            "bottom": 0
+          }
         },
         "border": {
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -3592,10 +4372,20 @@
           "enabled": false,
           "customSides": false,
           "custom": {
-            "widths": { "left": 0, "bottom": 3, "right": 0, "top": 0 },
+            "widths": {
+              "left": 0,
+              "bottom": 3,
+              "right": 0,
+              "top": 0
+            },
             "margin": {
               "enabled": false,
-              "side": { "right": 0, "left": 0, "top": 0, "bottom": 0 }
+              "side": {
+                "right": 0,
+                "left": 0,
+                "top": 0,
+                "bottom": 0
+              }
             },
             "radius": {
               "enabled": false,
@@ -3717,14 +4507,33 @@
       "visibility": 3,
       "opacity": 2,
       "floating": false,
-      "lengthMode": { "enabled": false, "value": "fill" },
-      "thickness": { "enabled": false, "value": 48 },
-      "visible": { "enabled": false, "value": true },
-      "screen": { "enabled": false, "value": 0 }
+      "lengthMode": {
+        "enabled": false,
+        "value": "fill"
+      },
+      "thickness": {
+        "enabled": false,
+        "value": 48
+      },
+      "visible": {
+        "enabled": false,
+        "value": true
+      },
+      "screen": {
+        "enabled": false,
+        "value": 0
+      }
     },
-    "configurationOverrides": { "overrides": {}, "associations": [] },
+    "configurationOverrides": {
+      "overrides": {},
+      "associations": []
+    },
     "nativePanel": {
-      "background": { "enabled": false, "opacity": 0, "shadow": true },
+      "background": {
+        "enabled": false,
+        "opacity": 0,
+        "shadow": true
+      },
       "floatingDialogs": false,
       "floatingDialogsAllowOverride": false,
       "fillAreaOnDeFloat": true,

@@ -92,6 +92,14 @@
       "source": "scripts/rust/crates/hwtune/"
     },
     {
+      "name": "jqfmt",
+      "title": "jqfmt",
+      "programs": [
+        "jqfmt"
+      ],
+      "source": "scripts/rust/crates/format/jqfmt/"
+    },
+    {
       "name": "mux-route",
       "title": "mux-route",
       "programs": [
@@ -151,6 +159,7 @@
     "hpush",
     "hwire",
     "hwtune",
+    "jqfmt",
     "mux-route",
     "path",
     "size",
@@ -214,6 +223,7 @@
     "dotfile theme outputs": "Prints the files owned by the theme generator.",
     "dotfile-format": "Formats a tree by handing each language to the tool that owns it.",
     "dotfmt": "Formats the `.conf`, `.config`, and `.dotfile` files in a tree.",
+    "jqfmt": "Formats the JSON in a tree the way jq does.",
     "flatten": "Lifts a directory's contents out of the directories holding them.",
     "gdd": "Discards tracked and untracked working-tree changes while preserving ignored files and nested repositories.",
     "gget": "Downloads a file or directory from a GitHub repository into the current directory.",
@@ -335,6 +345,12 @@
       "--check": "Verifies formatting and runs each language's linter instead of writing anything.",
       "--add": "Offers this repository's tool configuration to the target, asking per file.",
       "--sync": "Replaces the tool configuration the target already has, without asking.",
+      "--verbose": "Names every file as it is formatted.",
+      "--quiet": "Reports nothing but failures."
+    },
+    "jqfmt": {
+      "--editor": "Reads what jq refuses: comments, trailing commas, single quotes, unquoted keys, Python names, missing commas.",
+      "--check": "Reports what is not laid out instead of writing it; with --editor, a repair is a finding too.",
       "--verbose": "Names every file as it is formatted.",
       "--quiet": "Reports nothing but failures."
     },

@@ -450,7 +450,7 @@ fn a_tree_holding_nothing_any_provider_owns_succeeds_and_runs_nothing() {
 fn a_lockfile_is_never_handed_to_a_tool_and_verbose_names_it() {
     let repo = checkout();
     let root = tree(&["app.json=x\n", "package-lock.json=y\n"]);
-    let bin = only(&["biome"]);
+    let bin = only(&["jqfmt"]);
     let logged = root.path().join("log");
     let output = format(
         &["-v", &at(&root, "")],
@@ -463,13 +463,8 @@ fn a_lockfile_is_never_handed_to_a_tool_and_verbose_names_it() {
     );
     let lines = log(&logged);
     assert_eq!(lines.len(), 1);
-    assert_eq!(
-        lines[0].rsplit('|').next().unwrap(),
-        format!(
-            "format --write --json-parse-allow-comments=true --config-path {} app.json",
-            repo.path().join("shared/tools/biome.global.json").display()
-        )
-    );
+    assert!(lines[0].starts_with("jqfmt|"), "{lines:?}");
+    assert_eq!(lines[0].rsplit('|').next().unwrap(), "app.json");
     assert!(
         stderr(&output).contains("1 generated lockfile left alone: package-lock.json"),
         "{}",
@@ -671,7 +666,7 @@ fn no_provider_is_ever_handed_an_encrypted_file() {
     let root = tree(&["ci.yaml=a: 1\n", "app.json={}\n"]);
     fs::write(root.path().join("secrets.yaml"), sealed()).unwrap();
     fs::write(root.path().join("creds.json"), sealed()).unwrap();
-    let bin = only(&["yamlfmt", "biome"]);
+    let bin = only(&["yamlfmt", "jqfmt"]);
     let logged = root.path().join("log");
     let output = format(
         &[&at(&root, "")],
@@ -774,8 +769,8 @@ fn the_sops_configuration_file_is_still_formatted() {
 #[test]
 fn taplo_and_biome_are_pointed_at_this_repositorys_config() {
     let repo = checkout();
-    let root = tree(&["a.toml=x\n", "b.json=x\n"]);
-    let bin = only(&["taplo", "biome"]);
+    let root = tree(&["a.toml=x\n", "b.json=x\n", "c.jsonc=x\n"]);
+    let bin = only(&["taplo", "biome", "jqfmt"]);
     let logged = root.path().join("log");
     format(
         &["--check", &at(&root, "")],
@@ -798,12 +793,18 @@ fn taplo_and_biome_are_pointed_at_this_repositorys_config() {
         )),
         "{said:?}"
     );
+    // jqfmt resolves its own config per file, the way dotfmt does, so its row
+    // is pointed at nothing: naming one file would override that everywhere.
+    let jqfmt: Vec<&String> = said.iter().filter(|line| line.ends_with("b.json")).collect();
+    assert_eq!(jqfmt.len(), 1, "{said:?}");
+    assert!(!jqfmt[0].contains("--config"), "{said:?}");
     // biome reads no directory that does not hold a `biome.json`, and this
     // repository keeps its copy under a name that will not shadow a
-    // project's own, so the file itself is what has to be named.
+    // project's own, so the file itself is what has to be named. The `.jsonc`
+    // files are the ones biome owns here.
     assert!(
         said.contains(&format!(
-            "format --json-parse-allow-comments=true --config-path {} b.json",
+            "format --config-path {} c.jsonc",
             tools.join("biome.global.json").display()
         )),
         "{said:?}"
@@ -813,7 +814,9 @@ fn taplo_and_biome_are_pointed_at_this_repositorys_config() {
 #[test]
 fn a_target_with_its_own_config_keeps_it() {
     let repo = checkout();
-    let root = tree(&["a.toml=x\n", "b.json=x\n", ".taplo.toml=mine\n"]);
+    // `.jsonc` rather than `.json`, because biome is the row that still has a
+    // config injected into it: jqfmt resolves its own, file by file.
+    let root = tree(&["a.toml=x\n", "b.jsonc=x\n", ".taplo.toml=mine\n"]);
     let bin = only(&["taplo", "biome"]);
     let logged = root.path().join("log");
     format(

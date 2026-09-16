@@ -9,7 +9,9 @@
       "wait-all": true
     },
     {
-      "detached": ["open steam://open/bigpicture"],
+      "detached": [
+        "open steam://open/bigpicture"
+      ],
       "image-path": "steam.png",
       "name": "Steam Big Picture",
       "prep-cmd": [

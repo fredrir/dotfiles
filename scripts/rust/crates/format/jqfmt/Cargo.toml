@@ -1,0 +1,23 @@
+[package]
+name              = "jqfmt"
+version.workspace = true
+description       = "Format JSON the way jq does, and repair JSON that nearly is"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace  = true
+rayon.workspace = true
+workstation     = { workspace = true, features = ["walk"] }
+
+# Insertion order with a key that can appear twice, which is what an object is:
+# jq keeps the first position and the last value, and this is the same promise
+# without a hand-written map to keep it.
+indexmap = "2"
+
+[dev-dependencies]
+tempfile.workspace = true
+testkit.workspace  = true

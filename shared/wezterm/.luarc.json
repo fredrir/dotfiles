@@ -1,23 +1,29 @@
 {
   "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
   "runtime.version": "Lua 5.4",
-  "runtime.path": ["?.lua", "?/init.lua"],
+  "runtime.path": [
+    "?.lua",
+    "?/init.lua"
+  ],
   "runtime.pathStrict": true,
   "workspace.library": [
     "${workspaceFolder}/lua_modules/share/lua/5.5/wezterm/types",
     "${workspaceFolder}/_types",
     "${env:HOME}/projects/wez-plugins/vertical-tabs/plugin/types"
   ],
-  "workspace.ignoreDir": [".luarocks"],
+  "workspace.ignoreDir": [
+    ".luarocks"
+  ],
   "workspace.checkThirdParty": false,
-  "diagnostics.unusedLocalExclude": ["_*"],
+  "diagnostics.unusedLocalExclude": [
+    "_*"
+  ],
   "format.enable": false,
   "telemetry.enable": false,
   "diagnostics.groupFileStatus": {
     "strong": "Any",
     "type-check": "Any"
   },
-
   "type.checkTableShape": true,
   "type.inferParamType": true
 }

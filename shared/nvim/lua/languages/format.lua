@@ -52,6 +52,11 @@ function M.setup(opts)
         args = { "--stdin", "$FILENAME" },
         stdin = true,
       },
+      jqfmt = {
+        command = "jqfmt",
+        args = { "--eq" },
+        stdin = true,
+      },
       stylua = {
         args = function(_, ctx)
           local args = { "--search-parent-directories", "--respect-ignores" }

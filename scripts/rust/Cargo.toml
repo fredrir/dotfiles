@@ -12,6 +12,7 @@ members = [
   "crates/dotfile-format",
   "crates/dotfmt",
   "crates/flatten",
+  "crates/format/jqfmt",
   "crates/git/gdd",
   "crates/git/gget",
   "crates/git/gitkit",

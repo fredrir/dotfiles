@@ -66,7 +66,8 @@ fn every_extension_belongs_to_exactly_one_language() {
 
 #[test]
 fn the_extension_is_read_without_regard_to_case() {
-    assert_eq!(Lang::of(Path::new("Data.JSON")), Some(Lang::Web));
+    assert_eq!(Lang::of(Path::new("Data.JSON")), Some(Lang::Json));
+    assert_eq!(Lang::of(Path::new("Data.JSONC")), Some(Lang::Web));
 }
 
 #[test]
@@ -726,7 +727,7 @@ fn every_config_the_table_names_has_a_copy_compiled_in() {
         let text = configs::read(&Source::Embedded, from).unwrap();
         assert!(!text.is_empty(), "{from} is compiled in empty");
     }
-    assert_eq!(configs::EMBEDDED.len(), 9);
+    assert_eq!(configs::EMBEDDED.len(), 10);
 }
 
 #[test]
@@ -1041,7 +1042,7 @@ fn every_injection_is_for_a_program_the_table_runs() {
             injection.program
         );
     }
-    assert_eq!(programs.len(), 12);
+    assert_eq!(programs.len(), 13);
 }
 
 // ---------------------------------------------------------------- the report

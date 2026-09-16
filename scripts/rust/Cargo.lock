@@ -2933,6 +2933,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "jqfmt"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "indexmap",
+ "rayon",
+ "tempfile",
+ "testkit",
+ "workstation",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"

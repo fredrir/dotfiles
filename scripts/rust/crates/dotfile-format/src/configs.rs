@@ -7,10 +7,14 @@ use workstation::Answer;
 
 use crate::lang::{LANGS, Lang};
 
-pub const EMBEDDED: [(&str, &str); 9] = [
+pub const EMBEDDED: [(&str, &str); 10] = [
     (
         "dotfmt.dotfile",
         include_str!("../../../../../shared/tools/dotfmt.dotfile"),
+    ),
+    (
+        "jqfmt.dotfile",
+        include_str!("../../../../../shared/tools/jqfmt.dotfile"),
     ),
     (
         "ruff.toml",

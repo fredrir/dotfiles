@@ -1,0 +1,4 @@
+jqfmt {
+  indent         = 2
+  final_newline  = true
+}
