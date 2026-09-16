@@ -61,7 +61,7 @@ alias dockd="docker compose down -v"
 alias dockseed="docker compose exec backend pnpm db:seed"
 alias dockus="docker compose down -v && docker compose up --build -d && docker compose exec backend pnpm db:seed && docker compose logs -f backend"
 
-alias penv="python -m venv .venv && source .venv/bin/activate"
+alias penv="python3 -m venv .venv && source .venv/bin/activate"
 
 # Linux
 if [[ -n $LINUX ]]; then

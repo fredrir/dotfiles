@@ -12,8 +12,8 @@ pub enum Prompt {
     Merge {
         path: PathBuf,
         key: String,
-        repo: String,
-        live: String,
+        dotfiles: String,
+        local: String,
     },
     MergeTarget {
         path: PathBuf,
@@ -47,12 +47,9 @@ pub enum Subject {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "choice", content = "target", rename_all = "kebab-case")]
 pub enum Choice {
-    Repo,
-    Live,
+    Save,
     Ignore,
     Target(usize),
-    Skip,
-    Abort,
     Discard,
     Cancel,
     Overwrite,
@@ -161,7 +158,7 @@ impl Prompt {
     /// The answer used when nobody can be asked.
     pub fn safe_default(&self) -> Choice {
         match self {
-            Self::Merge { .. } => Choice::Skip,
+            Self::Merge { .. } => Choice::Ignore,
             Self::MergeTarget { .. } => Choice::Cancel,
             Self::RemoteChanges { .. } => Choice::Cancel,
             Self::Overwrite { .. } => Choice::Keep,
@@ -177,7 +174,7 @@ impl Prompt {
 
     pub fn cancellation(&self) -> Choice {
         match self {
-            Self::Merge { .. } => Choice::Abort,
+            Self::Merge { .. } => Choice::Ignore,
             Self::MergeTarget { .. } | Self::RemoteChanges { .. } => Choice::Cancel,
             Self::Overwrite { .. } => Choice::Keep,
         }
@@ -185,10 +182,7 @@ impl Prompt {
 
     pub fn accepts(&self, choice: Choice) -> bool {
         match self {
-            Self::Merge { .. } => matches!(
-                choice,
-                Choice::Repo | Choice::Live | Choice::Ignore | Choice::Skip | Choice::Abort
-            ),
+            Self::Merge { .. } => matches!(choice, Choice::Save | Choice::Ignore),
             Self::MergeTarget { targets, .. } => match choice {
                 Choice::Target(index) => index < targets.len(),
                 Choice::Cancel => true,

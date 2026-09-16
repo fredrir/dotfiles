@@ -66,8 +66,7 @@ impl<'a> Consent<'a> {
         }
         match choice {
             Choice::Overwrite => Ok(true),
-            Choice::Keep | Choice::Skip => Ok(false),
-            Choice::Abort | Choice::Cancel => Err("cancelled".to_string()),
+            Choice::Keep => Ok(false),
             _ => Err("invalid overwrite decision".to_string()),
         }
     }

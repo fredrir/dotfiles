@@ -27,13 +27,7 @@ const EFFECT_FRAME: Duration = Duration::from_millis(33);
 const SPINNER_FRAME: Duration = Duration::from_millis(80);
 const INPUT_FRAME: Duration = Duration::from_millis(100);
 const DECISION_POLL: Duration = Duration::from_millis(25);
-const MERGE_CHOICES: [Choice; 5] = [
-    Choice::Repo,
-    Choice::Live,
-    Choice::Ignore,
-    Choice::Skip,
-    Choice::Abort,
-];
+const MERGE_CHOICES: [Choice; 2] = [Choice::Save, Choice::Ignore];
 const REMOTE_CHOICES: [Choice; 2] = [Choice::Discard, Choice::Cancel];
 const OVERWRITE_CHOICES: [Choice; 4] = [
     Choice::Overwrite,
@@ -93,14 +87,14 @@ impl DecisionState {
                 .unwrap_or(0),
         };
         let diff = match &request.prompt {
-            Prompt::Merge { repo, live, .. } => {
-                Some(DiffDocument::new(&diff_value(repo), &diff_value(live)))
-            }
+            Prompt::Merge {
+                dotfiles, local, ..
+            } => Some(DiffDocument::new(&diff_value(dotfiles), &diff_value(local))),
             Prompt::Overwrite {
-                repo: Some(repo),
-                live: Some(live),
+                repo: Some(dotfiles),
+                live: Some(local),
                 ..
-            } => Some(DiffDocument::new(&diff_value(repo), &diff_value(live))),
+            } => Some(DiffDocument::new(&diff_value(dotfiles), &diff_value(local))),
             _ => None,
         };
         Self {
@@ -349,11 +343,8 @@ impl UiModel {
     pub fn choice_for_key(&self, key: char) -> Option<Choice> {
         let decision = self.decision.as_ref()?;
         let candidates: &[Choice] = match key {
-            'r' => &[Choice::Repo],
-            'l' => &[Choice::Live],
+            's' => &[Choice::Save],
             'i' => &[Choice::Ignore],
-            's' => &[Choice::KeepAll, Choice::Skip],
-            'a' => &[Choice::OverwriteAll, Choice::Abort],
             'd' => &[Choice::Discard],
             'c' => &[Choice::Cancel],
             'y' => &[Choice::Overwrite],
@@ -882,8 +873,8 @@ fn render_decision_body(
         Prompt::Merge {
             path,
             key,
-            repo,
-            live,
+            dotfiles,
+            local,
         } => {
             if area.height >= 9 {
                 render_labeled_value(
@@ -910,8 +901,8 @@ fn render_decision_body(
                         state: &decision.diff_view,
                         palette,
                         color,
-                        left_label: "repo",
-                        right_label: "live",
+                        left_label: "dotfiles",
+                        right_label: "local",
                     }
                     .render(
                         Rect::new(
@@ -927,12 +918,6 @@ fn render_decision_body(
                     area,
                     area.height.saturating_sub(2),
                     Line::from(choice_spans(palette, decision, color)),
-                    buffer,
-                );
-                render_decision_line(
-                    area,
-                    area.height.saturating_sub(1),
-                    Line::from("  ←/→ choose · r repo · l live · enter confirm · q cancel"),
                     buffer,
                 );
                 return;
@@ -955,8 +940,8 @@ fn render_decision_body(
                     palette,
                     area,
                     3,
-                    "repo",
-                    &compact_text(repo, width.max(8)),
+                    "dotfiles",
+                    &compact_text(dotfiles, width.max(8)),
                     buffer,
                     color,
                 );
@@ -964,8 +949,8 @@ fn render_decision_body(
                     palette,
                     area,
                     4,
-                    "live",
-                    &compact_text(live, width.max(8)),
+                    "local",
+                    &compact_text(local, width.max(8)),
                     buffer,
                     color,
                 );
@@ -992,8 +977,8 @@ fn render_decision_body(
                     palette,
                     area,
                     1,
-                    "repo",
-                    &compact_text(repo, width.max(8)),
+                    "dotfiles",
+                    &compact_text(dotfiles, width.max(8)),
                     buffer,
                     color,
                 );
@@ -1001,8 +986,8 @@ fn render_decision_body(
                     palette,
                     area,
                     2,
-                    "live",
-                    &compact_text(live, width.max(8)),
+                    "local",
+                    &compact_text(local, width.max(8)),
                     buffer,
                     color,
                 );
@@ -1107,8 +1092,8 @@ fn render_decision_body(
                         state: &decision.diff_view,
                         palette,
                         color,
-                        left_label: "repo",
-                        right_label: "live",
+                        left_label: "dotfiles",
+                        right_label: "local",
                     }
                     .render(
                         Rect::new(
@@ -1401,12 +1386,9 @@ fn decision_choices(prompt: &Prompt) -> Vec<Choice> {
 
 fn choice_name(choice: Choice) -> &'static str {
     match choice {
-        Choice::Repo => "repo",
-        Choice::Live => "live",
+        Choice::Save => "save",
         Choice::Ignore => "ignore",
         Choice::Target(_) => "target",
-        Choice::Skip => "skip",
-        Choice::Abort => "abort",
         Choice::Discard => "discard",
         Choice::Cancel => "cancel",
         Choice::Overwrite => "yes",
@@ -1418,12 +1400,11 @@ fn choice_name(choice: Choice) -> &'static str {
 
 fn choice_color(palette: &Palette, choice: Choice) -> Color {
     match choice {
-        Choice::Repo => theme_color(palette, Role::Ours),
-        Choice::Live => theme_color(palette, Role::Theirs),
+        Choice::Save => theme_color(palette, Role::Ours),
         Choice::Ignore => theme_color(palette, Role::Muted),
         Choice::Target(_) => theme_color(palette, Role::Theirs),
-        Choice::Skip | Choice::Cancel => theme_color(palette, Role::Warning),
-        Choice::Abort | Choice::Discard => theme_color(palette, Role::Danger),
+        Choice::Discard => theme_color(palette, Role::Danger),
+        Choice::Cancel => theme_color(palette, Role::Muted),
         Choice::Overwrite => theme_color(palette, Role::Ours),
         Choice::OverwriteAll => theme_color(palette, Role::Danger),
         Choice::Keep => theme_color(palette, Role::Muted),

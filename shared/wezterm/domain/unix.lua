@@ -1,6 +1,5 @@
 local wezterm = require "wezterm"
 
--- wezterm-types 4.3.0 marks fields with runtime defaults as required.
 ---@diagnostic disable: missing-fields
 ---@type Config
 local unix_config = {

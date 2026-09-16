@@ -266,54 +266,19 @@ pub fn synchronize(
                     } else {
                         change.path.join("/")
                     },
-                    repo: shown(change.ours.as_ref()),
-                    live: shown(change.theirs.as_ref()),
+                    dotfiles: shown(change.ours.as_ref()),
+                    local: shown(change.theirs.as_ref()),
                 })?;
                 match choice {
-                    Choice::Repo | Choice::Discard => {
+                    Choice::Save | Choice::Discard => {
                         selected[index]
                             .choices
                             .insert(change.path, AdoptionDecision::Repo);
-                    }
-                    Choice::Live => {
-                        let default = default_target(entry, &change.path)?;
-                        let target = if entry.targets.len() <= 1 {
-                            0
-                        } else {
-                            match decisions.choose(Prompt::MergeTarget {
-                                path: entry.destination.clone(),
-                                key: if change.path.is_empty() {
-                                    "(document)".to_string()
-                                } else {
-                                    change.path.join("/")
-                                },
-                                targets: entry
-                                    .targets
-                                    .iter()
-                                    .map(|target| target.label.clone())
-                                    .collect(),
-                                default,
-                            })? {
-                                Choice::Target(target) if target < entry.targets.len() => target,
-                                Choice::Live => default,
-                                Choice::Abort | Choice::Cancel | Choice::Skip => {
-                                    return Err("merge target selection cancelled".to_string());
-                                }
-                                _ => return Err("invalid merge target selection".to_string()),
-                            }
-                        };
-                        selected[index]
-                            .choices
-                            .insert(change.path, AdoptionDecision::Live(target));
                     }
                     Choice::Ignore => {
                         selected[index]
                             .choices
                             .insert(change.path, AdoptionDecision::Ignore);
-                    }
-                    Choice::Skip => selected[index].skipped = true,
-                    Choice::Abort | Choice::Cancel => {
-                        return Err("merge decision cancelled".to_string());
                     }
                     _ => return Err("invalid merge decision".to_string()),
                 }

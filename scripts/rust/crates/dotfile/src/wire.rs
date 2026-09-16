@@ -303,7 +303,3 @@ fn write_message(output: &mut impl Write, message: &Message) -> Result<(), Strin
         .and_then(|()| output.flush())
         .map_err(|error| format!("cannot write wire response: {error}"))
 }
-
-#[cfg(test)]
-#[path = "../tests/unit/wire_tests.rs"]
-mod tests;

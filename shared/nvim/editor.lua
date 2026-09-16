@@ -30,6 +30,7 @@ local M = {
     manual = { async = true, lsp_format = "fallback" },
     ---@type conform.FormatOpts
     on_save = { timeout_ms = 500, lsp_format = "fallback" },
+    disabled_on_save = {},
     ---@type conform.FormatOpts
     shell = { lsp_format = "prefer", name = "shuck" },
     shell_timeout_ms = 1000,

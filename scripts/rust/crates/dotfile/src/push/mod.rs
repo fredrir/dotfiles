@@ -101,7 +101,7 @@ impl DecisionClient for crate::decision::Client {
             changes: changes.to_vec(),
         })? {
             crate::decision::Choice::Discard => Ok(true),
-            crate::decision::Choice::Cancel | crate::decision::Choice::Abort => Ok(false),
+            crate::decision::Choice::Cancel => Ok(false),
             choice => Err(format!(
                 "the sync interface returned invalid remote choice {choice:?}"
             )),
@@ -984,13 +984,13 @@ fn qualify_remote_prompt(host: &str, prompt: crate::decision::Prompt) -> crate::
         crate::decision::Prompt::Merge {
             path,
             key,
-            repo,
-            live,
+            dotfiles,
+            local,
         } => crate::decision::Prompt::Merge {
             path: PathBuf::from(format!("{host}:{}", path.display())),
             key,
-            repo,
-            live,
+            dotfiles,
+            local,
         },
         crate::decision::Prompt::MergeTarget {
             path,

@@ -33,7 +33,7 @@ end
 ---@return (fun(err: string?, did_edit: boolean?))? callback
 function M.on_save(bufnr)
   local filetype = vim.bo[bufnr].filetype
-  if preferences.disabled_on_save[filetype] then
+  if (preferences.disabled_on_save or {})[filetype] then
     return nil
   end
   return (vim.deepcopy(preferences.on_save))
