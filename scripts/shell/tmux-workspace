@@ -1,9 +1,0 @@
-#!/bin/sh
-set -eu
-
-tmux_workspace_binary=${DOTFILES_TMUX_BINARY:-"$DOTFILES_COMPILED/tmux-workspace"}
-if [ ! -x "$tmux_workspace_binary" ] || [ -L "$tmux_workspace_binary" ]; then
-	printf '%s\n' 'tmux-workspace: native binary missing; run ./setup.sh' >&2
-	exit 127
-fi
-exec "$tmux_workspace_binary" "$@"

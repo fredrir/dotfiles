@@ -238,26 +238,8 @@
   },
   {
     "key": "cmd+w",
-    "command": "workbench.action.closeWindow",
-    "when": "!editorIsOpen && !multipleEditorGroups"
-  },
-  {
-    "key": "cmd+w",
-    "command": "-workbench.action.closeWindow",
-    "when": "!editorIsOpen && !multipleEditorGroups"
-  },
-  {
-    "key": "cmd+w",
     "command": "workbench.action.terminal.killEditor",
     "when": "terminalEditorFocus && terminalFocus && terminalHasBeenCreated || terminalEditorFocus && terminalFocus && terminalProcessSupported"
-  },
-  {
-    "key": "cmd+w",
-    "command": "workbench.action.closeActiveEditor"
-  },
-  {
-    "key": "cmd+w",
-    "command": "-workbench.action.closeActiveEditor"
   },
   {
     "key": "ctrl+d",
@@ -266,21 +248,8 @@
   },
   {
     "key": "ctrl+d",
-    "command": "-workbench.action.closeWindow",
-    "when": "!editorIsOpen && !multipleEditorGroups"
-  },
-  {
-    "key": "ctrl+d",
     "command": "workbench.action.terminal.killEditor",
     "when": "terminalEditorFocus && terminalFocus && terminalHasBeenCreated || terminalEditorFocus && terminalFocus && terminalProcessSupported"
-  },
-  {
-    "key": "ctrl+d",
-    "command": "workbench.action.closeActiveEditor"
-  },
-  {
-    "key": "ctrl+d",
-    "command": "-workbench.action.closeActiveEditor"
   },
   {
     "key": "cmd+k shift+s",

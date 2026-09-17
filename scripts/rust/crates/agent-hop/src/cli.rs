@@ -35,18 +35,8 @@ impl Agent {
   agent-hop --dry-run claude      Show what would be copied and started
   agent-hop --no-connect codex    Copy the session without opening the peer
 
-Managed execution (requires tmux; transfers at a safe turn boundary):
-  agent-hop run codex             Start a managed native Codex UI
-  agent-hop run claude            Start a managed native Claude UI
-  agent-hop move --to macie       Queue execution transfer for this managed pane
-  agent-hop status                Inspect this pane's durable ownership receipt
-  agent-hop follow                Attach the verified destination owner
-  agent-hop cancel                Cancel a queued move
-  agent-hop recover --run RUN_ID  Recover only after proving no other owner
-
-The original history commands copy conversation history; they do not stop an
-already running agent. Managed moves transfer resumable agent execution and a
-private Git workspace snapshot, not arbitrary process memory."
+The commands copy conversation history; they do not stop an already running
+agent."
 )]
 pub struct Cli {
     #[arg(
@@ -106,63 +96,6 @@ impl Completable for Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Start a native agent UI with coordinated execution handoff.
-    Run {
-        #[arg(value_enum, help = "Agent to run in the current tmux pane")]
-        agent: Agent,
-        #[arg(long, help = "Resume this conversation instead of starting a new one")]
-        resume: Option<String>,
-    },
-    /// Move this managed agent pane after its current turn finishes.
-    Move {
-        #[arg(long, help = "Managed tmux pane; defaults to the current pane")]
-        pane: Option<String>,
-        #[arg(
-            long,
-            value_enum,
-            help = "Destination host; defaults to the other workstation"
-        )]
-        to: Option<hostkit::Host>,
-    },
-    /// Inspect a managed pane or a durable handoff receipt.
-    Status {
-        #[arg(
-            long,
-            conflicts_with = "run",
-            help = "Managed tmux pane; defaults to the current pane"
-        )]
-        pane: Option<String>,
-        #[arg(long, help = "Durable run ID, including after its pane closes")]
-        run: Option<String>,
-    },
-    /// Cancel a queued move before ownership transfers.
-    Cancel {
-        #[arg(long, help = "Managed tmux pane; defaults to the current pane")]
-        pane: Option<String>,
-    },
-    /// Attach to the destination that owns this pane's moved agent.
-    Follow {
-        #[arg(long, help = "Managed tmux pane; defaults to the current pane")]
-        pane: Option<String>,
-    },
-    /// Resolve execution ownership before recovering a managed agent.
-    Recover {
-        #[arg(
-            long,
-            conflicts_with = "run",
-            help = "Managed tmux pane; defaults to the current pane"
-        )]
-        pane: Option<String>,
-        #[arg(long, help = "Durable run ID, including after its pane closes")]
-        run: Option<String>,
-    },
-    #[command(name = "__handoff", hide = true)]
-    Handoff {
-        #[arg(value_parser = ["preflight", "receive", "serve", "activate", "abort", "status", "hook"])]
-        operation: String,
-        #[arg(long)]
-        id: String,
-    },
     #[command(name = "__machine", hide = true)]
     Machine(Machine),
 }

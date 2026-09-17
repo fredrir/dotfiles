@@ -324,7 +324,7 @@ fn each_built_in_pattern_picks_its_mode() {
     assert_eq!(mode_of("/home/x/kitty/conf.d/fonts.conf"), Mode::Plain);
     assert_eq!(mode_of("/home/x/.config/kitty/tabs.conf"), Mode::Kitty);
     assert_eq!(mode_of("/home/x/.config/kitty.conf"), Mode::Kitty);
-    assert_eq!(mode_of("shared/tmux/00-core.conf"), Mode::Plain);
+    assert_eq!(mode_of("shared/git/00-core.conf"), Mode::Plain);
 }
 
 #[test]
@@ -921,7 +921,7 @@ fn the_shipped_config_picks_up_this_repository_and_leaves_its_scripts_alone() {
     for picked_up in [
         "linux/arch/ssh/config.d/40-cabled",
         "shared/ssh/config",
-        "shared/tmux/00-core.conf",
+        "linux/common/fontconfig/fonts.conf",
         "config/hosts.dotfile",
     ] {
         assert!(owns(picked_up), "{picked_up} should be picked up");

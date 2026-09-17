@@ -59,7 +59,7 @@ starting on the mirrored location. Files the working tree ignores are left
 behind unless --all says otherwise.",
     after_long_help = "Examples:
   hpush                      Push this directory, choosing where it lands
-  hpush .tmux.conf           Push one file, choosing where it lands
+  hpush .zshrc               Push one file, choosing where it lands
   hpush go --yes             Push straight to the mirrored path, asking nothing
   hpush go --to ~/scratch    Push into a named directory over there
   hpush --dry-run            Show what would be transferred and stop

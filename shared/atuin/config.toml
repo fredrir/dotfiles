@@ -5,9 +5,9 @@ inline_height = 40
 style = "compact" # auto | full | compact
 
 history_filter = [
-  "^ls",
-  "^cd ",
-  "--password", # exclude anything with a password flag
+ "^ls",
+ "^cd ",
+ "--password", # exclude anything with a password flag
 ]
 
 ## Base directory for Atuin data files (databases, keys, session, etc.)
@@ -228,7 +228,6 @@ keymap_cursor = { emacs = "blink-bar", vim_insert = "blink-block", vim_normal = 
 #   "podman",
 #   "port",
 #   "systemctl",
-#   "tmux",
 #   "yarn",
 # ]
 
@@ -341,22 +340,6 @@ filters = ["global", "host", "session", "workspace", "directory", "session-prelo
 ## - array of strings: show commands run by any shell in the array; "" includes
 ##   commands that have no recorded shell
 # shells = "auto"
-
-[tmux]
-## Enable using atuin with tmux popup (requires tmux >= 3.2)
-## When enabled and running inside tmux, Atuin will use a popup window for interactive search.
-## Set to false to disable the popup.
-## This can also be controlled with the ATUIN_TMUX_POPUP environment variable.
-## Note: The tmux popup is currently supported in zsh, bash, and fish shells. This currently doesn't work with iTerm native tmux integration.
-# enabled = false
-
-## Width of the tmux popup window
-## Can be a percentage, or integer (e.g. "100" means 100 characters wide)
-# width = "80%"
-
-## Height of the tmux popup window
-## Can be a percentage, or integer (e.g. "100" means 100 lines tall)
-# height = "60%"
 
 [ui]
 ## Columns to display in the interactive search, from left to right.

@@ -12,156 +12,134 @@
 
 ## Shared Keybinds
 
-[<code>disable_default_key_bindings = true</code>](../../shared/wezterm/keymap/init.lua#L203)
+[<code>disable_default_key_bindings = true</code>](../../shared/wezterm/keymap/init.lua#L151)
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code>CTRL+SHIFT+Tab</code> | [<code>tmux.dispatch("p", act.ActivateTabRelative(-1))</code>](../../shared/wezterm/keymap/init.lua#L67) | Tmux: Previous window; WezTerm: Activate Tab Relative: -1 |
-| <code>CTRL+Tab</code> | [<code>tmux.dispatch("n", act.ActivateTabRelative(1))</code>](../../shared/wezterm/keymap/init.lua#L62) | Tmux: Next window; WezTerm: Activate Tab Relative: 1 |
-| <code>CTRL+l</code> | [<code>act.SendKey({ key = "l", mods = "CTRL" })</code>](../../shared/wezterm/keymap/init.lua#L109) | Send Key |
-| <code>CTRL+{ Up = { streak = 1, button = "Left" } }</code> | [<code>wezterm.action.OpenLinkAtMouseCursor</code>](../../shared/wezterm/keymap/mouse-bindings.lua#L8) | Open Link At Mouse Cursor<br><code>mouse</code> |
-| <code>SHIFT+Enter</code> | [<code>shift_enter</code>](../../shared/wezterm/keymap/motion-keys.lua#L52) | Shift enter |
+| <code>CTRL+SHIFT+Tab</code> | [<code>act.ActivateTabRelative(-1)</code>](../../shared/wezterm/keymap/init.lua#L60) | Activate Tab Relative: -1 |
+| <code>CTRL+Tab</code> | [<code>act.ActivateTabRelative(1)</code>](../../shared/wezterm/keymap/init.lua#L55) | Activate Tab Relative: 1 |
+| <code>CTRL+l</code> | [<code>act.SendKey({ key = "l", mods = "CTRL" })</code>](../../shared/wezterm/keymap/init.lua#L96) | Send Key |
+| <code>CTRL+{ Up = { streak = 1, button = "Left" } }</code> | [<code>wezterm.action.OpenLinkAtMouseCursor</code>](../../shared/wezterm/keymap/mouse-bindings.lua#L7) | Open Link At Mouse Cursor<br><code>mouse</code> |
+| <code>SHIFT+Enter</code> | [<code>shift_enter</code>](../../shared/wezterm/keymap/motion-keys.lua#L43) | Shift enter |
 
 ## Mac Keybinds
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code>CMD+'</code> | [<code>tmux.dispatch("'", split("vertical"))</code>](../../shared/wezterm/keymap/init.lua#L83) | Tmux: Split below in the current directory; WezTerm: Split: vertical |
-| <code>CMD++</code> | [<code>resize_window(50)</code>](../../shared/wezterm/keymap/init.lua#L120) | Resize window: 50 |
-| <code>CMD+-</code> | [<code>resize_window(-50)</code>](../../shared/wezterm/keymap/init.lua#L119) | Resize window: -50 |
-| <code>CMD+.</code> | [<code>tmux.dispatch(".", mux.attach_detached)</code>](../../shared/wezterm/keymap/init.lua#L131) | Tmux: Retrieve a pane from the shelf; WezTerm: Mux attach detached |
-| <code>CMD+0</code> | [<code>tmux.dispatch("0", act.ActivateTab(-1))</code>](../../shared/wezterm/keymap/init.lua#L57) | Tmux: Last numbered window; WezTerm: Activate Tab: -1 |
-| <code>CMD+1</code> | [<code>tmux.dispatch("1", act.ActivateTab(0))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 1; WezTerm: Activate Tab: 0 |
-| <code>CMD+2</code> | [<code>tmux.dispatch("2", act.ActivateTab(1))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 2; WezTerm: Activate Tab: 1 |
-| <code>CMD+3</code> | [<code>tmux.dispatch("3", act.ActivateTab(2))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 3; WezTerm: Activate Tab: 2 |
-| <code>CMD+4</code> | [<code>tmux.dispatch("4", act.ActivateTab(3))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 4; WezTerm: Activate Tab: 3 |
-| <code>CMD+5</code> | [<code>tmux.dispatch("5", act.ActivateTab(4))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 5; WezTerm: Activate Tab: 4 |
-| <code>CMD+6</code> | [<code>tmux.dispatch("6", act.ActivateTab(5))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 6; WezTerm: Activate Tab: 5 |
-| <code>CMD+7</code> | [<code>tmux.dispatch("7", act.ActivateTab(6))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 7; WezTerm: Activate Tab: 6 |
-| <code>CMD+8</code> | [<code>tmux.dispatch("8", act.ActivateTab(7))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 8; WezTerm: Activate Tab: 7 |
-| <code>CMD+9</code> | [<code>tmux.dispatch("9", act.ActivateTab(8))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 9; WezTerm: Activate Tab: 8 |
-| <code>CMD+;</code> | [<code>tmux.dispatch("&#96;", split("vertical"))</code>](../../shared/wezterm/keymap/init.lua#L156) | Tmux: Toggle persistent scratch drawer; WezTerm: Split: vertical |
-| <code>CMD+Backspace</code> | [<code>delete_to_start</code>](../../shared/wezterm/keymap/motion-keys.lua#L67) | Delete to start |
-| <code>CMD+DownArrow</code> | [<code>act.SendString("\\x1b&#91;1;5F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L43) | Send String: \\x1b&#91;1;5F |
-| <code>CMD+Enter</code> | [<code>open_line_below</code>](../../shared/wezterm/keymap/motion-keys.lua#L57) | Open line below |
-| <code>CMD+F12</code> | [<code>tmux.inspect</code>](../../shared/wezterm/keymap/init.lua#L161) | Tmux inspect |
-| <code>CMD+LeftArrow</code> | [<code>act.SendKey({ key = "a", mods = "CTRL" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L37) | Send Key |
-| <code>CMD+OPT+DownArrow</code> | [<code>tmux.dispatch("j", wezterm.action_callback(callback @L187))</code>](../../shared/wezterm/keymap/init.lua#L182) | Tmux: Focus below through editor splits and tmux panes; WezTerm: Wezterm action callback: callback @L187 |
-| <code>CMD+OPT+LeftArrow</code> | [<code>tmux.dispatch("h", wezterm.action_callback(callback @L187))</code>](../../shared/wezterm/keymap/init.lua#L182) | Tmux: Focus left through editor splits and tmux panes; WezTerm: Wezterm action callback: callback @L187 |
-| <code>CMD+OPT+RightArrow</code> | [<code>tmux.dispatch("l", wezterm.action_callback(callback @L187))</code>](../../shared/wezterm/keymap/init.lua#L182) | Tmux: Focus right through editor splits and tmux panes; WezTerm: Wezterm action callback: callback @L187 |
-| <code>CMD+OPT+UpArrow</code> | [<code>tmux.dispatch("k", wezterm.action_callback(callback @L187))</code>](../../shared/wezterm/keymap/init.lua#L182) | Tmux: Focus above through editor splits and tmux panes; WezTerm: Wezterm action callback: callback @L187 |
-| <code>CMD+RightArrow</code> | [<code>act.SendKey({ key = "e", mods = "CTRL" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L38) | Send Key |
-| <code>CMD+SHIFT+Backspace</code> | [<code>delete_to_end</code>](../../shared/wezterm/keymap/motion-keys.lua#L72) | Delete to end |
-| <code>CMD+SHIFT+DownArrow</code> | [<code>act.SendString("\\x1b&#91;1;6F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L47) | Send String: \\x1b&#91;1;6F |
-| <code>CMD+SHIFT+Enter</code> | [<code>open_line_above</code>](../../shared/wezterm/keymap/motion-keys.lua#L62) | Open line above |
-| <code>CMD+SHIFT+F12</code> | [<code>tmux.toggle</code>](../../shared/wezterm/keymap/init.lua#L162) | Tmux toggle |
-| <code>CMD+SHIFT+LeftArrow</code> | [<code>act.SendString("\\x1b&#91;1;2H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L44) | Send String: \\x1b&#91;1;2H |
-| <code>CMD+SHIFT+RightArrow</code> | [<code>act.SendString("\\x1b&#91;1;2F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L45) | Send String: \\x1b&#91;1;2F |
-| <code>CMD+SHIFT+Space</code> | [<code>tmux.dispatch("f", act.QuickSelect)</code>](../../shared/wezterm/keymap/init.lua#L155) | Tmux: Quick-select a path, URL or token; WezTerm: Quick Select |
-| <code>CMD+SHIFT+UpArrow</code> | [<code>act.SendString("\\x1b&#91;1;6H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L46) | Send String: \\x1b&#91;1;6H |
-| <code>CMD+SHIFT+a</code> | [<code>tmux.dispatch("a", act.Nop)</code>](../../shared/wezterm/keymap/init.lua#L158) | Tmux: Choose or resume an agent conversation; WezTerm: Nop |
-| <code>CMD+SHIFT+d</code> | [<code>act.ShowLauncherArgs({ flags = "DOMAINS&#124;WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L141) | Show Launcher Args |
-| <code>CMD+SHIFT+g</code> | [<code>tmux.dispatch("g", act.Nop)</code>](../../shared/wezterm/keymap/init.lua#L157) | Tmux: Open Lazygit for the current project; WezTerm: Nop |
-| <code>CMD+SHIFT+i</code> | [<code>tmux.inspect</code>](../../shared/wezterm/keymap/init.lua#L160) | Tmux inspect |
-| <code>CMD+SHIFT+k</code> | [<code>tmux.dispatch("F7", attach_remote)</code>](../../shared/wezterm/keymap/init.lua#L136) | Tmux: Switch to a workspace on another host; WezTerm: Attach remote |
-| <code>CMD+SHIFT+m</code> | [<code>tmux.dispatch("M", wezterm.action_callback(callback @L103))</code>](../../shared/wezterm/keymap/init.lua#L98) | Tmux: Promote current pane to the first position; WezTerm: Wezterm action callback: callback @L103 |
-| <code>CMD+SHIFT+o</code> | [<code>open_vscode</code>](../../shared/wezterm/keymap/init.lua#L146) | Open vscode |
-| <code>CMD+SHIFT+p</code> | [<code>tmux.dispatch("s", act.ShowLauncherArgs({ flags = "WORKSPACES" }))</code>](../../shared/wezterm/keymap/init.lua#L153) | Tmux: Find projects, worktrees and running sessions; WezTerm: Show Launcher Args |
-| <code>CMD+SHIFT+r</code> | [<code>ReloadConfiguration</code>](../../shared/wezterm/keymap/init.lua#L123) | Reload Configuration |
-| <code>CMD+SHIFT+s</code> | [<code>tmux.dispatch("S", mux.detach_pane)</code>](../../shared/wezterm/keymap/init.lua#L126) | Tmux: Park current pane on the shelf; WezTerm: Mux detach pane |
-| <code>CMD+SHIFT+x</code> | [<code>tmux.dispatch("Enter", act.ActivateCopyMode)</code>](../../shared/wezterm/keymap/init.lua#L154) | Tmux: Enter copy mode and search scrollback; WezTerm: Activate Copy Mode |
-| <code>CMD+SHIFT+z</code> | [<code>tmux.dispatch("z", act.TogglePaneZoomState)</code>](../../shared/wezterm/keymap/init.lua#L159) | Tmux: Zoom or unzoom current pane; WezTerm: Toggle Pane Zoom State |
-| <code>CMD+Space</code> | [<code>tmux.dispatch("Space", act.ActivateCommandPalette)</code>](../../shared/wezterm/keymap/init.lua#L152) | Tmux: Search workspace actions; WezTerm: Activate Command Palette |
-| <code>CMD+UpArrow</code> | [<code>act.SendString("\\x1b&#91;1;5H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L42) | Send String: \\x1b&#91;1;5H |
-| <code>CMD+c</code> | [<code>act.CopyTo("Clipboard")</code>](../../shared/wezterm/keymap/init.lua#L36) | Copy To: Clipboard |
-| <code>CMD+d</code> | [<code>tmux.dispatch("d", split("horizontal"))</code>](../../shared/wezterm/keymap/init.lua#L73) | Tmux: Split right in the current directory; WezTerm: Split: horizontal |
-| <code>CMD+l</code> | [<code>act.SendKey({ key = "l", mods = "CTRL" })</code>](../../shared/wezterm/keymap/init.lua#L109) | Send Key |
-| <code>CMD+m</code> | [<code>tmux.dispatch("m", act.PaneSelect({ mode = "MoveToNewTab" }))</code>](../../shared/wezterm/keymap/init.lua#L88) | Tmux: Promote a chosen pane to the first position; WezTerm: Pane Select |
-| <code>CMD+n</code> | [<code>act.SpawnWindow</code>](../../shared/wezterm/keymap/init.lua#L38) | Spawn Window |
+| <code>CMD+'</code> | [<code>split("vertical")</code>](../../shared/wezterm/keymap/init.lua#L76) | Split: vertical |
+| <code>CMD+0</code> | [<code>act.ActivateTab(-1)</code>](../../shared/wezterm/keymap/init.lua#L50) | Activate Tab: -1 |
+| <code>CMD+1</code> | [<code>act.ActivateTab(0)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 0 |
+| <code>CMD+2</code> | [<code>act.ActivateTab(1)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 1 |
+| <code>CMD+3</code> | [<code>act.ActivateTab(2)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 2 |
+| <code>CMD+4</code> | [<code>act.ActivateTab(3)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 3 |
+| <code>CMD+5</code> | [<code>act.ActivateTab(4)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 4 |
+| <code>CMD+6</code> | [<code>act.ActivateTab(5)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 5 |
+| <code>CMD+7</code> | [<code>act.ActivateTab(6)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 6 |
+| <code>CMD+8</code> | [<code>act.ActivateTab(7)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 7 |
+| <code>CMD+9</code> | [<code>act.ActivateTab(8)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 8 |
+| <code>CMD+;</code> | [<code>split("vertical")</code>](../../shared/wezterm/keymap/init.lua#L129) | Split: vertical |
+| <code>CMD+Backspace</code> | [<code>delete_to_start</code>](../../shared/wezterm/keymap/motion-keys.lua#L58) | Delete to start |
+| <code>CMD+DownArrow</code> | [<code>act.SendString("\\x1b&#91;1;5F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L35) | Send String: \\x1b&#91;1;5F |
+| <code>CMD+Enter</code> | [<code>open_line_below</code>](../../shared/wezterm/keymap/motion-keys.lua#L48) | Open line below |
+| <code>CMD+LeftArrow</code> | [<code>act.SendKey({ key = "a", mods = "CTRL" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L31) | Send Key |
+| <code>CMD+RightArrow</code> | [<code>act.SendKey({ key = "e", mods = "CTRL" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L32) | Send Key |
+| <code>CMD+SHIFT+Backspace</code> | [<code>delete_to_end</code>](../../shared/wezterm/keymap/motion-keys.lua#L63) | Delete to end |
+| <code>CMD+SHIFT+DownArrow</code> | [<code>act.SendString("\\x1b&#91;1;6F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L39) | Send String: \\x1b&#91;1;6F |
+| <code>CMD+SHIFT+Enter</code> | [<code>open_line_above</code>](../../shared/wezterm/keymap/motion-keys.lua#L53) | Open line above |
+| <code>CMD+SHIFT+LeftArrow</code> | [<code>act.SendString("\\x1b&#91;1;2H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L36) | Send String: \\x1b&#91;1;2H |
+| <code>CMD+SHIFT+RightArrow</code> | [<code>act.SendString("\\x1b&#91;1;2F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L37) | Send String: \\x1b&#91;1;2F |
+| <code>CMD+SHIFT+Space</code> | [<code>act.QuickSelect</code>](../../shared/wezterm/keymap/init.lua#L128) | Quick Select |
+| <code>CMD+SHIFT+UpArrow</code> | [<code>act.SendString("\\x1b&#91;1;6H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L38) | Send String: \\x1b&#91;1;6H |
+| <code>CMD+SHIFT+a</code> | [<code>act.Nop</code>](../../shared/wezterm/keymap/init.lua#L131) | Nop |
+| <code>CMD+SHIFT+d</code> | [<code>act.ShowLauncherArgs({ flags = "DOMAINS&#124;WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L114) | Show Launcher Args |
+| <code>CMD+SHIFT+g</code> | [<code>act.Nop</code>](../../shared/wezterm/keymap/init.lua#L130) | Nop |
+| <code>CMD+SHIFT+m</code> | [<code>wezterm.action_callback(callback @L91)</code>](../../shared/wezterm/keymap/init.lua#L88) | Wezterm action callback: callback @L91 |
+| <code>CMD+SHIFT+o</code> | [<code>open_vscode</code>](../../shared/wezterm/keymap/init.lua#L119) | Open vscode |
+| <code>CMD+SHIFT+p</code> | [<code>act.ShowLauncherArgs({ flags = "WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L126) | Show Launcher Args |
+| <code>CMD+SHIFT+r</code> | [<code>ReloadConfiguration</code>](../../shared/wezterm/keymap/init.lua#L106) | Reload Configuration |
+| <code>CMD+SHIFT+s</code> | [<code>mux.detach_pane</code>](../../shared/wezterm/keymap/init.lua#L109) | Mux detach pane |
+| <code>CMD+SHIFT+x</code> | [<code>act.ActivateCopyMode</code>](../../shared/wezterm/keymap/init.lua#L127) | Activate Copy Mode |
+| <code>CMD+SHIFT+z</code> | [<code>act.TogglePaneZoomState</code>](../../shared/wezterm/keymap/init.lua#L132) | Toggle Pane Zoom State |
+| <code>CMD+Space</code> | [<code>act.ActivateCommandPalette</code>](../../shared/wezterm/keymap/init.lua#L125) | Activate Command Palette |
+| <code>CMD+UpArrow</code> | [<code>act.SendString("\\x1b&#91;1;5H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L34) | Send String: \\x1b&#91;1;5H |
+| <code>CMD+c</code> | [<code>act.CopyTo("Clipboard")</code>](../../shared/wezterm/keymap/init.lua#L29) | Copy To: Clipboard |
+| <code>CMD+d</code> | [<code>split("horizontal")</code>](../../shared/wezterm/keymap/init.lua#L66) | Split: horizontal |
+| <code>CMD+l</code> | [<code>act.SendKey({ key = "l", mods = "CTRL" })</code>](../../shared/wezterm/keymap/init.lua#L96) | Send Key |
+| <code>CMD+m</code> | [<code>act.PaneSelect({ mode = "MoveToNewTab" })</code>](../../shared/wezterm/keymap/init.lua#L81) | Pane Select |
+| <code>CMD+n</code> | [<code>act.SpawnWindow</code>](../../shared/wezterm/keymap/init.lua#L31) | Spawn Window |
 | <code>CMD+phys:h</code> | [<code>act.SendKey({ key = "h", mods = "CTRL" })</code>](../../shared/wezterm/keymap/physical-keys.lua#L30) | Send Key |
 | <code>CMD+phys:r</code> | [<code>act.SendKey({ key = "r", mods = "CTRL" })</code>](../../shared/wezterm/keymap/physical-keys.lua#L20) | Send Key |
-| <code>CMD+q</code> | [<code>tmux.dispatch("q", act.QuitApplication)</code>](../../shared/wezterm/keymap/init.lua#L47) | Tmux: Close pane with running-job protection; WezTerm: Quit Application |
-| <code>CMD+t</code> | [<code>tmux.dispatch("t", hwire_session.new_tab)</code>](../../shared/wezterm/keymap/init.lua#L42) | Tmux: New window in the current directory; WezTerm: Hwire session new tab |
-| <code>CMD+v</code> | [<code>act.PasteFrom("Clipboard")</code>](../../shared/wezterm/keymap/init.lua#L37) | Paste From: Clipboard |
-| <code>CMD+w</code> | [<code>tmux.dispatch("w", close_tab)</code>](../../shared/wezterm/keymap/init.lua#L52) | Tmux: Close window with running-job protection; WezTerm: Close tab |
-| <code>CMD+y</code> | [<code>open_yazi</code>](../../shared/wezterm/keymap/init.lua#L39) | Open yazi |
-| <code>CMD+{ Up = { streak = 1, button = "Left" } }</code> | [<code>wezterm.action.OpenLinkAtMouseCursor</code>](../../shared/wezterm/keymap/mouse-bindings.lua#L16) | Open Link At Mouse Cursor<br><code>mouse</code> |
-| <code>CTRL+'</code> | [<code>tmux.dispatch("'", split("vertical"))</code>](../../shared/wezterm/keymap/init.lua#L83) | Tmux: Split below in the current directory; WezTerm: Split: vertical |
-| <code>OPT+DownArrow</code> | [<code>tmux.dispatch("Down", act.ScrollToPrompt(1))</code>](../../shared/wezterm/keymap/motion-keys.lua#L51) | Tmux: Jump to next command prompt; WezTerm: Scroll To Prompt: 1 |
-| <code>OPT+LeftArrow</code> | [<code>act.SendKey({ key = "b", mods = "ALT" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L35) | Send Key |
-| <code>OPT+RightArrow</code> | [<code>act.SendKey({ key = "f", mods = "ALT" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L36) | Send Key |
+| <code>CMD+q</code> | [<code>act.QuitApplication</code>](../../shared/wezterm/keymap/init.lua#L40) | Quit Application |
+| <code>CMD+t</code> | [<code>hwire_session.new_tab</code>](../../shared/wezterm/keymap/init.lua#L35) | Hwire session new tab |
+| <code>CMD+v</code> | [<code>act.PasteFrom("Clipboard")</code>](../../shared/wezterm/keymap/init.lua#L30) | Paste From: Clipboard |
+| <code>CMD+w</code> | [<code>close_tab</code>](../../shared/wezterm/keymap/init.lua#L45) | Close tab |
+| <code>CMD+y</code> | [<code>open_yazi</code>](../../shared/wezterm/keymap/init.lua#L32) | Open yazi |
+| <code>CMD+{ Up = { streak = 1, button = "Left" } }</code> | [<code>wezterm.action.OpenLinkAtMouseCursor</code>](../../shared/wezterm/keymap/mouse-bindings.lua#L15) | Open Link At Mouse Cursor<br><code>mouse</code> |
+| <code>CTRL+'</code> | [<code>split("vertical")</code>](../../shared/wezterm/keymap/init.lua#L76) | Split: vertical |
+| <code>OPT+DownArrow</code> | [<code>act.ScrollToPrompt(1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L42) | Scroll To Prompt: 1 |
+| <code>OPT+LeftArrow</code> | [<code>act.SendKey({ key = "b", mods = "ALT" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L29) | Send Key |
+| <code>OPT+RightArrow</code> | [<code>act.SendKey({ key = "f", mods = "ALT" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L30) | Send Key |
 | <code>OPT+SHIFT+phys:7</code> | [<code>act.SendString("\\")</code>](../../shared/wezterm/keymap/physical-keys.lua#L15) | Send String: \\ |
 | <code>OPT+SHIFT+phys:8</code> | [<code>act.SendString("{")</code>](../../shared/wezterm/keymap/physical-keys.lua#L12) | Send String |
 | <code>OPT+SHIFT+phys:9</code> | [<code>act.SendString("}")</code>](../../shared/wezterm/keymap/physical-keys.lua#L13) | Send String: } |
-| <code>OPT+UpArrow</code> | [<code>tmux.dispatch("Up", act.ScrollToPrompt(-1))</code>](../../shared/wezterm/keymap/motion-keys.lua#L50) | Tmux: Jump to previous command prompt; WezTerm: Scroll To Prompt: -1 |
-| <code>OPT+l</code> | [<code>act.SendKey({ key = "l", mods = "CTRL" })</code>](../../shared/wezterm/keymap/init.lua#L109) | Send Key |
+| <code>OPT+UpArrow</code> | [<code>act.ScrollToPrompt(-1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L41) | Scroll To Prompt: -1 |
+| <code>OPT+l</code> | [<code>act.SendKey({ key = "l", mods = "CTRL" })</code>](../../shared/wezterm/keymap/init.lua#L96) | Send Key |
 | <code>OPT+phys:8</code> | [<code>act.SendString("&#91;")</code>](../../shared/wezterm/keymap/physical-keys.lua#L9) | Send String: &#91; |
 | <code>OPT+phys:9</code> | [<code>act.SendString("&#93;")</code>](../../shared/wezterm/keymap/physical-keys.lua#L10) | Send String: &#93; |
-| <code>OPT+q</code> | [<code>tmux.dispatch("q", close_pane)</code>](../../shared/wezterm/keymap/init.lua#L78) | Tmux: Close pane with running-job protection; WezTerm: Close pane |
+| <code>OPT+q</code> | [<code>close_pane</code>](../../shared/wezterm/keymap/init.lua#L71) | Close pane |
 
 ## Linux / Windows Keybinds
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code>ALT+DownArrow</code> | [<code>tmux.dispatch("Down", act.ScrollToPrompt(1))</code>](../../shared/wezterm/keymap/motion-keys.lua#L51) | Tmux: Jump to next command prompt; WezTerm: Scroll To Prompt: 1 |
-| <code>ALT+LeftArrow</code> | [<code>act.SendKey({ key = "b", mods = "ALT" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L35) | Send Key |
-| <code>ALT+RightArrow</code> | [<code>act.SendKey({ key = "f", mods = "ALT" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L36) | Send Key |
-| <code>ALT+UpArrow</code> | [<code>tmux.dispatch("Up", act.ScrollToPrompt(-1))</code>](../../shared/wezterm/keymap/motion-keys.lua#L50) | Tmux: Jump to previous command prompt; WezTerm: Scroll To Prompt: -1 |
-| <code>ALT+l</code> | [<code>act.SendKey({ key = "l", mods = "CTRL" })</code>](../../shared/wezterm/keymap/init.lua#L109) | Send Key |
-| <code>ALT+q</code> | [<code>tmux.dispatch("q", close_pane)</code>](../../shared/wezterm/keymap/init.lua#L78) | Tmux: Close pane with running-job protection; WezTerm: Close pane |
-| <code>CTRL++</code> | [<code>resize_window(50)</code>](../../shared/wezterm/keymap/init.lua#L120) | Resize window: 50 |
-| <code>CTRL+-</code> | [<code>resize_window(-50)</code>](../../shared/wezterm/keymap/init.lua#L119) | Resize window: -50 |
-| <code>CTRL+.</code> | [<code>tmux.dispatch(".", mux.attach_detached)</code>](../../shared/wezterm/keymap/init.lua#L131) | Tmux: Retrieve a pane from the shelf; WezTerm: Mux attach detached |
-| <code>CTRL+0</code> | [<code>tmux.dispatch("0", act.ActivateTab(-1))</code>](../../shared/wezterm/keymap/init.lua#L57) | Tmux: Last numbered window; WezTerm: Activate Tab: -1 |
-| <code>CTRL+1</code> | [<code>tmux.dispatch("1", act.ActivateTab(0))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 1; WezTerm: Activate Tab: 0 |
-| <code>CTRL+2</code> | [<code>tmux.dispatch("2", act.ActivateTab(1))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 2; WezTerm: Activate Tab: 1 |
-| <code>CTRL+3</code> | [<code>tmux.dispatch("3", act.ActivateTab(2))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 3; WezTerm: Activate Tab: 2 |
-| <code>CTRL+4</code> | [<code>tmux.dispatch("4", act.ActivateTab(3))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 4; WezTerm: Activate Tab: 3 |
-| <code>CTRL+5</code> | [<code>tmux.dispatch("5", act.ActivateTab(4))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 5; WezTerm: Activate Tab: 4 |
-| <code>CTRL+6</code> | [<code>tmux.dispatch("6", act.ActivateTab(5))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 6; WezTerm: Activate Tab: 5 |
-| <code>CTRL+7</code> | [<code>tmux.dispatch("7", act.ActivateTab(6))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 7; WezTerm: Activate Tab: 6 |
-| <code>CTRL+8</code> | [<code>tmux.dispatch("8", act.ActivateTab(7))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 8; WezTerm: Activate Tab: 7 |
-| <code>CTRL+9</code> | [<code>tmux.dispatch("9", act.ActivateTab(8))</code>](../../shared/wezterm/keymap/init.lua#L167) | Tmux: prefix 9; WezTerm: Activate Tab: 8 |
-| <code>CTRL+;</code> | [<code>tmux.dispatch("&#96;", split("vertical"))</code>](../../shared/wezterm/keymap/init.lua#L156) | Tmux: Toggle persistent scratch drawer; WezTerm: Split: vertical |
-| <code>CTRL+ALT+DownArrow</code> | [<code>tmux.dispatch("j", wezterm.action_callback(callback @L187))</code>](../../shared/wezterm/keymap/init.lua#L182) | Tmux: Focus below through editor splits and tmux panes; WezTerm: Wezterm action callback: callback @L187 |
-| <code>CTRL+ALT+LeftArrow</code> | [<code>tmux.dispatch("h", wezterm.action_callback(callback @L187))</code>](../../shared/wezterm/keymap/init.lua#L182) | Tmux: Focus left through editor splits and tmux panes; WezTerm: Wezterm action callback: callback @L187 |
-| <code>CTRL+ALT+RightArrow</code> | [<code>tmux.dispatch("l", wezterm.action_callback(callback @L187))</code>](../../shared/wezterm/keymap/init.lua#L182) | Tmux: Focus right through editor splits and tmux panes; WezTerm: Wezterm action callback: callback @L187 |
-| <code>CTRL+ALT+UpArrow</code> | [<code>tmux.dispatch("k", wezterm.action_callback(callback @L187))</code>](../../shared/wezterm/keymap/init.lua#L182) | Tmux: Focus above through editor splits and tmux panes; WezTerm: Wezterm action callback: callback @L187 |
-| <code>CTRL+Backspace</code> | [<code>delete_to_start</code>](../../shared/wezterm/keymap/motion-keys.lua#L67) | Delete to start |
-| <code>CTRL+DownArrow</code> | [<code>act.SendString("\\x1b&#91;1;5F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L43) | Send String: \\x1b&#91;1;5F |
-| <code>CTRL+Enter</code> | [<code>open_line_below</code>](../../shared/wezterm/keymap/motion-keys.lua#L57) | Open line below |
-| <code>CTRL+F12</code> | [<code>tmux.inspect</code>](../../shared/wezterm/keymap/init.lua#L161) | Tmux inspect |
-| <code>CTRL+LeftArrow</code> | [<code>act.SendKey({ key = "a", mods = "CTRL" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L37) | Send Key |
-| <code>CTRL+RightArrow</code> | [<code>act.SendKey({ key = "e", mods = "CTRL" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L38) | Send Key |
-| <code>CTRL+SHIFT+Backspace</code> | [<code>delete_to_end</code>](../../shared/wezterm/keymap/motion-keys.lua#L72) | Delete to end |
-| <code>CTRL+SHIFT+DownArrow</code> | [<code>act.SendString("\\x1b&#91;1;6F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L47) | Send String: \\x1b&#91;1;6F |
-| <code>CTRL+SHIFT+Enter</code> | [<code>open_line_above</code>](../../shared/wezterm/keymap/motion-keys.lua#L62) | Open line above |
-| <code>CTRL+SHIFT+F12</code> | [<code>tmux.toggle</code>](../../shared/wezterm/keymap/init.lua#L162) | Tmux toggle |
-| <code>CTRL+SHIFT+LeftArrow</code> | [<code>act.SendString("\\x1b&#91;1;2H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L44) | Send String: \\x1b&#91;1;2H |
-| <code>CTRL+SHIFT+RightArrow</code> | [<code>act.SendString("\\x1b&#91;1;2F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L45) | Send String: \\x1b&#91;1;2F |
-| <code>CTRL+SHIFT+Space</code> | [<code>tmux.dispatch("f", act.QuickSelect)</code>](../../shared/wezterm/keymap/init.lua#L155) | Tmux: Quick-select a path, URL or token; WezTerm: Quick Select |
-| <code>CTRL+SHIFT+UpArrow</code> | [<code>act.SendString("\\x1b&#91;1;6H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L46) | Send String: \\x1b&#91;1;6H |
-| <code>CTRL+SHIFT+a</code> | [<code>tmux.dispatch("a", act.Nop)</code>](../../shared/wezterm/keymap/init.lua#L158) | Tmux: Choose or resume an agent conversation; WezTerm: Nop |
-| <code>CTRL+SHIFT+c</code> | [<code>act.CopyTo("Clipboard")</code>](../../shared/wezterm/keymap/init.lua#L36) | Copy To: Clipboard |
-| <code>CTRL+SHIFT+d</code> | [<code>act.ShowLauncherArgs({ flags = "DOMAINS&#124;WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L141) | Show Launcher Args |
-| <code>CTRL+SHIFT+g</code> | [<code>tmux.dispatch("g", act.Nop)</code>](../../shared/wezterm/keymap/init.lua#L157) | Tmux: Open Lazygit for the current project; WezTerm: Nop |
-| <code>CTRL+SHIFT+i</code> | [<code>tmux.inspect</code>](../../shared/wezterm/keymap/init.lua#L160) | Tmux inspect |
-| <code>CTRL+SHIFT+k</code> | [<code>tmux.dispatch("F7", attach_remote)</code>](../../shared/wezterm/keymap/init.lua#L136) | Tmux: Switch to a workspace on another host; WezTerm: Attach remote |
-| <code>CTRL+SHIFT+m</code> | [<code>tmux.dispatch("M", wezterm.action_callback(callback @L103))</code>](../../shared/wezterm/keymap/init.lua#L98) | Tmux: Promote current pane to the first position; WezTerm: Wezterm action callback: callback @L103 |
-| <code>CTRL+SHIFT+o</code> | [<code>open_vscode</code>](../../shared/wezterm/keymap/init.lua#L146) | Open vscode |
-| <code>CTRL+SHIFT+p</code> | [<code>tmux.dispatch("s", act.ShowLauncherArgs({ flags = "WORKSPACES" }))</code>](../../shared/wezterm/keymap/init.lua#L153) | Tmux: Find projects, worktrees and running sessions; WezTerm: Show Launcher Args |
-| <code>CTRL+SHIFT+r</code> | [<code>ReloadConfiguration</code>](../../shared/wezterm/keymap/init.lua#L123) | Reload Configuration |
-| <code>CTRL+SHIFT+s</code> | [<code>tmux.dispatch("S", mux.detach_pane)</code>](../../shared/wezterm/keymap/init.lua#L126) | Tmux: Park current pane on the shelf; WezTerm: Mux detach pane |
-| <code>CTRL+SHIFT+v</code> | [<code>act.PasteFrom("Clipboard")</code>](../../shared/wezterm/keymap/init.lua#L37) | Paste From: Clipboard |
-| <code>CTRL+SHIFT+x</code> | [<code>tmux.dispatch("Enter", act.ActivateCopyMode)</code>](../../shared/wezterm/keymap/init.lua#L154) | Tmux: Enter copy mode and search scrollback; WezTerm: Activate Copy Mode |
-| <code>CTRL+SHIFT+z</code> | [<code>tmux.dispatch("z", act.TogglePaneZoomState)</code>](../../shared/wezterm/keymap/init.lua#L159) | Tmux: Zoom or unzoom current pane; WezTerm: Toggle Pane Zoom State |
-| <code>CTRL+Space</code> | [<code>tmux.dispatch("Space", act.ActivateCommandPalette)</code>](../../shared/wezterm/keymap/init.lua#L152) | Tmux: Search workspace actions; WezTerm: Activate Command Palette |
-| <code>CTRL+UpArrow</code> | [<code>act.SendString("\\x1b&#91;1;5H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L42) | Send String: \\x1b&#91;1;5H |
-| <code>CTRL+d</code> | [<code>tmux.dispatch("d", split("horizontal"))</code>](../../shared/wezterm/keymap/init.lua#L73) | Tmux: Split right in the current directory; WezTerm: Split: horizontal |
-| <code>CTRL+m</code> | [<code>tmux.dispatch("m", act.PaneSelect({ mode = "MoveToNewTab" }))</code>](../../shared/wezterm/keymap/init.lua#L88) | Tmux: Promote a chosen pane to the first position; WezTerm: Pane Select |
-| <code>CTRL+n</code> | [<code>act.SpawnWindow</code>](../../shared/wezterm/keymap/init.lua#L38) | Spawn Window |
-| <code>CTRL+q</code> | [<code>tmux.dispatch("q", act.QuitApplication)</code>](../../shared/wezterm/keymap/init.lua#L47) | Tmux: Close pane with running-job protection; WezTerm: Quit Application |
-| <code>CTRL+t</code> | [<code>tmux.dispatch("t", hwire_session.new_tab)</code>](../../shared/wezterm/keymap/init.lua#L42) | Tmux: New window in the current directory; WezTerm: Hwire session new tab |
-| <code>CTRL+w</code> | [<code>tmux.dispatch("w", close_tab)</code>](../../shared/wezterm/keymap/init.lua#L52) | Tmux: Close window with running-job protection; WezTerm: Close tab |
-| <code>CTRL+y</code> | [<code>open_yazi</code>](../../shared/wezterm/keymap/init.lua#L39) | Open yazi |
-| <code>CTRL+§</code> | [<code>tmux.dispatch("'", split("vertical"))</code>](../../shared/wezterm/keymap/init.lua#L83) | Tmux: Split below in the current directory; WezTerm: Split: vertical |
+| <code>ALT+DownArrow</code> | [<code>act.ScrollToPrompt(1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L42) | Scroll To Prompt: 1 |
+| <code>ALT+LeftArrow</code> | [<code>act.SendKey({ key = "b", mods = "ALT" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L29) | Send Key |
+| <code>ALT+RightArrow</code> | [<code>act.SendKey({ key = "f", mods = "ALT" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L30) | Send Key |
+| <code>ALT+UpArrow</code> | [<code>act.ScrollToPrompt(-1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L41) | Scroll To Prompt: -1 |
+| <code>ALT+l</code> | [<code>act.SendKey({ key = "l", mods = "CTRL" })</code>](../../shared/wezterm/keymap/init.lua#L96) | Send Key |
+| <code>ALT+q</code> | [<code>close_pane</code>](../../shared/wezterm/keymap/init.lua#L71) | Close pane |
+| <code>CTRL+0</code> | [<code>act.ActivateTab(-1)</code>](../../shared/wezterm/keymap/init.lua#L50) | Activate Tab: -1 |
+| <code>CTRL+1</code> | [<code>act.ActivateTab(0)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 0 |
+| <code>CTRL+2</code> | [<code>act.ActivateTab(1)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 1 |
+| <code>CTRL+3</code> | [<code>act.ActivateTab(2)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 2 |
+| <code>CTRL+4</code> | [<code>act.ActivateTab(3)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 3 |
+| <code>CTRL+5</code> | [<code>act.ActivateTab(4)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 4 |
+| <code>CTRL+6</code> | [<code>act.ActivateTab(5)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 5 |
+| <code>CTRL+7</code> | [<code>act.ActivateTab(6)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 6 |
+| <code>CTRL+8</code> | [<code>act.ActivateTab(7)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 7 |
+| <code>CTRL+9</code> | [<code>act.ActivateTab(8)</code>](../../shared/wezterm/keymap/init.lua#L137) | Activate Tab: 8 |
+| <code>CTRL+;</code> | [<code>split("vertical")</code>](../../shared/wezterm/keymap/init.lua#L129) | Split: vertical |
+| <code>CTRL+Backspace</code> | [<code>delete_to_start</code>](../../shared/wezterm/keymap/motion-keys.lua#L58) | Delete to start |
+| <code>CTRL+DownArrow</code> | [<code>act.SendString("\\x1b&#91;1;5F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L35) | Send String: \\x1b&#91;1;5F |
+| <code>CTRL+Enter</code> | [<code>open_line_below</code>](../../shared/wezterm/keymap/motion-keys.lua#L48) | Open line below |
+| <code>CTRL+LeftArrow</code> | [<code>act.SendKey({ key = "a", mods = "CTRL" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L31) | Send Key |
+| <code>CTRL+RightArrow</code> | [<code>act.SendKey({ key = "e", mods = "CTRL" })</code>](../../shared/wezterm/keymap/motion-keys.lua#L32) | Send Key |
+| <code>CTRL+SHIFT+Backspace</code> | [<code>delete_to_end</code>](../../shared/wezterm/keymap/motion-keys.lua#L63) | Delete to end |
+| <code>CTRL+SHIFT+DownArrow</code> | [<code>act.SendString("\\x1b&#91;1;6F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L39) | Send String: \\x1b&#91;1;6F |
+| <code>CTRL+SHIFT+Enter</code> | [<code>open_line_above</code>](../../shared/wezterm/keymap/motion-keys.lua#L53) | Open line above |
+| <code>CTRL+SHIFT+LeftArrow</code> | [<code>act.SendString("\\x1b&#91;1;2H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L36) | Send String: \\x1b&#91;1;2H |
+| <code>CTRL+SHIFT+RightArrow</code> | [<code>act.SendString("\\x1b&#91;1;2F")</code>](../../shared/wezterm/keymap/motion-keys.lua#L37) | Send String: \\x1b&#91;1;2F |
+| <code>CTRL+SHIFT+Space</code> | [<code>act.QuickSelect</code>](../../shared/wezterm/keymap/init.lua#L128) | Quick Select |
+| <code>CTRL+SHIFT+UpArrow</code> | [<code>act.SendString("\\x1b&#91;1;6H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L38) | Send String: \\x1b&#91;1;6H |
+| <code>CTRL+SHIFT+a</code> | [<code>act.Nop</code>](../../shared/wezterm/keymap/init.lua#L131) | Nop |
+| <code>CTRL+SHIFT+c</code> | [<code>act.CopyTo("Clipboard")</code>](../../shared/wezterm/keymap/init.lua#L29) | Copy To: Clipboard |
+| <code>CTRL+SHIFT+d</code> | [<code>act.ShowLauncherArgs({ flags = "DOMAINS&#124;WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L114) | Show Launcher Args |
+| <code>CTRL+SHIFT+g</code> | [<code>act.Nop</code>](../../shared/wezterm/keymap/init.lua#L130) | Nop |
+| <code>CTRL+SHIFT+m</code> | [<code>wezterm.action_callback(callback @L91)</code>](../../shared/wezterm/keymap/init.lua#L88) | Wezterm action callback: callback @L91 |
+| <code>CTRL+SHIFT+o</code> | [<code>open_vscode</code>](../../shared/wezterm/keymap/init.lua#L119) | Open vscode |
+| <code>CTRL+SHIFT+p</code> | [<code>act.ShowLauncherArgs({ flags = "WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L126) | Show Launcher Args |
+| <code>CTRL+SHIFT+r</code> | [<code>ReloadConfiguration</code>](../../shared/wezterm/keymap/init.lua#L106) | Reload Configuration |
+| <code>CTRL+SHIFT+s</code> | [<code>mux.detach_pane</code>](../../shared/wezterm/keymap/init.lua#L109) | Mux detach pane |
+| <code>CTRL+SHIFT+v</code> | [<code>act.PasteFrom("Clipboard")</code>](../../shared/wezterm/keymap/init.lua#L30) | Paste From: Clipboard |
+| <code>CTRL+SHIFT+x</code> | [<code>act.ActivateCopyMode</code>](../../shared/wezterm/keymap/init.lua#L127) | Activate Copy Mode |
+| <code>CTRL+SHIFT+z</code> | [<code>act.TogglePaneZoomState</code>](../../shared/wezterm/keymap/init.lua#L132) | Toggle Pane Zoom State |
+| <code>CTRL+Space</code> | [<code>act.ActivateCommandPalette</code>](../../shared/wezterm/keymap/init.lua#L125) | Activate Command Palette |
+| <code>CTRL+UpArrow</code> | [<code>act.SendString("\\x1b&#91;1;5H")</code>](../../shared/wezterm/keymap/motion-keys.lua#L34) | Send String: \\x1b&#91;1;5H |
+| <code>CTRL+d</code> | [<code>split("horizontal")</code>](../../shared/wezterm/keymap/init.lua#L66) | Split: horizontal |
+| <code>CTRL+m</code> | [<code>act.PaneSelect({ mode = "MoveToNewTab" })</code>](../../shared/wezterm/keymap/init.lua#L81) | Pane Select |
+| <code>CTRL+n</code> | [<code>act.SpawnWindow</code>](../../shared/wezterm/keymap/init.lua#L31) | Spawn Window |
+| <code>CTRL+q</code> | [<code>act.QuitApplication</code>](../../shared/wezterm/keymap/init.lua#L40) | Quit Application |
+| <code>CTRL+t</code> | [<code>hwire_session.new_tab</code>](../../shared/wezterm/keymap/init.lua#L35) | Hwire session new tab |
+| <code>CTRL+w</code> | [<code>close_tab</code>](../../shared/wezterm/keymap/init.lua#L45) | Close tab |
+| <code>CTRL+y</code> | [<code>open_yazi</code>](../../shared/wezterm/keymap/init.lua#L32) | Open yazi |
+| <code>CTRL+§</code> | [<code>split("vertical")</code>](../../shared/wezterm/keymap/init.lua#L76) | Split: vertical |

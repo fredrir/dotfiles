@@ -1,8 +1,8 @@
 local wezterm = require "wezterm" ---@type Wezterm
 local act = wezterm.action
 
--- Inside tmux the shell drives its own scrollback. A bare WezTerm pane has no
--- such client, so ZLE reports the intent and WezTerm performs the scroll.
+-- A bare WezTerm pane has no shell-side scrollback client, so ZLE reports the
+-- intent and WezTerm performs the scroll.
 local actions = {
   top = act.ScrollToTop,
   bottom = act.ScrollToBottom,

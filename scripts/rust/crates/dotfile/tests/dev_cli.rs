@@ -38,7 +38,6 @@ impl Sandbox {
                 "shared/obsidian/plugins/agent-transcripts/plugin.test.js",
                 "",
             ),
-            ("shared/wezterm/tests/tmux-workspace.lua", ""),
             ("setup.sh", "#!/bin/sh\n"),
             ("bin/", ""),
         ]);
@@ -104,39 +103,16 @@ impl Sandbox {
 }
 
 #[test]
-fn neovim_tests_run_in_an_isolated_headless_editor() {
-    let sandbox = Sandbox::new();
-    let tests = sandbox.root.path().join("shared/nvim/tests");
-    fs::create_dir_all(&tests).unwrap();
-    fs::write(tests.join("shell.lua"), "").unwrap();
-    let ran = sandbox.preview(&["test", "--pkg", "nvim"]);
-    assert!(ran.success(), "{}", ran.stderr);
-    assert!(ran.stdout.contains("lua test nvim:"), "{}", ran.stdout);
-    assert!(
-        ran.stdout.contains("'--headless' '-u' 'NONE'"),
-        "{}",
-        ran.stdout
-    );
-    assert!(
-        ran.stdout.contains("'shared/nvim/tests/shell.lua'"),
-        "{}",
-        ran.stdout
-    );
-    assert!(!ran.stdout.contains("wezterm"), "{}", ran.stdout);
-}
-
-#[test]
-fn default_test_covers_every_suite_without_python_routing() {
+fn default_test_covers_every_language_without_python_routing() {
     let sandbox = Sandbox::new();
     let ran = sandbox.preview(&["test"]);
     assert!(ran.success(), "{}", ran.stderr);
-    assert_eq!(ran.stdout.lines().count(), 8);
+    assert_eq!(ran.stdout.lines().count(), 4);
     for expected in [
+        "rust build:",
         "rust test:",
         "python test:",
         "javascript test:",
-        "lua test linux native-splits:",
-        "lua test mac hwire-splits:",
     ] {
         assert!(ran.stdout.contains(expected), "{}", ran.stdout);
     }
@@ -270,24 +246,33 @@ fn check_serializes_cargo_and_continues_after_lint_failure() {
 #[test]
 fn missing_tools_are_failures_and_other_suites_still_run() {
     let sandbox = Sandbox::new();
-    sandbox.tool("lua", "printf 'lua passed\\n'");
-    let ran = sandbox.bin().args(["test", "--lang", "python,lua"]).run();
+    sandbox.tool("node", "printf 'node passed\\n'");
+    let ran = sandbox.bin().args(["test"]).run();
     assert_eq!(ran.code(), Some(127));
+    assert!(ran.stderr.contains("rust build"));
     assert!(ran.stderr.contains("python test"));
     assert!(ran.stderr.contains("uv:"));
-    assert!(ran.stderr.contains("4 passed, 1 failed"));
+    assert!(ran.stderr.contains("1 passed, 2 failed, 1 skipped"));
 }
 
 #[test]
 fn concurrency_is_bounded_and_independent_tasks_overlap() {
     let sandbox = Sandbox::new();
     sandbox.tool(
-        "lua",
+        "cargo",
+        "if [ \"$2\" = list ]; then exit 0; fi\nprintf 'start\\n' >> \"$DEV_LOG\"\nsleep 0.15\nprintf 'end\\n' >> \"$DEV_LOG\"",
+    );
+    sandbox.tool(
+        "uv",
+        "printf 'start\\n' >> \"$DEV_LOG\"\nsleep 0.15\nprintf 'end\\n' >> \"$DEV_LOG\"",
+    );
+    sandbox.tool(
+        "node",
         "printf 'start\\n' >> \"$DEV_LOG\"\nsleep 0.15\nprintf 'end\\n' >> \"$DEV_LOG\"",
     );
     let ran = sandbox
         .bin()
-        .args(["test", "--lang", "lua", "--jobs", "2", "--concurrency", "2"])
+        .args(["test", "--jobs", "4", "--concurrency", "2"])
         .run();
     assert!(ran.success(), "{}", ran.stderr);
     let mut active = 0;
@@ -307,17 +292,23 @@ fn concurrency_is_bounded_and_independent_tasks_overlap() {
 #[test]
 fn default_output_groups_successes_and_discards_tool_logs() {
     let sandbox = Sandbox::new();
-    sandbox.tool("lua", "printf 'noisy tool output\\n'");
-    let ran = sandbox.bin().args(["test", "--lang", "lua"]).run();
+    sandbox.tool(
+        "cargo",
+        "if [ \"$2\" = list ]; then exit 0; fi\nprintf 'noisy tool output\\n'",
+    );
+    sandbox.tool("uv", "printf 'noisy tool output\\n'");
+    sandbox.tool("node", "printf 'noisy tool output\\n'");
+    let ran = sandbox.bin().args(["test"]).run();
     assert!(ran.success(), "{}", ran.stderr);
     assert!(ran.stdout.is_empty(), "{}", ran.stdout);
-    assert_eq!(ran.stderr.matches("lua test").count(), 1, "{}", ran.stderr);
-    assert!(ran.stderr.contains("lua test (4 tasks)"));
+    for label in ["rust build", "rust test", "python test", "javascript test"] {
+        assert_eq!(ran.stderr.matches(label).count(), 1, "{}", ran.stderr);
+    }
     assert!(ran.stderr.contains("4 passed"));
     assert!(!ran.stderr.contains("noisy tool output"));
     assert!(!ran.stderr.contains("0 failed"));
     assert!(!ran.stderr.contains('\x1b'));
-    assert!(ran.stderr.lines().count() <= 5, "{}", ran.stderr);
+    assert!(ran.stderr.lines().count() <= 7, "{}", ran.stderr);
     assert!(fs::read_dir(sandbox.root.path()).unwrap().all(|entry| {
         !entry
             .unwrap()
@@ -355,19 +346,22 @@ fn failure_output_is_bounded_and_preserves_the_complete_log() {
 #[test]
 fn every_action_supports_verbose_commands_and_output() {
     let sandbox = Sandbox::new();
-    sandbox.tool("lua", "printf 'lua output\\n'");
-    sandbox.tool("luacheck", "printf 'luacheck output\\n'");
+    sandbox.tool("node", "printf 'node output\\n'");
+    sandbox.tool("biome", "printf 'biome output\\n'");
     for action in ["test", "lint", "check"] {
         for flag in ["-v", "--verbose"] {
-            let ran = sandbox.bin().args([action, flag, "--lang", "lua"]).run();
+            let ran = sandbox
+                .bin()
+                .args([action, flag, "--lang", "javascript"])
+                .run();
             assert!(ran.success(), "{}", ran.stderr);
             assert!(ran.stderr.contains("RAYON_NUM_THREADS="));
             if action != "lint" {
-                assert_eq!(ran.stdout.matches("lua output").count(), 4);
-                assert!(ran.stderr.contains("lua test mac hwire-splits"));
+                assert_eq!(ran.stdout.matches("node output").count(), 1);
+                assert!(ran.stderr.contains("javascript test"));
             }
             if action != "test" {
-                assert!(ran.stdout.contains("luacheck output"));
+                assert!(ran.stdout.contains("biome output"));
             }
         }
     }
@@ -483,7 +477,7 @@ fn failed_build_skips_dependents_and_keeps_independent_suites_running() {
 #[test]
 fn python_receives_fresh_build_artifacts_before_running() {
     let sandbox = Sandbox::new();
-    fs::create_dir_all(sandbox.root.path().join("scripts/python/tests/tmux")).unwrap();
+    fs::create_dir_all(sandbox.root.path().join("scripts/python/tests/hyprland")).unwrap();
     sandbox.tool(
         "cargo",
         "[ \"$1\" = build ] || exit 9\nprintf 'prepared binary manifest\\n'",
@@ -491,7 +485,7 @@ fn python_receives_fresh_build_artifacts_before_running() {
     sandbox.tool("uv", "[ -f \"$DOTFILE_DEV_BUILD_MANIFEST\" ] || exit 8\n[ \"$(cat \"$DOTFILE_DEV_BUILD_MANIFEST\")\" = 'prepared binary manifest' ]");
     let ran = sandbox
         .bin()
-        .args(["test", "--lang", "python", "--pkg", "tmux"])
+        .args(["test", "--lang", "python", "--pkg", "hyprland"])
         .run();
     assert!(ran.success(), "{}", ran.stderr);
     assert!(ran.stderr.contains("2 passed"));
@@ -500,18 +494,19 @@ fn python_receives_fresh_build_artifacts_before_running() {
 #[test]
 fn rust_package_selection_includes_owned_python_suites_and_one_build() {
     let sandbox = Sandbox::new();
-    for suite in ["dotfile", "hyprland", "transcript", "tmux"] {
+    for suite in ["dotfile", "hyprland", "transcript", "hwtune"] {
         fs::create_dir_all(sandbox.root.path().join("scripts/python/tests").join(suite)).unwrap();
     }
     let selected = sandbox.preview(&["test", "--pkg", "dotfile-cli", "--lang", "python"]);
     assert!(selected.success(), "{}", selected.stderr);
-    for suite in ["dotfile", "hyprland", "transcript", "tmux"] {
+    for suite in ["dotfile", "hyprland", "transcript"] {
         assert!(
             selected.stdout.contains(&format!("'tests/{suite}'")),
             "{}",
             selected.stdout
         );
     }
+    assert!(!selected.stdout.contains("'tests/hwtune'"));
     assert!(!selected.stdout.contains("'tests/theme'"));
     assert_eq!(selected.stdout.matches("python build:").count(), 1);
     assert_eq!(
@@ -684,20 +679,17 @@ fn changed_reference_includes_branch_commits_and_shared_inputs_expand_selection(
     assert!(shared.success(), "{}", shared.stderr);
     assert!(shared.stdout.contains("rust test"));
     assert!(shared.stdout.contains("python test"));
-    assert!(shared.stdout.contains("lua test"));
+    assert!(shared.stdout.contains("javascript test"));
 }
 
 #[test]
 fn interrupt_kills_descendants_and_cancels_pending_tasks() {
     let sandbox = Sandbox::new();
-    sandbox.tool(
-        "lua",
-        "trap '' INT TERM\nsleep 30 &\nprintf '%s\\n' \"$!\" > \"$DEV_LOG\"\nwait",
-    );
-    let mut child = sandbox
-        .bin()
-        .args(["test", "--lang", "lua", "--concurrency", "1"])
-        .spawn();
+    let stubborn = "trap '' INT TERM\nsleep 30 &\nprintf '%s\\n' \"$!\" > \"$DEV_LOG\"\nwait";
+    sandbox.tool("cargo", stubborn);
+    sandbox.tool("uv", stubborn);
+    sandbox.tool("node", stubborn);
+    let mut child = sandbox.bin().args(["test", "--concurrency", "1"]).spawn();
     let log: PathBuf = sandbox.root.path().join("log");
     let deadline = Instant::now() + Duration::from_secs(5);
     while !log.is_file()

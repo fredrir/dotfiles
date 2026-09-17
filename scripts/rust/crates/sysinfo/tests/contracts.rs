@@ -425,7 +425,9 @@ fn module_index_ignores_errors_and_unrecognized_terminals() {
     assert!(collect::recognized_terminal(
         &json!({"prettyName":"GNOME Terminal"})
     ));
-    assert!(!collect::recognized_terminal(&json!({"prettyName":"tmux"})));
+    assert!(!collect::recognized_terminal(
+        &json!({"prettyName":"zellij"})
+    ));
 }
 #[test]
 fn palette_schema_colors_and_missing_roles_fail_actionably() {

@@ -45,17 +45,14 @@ fn a_path_outside_home_is_refused() {
 fn a_symlink_is_followed_to_what_it_points_at() {
     let root = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(root.path()).unwrap();
-    std::fs::create_dir_all(home.join("dotfiles/tmux")).unwrap();
-    std::fs::write(home.join("dotfiles/tmux/tmux.conf"), "").unwrap();
-    std::os::unix::fs::symlink(
-        home.join("dotfiles/tmux/tmux.conf"),
-        home.join(".tmux.conf"),
-    )
-    .unwrap();
+    std::fs::create_dir_all(home.join("dotfiles/git")).unwrap();
+    std::fs::write(home.join("dotfiles/git/gitconfig"), "").unwrap();
+    std::os::unix::fs::symlink(home.join("dotfiles/git/gitconfig"), home.join(".gitconfig"))
+        .unwrap();
 
-    let local = resolve(&home.join(".tmux.conf").to_string_lossy(), &home).unwrap();
-    assert_eq!(local.relative, "dotfiles/tmux/tmux.conf");
-    assert_eq!(local.name, "tmux.conf");
+    let local = resolve(&home.join(".gitconfig").to_string_lossy(), &home).unwrap();
+    assert_eq!(local.relative, "dotfiles/git/gitconfig");
+    assert_eq!(local.name, "gitconfig");
 }
 
 #[test]
@@ -78,8 +75,8 @@ fn a_resolved_path_knows_its_own_shape() {
 
 #[test]
 fn a_path_directly_in_home_has_no_parent_below_it() {
-    let local = resolve("~/.tmux.conf", &home_path()).unwrap();
-    assert_eq!(local.relative, ".tmux.conf");
+    let local = resolve("~/.gitconfig", &home_path()).unwrap();
+    assert_eq!(local.relative, ".gitconfig");
     assert_eq!(local.parent(), "");
 }
 

@@ -97,7 +97,7 @@ pub fn document(theme: &Theme) -> Result<Rc<PaletteDocument>> {
         let foreground = super::super::color::Color::parse(&ui[*name])?;
         ui_indexed.insert(
             (*name).into(),
-            super::tmux::indexed_many(foreground, &backgrounds)? as u8,
+            indexed_many(foreground, &backgrounds)? as u8,
         );
     }
     let document = Rc::new(PaletteDocument {
@@ -122,4 +122,37 @@ pub fn render(theme: &Theme) -> Result<String> {
         .map_err(|error| error.to_string())?;
     output.push('\n');
     Ok(output)
+}
+
+fn indexed_many(
+    c: super::super::color::Color,
+    backgrounds: &[super::super::color::Color],
+) -> Result<usize> {
+    let mut best = None;
+    for i in 16..256 {
+        let rgb = if i >= 232 {
+            [8 + 10 * (i - 232); 3]
+        } else {
+            let ramp = [0, 95, 135, 175, 215, 255];
+            let n = i - 16;
+            [ramp[n / 36], ramp[n / 6 % 6], ramp[n % 6]]
+        };
+        let color = super::super::color::Color(rgb.map(|x| x as u8));
+        if backgrounds
+            .iter()
+            .all(|background| color.contrast(*background) >= 4.5)
+        {
+            let distance = rgb
+                .iter()
+                .zip(c.0)
+                .map(|(a, b)| (*a as i32 - i32::from(b)).pow(2))
+                .sum::<i32>();
+            let candidate = (distance, i);
+            if best.is_none_or(|old| candidate < old) {
+                best = Some(candidate);
+            }
+        }
+    }
+    best.map(|(_, i)| i)
+        .ok_or_else(|| "no readable indexed color".into())
 }

@@ -130,7 +130,6 @@ texlive-plaingeneric
 texlive-pstricks
 texlive-publishers
 texlive-xetex
-tmux
 tree
 tree-sitter-cli
 ttf-jetbrains-mono

@@ -242,31 +242,6 @@ pub(super) fn tasks(
                     tasks.push(task);
                 }
             }
-            let nvim = "shared/nvim/tests/shell.lua";
-            if selected(Language::Lua) && selected_package("nvim") && root.join(nvim).is_file() {
-                tasks.push(Task::new(
-                    "lua test nvim",
-                    root.to_path_buf(),
-                    "nvim",
-                    &["--headless", "-u", "NONE", "-i", "NONE", "-n", "-l", nvim],
-                    1,
-                ));
-            }
-            let script = "shared/wezterm/tests/tmux-workspace.lua";
-            if selected(Language::Lua) && selected_package("wezterm") && root.join(script).is_file()
-            {
-                for platform in ["linux", "mac"] {
-                    for mode in ["hwire-splits", "native-splits"] {
-                        tasks.push(Task::new(
-                            format!("lua test {platform} {mode}"),
-                            root.to_path_buf(),
-                            "lua",
-                            &[script, platform, mode],
-                            1,
-                        ));
-                    }
-                }
-            }
         } else {
             add_linters(&mut tasks, root, catalog, options, workers);
         }

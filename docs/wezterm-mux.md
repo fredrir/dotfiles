@@ -1,10 +1,5 @@
 ## wezterm mux: macie ⇄ archie
 
-Inside [the tmux workspace](tmux.md), host switching uses SSH to attach a
-destination tmux session and preserves the source pane. The mutual-TLS setup
-below remains the outside-tmux WezTerm path. Neither attachment moves running
-processes; managed agent takeover is handled separately by `agent-hop move`.
-
 Both machines run a `wezterm-mux-server`. Each dials the other over mutual TLS
 on the cable, direct Wi-Fi, regular LAN, or Tailscale route, in that order. No
 SSH is involved in the mux path; the LAN route borrows only the
@@ -48,7 +43,7 @@ Both LAN addresses are DHCP, so neither is a literal in `hosts.lua`, and
 
 | Name         | Value                                                                 |
 | ------------ | --------------------------------------------------------------------- |
-| Resolver     | `~/dotfiles/scripts/shell/home-lan-connect --resolve <peer>.local`                  |
+| Resolver     | `~/dotfiles/scripts/shell/home-lan-connect --resolve <peer>.local`    |
 | Accepted     | both ends inside 192.168.1.0/24                                       |
 | mDNS scope   | avahi denies `macie0`, `macie1` and `archie0`; see [ssh.md](ssh.md)   |
 | Server relay | `<own-lan>:8443` → `127.0.0.1:8446`, `range=<peer-lan>/32`            |

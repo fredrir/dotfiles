@@ -89,7 +89,7 @@ fn readonly_commands_leave_outputs_untouched_and_export_the_active_palette() {
             .any(|p| p == "mocha")
     );
     let outputs = s.outputs();
-    assert!(outputs.iter().any(|p| p == "shared/tmux/theme.conf"));
+    assert!(outputs.iter().any(|p| p == "shared/nvim/lua/ui/theme.lua"));
     assert!(outputs.iter().any(|p| p == "config/theme/theme.json"));
     assert_eq!(
         outputs.len(),
@@ -100,7 +100,11 @@ fn readonly_commands_leave_outputs_untouched_and_export_the_active_palette() {
     );
     let staged = s.assert_success(&["outputs", "--staged"]);
     let staged = String::from_utf8(staged.stdout).unwrap();
-    assert!(staged.lines().any(|path| path == "shared/tmux/theme.conf"));
+    assert!(
+        staged
+            .lines()
+            .any(|path| path == "shared/nvim/lua/ui/theme.lua")
+    );
     assert!(
         staged
             .lines()
@@ -139,12 +143,12 @@ fn readonly_commands_leave_outputs_untouched_and_export_the_active_palette() {
 #[test]
 fn ui_scope_switch_updates_runtime_palette_without_changing_other_applications() {
     let s = Sandbox::new();
-    let terminal = s.read("shared/tmux/theme.conf");
+    let nvim = s.read("shared/nvim/lua/ui/theme.lua");
     s.assert_success(&["switch", "latte", "theme"]);
     let runtime = ui_theme::Palette::from_path(&s.path("config/theme/theme.json")).unwrap();
     assert_eq!(runtime.profile, "latte");
     assert!(!runtime.dark);
-    assert_eq!(s.read("shared/tmux/theme.conf"), terminal);
+    assert_eq!(s.read("shared/nvim/lua/ui/theme.lua"), nvim);
     let exported: Value =
         serde_json::from_slice(&s.assert_success(&["palette", "--json"]).stdout).unwrap();
     assert_eq!(exported["profile"], "latte");
@@ -168,7 +172,7 @@ fn ui_scope_switch_updates_runtime_palette_without_changing_other_applications()
 #[test]
 fn dry_reports_drift_sync_repairs_it_and_noop_preserves_mtime_and_permissions() {
     let s = Sandbox::new();
-    let path = "shared/tmux/theme.conf";
+    let path = "theme/contrast/latte.md";
     let original = s.read(path);
     fs::write(s.path(path), "drift\n").unwrap();
     #[cfg(unix)]
@@ -215,13 +219,13 @@ fn scoped_nvim_switch_updates_palette_without_rewriting_plugin_spec() {
 #[test]
 fn scoped_switch_changes_only_assigned_package_and_global_clears_overrides() {
     let s = Sandbox::new();
-    let before = s.read("shared/tmux/theme.conf");
+    let before = s.read("shared/nvim/lua/ui/theme.lua");
     let zsh = s.read("shared/zsh/20-theme.zsh");
     s.assert_success(&["switch", "latte", "shared/zsh"]);
     let changed_zsh = s.read("shared/zsh/20-theme.zsh");
     assert_ne!(changed_zsh, zsh);
     assert!(changed_zsh.starts_with("# latte\n"));
-    assert_eq!(s.read("shared/tmux/theme.conf"), before);
+    assert_eq!(s.read("shared/nvim/lua/ui/theme.lua"), before);
     assert!(s.read("config/profiles.dotfile").contains("zsh = latte"));
     s.assert_success(&["switch", "mocha", "linux/kde"]);
     s.assert_success(&["switch", "latte", "global"]);
@@ -230,8 +234,8 @@ fn scoped_switch_changes_only_assigned_package_and_global_clears_overrides() {
     assert!(!selection.contains("linux/kde"));
     assert!(selection.contains("theme = latte"));
     assert!(
-        s.read("shared/tmux/theme.conf")
-            .contains("@theme_name 'latte'")
+        s.read("shared/nvim/lua/ui/theme.lua")
+            .contains("flavour = \"latte\"")
     );
     s.assert_success(&["dry"]);
 }
@@ -400,8 +404,8 @@ mod terminal {
             String::from_utf8_lossy(&run.output)
         );
         assert!(
-            s.read("shared/tmux/theme.conf")
-                .contains("@theme_name 'latte'")
+            s.read("shared/nvim/lua/ui/theme.lua")
+                .contains("flavour = \"latte\"")
         );
         s.assert_success(&["dry"]);
         for signal in ["-TERM", "-INT"] {
@@ -423,79 +427,6 @@ mod terminal {
             assert_eq!(before.c_iflag, after.c_iflag);
             assert_eq!(before.c_oflag, after.c_oflag);
         }
-    }
-}
-
-#[cfg(unix)]
-#[test]
-fn generated_tmux_themes_load_and_reload_on_an_isolated_server() {
-    use std::ffi::OsString;
-    let program = std::env::var_os("TMUX_BINARY").unwrap_or_else(|| OsString::from("tmux"));
-    match Command::new(&program).arg("-V").output() {
-        Ok(out) if out.status.success() => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("tmux unavailable; isolated runtime check skipped");
-            return;
-        }
-        other => panic!("tmux unavailable: {other:?}"),
-    }
-    let sandbox = Sandbox::new();
-    let socket = sandbox.path("socket");
-    struct Server {
-        program: OsString,
-        socket: PathBuf,
-    }
-    impl Drop for Server {
-        fn drop(&mut self) {
-            let _ = Command::new(&self.program)
-                .arg("-S")
-                .arg(&self.socket)
-                .arg("kill-server")
-                .env_remove("TMUX")
-                .output();
-        }
-    }
-    let _server = Server {
-        program: program.clone(),
-        socket: socket.clone(),
-    };
-    let run = |args: &[&str]| {
-        let output = Command::new(&program)
-            .arg("-S")
-            .arg(&socket)
-            .args(args)
-            .env_remove("TMUX")
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{args:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(
-            output.stderr.is_empty(),
-            "{args:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8(output.stdout).unwrap()
-    };
-    run(&[
-        "-f",
-        "/dev/null",
-        "new-session",
-        "-d",
-        "-s",
-        "theme",
-        "sleep 60",
-    ]);
-    for profile in ["latte", "midnight-blue", "mocha", "sexy-purple"] {
-        sandbox.assert_success(&["switch", profile, "shared/tmux"]);
-        let path = sandbox.path("shared/tmux/theme.conf");
-        run(&["source-file", path.to_str().unwrap()]);
-        let options = run(&["show-options", "-g"]);
-        run(&["source-file", path.to_str().unwrap()]);
-        assert_eq!(run(&["show-options", "-g"]), options);
-        assert_eq!(run(&["show-options", "-gv", "@theme_name"]).trim(), profile);
     }
 }
 

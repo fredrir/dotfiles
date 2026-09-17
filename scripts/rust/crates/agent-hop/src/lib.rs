@@ -9,7 +9,6 @@ use hostkit::Host;
 mod catalog;
 pub mod cli;
 mod favorites;
-mod handoff;
 mod inbound;
 mod interactive;
 mod lineage;
@@ -41,7 +40,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
     if let Some(command) = cli.command {
         return match command {
             Command::Machine(machine) => machine::run(machine.request),
-            command => handoff::run(command),
         };
     }
     if cli.list {

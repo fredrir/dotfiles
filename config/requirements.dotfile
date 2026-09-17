@@ -12,7 +12,6 @@ shared {
   curl
   bash
   python3
-  tmux
   ssh     = openssh
   zsh
   uv

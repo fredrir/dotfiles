@@ -23,35 +23,34 @@ fn row(
 #[derive(Debug)]
 struct Word {
     value: String,
-    start: usize,
 }
 
 fn words(s: &str) -> Result<Vec<Word>, String> {
     let mut result = Vec::new();
     let mut value = String::new();
     let mut quote = None;
-    let mut start = None;
-    let mut chars = s.char_indices().peekable();
-    while let Some((i, c)) = chars.next() {
+    let mut started = false;
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
         if quote.is_none() && c.is_whitespace() {
-            if let Some(start) = start.take() {
+            if started {
                 result.push(Word {
                     value: std::mem::take(&mut value),
-                    start,
                 });
+                started = false;
             }
             continue;
         }
-        if quote.is_none() && c == '#' && start.is_none() {
+        if quote.is_none() && c == '#' && !started {
             break;
         }
-        start.get_or_insert(i);
+        started = true;
         if quote == Some(c) {
             quote = None;
         } else if quote.is_none() && matches!(c, '\'' | '"') {
             quote = Some(c);
         } else if c == '\\' && quote != Some('\'') {
-            if let Some((_, next)) = chars.next() {
+            if let Some(next) = chars.next() {
                 if matches!(next, '\\' | '\'' | '"' | ' ') {
                     value.push(next);
                 } else {
@@ -68,8 +67,8 @@ fn words(s: &str) -> Result<Vec<Word>, String> {
     if quote.is_some() {
         return Err("unclosed quote".into());
     }
-    if let Some(start) = start {
-        result.push(Word { value, start });
+    if started {
+        result.push(Word { value });
     }
     Ok(result)
 }
@@ -96,145 +95,6 @@ fn lines(body: &str) -> Vec<(usize, String)> {
         result.push((start, pending));
     }
     result
-}
-
-pub fn tmux(source: &str, body: &str, package: &mut Package) -> Result<(), String> {
-    let mut conditions = Vec::new();
-    for (line, text) in lines(body) {
-        let text = text.trim();
-        if let Some(condition) = text.strip_prefix("%if ") {
-            conditions.push(condition.to_string());
-            continue;
-        }
-        if text == "%else" {
-            let previous = conditions
-                .pop()
-                .ok_or_else(|| format!("{line}: unmatched %else"))?;
-            conditions.push(format!("not ({previous})"));
-            continue;
-        }
-        if let Some(condition) = text.strip_prefix("%elif ") {
-            let previous = conditions
-                .pop()
-                .ok_or_else(|| format!("{line}: unmatched %elif"))?;
-            conditions.push(format!("not ({previous}) and ({condition})"));
-            continue;
-        }
-        if text == "%endif" {
-            conditions
-                .pop()
-                .ok_or_else(|| format!("{line}: unmatched %endif"))?;
-            continue;
-        }
-        let command = text.split_whitespace().next().unwrap_or("");
-        if !matches!(
-            command,
-            "bind"
-                | "bind-key"
-                | "unbind"
-                | "unbind-key"
-                | "set"
-                | "set-option"
-                | "setw"
-                | "set-window-option"
-        ) {
-            continue;
-        }
-        let words = words(text).map_err(|e| format!("{line}: {e}"))?;
-        if command.starts_with("set") {
-            if let Some(i) = words.iter().position(|w| {
-                matches!(
-                    w.value.as_str(),
-                    "prefix" | "prefix2" | "mode-keys" | "status-keys"
-                ) || w.value.starts_with("user-keys[")
-            }) {
-                let value = words
-                    .get(i + 1)
-                    .ok_or_else(|| format!("{line}: missing setting value"))?;
-                package.settings.push(row(
-                    source,
-                    line,
-                    words[i].value.clone(),
-                    value.value.clone(),
-                    conditions.join("; "),
-                    String::new(),
-                ));
-            }
-            continue;
-        }
-        let mut table = "prefix".to_string();
-        let mut description = String::new();
-        let mut flags = Vec::new();
-        let mut all = false;
-        let mut i = 1;
-        while let Some(word) = words.get(i) {
-            if word.value == "--" {
-                i += 1;
-                break;
-            }
-            if !word.value.starts_with('-') || word.value == "-" {
-                break;
-            }
-            match word.value.as_str() {
-                "-T" | "-N" => {
-                    let value = words
-                        .get(i + 1)
-                        .ok_or_else(|| format!("{line}: missing {} value", word.value))?;
-                    if word.value == "-T" {
-                        table = value.value.clone();
-                    } else {
-                        description = value.value.clone();
-                    }
-                    i += 1;
-                }
-                "-n" => table = "root".into(),
-                "-r" => flags.push("repeat"),
-                "-a" => all = true,
-                "-q" => {}
-                other => return Err(format!("{line}: unsupported binding flag {other}")),
-            }
-            i += 1;
-        }
-        let key = if all {
-            "All keys".into()
-        } else {
-            words
-                .get(i)
-                .ok_or_else(|| format!("{line}: missing key"))?
-                .value
-                .clone()
-        };
-        let action = if command.starts_with("unbind") {
-            "Unbind".into()
-        } else {
-            text.get(
-                words
-                    .get(i + 1)
-                    .ok_or_else(|| format!("{line}: missing action"))?
-                    .start..,
-            )
-            .unwrap()
-            .to_string()
-        };
-        if description.is_empty() {
-            description = humanize(action.split(" ").next().unwrap_or(""));
-        }
-        let mut context = vec![table];
-        context.extend(flags.into_iter().map(str::to_string));
-        context.extend(conditions.clone());
-        package.bindings.push(row(
-            source,
-            line,
-            key,
-            action,
-            context.join("; "),
-            description,
-        ));
-    }
-    if !conditions.is_empty() {
-        return Err("unclosed %if".into());
-    }
-    Ok(())
 }
 
 pub fn zsh(source: &str, body: &str, package: &mut Package) -> Result<(), String> {

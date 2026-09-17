@@ -1,7 +1,6 @@
 use super::{
     Result,
     color::Color,
-    emitters::tmux,
     model::{ANSI, Repository, Theme, table, text},
 };
 use serde_json::Value;
@@ -140,9 +139,6 @@ pub fn pairs(t: &Theme) -> Result<Vec<Pair>> {
         )?);
     }
     rows.extend(yazi_pairs(t)?);
-    for (state, fg, bg, floor) in tmux::pairs(t)? {
-        rows.push(pair("tmux", &state, fg, bg, floor));
-    }
     let palette = super::emitters::ui::document(t)?;
     for (state, _) in super::emitters::ui::SEMANTICS {
         let backgrounds: &[&str] = match *state {

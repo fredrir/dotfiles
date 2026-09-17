@@ -5,7 +5,6 @@ pub(super) const DEPENDENCIES: &[(&str, &[&str])] = &[
     ("hyprland", &["dotfile-cli"]),
     ("transcript", &["dotfile-cli"]),
     ("hwtune", &["hwtune", "bench-workloads"]),
-    ("tmux", &["dotfile-cli", "tmux-workspace", "agent-hop"]),
 ];
 
 pub(super) fn packages(suite: &str) -> &'static [&'static str] {

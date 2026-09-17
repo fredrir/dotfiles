@@ -3,40 +3,39 @@ resolver = "2"
 # Listed rather than globbed: every path a glob matches has to be a package,
 # and `crates/git` is a folder of them.
 members = [
-  "crates/agent-hop",
-  "crates/bench-workloads",
-  "crates/count",
-  "crates/dcloud",
-  "crates/doc-purge",
-  "crates/dotfile",
-  "crates/dotfile-format",
-  "crates/dotfmt",
-  "crates/flatten",
-  "crates/format/jqfmt",
-  "crates/git/gdd",
-  "crates/git/gget",
-  "crates/git/gitkit",
-  "crates/git/gppf",
-  "crates/hcopy",
-  "crates/hostkit",
-  "crates/hwire",
-  "crates/hwtune",
-  "crates/mux-route",
-  "crates/path",
-  "crates/size",
-  "crates/sysinfo",
-  "crates/testkit",
-  "crates/tmux-workspace",
-  "crates/ui/cli",
-  "crates/ui/diff-view",
-  "crates/ui/file-explorer",
-  "crates/ui/gallery",
-  "crates/ui/picker",
-  "crates/ui/progress",
-  "crates/ui/terminal",
-  "crates/ui/theme",
-  "crates/ui/widgets",
-  "crates/workstation",
+ "crates/agent-hop",
+ "crates/bench-workloads",
+ "crates/count",
+ "crates/dcloud",
+ "crates/doc-purge",
+ "crates/dotfile",
+ "crates/dotfile-format",
+ "crates/dotfmt",
+ "crates/flatten",
+ "crates/format/jqfmt",
+ "crates/git/gdd",
+ "crates/git/gget",
+ "crates/git/gitkit",
+ "crates/git/gppf",
+ "crates/hcopy",
+ "crates/hostkit",
+ "crates/hwire",
+ "crates/hwtune",
+ "crates/mux-route",
+ "crates/path",
+ "crates/size",
+ "crates/sysinfo",
+ "crates/testkit",
+ "crates/ui/cli",
+ "crates/ui/diff-view",
+ "crates/ui/file-explorer",
+ "crates/ui/gallery",
+ "crates/ui/picker",
+ "crates/ui/progress",
+ "crates/ui/terminal",
+ "crates/ui/theme",
+ "crates/ui/widgets",
+ "crates/workstation",
 ]
 
 [workspace.package]
@@ -63,8 +62,8 @@ libc = "0.2"
 nix = "0.30.1"
 rustix = "1.1.4"
 ratatui = { version = "0.30.2", default-features = false, features = [
-  "crossterm_0_29",
-  "scrolling-regions",
+ "crossterm_0_29",
+ "scrolling-regions",
 ] }
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
@@ -93,11 +92,11 @@ gix-ignore = "0.22.1"
 
 # gitoxide, with only the parts the git tools use
 gix = { version = "0.87.1", default-features = false, features = [
-  "status",
-  "worktree-mutation",
-  "max-performance-safe",
-  "auto-chain-error",
-  "sha1",
+ "status",
+ "worktree-mutation",
+ "max-performance-safe",
+ "auto-chain-error",
+ "sha1",
 ] }
 
 # One codegen unit and fat LTO, so a rebuild of the same source on the same

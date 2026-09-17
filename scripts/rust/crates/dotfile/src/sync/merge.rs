@@ -1636,9 +1636,5 @@ fn sha256(input: &[u8]) -> String {
 }
 
 #[cfg(test)]
-#[path = "../../tests/unit/sync/adoption_tests.rs"]
-mod adoption_tests;
-
-#[cfg(test)]
 #[path = "../../tests/unit/sync/merge_tests.rs"]
 mod merge_tests;

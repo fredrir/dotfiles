@@ -49,7 +49,10 @@ impl Repository {
 #[test]
 fn docs_checks_and_plans_are_read_only_and_writes_are_idempotent() {
     let repo = Repository::new();
-    repo.put("shared/tmux/keys.conf", "bind r refresh-client\n");
+    repo.put(
+        "shared/nvim/lua/core/keymap.lua",
+        "vim.keymap.set('n', 'a', 'b')\n",
+    );
     let args = ["docs", "--only", "keybinds"];
     assert_eq!(
         repo.run(&[&args[..], &["--check"]].concat()).status.code(),
@@ -63,7 +66,7 @@ fn docs_checks_and_plans_are_read_only_and_writes_are_idempotent() {
     );
     assert!(!repo.root.join("docs").exists());
     assert!(repo.run(&args).status.success());
-    let page = repo.root.join("docs/keybinds/tmux.md");
+    let page = repo.root.join("docs/keybinds/nvim.md");
     let before = fs::metadata(&page).unwrap().modified().unwrap();
     assert!(repo.run(&args).status.success());
     assert!(
@@ -105,7 +108,10 @@ fn reference_updates_preserve_authored_text_and_noop_mtime() {
 #[test]
 fn json_diff_reports_exact_changes_without_writing() {
     let repo = Repository::new();
-    repo.put("shared/tmux/keys.conf", "bind r refresh-client\n");
+    repo.put(
+        "shared/nvim/lua/core/keymap.lua",
+        "vim.keymap.set('n', 'a', 'b')\n",
+    );
     let result = repo.run(&["docs", "--only", "keybinds", "--diff", "--json"]);
     assert!(result.status.success());
     assert!(!repo.root.join("docs").exists());
@@ -113,7 +119,7 @@ fn json_diff_reports_exact_changes_without_writing() {
     assert_eq!(report["version"], 1);
     assert_eq!(report["mode"], "diff");
     let changes = report["changes"].as_array().unwrap();
-    assert_eq!(changes.len(), 9);
+    assert_eq!(changes.len(), 8);
     assert!(changes.iter().all(|change| {
         change["action"] == "create"
             && change["diff"]
@@ -196,7 +202,7 @@ fn symlinked_output_is_rejected_before_other_outputs_are_created() {
     fs::create_dir_all(repo.root.join("docs/keybinds")).unwrap();
     symlink(
         repo.root.join("outside.md"),
-        repo.root.join("docs/keybinds/tmux.md"),
+        repo.root.join("docs/keybinds/nvim.md"),
     )
     .unwrap();
     let result = repo.run(&["docs", "--only", "cli,keybinds"]);

@@ -8,12 +8,14 @@ fn the_parser_is_well_formed() {
 }
 
 #[test]
-fn legacy_flags_cannot_silently_modify_managed_execution() {
+fn legacy_flags_cannot_silently_modify_a_command() {
     for flag in ["--dry-run", "--no-connect", "--list"] {
-        assert!(Cli::try_parse_from(["agent-hop", flag, "run", "codex"]).is_err());
+        assert!(
+            Cli::try_parse_from(["agent-hop", flag, "__machine", "catalog"]).is_err(),
+            "{flag}"
+        );
     }
-    assert!(Cli::try_parse_from(["agent-hop", "codex", "run", "codex"]).is_err());
-    assert!(Cli::try_parse_from(["agent-hop", "run", "codex"]).is_ok());
+    assert!(Cli::try_parse_from(["agent-hop", "__machine", "catalog"]).is_ok());
 }
 
 #[test]

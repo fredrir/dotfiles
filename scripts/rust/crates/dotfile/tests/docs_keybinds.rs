@@ -80,11 +80,6 @@ fn parses_all_formats_with_modes_descriptions_and_literal_loops() {
     let root = dir.path();
     put(
         root,
-        "shared/tmux/keys.conf",
-        "set -g prefix C-b\n%if #{>=:#{version},3.4}\nbind -T copy-mode-vi -N 'Copy | selection' y send-keys -X copy-selection\n%else\nbind -n -r '-' send-keys \\\n 'literal # string'\n%endif\nunbind -q '%'\n",
-    );
-    put(
-        root,
         "shared/zsh/60-keybinds.zsh",
         "if command -v nvim >/dev/null; then\n bindkey -M viins '^F' search-files\nelse\n bindkey -M emacs $'\\e[13;2u' fallback\nfi\nbindkey -N shift-select emacs\nbindkey -M shift-select -R ' '-'~' replace-region\n",
     );
@@ -166,23 +161,7 @@ if platform.is_mac then extend(keys, physical) end
         "return {{key='phys:8',mods='OPT',action=act.SendString '['}}\n",
     );
     let packages = collect(root).unwrap();
-    assert_eq!(packages.len(), 8);
-    assert_eq!(packages["tmux"].bindings.len(), 3);
-    assert_eq!(packages["tmux"].settings[0].action, "C-b");
-    assert!(
-        packages["tmux"]
-            .bindings
-            .iter()
-            .any(|b| b.description == "Copy | selection" && b.context.contains("copy-mode-vi"))
-    );
-    assert!(
-        packages["tmux"]
-            .bindings
-            .iter()
-            .any(|b| b.context.contains("not (")
-                && b.action.contains("literal # string")
-                && b.line == 5)
-    );
+    assert_eq!(packages.len(), 7);
     assert_eq!(packages["zsh"].bindings.len(), 3);
     assert!(
         packages["zsh"]
@@ -265,24 +244,24 @@ fn generation_is_deterministic_check_is_read_only_and_removed_sources_clear_rows
     let root = dir.path();
     put(
         root,
-        "shared/tmux/keys.conf",
-        "bind -N 'A | <tag> & `tick`' '|' display-message '['\n",
+        "shared/nvim/lua/core/keymap.lua",
+        "local map = vim.keymap.set\nmap('n', '|', \"display-message '['\", { desc = \"A | <tag> & `tick`\" })\n",
     );
-    assert_eq!(generate(root, true).unwrap().len(), 9);
+    assert_eq!(generate(root, true).unwrap().len(), 8);
     assert!(!root.join("docs").exists());
-    assert_eq!(generate(root, false).unwrap().len(), 9);
-    let path = root.join("docs/keybinds/tmux.md");
+    assert_eq!(generate(root, false).unwrap().len(), 8);
+    let path = root.join("docs/keybinds/nvim.md");
     let before = fs::metadata(&path).unwrap().modified().unwrap();
     assert!(generate(root, false).unwrap().is_empty());
     assert_eq!(before, fs::metadata(&path).unwrap().modified().unwrap());
     let page = fs::read_to_string(&path).unwrap();
     assert!(page.contains("<code>&#124;</code>"));
     assert!(page.contains("A &#124; &lt;tag&gt; &amp; &#96;tick&#96;"));
-    assert!(page.contains("../../shared/tmux/keys.conf#L1"));
-    assert!(
-        page.contains("[<code>display-message '&#91;'</code>](../../shared/tmux/keys.conf#L1)")
-    );
-    fs::remove_file(root.join("shared/tmux/keys.conf")).unwrap();
+    assert!(page.contains("../../shared/nvim/lua/core/keymap.lua#L2"));
+    assert!(page.contains(
+        "[<code>display-message '&#91;'</code>](../../shared/nvim/lua/core/keymap.lua#L2)"
+    ));
+    fs::remove_file(root.join("shared/nvim/lua/core/keymap.lua")).unwrap();
     assert_eq!(generate(root, true).unwrap().len(), 2);
     assert_eq!(fs::read_to_string(&path).unwrap(), page);
     generate(root, false).unwrap();
@@ -310,7 +289,7 @@ fn invalid_input_aborts_before_writing_any_pages() {
             "shared/nvim/lua/keys.lua",
             "vim.keymap.set('n', 'a', function( end)",
         ),
-        ("shared/tmux/keys.conf", "bind -N 'broken x command"),
+        ("shared/zsh/60-keybinds.zsh", "bindkey -M viins 'unclosed"),
         ("shared/vscode/keybindings.json", "[{\"key\":\"a\"}]"),
         (
             "shared/yazi/keymap.toml",
@@ -391,12 +370,12 @@ fn cli_check_reports_drift_from_a_child_directory() {
     put(dir.path(), "config/targets.dotfile", "");
     put(
         dir.path(),
-        "shared/tmux/keys.conf",
-        "bind r refresh-client\n",
+        "shared/zsh/60-keybinds.zsh",
+        "bindkey -M viins '^F' search-files\n",
     );
     let run = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_dotfile"))
-            .current_dir(dir.path().join("shared/tmux"))
+            .current_dir(dir.path().join("shared/zsh"))
             .env("DOTFILE_ROOT", dir.path())
             .args(["docs", "--only", "keybinds"])
             .args(args)

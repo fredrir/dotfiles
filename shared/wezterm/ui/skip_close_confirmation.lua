@@ -3,7 +3,6 @@ local skip_close_confirmation = {
   "sh",
   "zsh",
   "fish",
-  "tmux",
   "nu",
   "cmd.exe",
   "pwsh.exe",

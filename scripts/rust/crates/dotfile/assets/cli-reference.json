@@ -173,12 +173,6 @@
   },
   "commands": {
     "agent-hop": "Moves a Codex or Claude Code CLI session between the two workstations.",
-    "agent-hop run": "Starts a managed native agent session that can transfer execution.",
-    "agent-hop move": "Queues a managed agent handoff after its active work reaches a safe boundary.",
-    "agent-hop status": "Shows the recorded ownership and handoff state of a managed run.",
-    "agent-hop cancel": "Cancels a queued move before ownership transfers.",
-    "agent-hop follow": "Attaches to the destination that owns the moved agent.",
-    "agent-hop recover": "Resolves execution ownership before recovering a managed agent.",
     "count": "Counts items inside a directory.",
     "doc-purge": "Purges comments, doc strings and typographic glyphs from source files.",
     "dotfile": "Manages this repository's symlinks, packages, themes, secrets, and system files.",
@@ -284,11 +278,7 @@
       "--dry-run": "Reports what would be copied and started without changing either machine.",
       "--no-connect": "Copies the session without opening it on the other workstation.",
       "--color": "Chooses `auto`, `always`, or `never` color output.",
-      "--list": "Prints the local and remote sessions as tab-separated rows instead of opening the picker.",
-      "--resume": "Starts a managed run from this agent conversation ID.",
-      "--pane": "Selects a managed tmux pane; defaults to the current pane.",
-      "--to": "Selects `archie` or `macie` as the execution destination.",
-      "--run": "Selects a durable managed-run ID instead of a tmux pane."
+      "--list": "Prints the local and remote sessions as tab-separated rows instead of opening the picker."
     },
     "count": {
       "--recursive": "Counts every entry below the directory instead of only its direct children.",

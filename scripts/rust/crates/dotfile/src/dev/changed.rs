@@ -39,12 +39,10 @@ pub(super) fn select(root: &Path, catalog: &mut Catalog, reference: &str) -> Res
             }
         } else if file.starts_with("scripts/python") {
             all_python = true;
-        } else if file.starts_with("shared/tmux") {
-            names.extend(["tmux-workspace", "tmux", "zsh", "wezterm"].map(String::from));
         } else if file.starts_with("shared/zsh") {
-            names.extend(["zsh", "tmux"].map(String::from));
+            names.insert("zsh".to_string());
         } else if file.starts_with("shared/wezterm") {
-            names.extend(["wezterm", "tmux"].map(String::from));
+            names.insert("wezterm".to_string());
         } else if file.starts_with("shared/obsidian/plugins/agent-transcripts") {
             names.extend(["agent-transcripts", "transcript"].map(String::from));
         } else {

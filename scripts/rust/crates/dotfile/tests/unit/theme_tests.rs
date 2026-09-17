@@ -215,7 +215,7 @@ fn schema_rejects_unknown_missing_and_wrong_types_and_normalizes_colors() {
     assert!(repo.theme("missing").err().unwrap().contains("mocha"));
 }
 #[test]
-fn all_contrast_pairs_have_unique_states_and_tmux_indexed_colors_remain_readable() {
+fn all_contrast_pairs_have_unique_states_and_pass_their_floors() {
     let root = support::repository();
     let repo = model::Repository::load(root.path(), &root.path().join("config")).unwrap();
     for t in repo.themes.values() {
@@ -230,20 +230,6 @@ fn all_contrast_pairs_have_unique_states_and_tmux_indexed_colors_remain_readable
             );
             assert!(pair.passes(), "{}.{}", pair.area, pair.state);
         }
-        let colors = emitters::tmux::colors(t).unwrap();
-        for name in ["primary", "fg", "muted", "success"] {
-            let i = emitters::tmux::indexed(colors[name], colors["bg"]).unwrap();
-            assert!((16..256).contains(&i));
-            let rgb = if i >= 232 {
-                [8 + 10 * (i - 232); 3]
-            } else {
-                let ramp = [0, 95, 135, 175, 215, 255];
-                let n = i - 16;
-                [ramp[n / 36], ramp[n / 6 % 6], ramp[n % 6]]
-            };
-            assert!(color::Color(rgb.map(|v| v as u8)).contrast(colors["bg"]) >= 4.5);
-        }
-        assert!(!emitters::tmux::render(t).unwrap().contains("#("));
     }
 }
 #[test]

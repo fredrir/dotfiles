@@ -11,7 +11,6 @@
 - `rsync`
 - `ssh`
 - `starship`
-- `tmux`
 - `tools`
 - `transcript`
 - `ui`

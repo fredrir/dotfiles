@@ -212,11 +212,7 @@ fn tracked_files(root: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 pub(super) fn language(path: &Path) -> Option<Language> {
-    if is_zsh(path)
-        || path.starts_with(".githooks")
-        || path.starts_with("shared/tmux/bin")
-        || path.starts_with("shared/tmux/libexec")
-    {
+    if is_zsh(path) || path.starts_with(".githooks") {
         return Some(Language::Shell);
     }
     Some(match path.extension()?.to_str()? {

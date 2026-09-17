@@ -18,11 +18,6 @@ attach_mux() {
     return
   fi
 
-  if [[ -n $TMUX ]]; then
-    tmux-workspace host "$1" --pane "$TMUX_PANE"
-    return
-  fi
-
   if [[ -z $WEZTERM_PANE ]]; then
     print -ru2 'mux: not a wezterm pane'
     return 1
@@ -64,24 +59,10 @@ fi
 [[ -o interactive ]] || return 0
 
 _wezterm_open_yazi() {
-  local cwd cwd_file yazi_status
+  local yazi_status
   zle -I
-  if [[ -n $TMUX ]] && has_cmd tmux-workspace; then
-    cwd_file=$(mktemp -t 'tmux-yazi-cwd.XXXXXX') || return
-    {
-      tmux-workspace yazi --pane "$TMUX_PANE" --cwd-file "$cwd_file"
-      yazi_status=$?
-      IFS= read -r -d '' cwd <"$cwd_file"
-      [[ -n $cwd && -d "$cwd" && "$cwd" != "$PWD" ]] && builtin cd -- "$cwd"
-    } always {
-      command rm -f -- "$cwd_file"
-    }
-  else
-    ycd
-    yazi_status=$?
-  fi
+  ycd
+  yazi_status=$?
   zle reset-prompt
   return "$yazi_status"
 }
-
-zle -N wezterm-open-yazi _wezterm_open_yazi
