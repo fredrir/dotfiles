@@ -23,16 +23,21 @@ struct Session {
 
 pub fn main(request: Request) -> Result<(), String> {
     let this = Host::this()?;
-    let peer = Peer::new(this.peer().name());
+    let target = request.target.as_deref().unwrap_or(this.peer().name());
+    if target == this.name() {
+        return Err("cannot target the local machine".to_string());
+    }
+    let peer = Peer::new(target);
     let home = place::home()?;
-    // Resolved before anything is opened, so a path this tool will not take
-    // is refused without reaching for the network at all.
     let anchor = anchor(&request, &home)?;
 
-    // `ssh -G` runs the same route probes the transfer is about to, so it is
-    // started here and read once the first listing has paid for the login.
     let asked = peer.host().to_string();
-    let route = std::thread::spawn(move || hostkit::ssh::resolved(&asked));
+    let is_peer = Host::from_name(&asked).is_ok();
+    let route = if is_peer {
+        Some(std::thread::spawn(move || hostkit::ssh::resolved(&asked)))
+    } else {
+        None
+    };
 
     let below = anchor.as_ref().map(Local::parent).unwrap_or_default();
     let listing = peer.list(&Target::Home(below))?;
@@ -42,7 +47,7 @@ pub fn main(request: Request) -> Result<(), String> {
         peer,
         home,
         style: Style::for_stdout(),
-        route: route.join().ok().flatten(),
+        route: route.and_then(|handle| handle.join().ok().flatten()),
         remote_home: listing.home.clone(),
     };
 
@@ -59,18 +64,15 @@ pub fn main(request: Request) -> Result<(), String> {
     session.carry(&request, &plan)
 }
 
-// The path the copy is anchored on, before anything is chosen: the argument
-// if there is one, and otherwise this directory, the way `hpush .` reads.
-//
-// A pull can have no anchor at all. Asked for from home with nothing named,
-// there is no one path being mirrored, only a place to start looking.
 fn anchor(request: &Request, home: &Path) -> Result<Option<Local>, String> {
     let named = request.path.as_deref();
-    if named.is_none()
-        && request.direction == Direction::Pull
-        && (request.remote.is_some() || place::absolute(".", home)? == home)
-    {
-        return Ok(None);
+    if request.direction == Direction::Pull {
+        if named.is_none() && request.remote.is_some() {
+            return Ok(None);
+        }
+        if place::absolute(named.unwrap_or("."), home)? == home {
+            return Ok(None);
+        }
     }
     let local = place::resolve(named.unwrap_or("."), home)?;
     if request.direction == Direction::Push && std::fs::symlink_metadata(&local.absolute).is_err() {
@@ -82,7 +84,6 @@ fn anchor(request: &Request, home: &Path) -> Result<Option<Local>, String> {
     Ok(Some(local))
 }
 
-// Where the browser opens, and the entry it opens on.
 struct Start {
     directory: String,
     name: Option<String>,
@@ -167,8 +168,6 @@ impl Session {
             Chosen::Picked(path) => Ok(Some(path)),
             Chosen::Cancelled => Ok(None),
             Chosen::Interrupted => Err("interrupted".to_string()),
-            // Without a terminal there is nothing to choose in, and guessing
-            // silently is worse than saying which flag would have said.
             Chosen::Unavailable => Err(format!(
                 "no terminal to choose in; pass --yes for the mirrored path, \
                  or {} to name one",
@@ -244,7 +243,6 @@ impl Session {
         }
         println!();
 
-        // A choice already made in the browser is not asked for a second time.
         if request.yes || request.dry_run || request.remote.is_none() {
             return Ok(true);
         }

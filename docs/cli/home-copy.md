@@ -9,6 +9,13 @@
 | `hpull` | Copies a path from the other machine to the same place on this one. |
 <!-- cli:commands:end -->
 
+## Arguments
+
+Both `hpush` and `hpull` take optional positional arguments: `[PATH] [TARGET]`
+
+- `hpush [PATH] [TARGET]`: Copies `[PATH]` (defaulting to `.`) to `[TARGET]`. If omitted, `[TARGET]` defaults to the peer machine (`macie` or `archie`). Target can be an SSH host alias (from `~/.ssh/config`), an IP address, or a hostname.
+- `hpull [PATH] [TARGET]`: Pulls `[PATH]` from `[TARGET]`. When run without arguments, or as `hpull . [TARGET]`, it opens the remote file browser to select what to transfer.
+
 ## Flags
 
 <!-- cli:flags:start -->

@@ -34,6 +34,7 @@ fn the_completions_offer_the_flags_that_exist() {
         assert!(script.contains(flag), "the script never mentions {flag}");
     }
     assert!(!script.contains("--from"));
+    assert!(script.contains("::target:_hosts"));
 }
 
 #[test]
@@ -86,9 +87,16 @@ fn neither_direction_answers_the_other_ones_flag() {
 }
 
 #[test]
-fn only_one_path_is_taken() {
-    let output = push(&["one", "two"]);
+fn at_most_two_positional_arguments_are_taken() {
+    let output = push(&["one", "two", "three"]);
     assert_eq!(output.status.code(), Some(2));
+
+    let output = pull(&["one", "two", "three"]);
+    assert_eq!(output.status.code(), Some(2));
+
+    let output = push(&["one", "two"]);
+    // Parsing succeeds, but local source "one" does not exist
+    assert_eq!(output.status.code(), Some(1));
 }
 
 #[test]
@@ -106,6 +114,23 @@ fn the_command_dump_describes_the_parser() {
     assert!(
         params
             .iter()
+            .any(|p| p["name"] == "target" && p["kind"] == "argument")
+    );
+    assert!(
+        params
+            .iter()
             .any(|p| p["opts"] == serde_json::json!(["--to"]))
     );
+}
+
+#[test]
+fn targeting_the_local_machine_is_refused() {
+    let this = hostkit::Host::this().unwrap();
+    let output = push(&[".", this.name()]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("cannot target the local machine"));
+
+    let output = pull(&[".", this.name()]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("cannot target the local machine"));
 }

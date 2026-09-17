@@ -1,4 +1,4 @@
-use clap::{Args, Parser};
+use clap::{Args, Parser, ValueHint};
 use workstation::{Completable, Completions};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,8 +25,11 @@ impl Direction {
 
 #[derive(Args)]
 pub struct Common {
-    #[arg(value_name = "PATH")]
+    #[arg(value_name = "PATH", value_hint = ValueHint::AnyPath)]
     pub path: Option<String>,
+
+    #[arg(value_name = "TARGET", value_hint = ValueHint::Hostname)]
+    pub target: Option<String>,
 
     #[arg(short = 'n', long = "dry-run")]
     pub dry_run: bool,
@@ -62,6 +65,8 @@ behind unless --all says otherwise.",
   hpush .zshrc               Push one file, choosing where it lands
   hpush go --yes             Push straight to the mirrored path, asking nothing
   hpush go --to ~/scratch    Push into a named directory over there
+  hpush folder_1 12.3456.34  Push to a specific target host or IP
+  hpush . ntnu               Push this directory to a target from ssh config
   hpush --dry-run            Show what would be transferred and stop
   hpush --all                Include ignored files, .git, and the excluded list"
 )]
@@ -87,6 +92,8 @@ behind unless --all says otherwise.",
   hpull                        Browse the other machine and pull what is chosen
   hpull notes.md               Pull the matching path, choosing which one
   hpull go --yes               Pull the mirrored path, asking nothing
+  hpull . ntnu                 Browse a specific target from ssh config
+  hpull notes.md ntnu          Pull the matching path from a specific target
   hpull --from ~/scratch/go    Pull a named path from over there
   hpull --dry-run              Show what would be transferred and stop
   hpull --all                  Include ignored files, .git, and the excluded list"
@@ -115,6 +122,7 @@ impl Completable for Pull {
 pub struct Request {
     pub direction: Direction,
     pub path: Option<String>,
+    pub target: Option<String>,
     pub remote: Option<String>,
     pub dry_run: bool,
     pub checksum: bool,
@@ -128,6 +136,7 @@ impl Request {
         Request {
             direction,
             path: common.path,
+            target: common.target,
             remote,
             dry_run: common.dry_run,
             checksum: common.checksum,
@@ -145,7 +154,10 @@ impl From<Push> for Request {
 }
 
 impl From<Pull> for Request {
-    fn from(cli: Pull) -> Request {
+    fn from(mut cli: Pull) -> Request {
+        if cli.from.is_some() && cli.common.target.is_none() {
+            cli.common.target = cli.common.path.take();
+        }
         Request::new(Direction::Pull, cli.common, cli.from)
     }
 }

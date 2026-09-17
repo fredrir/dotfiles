@@ -24,6 +24,7 @@ fn request(direction: Direction, path: &str) -> Request {
     Request {
         direction,
         path: Some(path.to_string()),
+        target: None,
         remote: None,
         dry_run: false,
         checksum: false,
@@ -54,6 +55,18 @@ fn a_pull_does_not_need_the_path_to_exist_here_first() {
         .unwrap()
         .expect("a named path is always an anchor");
     assert_eq!(anchored.relative, "not-here");
+}
+
+#[test]
+fn a_pull_for_home_itself_leaves_the_anchor_unbound() {
+    let root = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(root.path()).unwrap();
+
+    let anchored = anchor(&request(Direction::Pull, "~"), &home).unwrap();
+    assert!(anchored.is_none());
+
+    let anchored = anchor(&request(Direction::Pull, home.to_str().unwrap()), &home).unwrap();
+    assert!(anchored.is_none());
 }
 
 #[test]
