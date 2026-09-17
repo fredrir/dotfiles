@@ -36,6 +36,8 @@ attach_mux() {
 [[ $HOST == "macie" ]] && alias archie='attach_mux archie'
 [[ $HOST == "archie" ]] && alias macie='attach_mux macie'
 
+alias s="attach_mux"
+
 if [[ -n $WEZTERM_PANE ]]; then
   export WEZTERM_SHELL_SKIP_SEMANTIC_ZONES=1
   export WEZTERM_SHELL_SKIP_CWD=1
