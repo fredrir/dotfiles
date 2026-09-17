@@ -26,7 +26,6 @@
 - `gtk` — GTK theme settings
 - `quicklaunch` — Quicklaunch application configuration
 - `systemd`
-- `theme-watch` — Automatic theme generation service
 - `xremap` — Keyboard remapping configuration
 
 ## `linux/arch`

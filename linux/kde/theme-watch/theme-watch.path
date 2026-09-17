@@ -6,7 +6,6 @@ PathModified=%h/dotfiles/config/profiles.dotfile
 PathModified=%h/dotfiles/theme
 PathModified=%h/dotfiles/theme/profiles
 PathModified=%h/dotfiles/theme/maps
-Unit=theme-watch.service
 
 [Install]
 WantedBy=default.target

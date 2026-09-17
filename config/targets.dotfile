@@ -46,7 +46,6 @@ linux/common/fontconfig = ~/.config/fontconfig
 linux/common/gtk = ~/.config
 linux/common/quicklaunch = ~/.config/quicklaunch
 linux/common/systemd = ~/.config/systemd
-linux/common/theme-watch = ~/.config/systemd/user
 linux/common/xremap = ~/.config/xremap
 
 # linux/arch

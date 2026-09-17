@@ -27,14 +27,6 @@ pub fn synchronize(
     });
     let mut outcome = IntegrationOutcome::default();
     let mut warnings = Vec::new();
-    if command_exists("systemctl")
-        && configuration
-            .groups
-            .iter()
-            .any(|group| group == "linux/common")
-    {
-        systemd_theme_watch(context, dry_run, events, &mut outcome, &mut warnings)?;
-    }
     if configuration
         .groups
         .iter()
@@ -58,57 +50,6 @@ pub fn synchronize(
         });
     }
     Ok(outcome)
-}
-
-fn systemd_theme_watch(
-    context: &Context,
-    dry_run: bool,
-    events: &dyn EventSink,
-    outcome: &mut IntegrationOutcome,
-    warnings: &mut Vec<(String, Option<String>)>,
-) -> Result<(), String> {
-    crate::cancel::check()?;
-    let unit_directory = context.external_config.join("systemd/user");
-    let watcher = unit_directory.join("theme-watch.path");
-    if !file_exists(&watcher)? {
-        return Ok(());
-    }
-    outcome.checked += 1;
-    let enabled = systemctl(&["is-enabled", "--quiet", "theme-watch.path"]);
-    let active = systemctl(&["is-active", "--quiet", "theme-watch.path"]);
-    let current = enabled && active;
-    let mut enabled_now = false;
-    if !current && !dry_run {
-        crate::cancel::check()?;
-        let _ = systemctl(&["daemon-reload"]);
-        enabled_now = systemctl(&["enable", "--now", "theme-watch.path"]);
-        if !enabled_now {
-            warnings.push((
-                "theme-watch.path could not be enabled".to_string(),
-                Some("run systemctl --user enable --now theme-watch.path".to_string()),
-            ));
-        }
-    }
-    let changed = !current && (dry_run || enabled_now);
-    if changed {
-        outcome.changed += 1;
-    }
-    events.emit(Event::Item {
-        action: Action::Sync,
-        path: watcher,
-        detail: if current {
-            "enabled"
-        } else if dry_run {
-            "would enable"
-        } else if enabled_now {
-            "enabled now"
-        } else {
-            "enable failed"
-        }
-        .to_string(),
-        changed,
-    });
-    Ok(())
 }
 
 fn hyprland(
