@@ -64,6 +64,7 @@
 | `--commands-only`             | Installs the workstation commands and stops.                                                        |
 | `--native-only`               | Installs the compiled commands only and stops.                                                      |
 | `--rebuild`                   | Rebuilds every command even when its sources are unchanged.                                         |
+| `--docs`                      | Regenerate documentation in docs/ (normally handled by pre-commit)                                  |
 | `-p`, `--pkg <TARGET>`        | Selects development targets or names an added config, secret, or system package.                    |
 | `-l`, `--lang <LANGUAGE>`     | Selects languages; repeat or comma-separate.                                                        |
 | `--changed <REF>`             | Selects affected packages and dependents from working changes or --changed=REF.                     |

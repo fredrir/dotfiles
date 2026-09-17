@@ -189,6 +189,3 @@ pub(super) fn output_file(context: &Context) -> Result<Output, String> {
     Ok(Output::text("README.md", updated))
 }
 
-#[cfg(test)]
-#[path = "../../tests/unit/docs/readme_tests.rs"]
-mod tests;

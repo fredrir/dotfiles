@@ -80,5 +80,43 @@ fn filled_labels_use_the_configured_canvas_and_no_color_stays_unpainted() {
                     .all(|cell| cell.fg == Color::Reset && cell.bg == Color::Reset)
             );
         }
+
+        // Partially filled gauge has theme background on unfilled cells when color is enabled
+        let mut partial_buffer = Buffer::empty(area);
+        ui_progress::ProgressBar {
+            progress: Progress {
+                completed: 2,
+                total: Some(10),
+            },
+            frame: 0,
+            palette: &palette,
+            color,
+        }
+        .render(area, &mut partial_buffer);
+        let last_cell = partial_buffer.content().last().unwrap();
+        if color {
+            assert_eq!(last_cell.bg, palette.background(Role::Background).ratatui());
+        } else {
+            assert_eq!(last_cell.bg, Color::Reset);
+        }
+
+        // Indeterminate loader has theme background when color is enabled
+        let mut indeterminate_buffer = Buffer::empty(area);
+        ui_progress::ProgressBar {
+            progress: Progress {
+                completed: 0,
+                total: None,
+            },
+            frame: 0,
+            palette: &palette,
+            color,
+        }
+        .render(area, &mut indeterminate_buffer);
+        let ind_cell = indeterminate_buffer.content().last().unwrap();
+        if color {
+            assert_eq!(ind_cell.bg, palette.background(Role::Background).ratatui());
+        } else {
+            assert_eq!(ind_cell.bg, Color::Reset);
+        }
     }
 }

@@ -34,8 +34,15 @@ pub fn synchronize(
     {
         hyprland(context, dry_run, events, &mut outcome, &mut warnings)?;
     }
-    git_settings(context, dry_run, &mut outcome, &mut warnings);
-    secret_health(context, events, &mut outcome, &mut warnings);
+    let mut git_configs = git_config_map(context);
+    git_settings(
+        context,
+        &mut git_configs,
+        dry_run,
+        &mut outcome,
+        &mut warnings,
+    );
+    secret_health(context, &git_configs, events, &mut outcome, &mut warnings);
     if let Some((message, hint)) = warnings.first() {
         events.emit(Event::Warning {
             message: if warnings.len() == 1 {
@@ -122,6 +129,7 @@ fn hyprland(
 /// secret scan, and a SOPS diff filter that never caches plaintext in `.git`.
 fn git_settings(
     context: &Context,
+    configs: &mut std::collections::HashMap<String, String>,
     dry_run: bool,
     outcome: &mut IntegrationOutcome,
     warnings: &mut Vec<(String, Option<String>)>,
@@ -143,7 +151,8 @@ fn git_settings(
     ];
     for (key, value) in wanted {
         outcome.checked += 1;
-        if git_config(context, &["--get", key]).as_deref() == Some(value.as_str()) {
+        let lower = key.to_ascii_lowercase();
+        if configs.get(&lower) == Some(&value) {
             continue;
         }
         if dry_run {
@@ -160,7 +169,10 @@ fn git_settings(
             .stderr(Stdio::null())
             .status();
         match set {
-            Ok(status) if status.success() => outcome.generated += 1,
+            Ok(status) if status.success() => {
+                outcome.generated += 1;
+                configs.insert(lower, value);
+            }
             _ => warnings.push((
                 format!("could not set git {key}"),
                 Some(format!("git config {key} {value}")),
@@ -171,6 +183,7 @@ fn git_settings(
 
 fn secret_health(
     context: &Context,
+    configs: &std::collections::HashMap<String, String>,
     events: &dyn EventSink,
     outcome: &mut IntegrationOutcome,
     warnings: &mut Vec<(String, Option<String>)>,
@@ -256,15 +269,14 @@ fn secret_health(
         }
     }
     outcome.checked += 1;
-    let configured_hooks =
-        git_config(context, &["--path", "--get", "core.hooksPath"]).map(|path| {
-            let path = PathBuf::from(path);
-            normalize_path(if path.is_absolute() {
-                path
-            } else {
-                context.root.join(path)
-            })
-        });
+    let configured_hooks = configs.get("core.hookspath").map(|path| {
+        let path = PathBuf::from(path);
+        normalize_path(if path.is_absolute() {
+            path
+        } else {
+            context.root.join(path)
+        })
+    });
     let expected_hooks = normalize_path(context.root.join(".githooks"));
     if configured_hooks.as_ref() != Some(&expected_hooks) {
         health_issue(
@@ -289,7 +301,8 @@ fn secret_health(
         }
     }
     outcome.checked += 1;
-    if git_config(context, &["--bool", "--get", "diff.sops.cachetextconv"])
+    if configs
+        .get("diff.sops.cachetextconv")
         .is_some_and(|value| value.eq_ignore_ascii_case("true"))
     {
         health_issue(
@@ -368,7 +381,7 @@ fn load_recipients(path: &Path) -> std::collections::BTreeMap<String, String> {
 fn collect_encrypted(directory: &Path, found: &mut BTreeSet<PathBuf>) {
     if matches!(
         directory.file_name().and_then(|name| name.to_str()),
-        Some(".git" | "target" | ".venv")
+        Some(".git" | "target" | ".venv" | "scripts" | "docs" | ".githooks" | "node_modules")
     ) {
         return;
     }
@@ -391,14 +404,6 @@ fn collect_encrypted(directory: &Path, found: &mut BTreeSet<PathBuf>) {
     }
 }
 
-fn systemctl(arguments: &[&str]) -> bool {
-    Command::new("systemctl")
-        .arg("--user")
-        .args(arguments)
-        .output()
-        .is_ok_and(|output| output.status.success())
-}
-
 fn command_exists(command: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else {
         return false;
@@ -406,18 +411,24 @@ fn command_exists(command: &str) -> bool {
     std::env::split_paths(&path).any(|directory| directory.join(command).is_file())
 }
 
-fn git_config(context: &Context, arguments: &[&str]) -> Option<String> {
+fn git_config_map(context: &Context) -> std::collections::HashMap<String, String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(&context.root)
-        .arg("config")
-        .args(arguments)
+        .args(["config", "--get-regexp", r"^(core\.hookspath|diff\.sops\.)"])
         .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .ok();
+    let mut map = std::collections::HashMap::new();
+    if let Some(output) = output
+        && output.status.success()
+    {
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            if let Some((key, val)) = line.split_once(' ') {
+                map.insert(key.to_ascii_lowercase(), val.trim().to_string());
+            }
+        }
+    }
+    map
 }
 
 fn normalize_path(path: PathBuf) -> PathBuf {

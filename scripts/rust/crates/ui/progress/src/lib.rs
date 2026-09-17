@@ -76,6 +76,7 @@ impl Widget for ProgressBar<'_> {
         };
         if let Some(ratio) = self.progress.fraction() {
             Gauge::default()
+                .style(style(Role::Background))
                 .gauge_style(
                     style(Role::Background)
                         .patch(style(Role::Accent))
@@ -101,7 +102,9 @@ impl Widget for ProgressBar<'_> {
                 };
                 Span::styled(symbol, style(role))
             });
-            Paragraph::new(Line::from(spans.collect::<Vec<_>>())).render(area, buffer);
+            Paragraph::new(Line::from(spans.collect::<Vec<_>>()))
+                .style(style(Role::Background))
+                .render(area, buffer);
         }
     }
 }

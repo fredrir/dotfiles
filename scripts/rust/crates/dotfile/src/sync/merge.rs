@@ -36,6 +36,7 @@ struct LayerRecord {
 
 #[derive(Clone, Debug)]
 struct AdoptionTarget {
+    #[allow(dead_code)]
     label: String,
     path: PathBuf,
 }
@@ -341,6 +342,7 @@ struct EntryDecisions {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AdoptionDecision {
     Repo,
+    #[allow(dead_code)]
     Live(usize),
     Ignore,
 }
@@ -605,6 +607,7 @@ fn pending_changes(context: &Context, entry: &MergeEntry) -> Result<Vec<Change>,
     Ok(changes)
 }
 
+#[allow(dead_code)]
 fn default_target(entry: &MergeEntry, path: &[String]) -> Result<usize, String> {
     for (index, target) in entry.targets.iter().enumerate().rev() {
         let text = match fs::read_to_string(&target.path) {
@@ -959,6 +962,7 @@ fn load_ignores(directories: &[PathBuf]) -> Result<Vec<String>, String> {
     Ok(patterns)
 }
 
+#[allow(dead_code)]
 fn add_ignores(path: &Path, changes: &[Change]) -> Result<(), String> {
     let mut text = match fs::read_to_string(path) {
         Ok(text) => text,

@@ -61,6 +61,7 @@
 - `my-panel` — Plasma panel configuration
 - `panel-colorizer` — Plasma panel color presets
 - `plasma` — Plasma desktop and window manager settings
+- `theme-watch`
 
 ## `linux/hyprland`
 

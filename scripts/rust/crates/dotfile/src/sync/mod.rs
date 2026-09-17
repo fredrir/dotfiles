@@ -49,7 +49,11 @@ pub fn run(cli: &SyncCli, events: &dyn EventSink, decisions: &Client) -> Result<
     };
     let changed = ChangeSetSink::new(events);
     crate::cancel::check()?;
-    let generated = crate::docs::synchronize(&context, cli.dry_run, &changed)?;
+    let generated = if cli.docs {
+        crate::docs::synchronize(&context, cli.dry_run, &changed)?
+    } else {
+        0
+    };
     let mut summary = engine::reconcile(&context, &profile, cli, decisions, &changed)?;
     summary.generated += generated;
     summary.changed = changed.changed();

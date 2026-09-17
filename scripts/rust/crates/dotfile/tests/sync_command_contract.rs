@@ -101,7 +101,7 @@ fn dry_run_is_read_only_quiet_by_default_and_detailed_only_when_verbose() {
     assert_eq!(compact.stdout.lines().count(), 1);
     assert_eq!(
         compact.stdout,
-        "○ Plan ready 4 changes\n",
+        "○ Plan ready 1 change\n",
         "{}",
         sandbox.command(true).stdout
     );

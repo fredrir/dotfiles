@@ -80,6 +80,12 @@ pub struct SyncCli {
         help = "Rebuild every command even when its sources are unchanged"
     )]
     pub rebuild: bool,
+
+    #[arg(
+        long,
+        help = "Regenerate documentation in docs/ (normally handled by pre-commit)"
+    )]
+    pub docs: bool,
 }
 
 impl SyncCli {

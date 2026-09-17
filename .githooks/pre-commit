@@ -21,4 +21,9 @@ if staged config/keys.dotfile; then
 	fi
 fi
 
+if staged scripts/rust/crates/ config/packages.dotfile linux/ shared/ docs/ README.md PACKAGES.md; then
+	"$dotfile" docs >/dev/null
+	git add "$root/docs" "$root/PACKAGES.md" "$root/README.md" 2>/dev/null || true
+fi
+
 "$dotfile" secret scan --review --staged >/dev/null
