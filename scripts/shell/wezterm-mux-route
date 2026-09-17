@@ -83,7 +83,7 @@ address_is_local() {
 }
 
 lan_pair() {
-	"$CONNECTOR" --resolve "$1" 2>/dev/null
+	"$CONNECTOR" --refresh "$1" 2>/dev/null
 }
 
 # The connector only prints a pair when both ends sit on the home /24, so a

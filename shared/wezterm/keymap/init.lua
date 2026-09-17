@@ -1,12 +1,11 @@
 local wezterm = require "wezterm" ---@type Wezterm
 local platform = require "utils.platform"
-local resize_window = require "utils.resize-window"
 local bind_keys = require "utils.bind-keys"
 local physical_keys = require "keymap.physical-keys"
 local motion_keys = require "keymap.motion-keys"
 local extend = require "utils.extend"
 local mouse_bindings = require "keymap.mouse-bindings"
-local skip_close_confirmation = require "ui.skip_close_confirmation"
+local skip_close_confirmation = require "utils.skip_close_confirmation"
 local close_tab = require "utils.close-tab"
 local close_pane = require "utils.close-pane"
 local mux = require "utils.mux"
@@ -14,6 +13,7 @@ local hwire_session = require "utils.hwire-session"
 local MOD = require "keymap.modifiers"
 local open_vscode = require "utils.open-vscode"
 local open_yazi = require "utils.open-yazi"
+local close_window = require "utils.close_window"
 require "utils.scrollback"
 
 local act = wezterm.action
@@ -46,6 +46,12 @@ local keys = bind_keys {
     key = "w",
     mods = MOD.PRIMARY,
     action = close_tab,
+  },
+  {
+    -- Close Window
+    key = "w",
+    mods = MOD.SUPER_REV,
+    action = close_window,
   },
   { -- Go to last tab --
     key = "0",

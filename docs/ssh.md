@@ -50,6 +50,7 @@ was plugged in.
 | Effect | `<peer>.local` is learned on the home LAN only |
 | Unchanged | cable, direct Wi-Fi and Tailscale address literals; none of them use mDNS |
 | Still enforced | the `192.168.1.0/24` filter in `home-lan-connect`, as defence in depth |
+| Cached | pair refreshed by the LAN mux relays; see [wezterm-mux.md](wezterm-mux.md#the-lan-route) |
 
 ```console
 $ avahi-browse -a -r -t -p | grep macie-2.local

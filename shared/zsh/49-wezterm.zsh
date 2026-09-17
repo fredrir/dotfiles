@@ -23,13 +23,10 @@ attach_mux() {
     return 1
   fi
   local target=${1:-peer}
-  case $target in
-  archie | macie | peer) ;;
-  *)
-    print -ru2 "mux: unknown host: $target"
+  if [[ $target == *[^[:alnum:]._-]* ]]; then
+    print -ru2 "mux: invalid host: $target"
     return 1
-    ;;
-  esac
+  fi
 
   zmodload zsh/datetime
   local request="v1:$target:$$:$EPOCHREALTIME"

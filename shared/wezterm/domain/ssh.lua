@@ -1,15 +1,19 @@
-local wezterm = require "wezterm"
+local ssh_hosts = require "domain.ssh-hosts"
 
----@type Config
-local ssh_domains = {
-  ssh_domains = {
-    {
-      name = "ntnu",
-      remote_address = "ntnu",
-      username = "ubuntu",
-      multiplexing = "WezTerm",
-    },
-  },
-}
+---@return Config
+return function()
+  ---@type SshDomain[]
+  local domains = {}
 
-return ssh_domains
+  for _, name in ipairs(ssh_hosts()) do
+    table.insert(domains, {
+      name = name,
+      remote_address = name,
+      multiplexing = "None",
+    })
+  end
+
+  return {
+    ssh_domains = domains,
+  }
+end

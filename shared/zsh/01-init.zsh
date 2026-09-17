@@ -9,3 +9,6 @@ for _zsh_module in "$ZCONF"/{0[2-9],[1-9][0-9]}-*.zsh(N); do
   source "$_zsh_module"
 done
 unset _zsh_module
+
+# opencode
+export PATH=/Users/fredrir/.opencode/bin:$PATH

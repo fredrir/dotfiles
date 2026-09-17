@@ -1,6 +1,7 @@
 local append_conf = require "utils.append_conf"
+require "utils.attach-mux"
 
----@type Config
-local domain_config = {}
-
-return append_conf(domain_config, "domain.unix", "domain.tls", "domain.ssh")
+---@return Config
+return function()
+  return append_conf({}, "domain.unix", "domain.tls", "domain.ssh")
+end

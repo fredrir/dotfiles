@@ -13,10 +13,12 @@ reached through `socat`.
 | Name                                    | Value                                                                                |
 | --------------------------------------- | ------------------------------------------------------------------------------------ |
 | `attach_mux archie`, `attach_mux macie` | Fresh shell replaces the invoking split; sibling panes and existing sessions remain  |
-| `attach_mux`, attach shortcut           | Fresh shell on the GUI computer's peer                                               |
+| `attach_mux`                            | Fresh shell on the GUI computer's peer                                               |
+| `attach_mux <ssh-host>`                 | SSH session replaces the invoking split; see [SSH domains](#ssh-domains)             |
 | Request                                 | Shell emits `ATTACH_MUX`; GUI resolves its localmux pane ID                          |
 | TLS layouts                             | `local_pane_layout=true`; localmux owns tabs/splits, remote tabs are not imported    |
 | Return to GUI computer                  | Fresh shell in localmux's `local` domain                                             |
+| Remote shell exits                      | Pane swaps back to a fresh local shell; closing the pane or tab still closes it      |
 | Failure                                 | Source pane stays open; GUI reports the error                                        |
 | Prerequisite                            | Updated vertical-tabs WezTerm GUI, CLI and localmux server; reload shell definitions |
 | Restart                                 | Restarting localmux terminates its active sessions; save work first                  |
@@ -36,6 +38,27 @@ reached through `socat`.
 | lan       | `<peer>-lan`       | 127.0.0.1:8447         | 127.0.0.1:8447          |
 | tailscale | `<peer>-tailscale` | 100.124.205.100:8443   | 100.75.71.79:8443       |
 
+## SSH domains
+
+| Name          | Value                                                                        |
+| ------------- | ---------------------------------------------------------------------------- |
+| WezTerm mux   | `ssh-mux.lua` hosts; unix domain via `ssh -T <host> wezterm cli proxy`       |
+| Transport     | OpenSSH: `~/.ssh/config`, ControlMaster, ProxyCommand                        |
+| Remote        | WezTerm at the host's `wezterm` path; its mux server starts on demand        |
+| Requires      | `wezterm.mux.local_pane_layout_domains` containing `unix` (vertical-tabs)    |
+| Disconnect    | ssh drop closes the local panes; shells keep running in the remote mux       |
+| Plain SSH     | every other literal `Host` in `~/.ssh/config`; `multiplexing = "None"`       |
+| Excluded      | `macie`, `archie`; they attach over TLS                                      |
+| Resolution    | WezTerm's SSH client at connect time; `Match exec` is unsupported there      |
+| `Include`     | relative to `~/.ssh`; WezTerm does not expand `~`                            |
+| ProxyCommand  | runs with localmux's `PATH`; the launchd job prepends `/opt/homebrew/bin`    |
+| New host      | restart localmux; reloading the config does not register new domains         |
+
+```console
+$ attach_mux ntnu
+$ attach_mux fredrir-04
+```
+
 ## The LAN route
 
 Both LAN addresses are DHCP, so neither is a literal in `hosts.lua`, and
@@ -44,6 +67,8 @@ Both LAN addresses are DHCP, so neither is a literal in `hosts.lua`, and
 | Name         | Value                                                                 |
 | ------------ | --------------------------------------------------------------------- |
 | Resolver     | `~/dotfiles/scripts/shell/home-lan-connect --resolve <peer>.local`    |
+| Cache        | `~/.local/state/home-lan-connect/<peer>.local`; fresh for 1 minute    |
+| Refresh      | both relays run `--refresh` every poll; stale or missing → mDNS       |
 | Accepted     | both ends inside 192.168.1.0/24                                       |
 | mDNS scope   | avahi denies `macie0`, `macie1` and `archie0`; see [ssh.md](ssh.md)   |
 | Server relay | `<own-lan>:8443` → `127.0.0.1:8446`, `range=<peer-lan>/32`            |
@@ -121,10 +146,14 @@ lsof -nP -iTCP -sTCP:LISTEN | grep 844          # exactly the intended addresses
 shared/wezterm/domain/hosts.lua        addresses, binds, dials, PEM paths
 shared/wezterm/domain/tls.lua          tls_servers and tls_clients
 shared/wezterm/bin/wezterm-mux-route   static and LAN socat relays
-scripts/shell/home-lan-connect           the filtered LAN pair both relays read
+scripts/shell/home-lan-connect         the filtered, cached LAN pair both relays refresh
 shared/wezterm/domain/unix.lua         localmux, default_domain, no_serve_automatically
 shared/wezterm/bin/wezterm-mtls        CA, CSR, issue, install, doctor
-shared/wezterm/keymap/init.lua         the attach chord: CMD+. on macie, ALT+. on archie
+shared/wezterm/domain/ssh.lua          ssh_domains
+shared/wezterm/domain/ssh-hosts.lua    SSH hosts read from ~/.ssh/config
+shared/wezterm/domain/ssh-mux.lua      SSH hosts with a remote WezTerm mux
+shared/wezterm/utils/attach-mux.lua    the `ATTACH_MUX` handler
+shared/ssh/config                      the `Include` both OpenSSH and WezTerm read
 shared/wezterm/utils/hwire-session.lua propagates TLS metadata to tabs and splits
 shared/zsh/49-wezterm.zsh              `mux`, the `archie`/`macie` aliases, and TLS metadata
 scripts/rust/crates/mux-route/         which route answers, and the domain to attach over it

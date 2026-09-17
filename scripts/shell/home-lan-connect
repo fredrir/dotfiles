@@ -2,11 +2,14 @@
 # Resolve one mDNS peer but only accept a path whose peer and chosen source
 # are both on the home subnet. This is used as an OpenSSH ProxyCommand so a
 # LAN-labelled route cannot quietly traverse archie-direct or Tailscale.
+# --refresh stores the pair; other modes reuse it while fresh instead of mDNS.
 
 set -eu
 
 PROGRAM=home-lan-connect
 HOME_PREFIX=192.168.1.
+STATE_DIR=${HOME_LAN_CONNECT_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/home-lan-connect}
+FRESH_MINUTES=1
 
 fail() {
 	printf '%s: %s\n' "$PROGRAM" "$*" >&2
@@ -54,19 +57,48 @@ resolve_pair() {
 	printf '%s %s\n' "$source" "$peer"
 }
 
+cached_pair() {
+	file=$STATE_DIR/$1
+	[ -n "$(find "$file" -mmin -"$FRESH_MINUTES" 2>/dev/null)" ] || return 1
+	cat "$file"
+}
+
+store_pair() {
+	mkdir -p "$STATE_DIR"
+	staged=$(mktemp "$STATE_DIR/.$1.XXXXXX")
+	printf '%s' "$2" >"$staged"
+	mv -f "$staged" "$STATE_DIR/$1"
+}
+
 mode=connect
 case ${1:-} in
---probe | --resolve)
+--probe | --resolve | --refresh)
 	mode=${1#--}
 	shift
 	;;
 esac
-[ "$#" -ge 1 ] || fail "usage: $PROGRAM [--resolve | --probe] host [port]"
+[ "$#" -ge 1 ] || fail "usage: $PROGRAM [--resolve | --probe | --refresh] host [port]"
 host=$1
 port=${2:-22}
-set -- $(resolve_pair "$host")
-source=$1
-peer=$2
+case $host in
+'' | .* | */*) fail "invalid host: $host" ;;
+esac
+
+if [ "$mode" = refresh ]; then
+	pair=$(resolve_pair "$host") || pair=
+	store_pair "$host" "$pair"
+	[ -n "$pair" ] || exit 1
+	printf '%s\n' "$pair"
+	exit 0
+fi
+
+if pair=$(cached_pair "$host"); then
+	[ -n "$pair" ] || fail "$host is not on ${HOME_PREFIX}0/24"
+else
+	pair=$(resolve_pair "$host") || exit 1
+fi
+source=${pair% *}
+peer=${pair#* }
 
 [ "$mode" = resolve ] && {
 	printf '%s %s\n' "$source" "$peer"
