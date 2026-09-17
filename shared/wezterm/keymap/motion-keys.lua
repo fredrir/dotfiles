@@ -1,6 +1,5 @@
 local wezterm = require "wezterm"
 local MOD = require "keymap.modifiers"
-local tmux = require "utils.tmux-workspace"
 local act = wezterm.action
 
 local ctrl_a = "\x01"
@@ -20,12 +19,7 @@ local shift_enter_sequence = "\x1b[13;2u"
 local shift_enter = act.SendString(shift_enter_sequence)
 
 local open_line_below = act.SendString(ctrl_e .. shift_enter_sequence)
-local open_line_above = wezterm.action_callback(function(window, pane)
-  -- Ctrl-b is cursor-left in ZLE and also the tmux prefix. Forward it through
-  -- the prefix binding so this editing gesture leaves tmux in its root table.
-  local cursor_left = tmux.active(pane) and ctrl_b .. ctrl_b or ctrl_b
-  window:perform_action(act.SendString(ctrl_a .. shift_enter_sequence .. cursor_left), pane)
-end)
+local open_line_above = act.SendString(ctrl_a .. shift_enter_sequence .. ctrl_b)
 
 local delete_to_start = act.SendString(ctrl_u)
 local delete_to_end = act.SendString(ctrl_k)
@@ -37,8 +31,6 @@ local motion_keys = {
   { key = "LeftArrow", mods = MOD.PRIMARY, action = act.SendKey { key = "a", mods = "CTRL" } },
   { key = "RightArrow", mods = MOD.PRIMARY, action = act.SendKey { key = "e", mods = "CTRL" } },
 
-  -- Document and selection motions travel as the sequences an editor already
-  -- understands, so Neovim keeps working while ZLE gains the macOS gestures.
   { key = "UpArrow", mods = MOD.PRIMARY, action = act.SendString(ctrl_home) },
   { key = "DownArrow", mods = MOD.PRIMARY, action = act.SendString(ctrl_end) },
   { key = "LeftArrow", mods = MOD.SUPER_REV, action = act.SendString(shift_home) },
@@ -46,9 +38,8 @@ local motion_keys = {
   { key = "UpArrow", mods = MOD.SUPER_REV, action = act.SendString(ctrl_shift_home) },
   { key = "DownArrow", mods = MOD.SUPER_REV, action = act.SendString(ctrl_shift_end) },
 
-  -- Prompt jumping moves off Cmd, which the document motions now own.
-  { key = "UpArrow", mods = MOD.UNIQUE, action = tmux.dispatch("Up", act.ScrollToPrompt(-1)) },
-  { key = "DownArrow", mods = MOD.UNIQUE, action = tmux.dispatch("Down", act.ScrollToPrompt(1)) },
+  { key = "UpArrow", mods = MOD.UNIQUE, action = act.ScrollToPrompt(-1) },
+  { key = "DownArrow", mods = MOD.UNIQUE, action = act.ScrollToPrompt(1) },
   {
     key = "Enter",
     mods = "SHIFT",

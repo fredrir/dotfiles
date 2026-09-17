@@ -5,8 +5,9 @@ local ssh_domains = {
   ssh_domains = {
     {
       name = "ntnu",
-      remote_address = "10.99.50.100",
+      remote_address = "ntnu",
       username = "ubuntu",
+      multiplexing = "WezTerm",
     },
   },
 }

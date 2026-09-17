@@ -1,5 +1,4 @@
 local wezterm = require "wezterm"
-local MOD = require "keymap.modifiers"
 local platform = require "utils.platform"
 
 ---@type MouseBinding[]
