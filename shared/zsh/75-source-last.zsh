@@ -1,5 +1,5 @@
 for _plugin_file in $zsh_plugin_sources; do
-	defer source "$_plugin_file"
+  defer source "$_plugin_file"
 done
 unset _plugin_file
 

@@ -1,34 +1,34 @@
-archie_direct_sae_password: ENC[AES256_GCM,data:qWuPqMMYVp6s7lSOrP+umbUUBYTPmr+1nWqDuXc9fMwvy+BbZd9cXmSo9dk=,iv:wtj3wlBqSHY7Q9RpwbUYsDZychruy2LvVKS6lgIiCb0=,tag:6rqTI/j6jmzLH5n/g1PAtQ==,type:str]
+archie_direct_sae_password: ENC[AES256_GCM,data:cSX6F14Ms/ISMwJZdGF9zD1zO+3QjWw+XaJUUus14IIbTNhonoS2TPie7kc=,iv:wtj3wlBqSHY7Q9RpwbUYsDZychruy2LvVKS6lgIiCb0=,tag:PpQqfxOQMU3tLZtYYsCuLw==,type:str]
 sops:
     age:
         - enc: |
             -----BEGIN AGE ENCRYPTED FILE-----
-            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSA1c2dlYmdpMWdreThZL1U1
-            V252U0RqMFFjU1VPSFo0OG9JTnhMS0VVempNCnU0dnloV0duS2UzSWdTYlMvSjY0
-            TGcxWURTbVUwaHVDQ2J2YkE0ek1YSncKLS0tIE5jMWQrRGpVa2RUYlY1dkcrelZU
-            YVU2dlVDTFFFUVFOU0s4S0x2OCtsRUkK4rPZfAsNbXkNKwoCaImhnVAroHfpzQz4
-            qjUYZPCv6DcjmCjZROEph/fPstJ19P8mupTt7uZZSArwWm5MO/VOYw==
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB5RmJYUkJ5R3Eva3Rnb09I
+            Umx5Szl1bmpVclg4ZFZLRUxwTFFLVVpqVkFZClZPZkVhZjRkYnUzWlQrcjZrVUFS
+            bTdmWDAwL0JqWDB5SGM1TCs1QTlUbTQKLS0tIHNUeStkOTFFQUZwVWswWCsyVS9T
+            dGFFdytLQWlNTTZIQ1J1NnJDcS9kVEUKVfJbB+du6tO2RhTUqhehsHaLhMUVztRR
+            TCL6P94CNWrzXqRMpwMjB+DWJyzvvnt4jtBvRNNgX6/jGFTMYJTH9w==
             -----END AGE ENCRYPTED FILE-----
-          recipient: age15wjewk6yjs5vsezah0sa9vz3gyl569eexwj74l8dvrc2vlsxuq3q7hq52d
+          recipient: age1mxszcn7gs8gnvhpq8ku748szqe8u6raferefg986slu83r3zkcmswe29zs
         - enc: |
             -----BEGIN AGE ENCRYPTED FILE-----
-            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBhQVZqRjZ3MHJpdVRlUHBz
-            NEs2YVYweXBwaWVzTUZhMmM0YjJ2RUdHSTNFCjNpNUFFeWtNczU0UURxNHVYdFJR
-            L2xDOGlibmdiNnBMVjNkTktURnFrUkUKLS0tIFg2bFJQd0NWZXlZQ1l1WGF6NnBJ
-            MVMxT1o1eGtnNlVVUjNiNjJkSFVoSzgKY+IxAv92xYRORf9qXPqhT3v0fsmu44kA
-            6+DA8dWFx07eOXGWYR1M9KU2WRHHCH8PnBbnj2//RZ8NZ3x8d0Hxdg==
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBDaG9NbWpxdXJxVzBobXov
+            UzE3QnFVcXdydUVpYkNvODJFOCtUcjJtNkFVCmhQUC9QdkE5NVBjSkhwekFuODBY
+            NHp3TTBTZHlVM1VCc3ZUMHI5elNQSkEKLS0tIHRHNkttU3cwZDdyYjJoNmJaWmhw
+            dEdleGNacFhpWVVmZmpnb3ZzeGtBelkKatlMBJj6i+GOIoLPOTNmDw+2M7qk8zi9
+            e6JSoqwf8hdjwh7MlAI9PlTg4C7kIoDtRHI8p8+fqnZ2xNQCLIRRaw==
             -----END AGE ENCRYPTED FILE-----
           recipient: age1wflp6cynwm97wndq5zxmpaxwz59h62a7dku8qdyue5zm9g4djfnqwj9n0m
         - enc: |
             -----BEGIN AGE ENCRYPTED FILE-----
-            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBYTHBNaFlCOVZWWnBHNm1D
-            UFVnUUtPQ0pxTU54OEFiSXQycFJxYVV0dmpjClN4dlhtcThtRFdzbnZ1TldrZEY0
-            RFpQM1pkdTZFaTZFeHBkc2RFd1IvVHMKLS0tIDRzdE9OMnMrTE5JMXdPTXdQTGlm
-            RGQrY29wejMvWG1PZ2pkNEpGNlBTbjQK030n3dXSJN2MIIBF1WPLS2o5CwwkLc3o
-            nNq0Jq60E11IxT5oEYC0ZX+4gV3dMl58ii3o/CjG63ujuy0+qDoMdA==
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBMcHlpSFZadk5IMUMvcmRi
+            ZUdLMkc5RDhHR3o1a3lObDhPNDFtOEdaV2dzCmVMWDRCS25vNENBTGo5ZmpUWWVZ
+            U3d3VzZrVGFsTS9JVlNzL3NWTXd6TFkKLS0tIGdhL1diR0ZqVUFFVDZLUGFURVJt
+            dUNzZ3A0WHA3eUlPOE4yTUt4MFZsYzAKEetnnX0VaPPzCXPgoalJ7Z/kM9+Ubj6T
+            1eRMIFrJP3L/wnGmWhYvRhVWFSjbLRBOsJaQJt6psC71QjXX+IBAzg==
             -----END AGE ENCRYPTED FILE-----
           recipient: age1535gunzf00mxeww9v0ccerj5ygcthngm353hha8grwjqgh723qts99a3jm
-    lastmodified: "2026-08-23T23:45:26Z"
-    mac: ENC[AES256_GCM,data:DD9Jjf/XsIN3eI+tN1gxr6V4aUvum+G0yLalAboAzONYEgwtlJGk0pM2CrnufV8ksEqw+yqClbrXpucg8clIRyamTOvNBGzf5zLWHgG7TnwwVM33Tl2GMAZVK6ToL4FpbkKt+ZTZnMzmh5yRrEFqGrKCor9eC8cLUC5LtEhKcjo=,iv:2EsvqBjToLr4DTVbmMXQRNnwXnt7J7vFTYkwz2NKRZY=,tag:iX7zpy9GFI+UXlwZkltwlg==,type:str]
+    lastmodified: "2026-09-17T19:26:03Z"
+    mac: ENC[AES256_GCM,data:VZJRWn/vm8hG1xZfVYeAxkbg/LzNngYOWipnvcPBYbx4vjB2cUfxSjBFp3d/H4eR/NR10FAlRnFpi6blgZE9DtYggPqgYsBPjlR7AQ76gMQcnXS/d6IZsfHv/nsS8xEZVreVN3yAmt22Gbmi0qglJ7RHMuCDWxbbN1BaSlRwCwY=,iv:q8/BalKC6FFDcpztf/1N3SANypj2gObR7JnWippbg9E=,tag:41hvP5tRWDmXQmgASugP2Q==,type:str]
     unencrypted_suffix: _unencrypted
     version: 3.13.3

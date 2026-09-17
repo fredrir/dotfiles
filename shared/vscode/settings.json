@@ -306,7 +306,7 @@
     "sh",
     "bash"
   ],
-  "shuck.path": "$HOME/.cargo/bin/shuck",
+  "shuck.path": "/usr/bin/shuck",
   "[shellscript]": {
 
 
