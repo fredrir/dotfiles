@@ -18,17 +18,6 @@ keymap:
         - Ctrl-Shift-C
         - sleep: 200
         - launch: ["/bin/sh", "-c", "$DOTFILES_COMPILED/clean-copy && $DOTFILES_COMPILED/transcript capture --quiet"]
-  - name: kitty copy and interrupt
-    application:
-      only: /(?i)^kitty$/
-    exact_match: true
-    remap:
-      Ctrl-C: Ctrl-Shift-C
-      Ctrl-X: Ctrl-C
-      Ctrl-Alt-C:
-        - Ctrl-Shift-C
-        - sleep: 200
-        - launch: ["/bin/sh", "-c", "$DOTFILES_COMPILED/clean-copy && $DOTFILES_COMPILED/transcript capture --quiet"]
   - name: wezterm copy and interrupt
     application:
       only: /(?i)^(org\.wezfurlong\.wezterm|wezterm(-gui)?)$/

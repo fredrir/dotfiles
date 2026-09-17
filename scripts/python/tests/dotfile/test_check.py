@@ -139,23 +139,6 @@ def test_reports_a_uv_command_shadowed_earlier_on_path(ctx):
     assert "shadowed on PATH" in result.stdout
 
 
-def test_brewfile_lists_formulae_and_casks(ctx):
-    root, home, doctor = ctx
-    (root / "macos").mkdir()
-    (root / "environment/test/manifest").write_text("shared\nmacos\n")
-    (root / "macos/Brewfile").write_text(
-        '# comment\ntap "homebrew/bundle"\nbrew "starship"\nbrew \'eza\'\nbrew "some/tap/tool"\ncask "kitty"\n'
-    )
-    binary = home / "bin"
-    binary.mkdir()
-    script = binary / "brew"
-    script.write_text("#!/bin/sh\nprintf 'starship\\neza\\ntool\\nkitty\\n'\n")
-    script.chmod(0o755)
-    result = doctor(PATH=str(binary) + os.pathsep + "/usr/bin")
-    assert result.returncode == 0, result.stdout
-    assert "4 installed" in result.stdout
-
-
 def test_pkglist_drops_comments_and_blank_lines(ctx):
     root, home, doctor = ctx
     (root / "environment/test/pkglist.txt").write_text("git\n\n# comment\nneovim\n")

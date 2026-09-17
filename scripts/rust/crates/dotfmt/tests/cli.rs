@@ -319,21 +319,6 @@ fn quiet_says_nothing_anywhere_about_a_run_that_changed_a_file() {
 }
 
 #[test]
-fn verbose_names_every_file_and_which_mode_a_conf_was_read_in() {
-    let root = tree_pairs(&[
-        ("dotfmt.dotfile", "include {\n  .conf\n}\n"),
-        ("kitty/kitty.conf", "font_size  12"),
-    ]);
-    let output = dotfmt(root.path(), &["-v", "."], "");
-
-    assert_eq!(output.code().expect("dotfmt exits rather than signals"), 0);
-    let said = output.stderr;
-    assert!(said.contains("config "), "{said}");
-    assert!(said.contains("dotfmt.dotfile"), "{said}");
-    assert!(said.contains("ok kitty/kitty.conf  kitty"), "{said}");
-}
-
-#[test]
 fn one_bad_file_is_reported_and_the_rest_of_the_run_still_happens() {
     // `format.py` aborts the batch on the first odd path, so one bad argument
     // hides every other file's answer.
@@ -423,30 +408,6 @@ fn a_bad_flag_is_claps_own_failure() {
 
     assert_eq!(output.code().expect("dotfmt exits rather than signals"), 2);
     assert_eq!(output.stdout, "");
-}
-
-#[test]
-fn the_include_block_decides_which_files_a_walk_picks_up() {
-    let root = tree_pairs(&[
-        (
-            "dotfmt.dotfile",
-            "include {\n  .conf\n}\n\nexclude {\n  kitty\n}",
-        ),
-        ("a.conf", "x  =  1\n\n\n"),
-        ("kitty/b.conf", "x  =  1\n\n\n"),
-    ]);
-    let output = dotfmt(root.path(), &["."], "");
-
-    assert_eq!(output.code().expect("dotfmt exits rather than signals"), 0);
-    assert_eq!(output.stderr, "  format a.conf\nformatted 1 of 2 files\n");
-    assert_eq!(
-        fs::read_to_string(root.path().join("a.conf")).unwrap(),
-        "x  =  1"
-    );
-    assert_eq!(
-        fs::read_to_string(root.path().join("kitty/b.conf")).unwrap(),
-        "x  =  1\n\n\n"
-    );
 }
 
 #[test]

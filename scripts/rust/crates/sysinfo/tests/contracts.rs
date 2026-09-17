@@ -29,7 +29,6 @@ fn desktop() -> Snapshot {
             ("WM".into(), json!({"prettyName":"KWin","protocolName":"Wayland"})),
         ].into_iter().collect(),
         shell_display: "zsh".into(),
-        terminal_display: "kitty".into(),
         de_display: "KDE Plasma".into(),
         wm_display: "KWin (Wayland)".into(),
         ..Snapshot::default()

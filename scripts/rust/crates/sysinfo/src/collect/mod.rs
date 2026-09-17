@@ -194,7 +194,6 @@ pub fn shell_info() -> (String, String) {
 }
 const TERMINALS: &[(&str, &str, &str)] = &[
     ("konsole", "Konsole", "konsole"),
-    ("kitty", "kitty", "kitty"),
     ("alacritty", "Alacritty", "alacritty"),
     ("wezterm", "WezTerm", "wezterm"),
     ("wezterm-gui", "WezTerm", "wezterm"),

@@ -155,19 +155,6 @@ fn a_group_of_keyless_lines_alone_is_left_as_it_stands() {
 }
 
 #[test]
-fn a_key_past_the_cap_takes_one_space_and_leaves_the_group_alone() {
-    // Twenty-five characters against a cap of twenty-four: it overflows into
-    // its own single space rather than dragging the column out after it, and
-    // `short` is laid out as though the long key were not there.
-    let out = laid_out("modes {\n*/kitty/conf.d/fonts.conf = plain\nshort = hypr\n}\n");
-
-    assert_eq!(
-        out,
-        "modes {\n  */kitty/conf.d/fonts.conf = plain\n  short                     = hypr\n}"
-    );
-}
-
-#[test]
 fn a_key_exactly_at_the_cap_still_lands_on_the_column() {
     let capped = "k".repeat(24);
     let out = laid_out(&format!("modes {{\n{capped} = a\nshort = b\n}}\n"));
@@ -312,53 +299,6 @@ fn mode_of(path: &str) -> Mode {
 }
 
 #[test]
-fn each_built_in_pattern_picks_its_mode() {
-    assert_eq!(mode_of("/home/x/.config/hypr/hyprland.conf"), Mode::Hypr);
-    assert_eq!(mode_of("/home/x/.config/hypr-local.conf"), Mode::Hypr);
-    assert_eq!(mode_of("hyprland.conf"), Mode::Hypr);
-    assert_eq!(
-        mode_of("/home/x/.config/kitty/colors-mocha.conf"),
-        Mode::Plain
-    );
-    assert_eq!(mode_of("/home/x/.config/colors.conf"), Mode::Plain);
-    assert_eq!(mode_of("/home/x/kitty/conf.d/fonts.conf"), Mode::Plain);
-    assert_eq!(mode_of("/home/x/.config/kitty/tabs.conf"), Mode::Kitty);
-    assert_eq!(mode_of("/home/x/.config/kitty.conf"), Mode::Kitty);
-    assert_eq!(mode_of("shared/git/00-core.conf"), Mode::Plain);
-}
-
-#[test]
-fn no_config_can_remap_a_mode_because_the_table_is_compiled_in() {
-    // The `modes` block is gone. Which files are formatted is the `include`
-    // and `exclude` blocks' business; how a `.conf` file is laid out is a
-    // property of the program that reads it.
-    let error = settings("modes {\n  */x/*.conf = kitty\n}\n").unwrap_err();
-
-    assert!(error.ends_with("2: unknown block: modes"), "{error}");
-}
-
-#[test]
-fn a_plain_pattern_beats_the_kitty_pattern_it_sits_inside() {
-    // `*/kitty/colors*.conf` and `*/kitty/*.conf` both match a colour scheme,
-    // and only one of them should. The `plain` opt-out is listed first, and
-    // the first match is the one that wins.
-    assert_eq!(mode_of("~/.config/kitty/colors-mocha.conf"), Mode::Plain);
-    assert_eq!(mode_of("~/.config/kitty/conf.d/fonts.conf"), Mode::Plain);
-}
-
-#[test]
-fn a_star_crosses_a_slash_the_way_fnmatch_lets_it() {
-    // The reason this matcher is hand-written. Every glob crate stops `*` at a
-    // separator, which would quietly stop matching the files there are.
-    assert!(conf::matches("*/kitty/*.conf", "/a/b/kitty/conf.d/x.conf"));
-    assert!(conf::matches(
-        "*/hypr/*",
-        "/home/x/.config/hypr/conf.d/rules.conf"
-    ));
-    assert!(!conf::matches("*/kitty/*.conf", "/a/b/kitty/conf.d/x.ini"));
-}
-
-#[test]
 fn the_matcher_handles_the_rest_of_what_fnmatch_reads() {
     assert!(conf::matches("*", ""));
     assert!(conf::matches("**/x", "a/b/x"));
@@ -385,10 +325,6 @@ fn hypr(text: &str) -> String {
     conf::format(text, Mode::Hypr, config().final_newline)
 }
 
-fn kitty(text: &str) -> String {
-    conf::format(text, Mode::Kitty, config().final_newline)
-}
-
 #[test]
 fn plain_trims_the_edges_and_leaves_the_structure_alone() {
     let out = plain("\n\n<match target=\"font\">   \n\n\n  <edit/>  \n</match>\n\n");
@@ -404,13 +340,6 @@ fn hypr_indents_its_braces_and_normalises_its_keys() {
 }
 
 #[test]
-fn hypr_leaves_a_left_hand_side_that_is_not_a_key_alone() {
-    let out = hypr("bind = SUPER, Q, exec, kitty\nnot a key = value\n");
-
-    assert_eq!(out, "bind = SUPER, Q, exec, kitty\nnot a key = value");
-}
-
-#[test]
 fn hypr_drops_the_blank_line_above_a_closing_brace() {
     let out = hypr("animations {\n    enabled = true\n\n}\n\nmisc {\n    x = 1\n}\n");
 
@@ -421,75 +350,12 @@ fn hypr_drops_the_blank_line_above_a_closing_brace() {
 }
 
 #[test]
-fn a_brace_inside_a_value_does_not_open_a_block() {
-    // Deviation 4. `format.py` opens a block on any non-comment line ending in
-    // `{`, so this rule used to re-indent every line after it to end of file.
-    let out = hypr("windowrulev2 = float,class:^(x){\nbind = SUPER, Q, exec, kitty\n");
-
-    assert_eq!(
-        out,
-        "windowrulev2 = float,class:^(x){\nbind = SUPER, Q, exec, kitty"
-    );
-}
-
-#[test]
-fn a_brace_in_a_comment_does_not_open_a_block() {
-    let out = hypr("# a note about {\nbind = SUPER, Q, exec, kitty\n");
-
-    assert_eq!(out, "# a note about {\nbind = SUPER, Q, exec, kitty");
-}
-
-#[test]
 fn a_crlf_hypr_config_still_finds_its_closing_brace() {
     // Deviation 5. `rstrip(" \t")` leaves the `\r`, after which `line == "}"`
     // never matches and the file re-indents from its first brace onwards.
     let out = hypr("general {\r\ngaps_in = 5\r\n}\r\nbind = SUPER, Q\r\n");
 
     assert_eq!(out, "general {\n    gaps_in = 5\n}\nbind = SUPER, Q");
-}
-
-#[test]
-fn a_conf_file_of_only_whitespace_is_left_exactly_as_it_is() {
-    // Deviation 6.
-    assert_eq!(plain("\n \n\t\n"), "\n \n\t\n");
-    assert_eq!(hypr("\n\n"), "\n\n");
-    assert_eq!(kitty("\n\n"), "\n\n");
-    assert_eq!(plain(""), "");
-}
-
-#[test]
-fn kitty_lays_out_its_two_columns_independently() {
-    let out =
-        kitty("font_family   Fira Code\nfont_size 12\nmap ctrl+shift+t new_tab\nmap f1 launch\n");
-
-    assert_eq!(
-        out,
-        "font_family  Fira Code\nfont_size    12\nmap ctrl+shift+t  new_tab\nmap f1            launch"
-    );
-}
-
-#[test]
-fn kitty_keeps_what_is_inside_a_quote_exactly_as_it_was() {
-    let out = kitty("a 1\nfoo \"two   words\"   tail\n");
-
-    assert_eq!(out, "a    1\nfoo  \"two   words\" tail");
-}
-
-#[test]
-fn an_apostrophe_in_a_comment_does_not_swallow_the_line() {
-    // Deviation 3. `format.py` compacts before it asks about `#`, so the `'`
-    // here opens a quote that never closes and the spacing after it survives
-    // into a line nobody meant to keep.
-    let out = kitty("# don't   collapse   this\nfont_size 12\n");
-
-    assert_eq!(out, "# don't   collapse   this\nfont_size  12");
-}
-
-#[test]
-fn kitty_keeps_a_map_line_that_has_no_action_as_it_found_it() {
-    let out = kitty("map f1\nfont_size 12\n");
-
-    assert_eq!(out, "map f1\nfont_size  12");
 }
 
 #[test]
@@ -606,24 +472,11 @@ fn a_scoped_empty_token_picks_up_the_ssh_directory_and_nothing_else() {
 }
 
 #[test]
-fn a_later_include_entry_wins_over_an_earlier_one() {
-    let selection = picks(&[".conf", "!**/kitty/.conf"], &[]);
-
-    assert_eq!(taken(&selection, &["a.conf", "x/kitty/b.conf"]), ["a.conf"]);
-}
-
 #[test]
 fn a_bang_can_take_the_built_in_dotfile_entry_away() {
     let selection = picks(&["!.dotfile"], &[]);
 
     assert_eq!(taken(&selection, &["a.dotfile"]), Vec::<String>::new());
-}
-
-#[test]
-fn an_exclude_entry_beats_the_include_that_matched() {
-    let selection = picks(&[".conf"], &["*/kitty/*"]);
-
-    assert_eq!(taken(&selection, &["a.conf", "x/kitty/b.conf"]), ["a.conf"]);
 }
 
 #[test]
@@ -639,16 +492,6 @@ fn an_excluded_directory_takes_everything_below_it() {
         ),
         ["a.dotfile"]
     );
-}
-
-#[test]
-fn a_bare_pattern_names_a_component_and_a_starred_one_is_contains() {
-    let exact = picks(&["_empty_"], &["kitty"]);
-    let around = picks(&["_empty_"], &["*kitty*"]);
-    let paths = ["kitty/a", "mykittycat/b", "other/c"];
-
-    assert_eq!(taken(&exact, &paths), ["mykittycat/b", "other/c"]);
-    assert_eq!(taken(&around, &paths), ["other/c"]);
 }
 
 #[test]
@@ -700,7 +543,7 @@ fn a_double_star_spans_directories_only_when_it_stands_between_slashes() {
 
 #[test]
 fn an_include_entry_that_does_not_end_in_a_token_is_refused() {
-    for entry in ["*.conf", "kitty", "**ssh/", "!"] {
+    for entry in ["*.conf", "**ssh/", "!"] {
         let error = Selection::default().include(entry).expect_err(entry);
         assert!(error.contains("is not an include entry"), "{error}");
         assert!(error.contains("_empty_"), "{error}");

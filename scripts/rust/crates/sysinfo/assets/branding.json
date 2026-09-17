@@ -809,18 +809,6 @@
       ]
     },
     {
-      "key": "kitty",
-      "name": "KITTY",
-      "accent": "#f9e2af",
-      "mark": "K>",
-      "kinds": [
-        "terminal"
-      ],
-      "aliases": [
-        "kitty"
-      ]
-    },
-    {
       "key": "ghostty",
       "name": "GHOSTTY",
       "accent": "#b4befe",

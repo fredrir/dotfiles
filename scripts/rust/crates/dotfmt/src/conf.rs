@@ -2,7 +2,6 @@
 pub enum Mode {
     Plain,
     Hypr,
-    Kitty,
 }
 
 impl Mode {
@@ -10,7 +9,6 @@ impl Mode {
         match self {
             Mode::Plain => "plain",
             Mode::Hypr => "hypr",
-            Mode::Kitty => "kitty",
         }
     }
 }
@@ -19,11 +17,7 @@ const MODES: &[(&str, Mode)] = &[
     ("*/hypr/*", Mode::Hypr),
     ("*/hypr-local.conf", Mode::Hypr),
     ("hypr*.conf", Mode::Hypr),
-    ("*/kitty/colors*.conf", Mode::Plain),
     ("*/colors*.conf", Mode::Plain),
-    ("*/kitty/conf.d/fonts.conf", Mode::Plain),
-    ("*/kitty/*.conf", Mode::Kitty),
-    ("*/kitty.conf", Mode::Kitty),
 ];
 
 pub fn lines(text: &str) -> Vec<&str> {
@@ -51,7 +45,7 @@ pub fn format(text: &str, mode: Mode, final_newline: bool) -> String {
 }
 
 pub fn mode(path: &str) -> Mode {
-    for wanted in [Mode::Hypr, Mode::Plain, Mode::Kitty] {
+    for wanted in [Mode::Hypr, Mode::Plain] {
         let matched = MODES
             .iter()
             .any(|(pattern, mode)| *mode == wanted && matches(pattern, path));
@@ -172,9 +166,6 @@ fn compact(text: &str) -> String {
 }
 
 fn format_lines(lines: &[&str], mode: Mode) -> Vec<String> {
-    if mode == Mode::Kitty {
-        return format_kitty(lines);
-    }
     let mut out: Vec<String> = Vec::new();
     let mut printed = false;
     let mut blank = false;
@@ -248,75 +239,4 @@ fn opens(line: &str) -> bool {
     }
     body.strip_suffix('{')
         .is_some_and(|before| !before.contains('='))
-}
-
-fn format_kitty(lines: &[&str]) -> Vec<String> {
-    let mut stored: Vec<String> = Vec::new();
-    let mut blank_pending = false;
-    let mut key_width = 0;
-    let mut map_width = 0;
-    for raw in lines {
-        let line = raw.trim_end_matches([' ', '\t']);
-        if line.is_empty() {
-            if !stored.is_empty() {
-                blank_pending = true;
-            }
-            continue;
-        }
-        // Deviation 3: a comment is never compacted. `format.py` compacts
-        // first and asks about `#` afterwards, so an apostrophe in a comment
-        // opens a quote that never closes and swallows the rest of the line.
-        let bare = line.trim_start_matches([' ', '\t']);
-        let comment = bare.starts_with('#');
-        let entry = if comment {
-            bare.to_string()
-        } else {
-            compact(line)
-        };
-        if blank_pending && !stored.is_empty() {
-            stored.push(String::new());
-        }
-        blank_pending = false;
-        stored.push(entry.clone());
-        if comment {
-            continue;
-        }
-        let Some((key, tail)) = entry.split_once(' ') else {
-            continue;
-        };
-        if key == "map" {
-            // `map <shortcut>` with no action is not a shortcut line yet, and
-            // measuring it would push the column out for nothing.
-            let Some((shortcut, _)) = tail.split_once(' ') else {
-                continue;
-            };
-            map_width = map_width.max(shortcut.chars().count());
-        } else {
-            key_width = key_width.max(key.chars().count());
-        }
-    }
-
-    let mut out = Vec::with_capacity(stored.len());
-    for entry in stored {
-        if entry.starts_with('#') || !entry.contains(' ') {
-            out.push(entry);
-            continue;
-        }
-        let Some((key, value)) = entry.split_once(' ') else {
-            out.push(entry);
-            continue;
-        };
-        if key != "map" {
-            let pad = key_width + 2 - key.chars().count();
-            out.push(format!("{key}{}{value}", " ".repeat(pad)));
-            continue;
-        }
-        let Some((shortcut, action)) = value.split_once(' ') else {
-            out.push(entry);
-            continue;
-        };
-        let pad = map_width + 2 - shortcut.chars().count();
-        out.push(format!("map {shortcut}{}{action}", " ".repeat(pad)));
-    }
-    out
 }

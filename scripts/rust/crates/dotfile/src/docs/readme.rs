@@ -78,8 +78,6 @@ fn terminal(context: &Context) -> String {
     let term = env("TERM");
     let program = if !env("KONSOLE_VERSION").is_empty() {
         Some("konsole")
-    } else if !env("KITTY_WINDOW_ID").is_empty() || term == "xterm-kitty" {
-        Some("kitty")
     } else if !env("ALACRITTY_WINDOW_ID").is_empty() || !env("ALACRITTY_SOCKET").is_empty() {
         Some("alacritty")
     } else if term.starts_with("foot") {

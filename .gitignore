@@ -18,7 +18,6 @@ config/secret-transaction/
 linux/hyprland/hypr/.config/hypr/wallpaper.png
 **/.config/OpenRGB/logs/
 linux/hyprland/hypr/conf.d/local.conf
-**/kitty/local.d/overrides.conf
 
 
 **/skills/linux-network-tools/

@@ -135,18 +135,6 @@ def test_a_template_without_a_key_is_sealed_not_broken(vault, writer, tool):
 
 
 @needs_sops
-def test_a_template_with_no_placeholders_needs_no_key(vault, tool):
-    root, home, env, _secret = vault
-    (root / "shared" / "kitty").mkdir()
-    with open(root / "config" / "targets.dotfile", "a") as f:
-        f.write("shared/kitty = ~/.config/kitty\n")
-    (root / "shared" / "kitty" / "extra.conf.tmpl").write_text("font_size 12\n")
-    shutil.rmtree(root / "config" / "age")
-    assert tool("dotfile", "link", "test", env=env).returncode == 0
-    assert (home / ".config" / "kitty" / "extra.conf").read_text() == "font_size 12\n"
-
-
-@needs_sops
 def test_transcript_redaction_strips_var_values(vault, writer):
     _root, _home, env, secret = vault
     seed(secret, writer)

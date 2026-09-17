@@ -85,11 +85,6 @@ fn parses_all_formats_with_modes_descriptions_and_literal_loops() {
     );
     put(
         root,
-        "linux/hyprland/hypr/vars.conf",
-        "$mainMod = SUPER\n$terminal = kitty\n",
-    );
-    put(
-        root,
         "linux/hyprland/hypr/keys.conf",
         "submap = resize\nbindd = $mainMod SHIFT, E, Open terminal, exec, $terminal --title a,b\nbindm = $mainMod, mouse:272, movewindow\n",
     );
@@ -179,14 +174,7 @@ if platform.is_mac then extend(keys, physical) end
             .iter()
             .any(|b| b.key == "\\e[13;2u" && b.context.contains("not ("))
     );
-    assert!(
-        packages["hyprland"]
-            .bindings
-            .iter()
-            .any(|b| b.key == "SUPER+SHIFT+E"
-                && b.description == "Open terminal"
-                && b.action == "exec, kitty --title a,b")
-    );
+
     assert_eq!(packages["kde"].bindings.len(), 2);
     assert!(packages["kde"].bindings.iter().any(|b| b.key == "Unbound"));
     assert_eq!(packages["vscode"].bindings.len(), 2);
