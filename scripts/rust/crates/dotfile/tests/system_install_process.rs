@@ -98,6 +98,32 @@ fn failed_system_install_reports_partial_result_and_nonzero_status() {
     );
 }
 
+#[test]
+fn install_enables_units_that_a_tracked_preset_names() {
+    let fixture = Fixture::new();
+    let preset = fixture
+        .root
+        .join("shared/service/etc/systemd/system-preset/50-service.preset");
+    fs::create_dir_all(preset.parent().unwrap()).unwrap();
+    fs::write(&preset, "enable fan.service\nenable on.timer\nenable *\n").unwrap();
+    executable(
+        &fixture.bin.join("systemctl"),
+        "#!/bin/sh\ncase \"$3\" in fan.service) echo disabled; exit 1;; on.timer) echo enabled;; esac\n",
+    );
+    executable(
+        &fixture.bin.join("sudo"),
+        "#!/bin/sh\nif [ \"$1\" = systemctl ]; then printf '%s\\n' \"$*\" >> \"$INSTALL_LOG\"; exit 0; fi\nwhile [ \"$#\" -gt 2 ]; do shift; done\nmkdir -p \"$(dirname \"$2\")\"\ncp \"$1\" \"$2\"\n",
+    );
+    let output = fixture.command().output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}");
+    assert!(stdout.contains("enabled fan.service"), "{stdout}");
+    assert_eq!(
+        fs::read_to_string(fixture.temp.path().join("install.log")).unwrap(),
+        "systemctl enable --now -- fan.service\n"
+    );
+}
+
 struct Process(Child);
 impl Drop for Process {
     fn drop(&mut self) {

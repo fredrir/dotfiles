@@ -111,7 +111,8 @@
     "*.lua": "lua",
     "*.dotfile": "properties",
     "Cargo.lock": "properties",
-    "uv.lock": "properties"
+    "uv.lock": "properties",
+    "*.just": "just"
   },
   "js/ts.updateImportsOnFileMove.enabled": "always",
   "json.schemaDownload.trustedDomains": {

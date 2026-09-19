@@ -11,6 +11,9 @@ use crate::event::VecSink;
 use crate::secret::vault::{self, SecretEntry, SecretKind, Variables};
 use clap::{Args as ClapArgs, Subcommand};
 
+mod units;
+use units::Unit;
+
 #[derive(Debug, ClapArgs)]
 pub struct Args {
     #[command(subcommand)]
@@ -123,12 +126,27 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
         .into_iter()
         .map(|entry| inspect(context, entry, &variables))
         .collect::<Vec<_>>();
+    let units = units::inspect(
+        context,
+        units::wanted(results.iter().filter_map(|result| {
+            Some((
+                result.entry.destination.as_path(),
+                result.wanted.as_deref()?,
+            ))
+        })),
+    );
     match command {
         Command::Status => {
             for result in &results {
                 show(result);
             }
+            for unit in &units {
+                units::show(unit);
+            }
             println!("{}", counted(&results));
+            if !units.is_empty() {
+                println!("{}", units::counted(&units));
+            }
             Ok(if results.iter().any(|entry| entry.state.blocked()) {
                 ExitCode::FAILURE
             } else {
@@ -139,7 +157,7 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
             diff(&results, path.as_deref());
             Ok(ExitCode::SUCCESS)
         }
-        Command::Install { dry_run, yes } => install(context, &results, dry_run, yes),
+        Command::Install { dry_run, yes } => install(context, &results, &units, dry_run, yes),
         Command::Add { .. } => unreachable!(),
     }
 }
@@ -388,6 +406,7 @@ fn diff(results: &[Inspected], filter: Option<&str>) {
 fn install(
     context: &Context,
     results: &[Inspected],
+    units: &[Unit],
     dry_run: bool,
     yes: bool,
 ) -> Result<ExitCode, String> {
@@ -396,6 +415,12 @@ fn install(
         .filter(|result| result.state != State::Current)
     {
         show(result);
+    }
+    for unit in units
+        .iter()
+        .filter(|unit| unit.disabled() || unit.missing())
+    {
+        units::show(unit);
     }
     if results.iter().any(|result| {
         (result.state.blocked() && result.state != State::Drifted) || result.wanted.is_none()
@@ -406,7 +431,17 @@ fn install(
         .iter()
         .filter(|result| matches!(result.state, State::Absent | State::Drifted | State::Sealed))
         .collect::<Vec<_>>();
-    if pending.is_empty() {
+    let enabling = units
+        .iter()
+        .filter(|unit| {
+            unit.disabled()
+                || pending
+                    .iter()
+                    .any(|result| units::provided_by(unit, &result.entry.destination))
+        })
+        .map(|unit| unit.name.as_str())
+        .collect::<Vec<_>>();
+    if pending.is_empty() && enabling.is_empty() {
         println!("nothing to install  {}", counted(results));
         return Ok(ExitCode::SUCCESS);
     }
@@ -420,8 +455,15 @@ fn install(
     if !dry_run && std::env::consts::OS != "linux" {
         return Err("system install is supported on Linux; use --dry-run to inspect the plan on this platform".into());
     }
+    if !enabling.is_empty() {
+        println!("  enable --now  {}", enabling.join(" "));
+    }
     if !dry_run && !yes {
-        print!("install {} file(s) as root? [y/N] ", pending.len());
+        print!(
+            "install {} file(s) and enable {} unit(s) as root? [y/N] ",
+            pending.len(),
+            enabling.len()
+        );
         std::io::stdout()
             .flush()
             .map_err(|error| error.to_string())?;
@@ -492,6 +534,38 @@ fn install(
         written.len(),
         pending.len()
     );
+    let wrote = |prefix: &str| written.iter().any(|path| path.starts_with(prefix));
+    let prepare = [
+        ("/etc/systemd/system", &["daemon-reload"][..]),
+        (
+            "/etc/modules-load.d",
+            &["restart", "systemd-modules-load"][..],
+        ),
+    ]
+    .into_iter()
+    .filter(|(prefix, _)| !enabling.is_empty() && !dry_run && wrote(prefix))
+    .collect::<Vec<_>>();
+    let mut enabled = true;
+    if !enabling.is_empty() {
+        if dry_run {
+            println!(
+                "  would: sudo systemctl enable --now {}",
+                enabling.join(" ")
+            );
+        } else {
+            let steps = prepare.iter().map(|(_, step)| *step).collect::<Vec<_>>();
+            enabled = units::enable(context, &enabling, &steps)?;
+            println!(
+                "{} {}",
+                if enabled {
+                    "enabled"
+                } else {
+                    "failed to enable"
+                },
+                enabling.join(" ")
+            );
+        }
+    }
     for (prefix, hint) in [
         ("/etc/systemd/system", "sudo systemctl daemon-reload"),
         (
@@ -503,12 +577,20 @@ fn install(
             "sudo systemctl reload NetworkManager",
         ),
         ("/etc/sysctl.d", "sudo sysctl --system"),
+        (
+            "/etc/modules-load.d",
+            "sudo systemctl restart systemd-modules-load",
+        ),
+        (
+            "/etc/systemd/zram-generator.conf",
+            "sudo systemctl daemon-reload && sudo systemctl start systemd-zram-setup@zram0",
+        ),
     ] {
-        if written.iter().any(|path| path.starts_with(prefix)) {
+        if wrote(prefix) && !prepare.iter().any(|(done, _)| *done == prefix) {
             println!("  then: {hint}");
         }
     }
-    Ok(if written.len() == pending.len() {
+    Ok(if written.len() == pending.len() && enabled {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE

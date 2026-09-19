@@ -72,23 +72,25 @@ linux/arch {
   dnsmasq
   hostapd
   iw
-  nmcli               = networkmanager
-  nft                 = nftables
+  nmcli                     = networkmanager
+  nft                       = nftables
   iptables
   mosh
   socat
-  avahi-daemon        = avahi
-  wezterm-mux-server  = aur:wezterm-nightly-bin
-  fan2go              = aur:fan2go-git
+  avahi-daemon              = avahi
+  wezterm-mux-server        = aur:wezterm-nightly-bin
+  fan2go                    = aur:fan2go-git
   lact
-  nvme                = nvme-cli
-  fwupdmgr            = fwupd
+  nvme                      = nvme-cli
+  fwupdmgr                  = fwupd
   mold
   sccache
-  taskset             = util-linux
+  taskset                   = util-linux
+  plymouth
+  file /usr/lib/systemd/system-generators/zram-generator = zram-generator
   ?memtester
-  ?y-cruncher         = aur:y-cruncher
-  ?llama-cli          = aur:llama.cpp-cuda
+  ?y-cruncher               = aur:y-cruncher
+  ?llama-cli                = aur:llama.cpp-cuda
 }
 
 linux/kde {

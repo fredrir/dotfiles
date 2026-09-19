@@ -51,14 +51,15 @@ mount --mkdir /dev/nvme0n1p1 /mnt/efi
 | dotfiles | `git clone <repo> ~/dotfiles && cd ~/dotfiles && ./setup.sh` |
 | age identity, mux certificates | restored by `./setup.sh`; asks for the passphrase of `config/age/archie.age` |
 | user configs | `dotfile sync` |
-| root-owned configs | `dotfile system install` |
+| root-owned configs, services | `dotfile system install`; enables every unit a tracked `system-preset/*.preset` names |
 | UKI with the tracked command line | `sudo mkinitcpio -P` |
-| services | `sudo systemctl enable --now fan2go lactd nvidia-persistenced fstrim.timer macie-usb-dhcp avahi-daemon` |
 | user services | `systemctl --user enable --now wezterm-mux wezterm-mux-route-lan wezterm-mux-dial-lan` |
 | mux without a login session | `sudo loginctl enable-linger fredrir` |
 | energy counters without reboot | `sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=powercap --action=add` |
 | sysctl without reboot | `sudo sysctl --system` |
+| fan chip and zram without reboot | the `then:` lines `dotfile system install` prints |
 | verify | `hwtune status`, `hwtune bios check`, `dotfile doctor`, `dotfile secret doctor`, `wezterm-mtls doctor` |
+| UKI booted | `/proc/cmdline` has `zswap.enabled=0` and no `root=`; `swapon --show` lists `/dev/zram0` |
 | baseline | `hwtune bench run --baseline` (the disk change moves the hardware epoch) |
 
 | Kernel command line | Why |

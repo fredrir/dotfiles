@@ -26,7 +26,7 @@
 | Encryption             | External `sops` and `age-keygen`                                                              |
 | Identity restore       | `config/age/<host>.age`, scrypt; `dotfile sync` asks when `config/age/keys.txt` is missing    |
 | Git operations         | External `git`; literal pathspecs and bounded blob batches                                    |
-| System installation    | Linux, `sudo install`; inspection and dry-run also work on macOS                              |
+| System installation    | Linux, `sudo install`, then `systemctl enable --now` for tracked presets; dry-run on macOS    |
 | Completion shell       | Zsh                                                                                           |
 | Remote sync            | Matching native push protocol; install with `./setup.sh --commands-only`                      |
 | Bootstrap              | `setup.sh` builds `dotfile`; `dotfile sync` installs everything else                          |

@@ -143,6 +143,7 @@ xclip
 yarn
 yazi
 zoxide
+zram-generator
 zsh
 zsh-autosuggestions
 zsh-completions

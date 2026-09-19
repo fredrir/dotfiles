@@ -209,3 +209,66 @@ def test_a_template_renders_from_vars(tool, systemd, writer):
     assert "private rendered content differs" in result.stdout
     assert "aa:bb:cc:dd:ee:ff" not in result.stdout
     assert "private-old-value" not in result.stdout
+
+
+@pytest.fixture
+def units(systemd, tmp_path):
+    _root, fake, pkg, env, system = systemd
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    states = tmp_path / "states"
+    states.mkdir()
+    systemctl = bin_dir / "systemctl"
+    systemctl.write_text(
+        '#!/bin/sh\n[ "$1" = is-enabled ] || exit 1\n'
+        f'cat "{states}/$3" 2>/dev/null || {{ echo not-found; exit 4; }}\n'
+    )
+    systemctl.chmod(0o755)
+    env["PATH"] = f"{bin_dir}:{os.environ['PATH']}"
+
+    def state(unit, value):
+        (states / unit).write_text(f"{value}\n")
+
+    return pkg, fake, state, system
+
+
+def test_status_lists_units_a_preset_enables(units):
+    pkg, _fake, state, system = units
+    place(pkg, "systemd/system-preset/50-test.preset", "enable fan.service\nenable trim.timer\n")
+    state("fan.service", "disabled")
+    state("trim.timer", "enabled")
+    result = system("status")
+    assert "disabled   fan.service" in result.stdout
+    assert "enabled    trim.timer" in result.stdout
+    assert "1 disabled, 1 enabled unit(s)" in result.stdout
+
+
+def test_install_plans_to_enable_only_disabled_units(units):
+    pkg, _fake, state, system = units
+    place(
+        pkg,
+        "systemd/system-preset/50-test.preset",
+        "enable fan.service\nenable trim.timer\nenable gone.service\n",
+    )
+    state("fan.service", "disabled")
+    state("trim.timer", "enabled")
+    result = system("install", "--dry-run")
+    assert "would: sudo systemctl enable --now fan.service\n" in result.stdout
+    assert "not-found  gone.service" in result.stdout
+
+
+def test_a_unit_installed_in_the_same_run_is_enabled_too(units):
+    pkg, _fake, _state, system = units
+    place(pkg, "systemd/system-preset/50-test.preset", "enable dhcp.service\n")
+    place(pkg, "systemd/system/dhcp.service", "[Service]\nExecStart=/bin/true\n")
+    result = system("install", "--dry-run")
+    assert "would: sudo systemctl enable --now dhcp.service" in result.stdout
+
+
+def test_globs_and_disable_lines_are_never_applied(units):
+    pkg, _fake, state, system = units
+    place(pkg, "systemd/system-preset/50-test.preset", "enable *\ndisable sshd.service\n")
+    state("sshd.service", "enabled")
+    result = system("install", "--dry-run")
+    assert "systemctl" not in result.stdout
+    assert "sshd.service" not in result.stdout

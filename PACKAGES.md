@@ -34,8 +34,9 @@
 - `avahi` — mDNS confined to the home LAN so <peer>.local cannot resolve to a cable or archie-direct address
 - `cargo` — mold linker and sccache wrapper for every Rust build on this machine
 - `cpu-power` — amd_pstate boost, governor and energy preference applied at boot
-- `fan2go` — Fan curves for the NCT6799 headers: radiator, pump, VRM fan, and case fans keyed to CPU and GPU
+- `fan2go` — nct6775 at boot, fan curves for the NCT6799 headers: radiator, pump, VRM fan, and case fans keyed to CPU and GPU
 - `fastfetch` — Arch fastfetch logo and configuration
+- `fstrim` — Weekly TRIM of mounted filesystems
 - `git` — Arch-specific Git configuration
 - `kernel` — UKI command line without root=, mkinitcpio config and preset
 - `lact` — RTX 5070 Ti power cap, clock offsets and fan curve through lactd
@@ -49,6 +50,7 @@
 - `wezterm-mux` — Mutual-TLS mux server for the link to macie
 - `wezterm-mux-sysctl` — Non-local bind, so the mux server holds all three peer addresses whether or not their interfaces are up
 - `wifi-powersave` — Disable Wi-Fi power saving on the station link to cut receive-path latency to macie
+- `zram` — Compressed swap in RAM, half its size; there is no swap partition
 
 ## `linux/ubuntu`
 

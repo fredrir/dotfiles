@@ -57,6 +57,7 @@ linux/arch/cargo/config.toml = ~/.cargo/config.toml
 linux/arch/cpu-power/etc = /etc
 linux/arch/fan2go/etc = /etc
 linux/arch/fastfetch = ~/.config/fastfetch
+linux/arch/fstrim/etc = /etc
 linux/arch/git/.gitconfig = ~/.gitconfig
 linux/arch/kernel/etc = /etc
 linux/arch/lact/etc = /etc
@@ -70,6 +71,7 @@ linux/arch/wezterm-mtls = ~/.local/share/wezterm/mtls
 linux/arch/wezterm-mux = ~/.config/systemd/user
 linux/arch/wezterm-mux-sysctl/etc = /etc
 linux/arch/wifi-powersave/etc = /etc
+linux/arch/zram/etc = /etc
 
 # linux/ubuntu
 linux/ubuntu/fastfetch = ~/.config/fastfetch
