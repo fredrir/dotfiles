@@ -8,6 +8,7 @@ pub mod sops;
 mod store;
 pub mod variables;
 pub mod vault;
+pub mod wrap;
 pub use cli::Args;
 
 use crate::context::Context;
@@ -70,12 +71,13 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
             sops::generate(context, &path)?;
             let key = sops::public_key(context, &path)?;
             println!(
-                "created {} (0600)\n\npublic key  {key}\n\nenrolling needs a key that already decrypts; run this on a machine that has one:\n\n    dotfile secret enroll {} {key}\n\nor with a recovery identity:\n\n    dotfile secret enroll {} --using /path/to/recovery.txt",
+                "created {} (0600)\n\npublic key  {key}\n\nenrolling needs a key that already decrypts; run this on a machine that has one:\n\n    dotfile secret enroll {label} {key}\n\nor with a recovery identity:\n\n    dotfile secret enroll {label} --using /path/to/recovery.txt\n\nonce enrolled, let a reinstall restore it:\n\n    dotfile secret wrap",
                 path.display(),
-                doctor::suggested_label(context),
-                doctor::suggested_label(context)
+                label = doctor::suggested_label(context),
             );
         }
+        Command::Wrap => wrap::wrap(context)?,
+        Command::Unwrap => wrap::unwrap(context)?,
         Command::Keys => {
             let recipients = recipients::load(context)?;
             let mine = sops::public_key(context, &vault::identity_path(context)).ok();
@@ -163,6 +165,9 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
                 sops::generate(context, &fresh)?;
                 recipients.insert(label.clone(), sops::public_key(context, &fresh)?);
                 recipients::rewrite(context, &recipients, &identity, true, Some(&fresh))?;
+                if wrap::available(context).is_some_and(|(host, _)| host == label) {
+                    println!("the wrapped copy still holds the old key; run: dotfile secret wrap");
+                }
             }
             println!("rolled {label}");
             recipients::caveat();

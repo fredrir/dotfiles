@@ -10,4 +10,5 @@ workspace = true
 
 [dependencies]
 clap.workspace     = true
+rpassword          = "7.5.4"
 ui-theme.workspace = true

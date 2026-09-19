@@ -39,6 +39,7 @@ macos/git/.gitconfig = ~/.gitconfig
 macos/launchd = ~/Library/LaunchAgents
 macos/ssh = ~/.ssh
 macos/sunshine = ~/.config/sunshine
+macos/wezterm-mtls = ~/.local/share/wezterm/mtls
 
 # linux/common
 linux/common/flameshot = ~/.config/flameshot
@@ -65,6 +66,7 @@ linux/arch/nvidia/etc = /etc
 linux/arch/rapl/etc = /etc
 linux/arch/ssh = ~/.ssh
 linux/arch/tuning-sysctl/etc = /etc
+linux/arch/wezterm-mtls = ~/.local/share/wezterm/mtls
 linux/arch/wezterm-mux = ~/.config/systemd/user
 linux/arch/wezterm-mux-sysctl/etc = /etc
 linux/arch/wifi-powersave/etc = /etc

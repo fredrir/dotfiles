@@ -13,6 +13,7 @@ name = "dotfile"
 path = "src/main.rs"
 
 [dependencies]
+age = { workspace = true, features = ["armor"] }
 ui-cli.workspace = true
 ui-theme = { workspace = true, features = ["ratatui"] }
 ui-widgets.workspace = true

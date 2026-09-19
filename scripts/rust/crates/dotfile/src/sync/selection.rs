@@ -93,26 +93,40 @@ fn overrides(context: &Context, profile: &str) -> Result<Vec<String>, String> {
     Ok(selected)
 }
 
-/// Creates this machine's age identity before the first sync needs to read a
-/// secret. Declining the tools that make one skips it rather than asking twice.
+/// Restores or creates this machine's age identity before the first sync needs
+/// to read a secret. A wrong passphrase leaves the secrets sealed; Ctrl-C stops sync.
 pub fn identity(context: &Context, dry_run: bool) -> Result<(), String> {
+    use crate::secret::cli::{Args, Command};
     if dry_run
         || !interactive()
         || crate::secret::vault::identity_path(context).is_file()
         || !context.root.join(".sops.yaml").is_file()
-        || context.program("age-keygen").is_none()
     {
         return Ok(());
     }
+    let command = if crate::secret::wrap::available(context).is_some() {
+        Command::Unwrap
+    } else if context.program("age-keygen").is_some() {
+        Command::Init
+    } else {
+        return Ok(());
+    };
     println!();
-    let _ = crate::secret::run(
-        crate::secret::cli::Args {
-            command: Some(crate::secret::cli::Command::Init),
+    let result = crate::secret::run(
+        Args {
+            command: Some(command),
         },
         context,
     );
     println!();
-    Ok(())
+    match result {
+        Err(error) if crate::cancel::requested() => Err(error),
+        Err(error) => {
+            eprintln!("dotfile: {error}");
+            Ok(())
+        }
+        Ok(_) => Ok(()),
+    }
 }
 
 fn pick(title: &str, options: &[String], default: Option<&str>) -> Result<Option<String>, String> {

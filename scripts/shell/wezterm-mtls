@@ -2,7 +2,7 @@
 # Mutual-TLS material for the wezterm mux link between macie and archie.
 #
 #   macie   ca                      create the offline CA, once
-#   both    csr                     generate this host's key; it never leaves
+#   both    csr                     generate this host's key; it leaves only sops-encrypted
 #   macie   issue <hostname>        sign a CSR
 #   both    install <ca> <cert>     deploy into the material directory
 #   both    doctor                  read-only health checks
@@ -378,7 +378,7 @@ cmd_csr() {
 	write_csr_config "$WORKDIR/csr.cnf" "$(mux_cn)"
 	"$OPENSSL" req -new -sha256 -key "$INSTALLED_KEY" -config "$WORKDIR/csr.cnf" -out "$csr"
 
-	note "private key: $INSTALLED_KEY  (never copy this off $host)"
+	note "private key: $INSTALLED_KEY  (leaves $host only sops-encrypted)"
 	note "CSR:         $csr"
 	note "  subject: $(csr_subject "$csr")"
 	note ""
@@ -437,7 +437,7 @@ cmd_issue() {
 		set -- -passin "file:$WEZTERM_MTLS_CA_PASSFILE"
 	fi
 
-	"$OPENSSL" x509 -req -sha256 \
+	if ! "$OPENSSL" x509 -req -sha256 \
 		-in "$csr" \
 		-CA "$CA_CERT" \
 		-CAkey "$CA_KEY" \
@@ -446,7 +446,10 @@ cmd_issue() {
 		-extfile "$WORKDIR/leaf.cnf" \
 		-extensions leaf_ext \
 		"$@" \
-		-out "$out"
+		-out "$out"; then
+		rm -f "$out"
+		fail "could not sign $csr; removed the partial $out so '$PROGRAM issue' can simply be re-run"
+	fi
 	chmod 600 "$out"
 
 	note "certificate: $out"
@@ -537,6 +540,7 @@ cmd_install() {
 	note "  private_key.pem $(file_mode "$INSTALLED_KEY")"
 	note ""
 	note "Run '$PROGRAM doctor' next, then restart the mux server."
+	note "Seal it for reinstalls: docs/wezterm-mux.md#certificates"
 }
 
 d_ok() {

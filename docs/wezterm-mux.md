@@ -130,13 +130,41 @@ literal to bind even with `ip_nonlocal_bind`.
 ```
 mtls ca                  # macie only, once -- the key was destroyed after signing,
                          # so re-issuing anything means a new CA on both hosts (~10 min)
-mtls csr                 # on each host; its key never leaves it
+mtls csr                 # on each host; its key leaves it only sops-encrypted
 mtls issue <host> <csr>  # on macie, against the CSR it sent
 mtls install             # on each host
 mtls doctor              # both hosts, any time
 mtls doctor --probe 10.77.77.2:8443 --peer-name archie
 lsof -nP -iTCP -sTCP:LISTEN | grep 844          # exactly the intended addresses
 ```
+
+| Name             | Value                                                          |
+| ---------------- | -------------------------------------------------------------- |
+| Live             | `~/.local/share/wezterm/mtls/{ca,cert,private_key}.pem`        |
+| Encrypted        | `linux/arch/wezterm-mtls/`, `macos/wezterm-mtls/`              |
+| Restored by      | `./setup.sh` / `dotfile sync`, once the age identity is back   |
+| Age identity     | `config/age/<host>.age`; see [Reinstall](#reinstall)           |
+| CA key           | offline; needed only to re-issue                               |
+| Leaves expire    | 2036-09-19                                                     |
+
+After a re-issue, replace the encrypted copy on that host:
+
+```
+rm macos/wezterm-mtls/*.enc      # linux/arch/wezterm-mtls on archie, with --arch below
+for f in ca cert private_key; do
+  dotfile secret add ~/.local/share/wezterm/mtls/$f.pem --macos --pkg wezterm-mtls
+done
+```
+
+## Reinstall
+
+| Step                           | Command                                        |
+| ------------------------------ | ---------------------------------------------- |
+| once per host, after enrolling | `dotfile secret wrap`                          |
+| fresh install                  | `./setup.sh`; asks for the wrap passphrase     |
+| mux certificates               | restored by the same sync                      |
+| restart the mux on archie      | `systemctl --user restart wezterm-mux`         |
+| check                          | `dotfile secret doctor`, `wezterm-mtls doctor` |
 
 
 ## Relevant files
@@ -148,7 +176,7 @@ shared/wezterm/domain/tls.lua          tls_servers and tls_clients
 shared/wezterm/bin/wezterm-mux-route   static and LAN socat relays
 scripts/shell/home-lan-connect         the filtered, cached LAN pair both relays refresh
 shared/wezterm/domain/unix.lua         localmux, default_domain, no_serve_automatically
-shared/wezterm/bin/wezterm-mtls        CA, CSR, issue, install, doctor
+scripts/shell/wezterm-mtls             CA, CSR, issue, install, doctor
 shared/wezterm/domain/ssh.lua          ssh_domains
 shared/wezterm/domain/ssh-hosts.lua    SSH hosts read from ~/.ssh/config
 shared/wezterm/domain/ssh-mux.lua      SSH hosts with a remote WezTerm mux
@@ -160,11 +188,13 @@ scripts/rust/crates/mux-route/         which route answers, and the domain to at
 scripts/rust/crates/hostkit/           the addresses those two read, and the guard on hosts.lua
 
 # Macie
+macos/wezterm-mtls/                    encrypted key, leaf, CA
 macos/launchd/com.fredrir.wezterm-mux.plist
 macos/launchd/com.fredrir.wezterm-mux-route.{cable,wifi,lan,tailscale}.plist
 macos/launchd/com.fredrir.wezterm-mux-dial.lan.plist
 
 # Archie
+linux/arch/wezterm-mtls/               encrypted key, leaf, CA
 linux/arch/wezterm-mux/wezterm-mux.service
 linux/arch/wezterm-mux/wezterm-mux-route-lan.service
 linux/arch/wezterm-mux/wezterm-mux-dial-lan.service

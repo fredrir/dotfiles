@@ -41,6 +41,7 @@ linux/hyprland/hypr/conf.d/local.conf
 **/private_key*
 *.pem
 *.csr
+!**/wezterm-mtls/*.enc
 
 **/*.db
 **/*.db-shm

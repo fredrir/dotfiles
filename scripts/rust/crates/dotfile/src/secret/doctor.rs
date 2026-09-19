@@ -5,6 +5,9 @@ use std::path::Path;
 use std::process::ExitCode;
 
 pub fn suggested_label(context: &Context) -> String {
+    if let Some(host) = crate::hosts::this(context) {
+        return host;
+    }
     let host = context
         .env("HOSTNAME")
         .map(|v| v.to_string_lossy().into_owned())
@@ -87,6 +90,22 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
                 )
             }),
     );
+    if let Some(label) = label {
+        let wrapped = super::wrap::path(context, label);
+        row(
+            if wrapped.is_file() { "ok" } else { "warn" },
+            "wrapped",
+            if wrapped.is_file() {
+                wrapped
+                    .strip_prefix(&context.root)
+                    .unwrap_or(&wrapped)
+                    .display()
+                    .to_string()
+            } else {
+                "not wrapped; run dotfile secret wrap".into()
+            },
+        );
+    }
     let recovery = recipients
         .keys()
         .any(|label| recipients::is_recovery(label));

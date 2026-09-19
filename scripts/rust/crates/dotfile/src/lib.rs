@@ -12,6 +12,7 @@ pub mod docs;
 pub mod doctor;
 pub mod event;
 pub mod fs;
+pub mod hosts;
 pub mod lock;
 pub mod manage;
 pub mod process;

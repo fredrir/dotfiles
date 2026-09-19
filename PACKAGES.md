@@ -44,6 +44,7 @@
 - `rapl` — Package energy counters readable by wheel, for hwtune idle and compile energy metrics
 - `ssh` — Cable, direct Wi-Fi, LAN, then Tailscale routing to macie
 - `tuning-sysctl` — NMI watchdog off
+- `wezterm-mtls` — Encrypted mux key, certificate and CA that dotfile sync restores
 - `wezterm-mux` — Mutual-TLS mux server for the link to macie
 - `wezterm-mux-sysctl` — Non-local bind, so the mux server holds all three peer addresses whether or not their interfaces are up
 - `wifi-powersave` — Disable Wi-Fi power saving on the station link to cut receive-path latency to macie
@@ -81,3 +82,4 @@
 - `launchd`
 - `ssh`
 - `sunshine`
+- `wezterm-mtls`

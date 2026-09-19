@@ -15,6 +15,8 @@
 | `dotfile secret`         | Keeps private material out of the repository.                                                       |
 | `dotfile secret scan`    | Scans for leaked tokens, private values, and encryption invariants.                                 |
 | `dotfile secret init`    | Creates this machine's age identity and prints its public key.                                      |
+| `dotfile secret wrap`    | Seals this machine's enrolled identity with a passphrase so a reinstall can restore it.             |
+| `dotfile secret unwrap`  | Restores this machine's identity from its passphrase-sealed copy.                                   |
 | `dotfile secret enroll`  | Adds a recipient or enrolls this machine when no key is provided.                                   |
 | `dotfile secret revoke`  | Removes a recipient and gives every encrypted file a new data key.                                  |
 | `dotfile secret roll`    | Replaces a recipient's key while keeping its label.                                                 |

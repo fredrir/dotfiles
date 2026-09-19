@@ -54,6 +54,7 @@ undocumented_unsafe_blocks = "deny"
 
 # Versions for anything more than one crate depends on
 [workspace.dependencies]
+age = "0.12.1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 crossbeam-channel = "0.5"

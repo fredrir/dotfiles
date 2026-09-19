@@ -100,6 +100,11 @@ pub fn confirm_each(question: &str) -> Option<Answer> {
     .ok()?
 }
 
+/// Reads one line from the controlling terminal without echoing it.
+pub fn hidden(question: &str) -> io::Result<String> {
+    rpassword::prompt_password(question)
+}
+
 pub fn prompt(
     input: &mut impl BufRead,
     output: &mut impl Write,

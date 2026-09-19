@@ -49,6 +49,7 @@ mount --mkdir /dev/nvme0n1p1 /mnt/efi
 | Step | Command |
 | --- | --- |
 | dotfiles | `git clone <repo> ~/dotfiles && cd ~/dotfiles && ./setup.sh` |
+| age identity, mux certificates | restored by `./setup.sh`; asks for the passphrase of `config/age/archie.age` |
 | user configs | `dotfile sync` |
 | root-owned configs | `dotfile system install` |
 | UKI with the tracked command line | `sudo mkinitcpio -P` |
@@ -57,7 +58,7 @@ mount --mkdir /dev/nvme0n1p1 /mnt/efi
 | mux without a login session | `sudo loginctl enable-linger fredrir` |
 | energy counters without reboot | `sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=powercap --action=add` |
 | sysctl without reboot | `sudo sysctl --system` |
-| verify | `hwtune status`, `hwtune bios check`, `dotfile doctor` |
+| verify | `hwtune status`, `hwtune bios check`, `dotfile doctor`, `dotfile secret doctor`, `wezterm-mtls doctor` |
 | baseline | `hwtune bench run --baseline` (the disk change moves the hardware epoch) |
 
 | Kernel command line | Why |

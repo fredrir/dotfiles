@@ -24,6 +24,7 @@
 | ---------------------- | --------------------------------------------------------------------------------------------- |
 | Dotfile commands       | Native Rust executable                                                                        |
 | Encryption             | External `sops` and `age-keygen`                                                              |
+| Identity restore       | `config/age/<host>.age`, scrypt; `dotfile sync` asks when `config/age/keys.txt` is missing    |
 | Git operations         | External `git`; literal pathspecs and bounded blob batches                                    |
 | System installation    | Linux, `sudo install`; inspection and dry-run also work on macOS                              |
 | Completion shell       | Zsh                                                                                           |

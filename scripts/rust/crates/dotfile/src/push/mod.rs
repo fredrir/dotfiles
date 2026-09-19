@@ -16,7 +16,7 @@ use crate::context::Context;
 use crate::event::{Action, Event, EventSink, Phase};
 use protocol::Message;
 
-const HOSTS_FILE: &str = "config/hosts.dotfile";
+use crate::hosts::FILE as HOSTS_FILE;
 
 use sysinfo::inventory::Host;
 
@@ -321,7 +321,7 @@ fn resolve_host_inner(context: &Context, requested: Option<&str>) -> Result<Stri
         .iter()
         .map(|host| host.name.as_str())
         .collect::<Vec<_>>();
-    let local = resolve_local_host(context, &hosts);
+    let local = crate::hosts::local(context, &hosts);
 
     if let Some(requested) = requested.filter(|value| !value.is_empty()) {
         if !known.contains(&requested) {
@@ -374,37 +374,6 @@ fn read_hosts(path: &Path) -> Result<Vec<Host>, Failure> {
         return Err(Failure::push(format!("{HOSTS_FILE} lists no machines")));
     }
     Ok(hosts)
-}
-
-fn resolve_local_host(context: &Context, hosts: &[Host]) -> Option<String> {
-    let inventory = context.inventory();
-    let pinned = sysinfo::inventory::resolve_with(&inventory, hosts, "", &[]);
-    let candidate = if pinned.is_empty() {
-        sysinfo::inventory::resolve_with(&inventory, hosts, "", &local_hostnames(context))
-    } else {
-        pinned
-    };
-    hosts
-        .iter()
-        .find(|host| host.name == candidate)
-        .map(|host| host.name.clone())
-}
-
-fn local_hostnames(context: &Context) -> Vec<String> {
-    let hostname = context
-        .env("HOSTNAME")
-        .map(|value| value.to_string_lossy().trim().to_string())
-        .filter(|value| !value.is_empty());
-    sysinfo::inventory::local_hostnames_with(hostname.as_deref(), |words| {
-        let result = crate::process::output(
-            context.command(words[0]).args(&words[1..]),
-            hostkit::process::CaptureLimits::default(),
-            Duration::from_secs(3),
-        )
-        .ok()?;
-        (result.status.success() && !result.stdout_truncated)
-            .then(|| String::from_utf8_lossy(&result.stdout).trim().to_string())
-    })
 }
 
 fn executable_exists(context: &Context, name: &str) -> bool {

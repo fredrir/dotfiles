@@ -27,6 +27,10 @@ pub enum Command {
     },
     /// Create this machine's age identity and print its public key.
     Init,
+    /// Seal this machine's enrolled identity with a passphrase for reinstalls.
+    Wrap,
+    /// Restore this machine's identity from its passphrase-sealed copy.
+    Unwrap,
     /// Add a recipient; without a key, enroll this machine.
     Enroll {
         label: String,
