@@ -4,6 +4,8 @@
 <dict>
   <key>Label</key>
   <string>com.fredrir.wezterm-mux</string>
+  <key>AssociatedBundleIdentifiers</key>
+  <string>com.github.wez.wezterm</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/sh</string>
