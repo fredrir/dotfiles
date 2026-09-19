@@ -298,11 +298,40 @@
   },
   {
     "key": "shift+cmd+r",
-    "command": "renameFile",
-    "when": "editorFocus"
+    "command": "renameFile"
   },
   {
     "key": "shift+cmd+[Backslash]",
     "command": "explorer.newFolder"
+  },
+  {
+    "key": "alt+cmd+b",
+    "command": "-workbench.action.toggleAuxiliaryBar"
+  },
+  {
+    "key": "shift+alt+b",
+    "command": "workbench.action.tasks.build",
+    "when": "taskCommandsRegistered"
+  },
+  {
+    "key": "shift+cmd+b",
+    "command": "-workbench.action.tasks.build",
+    "when": "taskCommandsRegistered"
+  },
+  {
+    "key": "cmd+b",
+    "command": "-workbench.action.toggleSidebarVisibility"
+  },
+  {
+    "key": "cmd+b",
+    "command": "workbench.action.toggleSidebarVisibility"
+  },
+  {
+    "key": "shift+cmd+b",
+    "command": "workbench.action.toggleAuxiliaryBar"
+  },
+  {
+    "key": "shift+cmd+i",
+    "command": "workbench.action.toggleAuxiliaryBar"
   }
 ]

@@ -23,7 +23,7 @@
     "editor.defaultFormatter": "vscode.typescript-language-features"
   },
   "[typescriptreact]": {
-    "editor.defaultFormatter": "biomejs.biome"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[css]": {
     "editor.defaultFormatter": "biomejs.biome"
@@ -306,14 +306,12 @@
     "sh",
     "bash"
   ],
-  "shuck.path": "/usr/bin/shuck",
+  "shuck.path": "/Users/fredrir/.cargo/bin/shuck",
   "[shellscript]": {
-
-
-    
     "editor.codeActionsOnSave": {
       "source.fixAll.shuck": "explicit"
     },
-    "editor.defaultFormatter": "fredrir.shuck"
-  }
+    "editor.defaultFormatter": "fredrir.shucked"
+  },
+  "terminal.integrated.enableMultiLinePasteWarning": "never"
 }

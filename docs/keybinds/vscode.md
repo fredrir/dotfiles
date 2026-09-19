@@ -35,12 +35,14 @@
 | <code>escape</code> | [<code>-inlineChat2.close</code>](../../shared/vscode/keybindings.json#L271) | Inline Chat2 close<br><code>chatInputHasFocus &amp;&amp; inlineChatHasEditsAgent &amp;&amp; inlineChatVisible &#124;&#124; chatInputHasFocus &amp;&amp; inlineChatHasNotebookAgent &amp;&amp; inlineChatVisible &amp;&amp; activeEditor == 'workbench.editor.notebook' &#124;&#124; editorFocus &amp;&amp; inlineChatHasEditsAgent &amp;&amp; inlineChatVisible &amp;&amp; !chatEdits.hasEditorModifications &#124;&#124; editorFocus &amp;&amp; inlineChatHasNotebookAgent &amp;&amp; inlineChatVisible &amp;&amp; !chatEdits.hasEditorModifications &amp;&amp; activeEditor == 'workbench.editor.notebook'; remove binding</code> |
 | <code>escape</code> | [<code>-workbench.action.terminal.chat.close</code>](../../shared/vscode/keybindings.json#L266) | Terminal chat close<br><code>chatIsEnabled &amp;&amp; terminalChatFocus &amp;&amp; terminalChatVisible &#124;&#124; chatIsEnabled &amp;&amp; terminalChatVisible &amp;&amp; terminalFocus; remove binding</code> |
 | <code>shift+alt+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"command":"workbench.action.tasks.runTask","args":"Copy active file content"}&#93;}</code>](../../shared/vscode/keybindings.json#L157) | Run Commands<br><code>editorFocus</code> |
+| <code>shift+alt+b</code> | [<code>workbench.action.tasks.build</code>](../../shared/vscode/keybindings.json#L311) | Tasks build<br><code>taskCommandsRegistered</code> |
 | <code>shift+alt+f5</code> | [<code>-workbench.action.compareEditor.previousChange</code>](../../shared/vscode/keybindings.json#L206) | Compare Editor previous Change<br><code>textCompareEditorVisible; remove binding</code> |
 
 ## Mac Keybinds
 
 | Key | Action | Description |
 | --- | --- | --- |
+| <code>alt+cmd+b</code> | [<code>-workbench.action.toggleAuxiliaryBar</code>](../../shared/vscode/keybindings.json#L307) | Toggle Auxiliary Bar<br><code>global; remove binding</code> |
 | <code>alt+cmd+c</code> | [<code>-copyFilePath</code>](../../shared/vscode/keybindings.json#L105) | Copy File Path<br><code>!editorFocus; remove binding</code> |
 | <code>alt+cmd+c</code> | [<code>-copyFilePath</code>](../../shared/vscode/keybindings.json#L95) | Copy File Path<br><code>editorFocus; remove binding</code> |
 | <code>cmd+'</code> | [<code>workbench.action.splitEditor</code>](../../shared/vscode/keybindings.json#L10) | Split Editor |
@@ -57,6 +59,8 @@
 | <code>cmd+&#91;Backslash&#93;</code> | [<code>explorer.newFile</code>](../../shared/vscode/keybindings.json#L295) | Explorer new File |
 | <code>cmd+&#91;BracketLeft&#93;</code> | [<code>git.openFile</code>](../../shared/vscode/keybindings.json#L225) | Git open File |
 | <code>cmd+b</code> | [<code>-markdown.extension.editing.toggleBold</code>](../../shared/vscode/keybindings.json#L181) | Markdown extension editing toggle Bold<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^markdown$&#124;^rmd$&#124;^quarto$/; remove binding</code> |
+| <code>cmd+b</code> | [<code>-workbench.action.toggleSidebarVisibility</code>](../../shared/vscode/keybindings.json#L321) | Toggle Sidebar Visibility<br><code>global; remove binding</code> |
+| <code>cmd+b</code> | [<code>workbench.action.toggleSidebarVisibility</code>](../../shared/vscode/keybindings.json#L325) | Toggle Sidebar Visibility |
 | <code>cmd+k o</code> | [<code>-workbench.action.copyEditorToNewWindow</code>](../../shared/vscode/keybindings.json#L216) | Copy Editor To New Window<br><code>activeEditor; remove binding</code> |
 | <code>cmd+k shift+alt+cmd+c</code> | [<code>-copyRelativeFilePath</code>](../../shared/vscode/keybindings.json#L115) | Copy Relative File Path<br><code>editorFocus; remove binding</code> |
 | <code>cmd+k shift+g</code> | [<code>git.timeline.openDiff</code>](../../shared/vscode/keybindings.json#L221) | Git timeline open Diff |
@@ -69,16 +73,19 @@
 | <code>ctrl+alt+cmd+up</code> | [<code>workbench.action.compareEditor.previousChange</code>](../../shared/vscode/keybindings.json#L201) | Compare Editor previous Change<br><code>textCompareEditorVisible</code> |
 | <code>ctrl+shift+alt+cmd+k</code> | [<code>copyFilePath</code>](../../shared/vscode/keybindings.json#L90) | Copy File Path<br><code>editorFocus</code> |
 | <code>shift+alt+cmd+c</code> | [<code>-copyRelativeFilePath</code>](../../shared/vscode/keybindings.json#L125) | Copy Relative File Path<br><code>!editorFocus; remove binding</code> |
-| <code>shift+cmd+&#91;Backslash&#93;</code> | [<code>explorer.newFolder</code>](../../shared/vscode/keybindings.json#L304) | Explorer new Folder |
+| <code>shift+cmd+&#91;Backslash&#93;</code> | [<code>explorer.newFolder</code>](../../shared/vscode/keybindings.json#L303) | Explorer new Folder |
 | <code>shift+cmd+&#91;Comma&#93;</code> | [<code>workbench.action.openApplicationSettingsJson</code>](../../shared/vscode/keybindings.json#L258) | Open Application Settings Json |
 | <code>shift+cmd+&#91;Period&#93;</code> | [<code>-breadcrumbs.focus</code>](../../shared/vscode/keybindings.json#L138) | Breadcrumbs focus<br><code>breadcrumbsPossible &amp;&amp; breadcrumbsVisible; remove binding</code> |
 | <code>shift+cmd+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"command":"workbench.action.tasks.runTask","args":"Copy active filename"}&#93;}</code>](../../shared/vscode/keybindings.json#L143) | Run Commands<br><code>editorFocus</code> |
 | <code>shift+cmd+&#91;Quote&#93;</code> | [<code>opensshremotes.settings</code>](../../shared/vscode/keybindings.json#L262) | Opensshremotes settings |
 | <code>shift+cmd+&#91;Quote&#93;</code> | [<code>workbench.files.action.collapseExplorerFolders</code>](../../shared/vscode/keybindings.json#L291) | Workbench files action collapse Explorer Folders |
+| <code>shift+cmd+b</code> | [<code>-workbench.action.tasks.build</code>](../../shared/vscode/keybindings.json#L316) | Tasks build<br><code>taskCommandsRegistered; remove binding</code> |
+| <code>shift+cmd+b</code> | [<code>workbench.action.toggleAuxiliaryBar</code>](../../shared/vscode/keybindings.json#L329) | Toggle Auxiliary Bar |
 | <code>shift+cmd+g</code> | [<code>workbench.view.scm</code>](../../shared/vscode/keybindings.json#L171) | Workbench view scm<br><code>workbench.scm.active</code> |
+| <code>shift+cmd+i</code> | [<code>workbench.action.toggleAuxiliaryBar</code>](../../shared/vscode/keybindings.json#L333) | Toggle Auxiliary Bar |
 | <code>shift+cmd+o</code> | [<code>-editor.action.accessibleViewGoToSymbol</code>](../../shared/vscode/keybindings.json#L286) | Editor action accessible View Go To Symbol<br><code>accessibilityHelpIsShown &amp;&amp; accessibleViewGoToSymbolSupported &#124;&#124; accessibleViewGoToSymbolSupported &amp;&amp; accessibleViewIsShown; remove binding</code> |
 | <code>shift+cmd+o</code> | [<code>-workbench.action.gotoSymbol</code>](../../shared/vscode/keybindings.json#L281) | Goto Symbol<br><code>!accessibilityHelpIsShown &amp;&amp; !accessibleViewIsShown; remove binding</code> |
 | <code>shift+cmd+o</code> | [<code>-workbench.action.terminal.openDetectedLink</code>](../../shared/vscode/keybindings.json#L276) | Terminal open Detected Link<br><code>terminalFocus &amp;&amp; terminalHasBeenCreated; remove binding</code> |
-| <code>shift+cmd+r</code> | [<code>renameFile</code>](../../shared/vscode/keybindings.json#L299) | Rename File<br><code>editorFocus</code> |
+| <code>shift+cmd+r</code> | [<code>renameFile</code>](../../shared/vscode/keybindings.json#L299) | Rename File |
 | <code>shift+cmd+t</code> | [<code>-workbench.action.reopenClosedEditor</code>](../../shared/vscode/keybindings.json#L130) | Reopen Closed Editor<br><code>global; remove binding</code> |
 | <code>shift+cmd+t</code> | [<code>workbench.action.closeOtherEditors</code>](../../shared/vscode/keybindings.json#L134) | Close Other Editors |
