@@ -105,13 +105,12 @@ peer=${pair#* }
 	exit 0
 }
 
-case $(uname -s) in
-Darwin)
-	[ "$mode" = probe ] && exec nc -4 -z -G 1 -s "$source" "$peer" "$port"
-	exec nc -4 -s "$source" "$peer" "$port"
-	;;
-Linux)
-	[ "$mode" = probe ] && exec nc -4 -z -w 1 -s "$source" "$peer" "$port"
-	exec nc -4 -s "$source" "$peer" "$port"
-	;;
-esac
+if [ "$mode" = probe ]; then
+	case $(uname -s) in
+	Darwin) exec nc -4 -z -G 1 -s "$source" "$peer" "$port" ;;
+	*) exec nc -4 -z -w 1 -s "$source" "$peer" "$port" ;;
+	esac
+fi
+
+# nc leaves Nagle on: a write spanning two segments waits ~40 ms for the peer's delayed ACK
+exec socat STDIO "TCP4:$peer:$port,bind=$source,nodelay"

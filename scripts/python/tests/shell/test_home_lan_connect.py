@@ -18,6 +18,8 @@ echo lookup >> "$STUB_LOG"
 """,
     "route": "printf 'interface: en0\\n'",
     "ipconfig": "echo 192.168.1.178",
+    "socat": 'echo socat "$@"',
+    "nc": 'echo nc "$@"',
 }
 
 
@@ -104,3 +106,17 @@ def test_hosts_that_escape_the_state_directory_are_rejected(lan, host):
     assert rejected.returncode == 1
     assert "invalid host" in rejected.stderr
     assert not lan.state.exists()
+
+
+def test_a_connection_is_relayed_with_nagle_off(lan):
+    lan.run("--refresh", HOST)
+    result = lan.run(HOST, "8443")
+    assert result.stdout.strip() == (
+        "socat STDIO TCP4:192.168.1.162:8443,bind=192.168.1.178,nodelay"
+    )
+
+
+def test_a_probe_stays_a_zero_io_nc(lan):
+    lan.run("--refresh", HOST)
+    result = lan.run("--probe", HOST)
+    assert result.stdout.strip() == "nc -4 -z -G 1 -s 192.168.1.178 192.168.1.162 22"
