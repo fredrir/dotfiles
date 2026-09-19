@@ -314,5 +314,7 @@
     },
     "editor.defaultFormatter": "fredrir.shucked"
   },
-  "terminal.integrated.enableMultiLinePasteWarning": "never"
+  "terminal.integrated.enableMultiLinePasteWarning": "never",
+  "shucked.unsafeFixes.enable": true,
+  "shucked.fixAll.enable": false
 }

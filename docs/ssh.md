@@ -46,6 +46,7 @@ was plugged in.
 | Name | Value |
 | --- | --- |
 | Setting | `deny-interfaces=macie0,macie1,archie0` in `/etc/avahi/avahi-daemon.conf` |
+| Sole responder | `MulticastDNS=no` for systemd-resolved; otherwise it answers on the cable and avahi renames to `archie-2` |
 | Package | `linux/arch/avahi` |
 | Effect | `<peer>.local` is learned on the home LAN only |
 | Unchanged | cable, direct Wi-Fi and Tailscale address literals; none of them use mDNS |

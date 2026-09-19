@@ -582,6 +582,10 @@ fn install(
             "sudo systemctl restart systemd-modules-load",
         ),
         (
+            "/etc/systemd/resolved.conf.d",
+            "sudo systemctl restart systemd-resolved avahi-daemon",
+        ),
+        (
             "/etc/systemd/zram-generator.conf",
             "sudo systemctl daemon-reload && sudo systemctl start systemd-zram-setup@zram0",
         ),

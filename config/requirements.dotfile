@@ -32,6 +32,7 @@ shared {
   direnv
   openssl
   jq
+  atuin
   ?wezterm
   ?ncdu
   ?gh   = github-cli

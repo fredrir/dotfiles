@@ -60,6 +60,7 @@ libxcrypt-compat
 libxml2-legacy
 linux
 linux-firmware
+linux-headers
 mkcert
 mold
 msmtp
