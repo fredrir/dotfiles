@@ -41,6 +41,7 @@
 - `lact` — RTX 5070 Ti power cap, clock offsets and fan curve through lactd
 - `macie-usb` — USB-C direct link to the Mac: interface naming, 10.77.77.2/30, DHCP for the Mac, NetworkManager opt-out
 - `nvidia` — nvidia_drm modeset and the nouveau blacklist
+- `paru`
 - `rapl` — Package energy counters readable by wheel, for hwtune idle and compile energy metrics
 - `ssh` — Cable, direct Wi-Fi, LAN, then Tailscale routing to macie
 - `tuning-sysctl` — NMI watchdog off
