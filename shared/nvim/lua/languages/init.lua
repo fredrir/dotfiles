@@ -12,7 +12,7 @@ local lib = require "lib"
 
 ---@type table<string, Language>
 local catalog = {
-  shell = { filetypes = { "bash", "sh", "zsh" }, servers = { "shuck", "bashls" }, parsers = { "bash", "zsh" } },
+  shell = { filetypes = { "bash", "sh", "zsh" }, servers = { "shucked", "bashls" }, parsers = { "bash", "zsh" } },
   lua = { filetypes = { "lua" }, servers = { "lua_ls" }, formatters = { "stylua" }, parsers = { "lua", "luadoc" } },
   python = {
     filetypes = { "python" },
@@ -54,7 +54,8 @@ local catalog = {
   sql = { filetypes = { "sql" }, formatters = { "sqlfluff" }, linters = { "sqlfluff" } },
   toml = { filetypes = { "toml" }, servers = { "taplo" }, formatters = { "taplo" } },
   json = {
-    filetypes = { "json" }, formatters = { "jqfmt" }
+    filetypes = { "json" },
+    formatters = { "jqfmt" },
   },
   jsonc = {
     filetypes = { "jsonc" },

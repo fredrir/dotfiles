@@ -80,7 +80,7 @@ fn checkout() -> TempDir {
         ".taplo.toml",
         ".yamllint.yaml",
         ".sqlfluff",
-        "shuck.toml",
+        "shuckeded.toml",
     ] {
         fs::write(tools.join(name), format!("live {name}\n")).unwrap();
     }
@@ -795,7 +795,10 @@ fn taplo_and_biome_are_pointed_at_this_repositorys_config() {
     );
     // jqfmt resolves its own config per file, the way dotfmt does, so its row
     // is pointed at nothing: naming one file would override that everywhere.
-    let jqfmt: Vec<&String> = said.iter().filter(|line| line.ends_with("b.json")).collect();
+    let jqfmt: Vec<&String> = said
+        .iter()
+        .filter(|line| line.ends_with("b.json"))
+        .collect();
     assert_eq!(jqfmt.len(), 1, "{said:?}");
     assert!(!jqfmt[0].contains("--config"), "{said:?}");
     // biome reads no directory that does not hold a `biome.json`, and this
@@ -939,17 +942,17 @@ fn yamlfmt_is_run_the_way_yamlfmt_writes_in_place() {
 // --------------------------------------------------------------- the report
 
 #[test]
-fn shell_startup_files_use_shuck_and_check_mode_also_lints_without_writing() {
+fn shell_startup_files_use_shucked_and_check_mode_also_lints_without_writing() {
     let root = tree(&[
         ".zshrc=case \"$1:$#\" in *) echo ok ;; esac\n",
         "conf/helper.zsh=echo ok\n",
         ".bashrc=echo ok\n",
     ]);
-    let bin = only(&["shuck"]);
+    let bin = only(&["shucked"]);
     stub(
         bin.path(),
-        "shuck",
-        r#"printf '%s|%s\n' "$SHUCK_EXPERIMENTAL" "$*" >> "$DFF_LOG""#,
+        "shucked",
+        r#"printf '%s|%s\n' "$shucked_EXPERIMENTAL" "$*" >> "$DFF_LOG""#,
     );
     let logged = root.path().join("log");
     for check in [false, true] {
@@ -966,7 +969,7 @@ fn shell_startup_files_use_shuck_and_check_mode_also_lints_without_writing() {
             &[
                 ("PATH", &bin.path().display().to_string()),
                 ("DFF_LOG", &logged.display().to_string()),
-                ("SHUCK_EXPERIMENTAL", ""),
+                ("shucked_EXPERIMENTAL", ""),
             ],
         );
         assert!(output.status.success(), "{}", stderr(&output));
@@ -1015,7 +1018,7 @@ fn a_provider_that_fell_over_on_one_file_names_that_file() {
     let bin = tree(&[]);
     stub(
         bin.path(),
-        "shuck",
+        "shucked",
         "echo 'deep/odd.bash:376:24: not a valid parameter expansion operator: `~`' >&2; exit 1",
     );
     let output = format(

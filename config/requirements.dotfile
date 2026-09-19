@@ -12,12 +12,12 @@ shared {
   curl
   bash
   python3
-  ssh     = openssh
+  ssh   = openssh
   zsh
   uv
   age
   sops
-  nvim    = neovim
+  nvim  = neovim
   yazi
   starship
   fastfetch
@@ -26,7 +26,7 @@ shared {
   eza
   bat
   fd
-  rg      = ripgrep
+  rg    = ripgrep
   rsync
   zoxide
   direnv
@@ -34,16 +34,16 @@ shared {
   jq
   ?wezterm
   ?ncdu
-  ?gh     = github-cli
+  ?gh   = github-cli
   ?docker
   ?fio
   ?sysbench
   ?hyperfine
   ?stress-ng
-  ?7z     = 7zip
+  ?7z   = 7zip
   ?portview
   ?kondo
-  ?shuck  = shuck-cli
+  ?shucked
   ?biome
   ?ruff
   ?stylua

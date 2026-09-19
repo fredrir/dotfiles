@@ -428,7 +428,7 @@ fn add_linters(
                 ],
             ),
             Language::Lua => ("luacheck", &[]),
-            Language::Shell => ("shuck", &["check", "--output-format", "concise"]),
+            Language::Shell => ("shucked", &["check", "--output-format", "concise"]),
             Language::Toml => ("taplo", &["lint", "--config", "shared/tools/.taplo.toml"]),
             Language::Yaml => ("yamllint", &["-c", "shared/tools/.yamllint.yaml"]),
             _ => unreachable!(),

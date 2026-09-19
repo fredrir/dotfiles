@@ -26,7 +26,7 @@ shared/tools/biome.global.json = ~/biome.json
 shared/tools/dotfmt.dotfile = ~/.config/dotfmt/dotfmt.dotfile
 shared/tools/ruff.toml = ~/.config/ruff/ruff.toml
 shared/tools/rustfmt.toml = ~/.config/rustfmt/rustfmt.toml
-shared/tools/shuck.toml = ~/.config/shuck/shuck.toml
+shared/tools/shucked.toml = ~/.config/shucked/shucked.toml
 shared/tools/stylua.toml = ~/.config/stylua/stylua.toml
 
 # shared/vscode

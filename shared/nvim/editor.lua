@@ -32,7 +32,7 @@ local M = {
     on_save = { timeout_ms = 500, lsp_format = "fallback" },
     disabled_on_save = {},
     ---@type conform.FormatOpts
-    shell = { lsp_format = "prefer", name = "shuck" },
+    shell = { lsp_format = "prefer", name = "shucked" },
     shell_timeout_ms = 1000,
   },
   completion = {

@@ -22,7 +22,7 @@
 
 | Package | Keybinds | Settings |
 | --- | ---: | ---: |
-| [hyprland](./hyprland.md) | 83 | 0 |
+| [hyprland](./hyprland.md) | 81 | 0 |
 | [kde](./kde.md) | 266 | 0 |
 | [nvim](./nvim.md) | 96 | 2 |
 | [vscode](./vscode.md) | 71 | 0 |

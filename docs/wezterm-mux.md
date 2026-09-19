@@ -22,6 +22,7 @@ reached through `socat`.
 | Failure                                 | Source pane stays open; GUI reports the error                                        |
 | Prerequisite                            | Updated vertical-tabs WezTerm GUI, CLI and localmux server; reload shell definitions |
 | Restart                                 | Restarting localmux terminates its active sessions; save work first                  |
+| macOS Local Network                     | Allow `wezterm-mux-server` per WezTerm update; else cable/LAN: `No route to host`    |
 
 
 | Route     | macie `tls_servers` | macie peer-facing  | archie `tls_servers` | archie peer-facing   |

@@ -25,13 +25,7 @@
 
 ## Shell formatting
 
-| Files | Formatter | Check mode |
-| --- | --- | --- |
-| `.sh`, `.bash`, Bash startup files, `.profile` | Shuck | Formatting check and lint |
-| `.zsh`, `.zshrc`, `.zshenv`, `.zprofile`, `.zlogin`, `.zlogout` | Shuck | Formatting check and lint |
-
-Shuck reads project configuration or `~/.config/shuck/shuck.toml`; the shared default uses two spaces.
-`dotfile-format` enables Shuck's experimental formatter for its formatting subprocesses.
-Neovim uses `shuck server` for inline diagnostics, navigation, and formatting on save.
-Bash Language Server supplies shell completion only; its diagnostics and formatting are disabled.
-Syntax diagnostics are enabled explicitly; Shuck 0.2.2 still misses some malformed arithmetic expressions.
+| Files                                                           | Formatter | Check mode                |
+| --------------------------------------------------------------- | --------- | ------------------------- |
+| `.sh`, `.bash`, Bash startup files, `.profile`                  | Shucked   | Formatting check and lint |
+| `.zsh`, `.zshrc`, `.zshenv`, `.zprofile`, `.zlogin`, `.zlogout` | Shucked   | Formatting check and lint |

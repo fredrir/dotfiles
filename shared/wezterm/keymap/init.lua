@@ -12,6 +12,7 @@ local mux = require "utils.mux"
 local hwire_session = require "utils.hwire-session"
 local MOD = require "keymap.modifiers"
 local open_vscode = require "utils.open-vscode"
+local open_github = require "utils.open-github"
 local open_yazi = require "utils.open-yazi"
 local close_window = require "utils.close_window"
 require "utils.scrollback"
@@ -133,7 +134,11 @@ local keys = bind_keys {
   { key = "x", mods = MOD.SUPER_REV, action = act.ActivateCopyMode },
   { key = "Space", mods = MOD.SUPER_REV, action = act.QuickSelect },
   { key = ";", mods = MOD.PRIMARY, action = split "vertical" },
-  { key = "g", mods = MOD.SUPER_REV, action = act.Nop },
+  {
+    key = "g",
+    mods = MOD.SUPER_REV,
+    action = open_github,
+  },
   { key = "a", mods = MOD.SUPER_REV, action = act.Nop },
   { key = "z", mods = MOD.SUPER_REV, action = act.TogglePaneZoomState },
 }

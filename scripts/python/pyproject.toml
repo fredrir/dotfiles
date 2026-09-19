@@ -6,10 +6,7 @@ requires-python = ">=3.12"
 dependencies    = ["typer>=0.15", "rich>=13", "tomlkit>=0.13"]
 
 [project.scripts]
-power-menu   = "tools.hyprland.power_menu:app"
-confirm-exit = "tools.hyprland.confirm_exit:app"
-clean-copy   = "tools.transcript.clean_copy:app"
-transcript   = "tools.transcript.cli:app"
+transcript = "tools.transcript.cli:app"
 
 [dependency-groups]
 dev = ["pexpect>=4.9.0", "pytest>=8", "pytest-xdist>=3.8,<4", "ruff>=0.8"]

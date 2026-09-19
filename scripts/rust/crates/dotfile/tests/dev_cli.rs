@@ -177,7 +177,7 @@ fn dry_run_renders_worker_limits_and_linter_selection() {
     assert!(
         shell
             .stdout
-            .contains("shuck 'check' '--output-format' 'concise'")
+            .contains("shucked 'check' '--output-format' 'concise'")
     );
     assert!(shell.stdout.contains("'setup.sh'"));
 }

@@ -140,11 +140,6 @@
       "source": "scripts/python/src/tools/transcript/"
     }
   ],
-  "undocumented": [
-    "power-menu",
-    "confirm-exit",
-    "clean-copy"
-  ],
   "native": [
     "agent-hop",
     "count",

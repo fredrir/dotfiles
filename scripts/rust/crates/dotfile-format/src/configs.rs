@@ -45,8 +45,8 @@ pub const EMBEDDED: [(&str, &str); 10] = [
         include_str!("../../../../../shared/tools/.sqlfluff"),
     ),
     (
-        "shuck.toml",
-        include_str!("../../../../../shared/tools/shuck.toml"),
+        "shucked.toml",
+        include_str!("../../../../../shared/tools/shucked.toml"),
     ),
 ];
 

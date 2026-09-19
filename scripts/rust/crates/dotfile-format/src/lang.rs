@@ -48,7 +48,6 @@ pub enum Drift {
 }
 
 const QUIET_RUST_LOG: &[(&str, &str)] = &[("RUST_LOG", "warn")];
-const SHUCK_FORMAT: &[(&str, &str)] = &[("SHUCK_EXPERIMENTAL", "1")];
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Step {
@@ -197,11 +196,11 @@ impl Lang {
             (Lang::Sql, Mode::Check) => vec![on_files("sqlfluff", &["lint"])],
 
             (Lang::Shell, Mode::Write) => {
-                vec![on_files("shuck", &["format"]).with_env(SHUCK_FORMAT)]
+                vec![on_files("shucked", &["format"])]
             }
             (Lang::Shell, Mode::Check) => vec![
-                on_files("shuck", &["format", "--check"]).with_env(SHUCK_FORMAT),
-                on_files("shuck", &["check", "--output-format", "concise"]),
+                on_files("shucked", &["format", "--check"]),
+                on_files("shucked", &["check", "--output-format", "concise"]),
             ],
 
             (Lang::Go, Mode::Write) => {
@@ -227,7 +226,7 @@ impl Lang {
             Lang::Toml => Some((".taplo.toml", ".taplo.toml")),
             Lang::Yaml => Some((".yamllint.yaml", ".yamllint.yaml")),
             Lang::Sql => Some((".sqlfluff", ".sqlfluff")),
-            Lang::Shell => Some(("shuck.toml", "shuck.toml")),
+            Lang::Shell => Some(("shucked.toml", "shucked.toml")),
             // Nothing here configures gofmt; it has no configuration.
             Lang::Go => None,
         }
@@ -293,7 +292,7 @@ pub fn configured(program: &str) -> Option<Configured> {
         }
         "ruff" => Configured::Found("reads ~/.config/ruff/ruff.toml, which this repository links"),
         "sqlfluff" => Configured::Found("reads ~/.sqlfluff, which this repository links"),
-        "shuck" => Configured::Found("reads project config or ~/.config/shuck/shuck.toml"),
+        "shucked" => Configured::Found("reads project config or ~/.config/shucked/shucked.toml"),
 
         // rustfmt does take `--config-path`, but only after the manifest and
         // behind a `--`, which is a different argument position from every

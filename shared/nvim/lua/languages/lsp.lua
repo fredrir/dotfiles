@@ -6,54 +6,20 @@ local M = {}
 local function shell_root(bufnr, on_dir)
   local name = vim.api.nvim_buf_get_name(bufnr)
   name = vim.uv.fs_realpath(name) or name
-  on_dir(vim.fs.root(name, { ".shuck.toml", "shuck.toml", ".git" }) or vim.fs.dirname(name))
+  on_dir(vim.fs.root(name, { ".shucked.toml", "shucked.toml", ".git" }) or vim.fs.dirname(name))
 end
 
 ---@return table<string, vim.lsp.Config>
 function M.configs()
   ---@type table<string, vim.lsp.Config>
   local servers = {
-    shuck = {
-      cmd = { "shuck", "server" },
+    shucked = {
+      cmd = { "shucked", "server" },
       filetypes = languages.catalog.shell and languages.catalog.shell.filetypes or {},
       init_options = { showSyntaxErrors = true },
       root_dir = shell_root,
       on_init = function(client)
         client.server_capabilities.completionProvider = nil
-      end,
-    },
-    bashls = {
-      cmd = { "bash-language-server", "start" },
-      filetypes = languages.catalog.shell and languages.catalog.shell.filetypes or {},
-      root_dir = shell_root,
-      settings = {
-        bashIde = {
-          shellcheckPath = "",
-          shfmt = { path = "" },
-          enableSourceErrorDiagnostics = false,
-        },
-      },
-      before_init = function(_, config)
-        local root = config.root_dir
-        local project = root and root ~= vim.uv.os_homedir() and vim.uv.fs_stat(root .. "/.git")
-        local pattern = "{*.sh,*.inc,*.bash,*.zsh,*.command,.bash*,.zsh*,.zprofile,.zlogin,.zlogout,.profile}"
-        local settings = config.settings or {}
-        local bash_settings = settings.bashIde
-        settings.bashIde = vim.tbl_deep_extend("force", type(bash_settings) == "table" and bash_settings or {}, {
-          globPattern = vim.env.GLOB_PATTERN or ((project and "**/" or "") .. pattern),
-          includeAllWorkspaceSymbols = project ~= nil and project ~= false,
-        })
-        config.settings = settings
-      end,
-      -- Bash parsing is useful for completion, but must not diagnose Zsh or replace Shuck's other features.
-      handlers = { ["textDocument/publishDiagnostics"] = function() end },
-      on_init = function(client)
-        local caps = client.server_capabilities or {}
-        client.server_capabilities = {
-          completionProvider = caps.completionProvider,
-          textDocumentSync = caps.textDocumentSync,
-          positionEncoding = caps.positionEncoding,
-        }
       end,
     },
     rust_analyzer = {},
@@ -148,7 +114,7 @@ end
 ---@param servers table<string, vim.lsp.Config>
 ---@return string[]
 function M.mason_tools(servers)
-  local machine_tools = { biome = true, taplo = true, shuck = true }
+  local machine_tools = { biome = true, taplo = true, shucked = true }
   local ensure_installed = {}
   for name in pairs(servers) do
     if not machine_tools[name] then

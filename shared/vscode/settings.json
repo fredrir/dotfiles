@@ -301,15 +301,15 @@
   "chat.planAgent.defaultModel": "DeepSeek V4.1 Flash (deepseek)",
   "editor.formatOnSave": true,
   "chat.viewSessions.orientation": "stacked",
-  "shuck.enabledShells": [
+  "shucked.enabledShells": [
     "zsh",
     "sh",
     "bash"
   ],
-  "shuck.path": "/Users/fredrir/.cargo/bin/shuck",
+  "shucked.path": "/Users/fredrir/.cargo/bin/shucked",
   "[shellscript]": {
     "editor.codeActionsOnSave": {
-      "source.fixAll.shuck": "explicit"
+      "source.fixAll.shucked": "explicit"
     },
     "editor.defaultFormatter": "fredrir.shucked"
   },
