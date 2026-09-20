@@ -11,6 +11,7 @@ add_path \
   "/opt/homebrew/opt/make/libexec/gnubin" \
   "/opt/homebrew/lib/ruby/gems/4.0.0/bin" \
   "$HOME/.bun/bin" \
+  "$HOME/go/bin" \
   "$HOME/Library/pnpm" \
   "$HOME/.nix-profile/bin" \
   "$HOME/.local/share/npm-global/bin" \

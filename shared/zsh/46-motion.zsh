@@ -58,6 +58,10 @@ zle_highlight=(${zle_highlight[@]:#region:*} region:standout)
 _motion_buffer_start() { CURSOR=0; }
 _motion_buffer_end() { CURSOR=$#BUFFER; }
 
+_motion_scrollback() {
+  printf '\e]1337;SetUserVar=SCROLLBACK=%s\a' "$(print -rn -- "$1" | base64 | tr -d '\r\n')"
+}
+
 _motion_document_start() {
   if [[ $BUFFER == *$'\n'* ]]; then
     CURSOR=0
