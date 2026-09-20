@@ -35,7 +35,7 @@
     "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[jsonc]": {
-    "editor.defaultFormatter": "biomejs.biome"
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[lua]": {
     "editor.quickSuggestions": {
@@ -79,7 +79,8 @@
     {
       "command": "jqfmt -eq",
       "languages": [
-        "json"
+        "json",
+        "jsonc"
       ]
     },
     {
@@ -302,12 +303,6 @@
   "chat.planAgent.defaultModel": "DeepSeek V4.1 Flash (deepseek)",
   "editor.formatOnSave": true,
   "chat.viewSessions.orientation": "stacked",
-  "shucked.enabledShells": [
-    "zsh",
-    "sh",
-    "bash"
-  ],
-  "shucked.path": "/Users/fredrir/.cargo/bin/shucked",
   "[shellscript]": {
     "editor.codeActionsOnSave": {
       "source.fixAll.shucked": "explicit"

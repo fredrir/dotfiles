@@ -456,3 +456,62 @@ fn collect(directory: &Path, found: &mut Vec<PathBuf>) {
         }
     }
 }
+
+#[test]
+fn dialects_and_aliases_preserve_comments_on_stdin() {
+    let root = tree_pairs(&[]);
+    for dialect in ["jsonc", "hujson", "jwcc", "json-with-comments"] {
+        let output = jqfmt(root.path(), &["--dialect", dialect], "{\"a\":1,// why\n}");
+        assert_eq!(code(&output), 0, "{}", output.stderr);
+        assert_eq!(output.stdout, "{\n  \"a\": 1, // why\n}\n");
+        assert_eq!(output.stderr, "");
+    }
+}
+
+#[test]
+fn mixed_tree_detects_dialects_and_check_is_read_only() {
+    let body = "{\"a\":1,/* why */}";
+    let expected = "{\n  \"a\": 1, /* why */\n}\n";
+    let root = tree_pairs(&[("a.json", RAGGED), ("b.jsonc", body), ("c.HUJSON", body), ("d.jwcc", body), ("ignored.json5", body)]);
+    let check = jqfmt(root.path(), &["--check", "."], "");
+    assert_eq!(code(&check), 1);
+    assert_eq!(read(root.path(), "b.jsonc"), body);
+    let output = jqfmt(root.path(), &["."], "");
+    assert_eq!(code(&output), 0, "{}", output.stderr);
+    assert_eq!(read(root.path(), "a.json"), LAID_OUT);
+    for name in ["b.jsonc", "c.HUJSON", "d.jwcc"] {
+        assert_eq!(read(root.path(), name), expected);
+    }
+    assert_eq!(read(root.path(), "ignored.json5"), body);
+    assert_eq!(code(&jqfmt(root.path(), &["--check", "."], "")), 0);
+}
+
+#[test]
+fn explicit_dialect_overrides_extensions() {
+    let body = "{\"a\":1,// why\n}";
+    let root = tree_pairs(&[("settings.json", body), ("settings.jsonc", body)]);
+    assert_eq!(code(&jqfmt(root.path(), &["settings.json"], "")), 1);
+    assert_eq!(code(&jqfmt(root.path(), &["--dialect", "jsonc", "settings.json"], "")), 0);
+    assert!(read(root.path(), "settings.json").contains("// why"));
+    assert_eq!(code(&jqfmt(root.path(), &["--dialect", "json", "settings.jsonc"], "")), 1);
+    assert_eq!(read(root.path(), "settings.jsonc"), body);
+}
+
+#[test]
+fn invalid_dialect_input_never_overwrites_a_file() {
+    let body = "{\"a\":1, // why\n\"b\" 2}";
+    let root = tree_pairs(&[("a.hujson", body)]);
+    let output = jqfmt(root.path(), &["a.hujson"], "");
+    assert_eq!(code(&output), 1);
+    assert_eq!(read(root.path(), "a.hujson"), body);
+    assert!(output.stderr.contains("a.hujson:2:5:"), "{}", output.stderr);
+}
+
+#[test]
+fn editor_explicitly_converts_dialect_files_to_json() {
+    let root = tree_pairs(&[("a.jsonc", "{\"a\":1,/* why */}")]);
+    let output = jqfmt(root.path(), &["--editor", "a.jsonc"], "");
+    assert_eq!(code(&output), 0, "{}", output.stderr);
+    assert_eq!(read(root.path(), "a.jsonc"), LAID_OUT);
+    assert!(output.stderr.contains("1 stray comma, 1 comment"), "{}", output.stderr);
+}

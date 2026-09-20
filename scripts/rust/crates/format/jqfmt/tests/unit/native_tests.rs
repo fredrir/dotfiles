@@ -2,24 +2,43 @@ use std::fs;
 use std::path::Path;
 
 use crate::config::Config;
+use crate::dialect::Dialect;
 use crate::native::{Done, apply, format};
 use crate::repair::Repair;
 
 fn written(body: &str) -> String {
-    format("stdin", body.as_bytes(), &Config::default(), false)
-        .unwrap_or_else(|message| panic!("{message}"))
-        .text
+    format(
+        "stdin",
+        body.as_bytes(),
+        &Config::default(),
+        false,
+        Dialect::Json,
+    )
+    .unwrap_or_else(|message| panic!("{message}"))
+    .text
 }
 
 fn refused(body: &str) -> String {
-    match format("stdin", body.as_bytes(), &Config::default(), false) {
+    match format(
+        "stdin",
+        body.as_bytes(),
+        &Config::default(),
+        false,
+        Dialect::Json,
+    ) {
         Ok(formatted) => panic!("expected a refusal, got {:?}", formatted.text),
         Err(message) => message,
     }
 }
 
 fn refused_even_for_an_editor(body: &str) -> String {
-    match format("stdin", body.as_bytes(), &Config::default(), true) {
+    match format(
+        "stdin",
+        body.as_bytes(),
+        &Config::default(),
+        true,
+        Dialect::Json,
+    ) {
         Ok(formatted) => panic!("expected a refusal, got {:?}", formatted.text),
         Err(message) => message,
     }
@@ -100,6 +119,7 @@ fn the_repairs_are_counted_for_the_caller_to_report() {
         b"{\n  'a': 1, // why\n}\n",
         &Config::default(),
         true,
+        Dialect::Json,
     )
     .expect("the body reads with the flag");
 
@@ -113,7 +133,15 @@ fn a_body_is_written_beside_itself_and_the_old_one_is_gone() {
     let root = tree(&[("a.json", "{\"a\":1}")]);
     let path = root.path().join("a.json");
 
-    let outcome = apply(&path, "a.json", &Config::default(), false, true).unwrap();
+    let outcome = apply(
+        &path,
+        "a.json",
+        &Config::default(),
+        false,
+        true,
+        Dialect::Json,
+    )
+    .unwrap();
 
     assert_eq!(outcome.done, Done::Changed);
     assert_eq!(fs::read_to_string(&path).unwrap(), "{\n  \"a\": 1\n}\n");
@@ -125,7 +153,15 @@ fn check_writes_nothing_and_still_says_what_would_change() {
     let root = tree(&[("a.json", "{\"a\":1}")]);
     let path = root.path().join("a.json");
 
-    let outcome = apply(&path, "a.json", &Config::default(), false, false).unwrap();
+    let outcome = apply(
+        &path,
+        "a.json",
+        &Config::default(),
+        false,
+        false,
+        Dialect::Json,
+    )
+    .unwrap();
 
     assert_eq!(outcome.done, Done::Changed);
     assert_eq!(fs::read_to_string(&path).unwrap(), "{\"a\":1}");
@@ -136,7 +172,15 @@ fn check_counts_the_repairs_it_would_have_made() {
     let root = tree(&[("a.json", "{\n  \"a\": 1,\n}\n")]);
     let path = root.path().join("a.json");
 
-    let outcome = apply(&path, "a.json", &Config::default(), true, false).unwrap();
+    let outcome = apply(
+        &path,
+        "a.json",
+        &Config::default(),
+        true,
+        false,
+        Dialect::Json,
+    )
+    .unwrap();
 
     assert_eq!(outcome.done, Done::Changed);
     assert_eq!(outcome.repairs.of(Repair::Comma), 1);
@@ -149,7 +193,15 @@ fn a_body_that_needs_nothing_is_left_alone() {
     let root = tree(&[("a.json", body)]);
     let path = root.path().join("a.json");
 
-    let outcome = apply(&path, "a.json", &Config::default(), false, true).unwrap();
+    let outcome = apply(
+        &path,
+        "a.json",
+        &Config::default(),
+        false,
+        true,
+        Dialect::Json,
+    )
+    .unwrap();
 
     assert_eq!(outcome.done, Done::Unchanged);
     assert_eq!(fs::read_to_string(&path).unwrap(), body);
@@ -167,7 +219,15 @@ fn the_mode_of_the_file_travels_with_its_contents() {
     permissions.set_mode(0o755);
     fs::set_permissions(&path, permissions).unwrap();
 
-    apply(&path, "hook.json", &Config::default(), false, true).unwrap();
+    apply(
+        &path,
+        "hook.json",
+        &Config::default(),
+        false,
+        true,
+        Dialect::Json,
+    )
+    .unwrap();
 
     let mode = fs::metadata(&path).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o755);
@@ -179,7 +239,15 @@ fn a_symlink_is_formatted_where_it_points_rather_than_replaced() {
     let link = root.path().join("link.json");
     std::os::unix::fs::symlink(root.path().join("real/target.json"), &link).unwrap();
 
-    apply(&link, "link.json", &Config::default(), false, true).unwrap();
+    apply(
+        &link,
+        "link.json",
+        &Config::default(),
+        false,
+        true,
+        Dialect::Json,
+    )
+    .unwrap();
 
     assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
     assert_eq!(

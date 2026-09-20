@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::dialect::Dialect;
+
 use workstation::walk::{Policy, walk};
 
 #[derive(Debug)]
@@ -11,7 +13,7 @@ pub struct Gathered {
 
 /// A file named on the command line is formatted whatever it is called: the
 /// caller has said what they want by naming it. A directory is walked for
-/// `*.json`, and the walk's own policy keeps the trees nobody means.
+/// `*.json`, `*.jsonc`, `*.hujson`, and `*.jwcc`, and the walk's own policy keeps the trees nobody means.
 pub fn gather(target: &Path) -> Result<Gathered, String> {
     let found = fs::metadata(target).map_err(|error| format!("{}: {error}", target.display()))?;
     if !found.is_dir() {
@@ -38,7 +40,5 @@ pub fn gather(target: &Path) -> Result<Gathered, String> {
 }
 
 fn is_json(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+    Dialect::for_path(path).is_some()
 }

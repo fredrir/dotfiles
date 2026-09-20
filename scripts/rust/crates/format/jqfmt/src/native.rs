@@ -2,7 +2,9 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use crate::commented;
 use crate::config::Config;
+use crate::dialect::Dialect;
 use crate::parse::{self, Options};
 use crate::render;
 use crate::repair::Repairs;
@@ -25,9 +27,16 @@ pub struct Outcome {
 
 /// Lays one body out. `editor` is the flag of the same name: it takes the
 /// repairs jq would refuse, and counts them rather than hiding them.
-pub fn format(label: &str, input: &[u8], config: &Config, editor: bool) -> Result<Formatted, String> {
-    let shaped = shape(label, input, config, editor)?;
-    guard(label, &shaped.text, config)?;
+pub fn format(
+    label: &str,
+    input: &[u8],
+    config: &Config,
+    editor: bool,
+    dialect: Dialect,
+) -> Result<Formatted, String> {
+    let dialect = if editor { Dialect::Json } else { dialect };
+    let shaped = shape(label, input, config, editor, dialect)?;
+    guard(label, &shaped.text, config, dialect)?;
     Ok(shaped)
 }
 
@@ -36,7 +45,16 @@ fn shape(
     input: &[u8],
     config: &Config,
     editor: bool,
+    dialect: Dialect,
 ) -> Result<Formatted, String> {
+    if dialect.comments() {
+        return commented::format(input, config.layout())
+            .map(|text| Formatted {
+                text,
+                repairs: Repairs::default(),
+            })
+            .map_err(|problem| format!("{label}:{}", problem.said()));
+    }
     let parsed = parse::parse(input, Options { editor })
         .map_err(|problem| format!("{label}:{}", problem.said()))?;
     let Some(value) = parsed.value else {
@@ -58,12 +76,9 @@ fn shape(
     })
 }
 
-/// Two things have to hold before a byte is written: what was just laid out has
-/// to read back as strict JSON, and it has to lay out again as itself. The
-/// first is what stops this from writing a file jq cannot read, and the second
-/// is what stops a second run from finding more to do.
-fn guard(label: &str, text: &str, config: &Config) -> Result<(), String> {
-    let again = shape(label, text.as_bytes(), config, false)?;
+/// Validate output in its dialect and require a stable second formatting pass.
+fn guard(label: &str, text: &str, config: &Config, dialect: Dialect) -> Result<(), String> {
+    let again = shape(label, text.as_bytes(), config, false, dialect)?;
     if again.text != text {
         return Err(broken(label, "laying it out again does not settle"));
     }
@@ -76,9 +91,10 @@ pub fn apply(
     config: &Config,
     editor: bool,
     write: bool,
+    dialect: Dialect,
 ) -> Result<Outcome, String> {
     let raw = fs::read(path).map_err(|error| format!("{label}: {error}"))?;
-    let formatted = format(label, &raw, config, editor)?;
+    let formatted = format(label, &raw, config, editor, dialect)?;
     if formatted.text.as_bytes() == raw {
         return Ok(Outcome {
             done: Done::Unchanged,

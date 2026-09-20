@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod commented;
 mod config;
+mod dialect;
 mod native;
 mod number;
 mod parse;
@@ -18,6 +20,7 @@ use clap::{Parser, ValueHint};
 use rayon::prelude::*;
 
 use config::Configs;
+use dialect::Dialect;
 use native::{Done, Outcome};
 use report::{Report, Tally};
 use workstation::{Completable, Completions};
@@ -29,7 +32,7 @@ const PROGRAM: &str = "jqfmt";
     version,
     about = "jq inspired json formatter",
     after_long_help = "Examples:
-  jqfmt .                        Format every .json file below here, in place
+  jqfmt .                        Format JSON, JSONC and HuJSON files below here
   jqfmt --check .                Report what is not formatted, and change nothing
   jqfmt - < settings.json        Format a body read on stdin, onto stdout
   jqfmt --editor < settings.json Read it as well as it can be read, and say what it fixed"
@@ -39,10 +42,14 @@ struct Cli {
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]
     targets: Vec<PathBuf>,
 
-    /// Take the mistakes jq refuses: comments, trailing commas, single quotes,
-    /// unquoted keys, Python names, a missing comma, a byte order mark
+    /// Convert to strict JSON, repairing comments, trailing commas, single quotes,
+    /// unquoted keys, Python names, missing commas and a byte order mark
     #[arg(short, long)]
     editor: bool,
+
+    /// Input dialect (auto detects file extensions; stdin defaults to JSON)
+    #[arg(long, value_enum, default_value_t = Dialect::Auto)]
+    dialect: Dialect,
 
     /// Report what is not formatted rather than writing it
     #[arg(long)]
@@ -119,7 +126,13 @@ fn through(cli: &Cli, configs: &Configs, report: &Report, tally: &mut Tally) -> 
     report.settings(config.source.as_deref(), &config.warnings);
 
     tally.total += 1;
-    match native::format("stdin", &raw, &config, cli.editor) {
+    match native::format(
+        "stdin",
+        &raw,
+        &config,
+        cli.editor,
+        cli.dialect.resolve(Path::new("-")),
+    ) {
         Ok(formatted) => {
             report.repaired("stdin", formatted.repairs);
             if formatted.text.as_bytes() != raw.as_slice() {
@@ -161,9 +174,16 @@ fn format_target(target: &Path, cli: &Cli, configs: &Configs, report: &Report, t
         .par_iter()
         .map(|path| {
             let label = report::label(target, path);
-            let done = configs
-                .for_file(path)
-                .and_then(|config| native::apply(path, &label, &config, cli.editor, !cli.check));
+            let done = configs.for_file(path).and_then(|config| {
+                native::apply(
+                    path,
+                    &label,
+                    &config,
+                    cli.editor,
+                    !cli.check,
+                    cli.dialect.resolve(path),
+                )
+            });
             (label, done)
         })
         .collect();
@@ -219,3 +239,7 @@ mod render_tests;
 #[cfg(test)]
 #[path = "../tests/unit/walk_tests.rs"]
 mod walk_tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/commented_tests.rs"]
+mod commented_tests;
