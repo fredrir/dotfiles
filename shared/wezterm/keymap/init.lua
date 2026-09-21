@@ -15,6 +15,7 @@ local open_vscode = require "utils.open-vscode"
 local open_github = require "utils.open-github"
 local open_yazi = require "utils.open-yazi"
 local close_window = require "utils.close_window"
+local copy_selection = require "utils.copy-selection"
 require "utils.scrollback"
 
 local act = wezterm.action
@@ -27,7 +28,7 @@ local split = hwire_session.split
 
 ---@type Key[]
 local keys = bind_keys {
-  { key = "c", mods = platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", action = act.CopyTo "Clipboard" },
+  { key = "c", mods = platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", action = copy_selection },
   { key = "v", mods = platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", action = act.PasteFrom "Clipboard" },
   { key = "n", mods = MOD.PRIMARY, action = act.SpawnWindow },
   { key = "y", mods = MOD.PRIMARY, action = open_yazi },

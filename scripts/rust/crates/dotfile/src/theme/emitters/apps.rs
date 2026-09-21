@@ -156,6 +156,15 @@ pub fn zsh(t: &Theme) -> Result<String> {
             t.role(role)?.ansi()
         ));
     }
+    for (env, role) in [
+        ("SELECTION_FG", "selection_foreground"),
+        ("SELECTION_BG", "selection_background"),
+    ] {
+        out.push(format!(
+            "export THEME_{env}='{}'",
+            t.app("terminal", role)?
+        ));
+    }
     if let Some(eza) = t.data.roles["eza"].as_object().filter(|m| !m.is_empty()) {
         let mut parts = vec!["reset".into()];
         for kind in ["fi", "di", "ex", "ln", "pi", "so", "bd", "cd"] {

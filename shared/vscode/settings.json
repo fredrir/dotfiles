@@ -304,12 +304,8 @@
   "editor.formatOnSave": true,
   "chat.viewSessions.orientation": "stacked",
   "[shellscript]": {
-    "editor.codeActionsOnSave": {
-      "source.fixAll.shucked": "explicit"
-    },
     "editor.defaultFormatter": "fredrir.shucked"
   },
-  "terminal.integrated.enableMultiLinePasteWarning": "never",
-  "shucked.unsafeFixes.enable": true,
-  "shucked.fixAll.enable": false
+  "shucked.history.files": true,
+  "shucked.unsafeFixes.enable": true
 }

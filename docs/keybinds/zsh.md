@@ -10,7 +10,7 @@
 
 ## Shared Keybinds
 
-[<code>keymap = emacs</code>](../../shared/zsh/80-keybinds.zsh#L1) · [<code>keymap = motion-select</code>](../../shared/zsh/80-keybinds.zsh#L2)
+[<code>keymap = emacs</code>](../../shared/zsh/80-keybinds.zsh#L1) · [<code>keymap = motion-select</code>](../../shared/zsh/80-keybinds.zsh#L3)
 
 | Key | Action | Description |
 | --- | --- | --- |

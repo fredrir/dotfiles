@@ -65,3 +65,5 @@ _wezterm_open_yazi() {
   zle reset-prompt
   return "$yazi_status"
 }
+
+zle -N wezterm-open-yazi _wezterm_open_yazi
