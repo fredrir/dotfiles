@@ -124,8 +124,16 @@ pub fn run() -> Result<(), String> {
         health: matches.get_flag("health"),
     };
     let timings = matches.get_flag("timings");
-    let snapshot =
-        collect::collect_snapshot_with_timings(options.full || matches.get_flag("pretty"), timings);
+    // The dashboard renders gauges, disks, and health, so it skips the identity
+    // probes and the enrichment only the detail views show.
+    let scope = if options.full {
+        collect::Scope::Full
+    } else if matches.get_flag("pretty") {
+        collect::Scope::Dashboard
+    } else {
+        collect::Scope::Summary
+    };
+    let snapshot = collect::collect_snapshot_with_timings(scope, timings);
     let view = presentation::build_view(&snapshot);
     let issues = health::health_issues(&snapshot);
     let output = if matches.get_flag("json") {

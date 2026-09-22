@@ -7,16 +7,21 @@ pub fn local_hostnames() -> Vec<String> {
     NAMES.get_or_init(probe_hostnames).clone()
 }
 fn probe_hostnames() -> Vec<String> {
-    crate::inventory::local_hostnames_with(
-        sysinfo_backend::System::host_name().as_deref(),
-        |args| {
-            crate::collect::probe(
-                Command::new(args[0]).args(&args[1..]),
-                Duration::from_secs(2),
-            )
-            .ok()
-        },
+    crate::inventory::local_hostnames_with(sysinfo_backend::System::host_name().as_deref(), lookup)
+}
+
+/// Resolve a documented hostname probe in process where the platform exposes
+/// the same value without a subprocess.
+fn lookup(args: &[&str]) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    if let ["scutil", "--get", key] = args {
+        return crate::collect::macos::dynamic_store_name(key);
+    }
+    crate::collect::probe(
+        Command::new(args[0]).args(&args[1..]),
+        Duration::from_secs(2),
     )
+    .ok()
 }
 pub fn display_hostname() -> String {
     std::env::var("SYSINFO_HOSTNAME")

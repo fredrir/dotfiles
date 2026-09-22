@@ -5420,6 +5420,7 @@ dependencies = [
  "csv",
  "hostkit",
  "io-kit-sys",
+ "libc",
  "regex",
  "rustix",
  "serde",

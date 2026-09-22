@@ -21,6 +21,20 @@ use sysctl::{Ctl, CtlValue, Sysctl};
 
 use crate::Module;
 
+/// Kinds [`collect`] always produces; enrichment never asks for them again.
+pub const KINDS: &[&str] = &[
+    "OS",
+    "Kernel",
+    "CPU",
+    "GPU",
+    "PhysicalMemory",
+    "PhysicalDisk",
+    "Board",
+    "Battery",
+    "PowerAdapter",
+    "WM",
+];
+
 pub fn collect(out: &mut Vec<Module>) {
     out.push(("OS", os_module()));
     out.push(("Kernel", kernel_module()));
@@ -344,6 +358,16 @@ const HID_PAGE_APPLE_VENDOR: i64 = 0xff00;
 const HID_USAGE_TEMPERATURE_SENSOR: i64 = 5;
 const HID_EVENT_TYPE_TEMPERATURE: i64 = 15;
 
+#[link(name = "System", kind = "dylib")]
+#[allow(unsafe_code)]
+unsafe extern "C" {
+    fn mach_host_self() -> libc::mach_port_t;
+    fn mach_port_deallocate(
+        task: libc::mach_port_t,
+        name: libc::mach_port_t,
+    ) -> libc::kern_return_t;
+}
+
 #[link(name = "IOKit", kind = "framework")]
 #[allow(unsafe_code)]
 unsafe extern "C" {
@@ -483,6 +507,142 @@ fn average_temperature(readings: impl IntoIterator<Item = f64>) -> Option<f64> {
             (total + value, count + 1)
         });
     (count > 0).then(|| total / count as f64)
+}
+
+// --- Hostnames ---------------------------------------------------------------
+
+#[link(name = "SystemConfiguration", kind = "framework")]
+#[allow(unsafe_code)]
+unsafe extern "C" {
+    fn SCDynamicStoreCopyLocalHostName(allocator: CFAllocatorRef) -> CFStringRef;
+    // The encoding out parameter is a `CFStringEncoding` (u32) pointer.
+    fn SCDynamicStoreCopyComputerName(allocator: CFAllocatorRef, encoding: *mut u32)
+    -> CFStringRef;
+}
+
+/// Name behind `scutil --get <key>`, read straight from the dynamic store.
+#[allow(unsafe_code)]
+pub fn dynamic_store_name(key: &str) -> Option<String> {
+    let name = match key {
+        // SAFETY: the default allocator is valid and each Copy call returns
+        // either null or an owned +1 CFString, wrapped below so it is released.
+        "LocalHostName" => unsafe { SCDynamicStoreCopyLocalHostName(kCFAllocatorDefault) },
+        // SAFETY: as above; the encoding out parameter is optional.
+        "ComputerName" => unsafe {
+            SCDynamicStoreCopyComputerName(kCFAllocatorDefault, std::ptr::null_mut())
+        },
+        _ => return None,
+    };
+    if name.is_null() {
+        return None;
+    }
+    // SAFETY: `name` is the checked +1 result of a Copy call.
+    Some(unsafe { CFString::wrap_under_create_rule(name) }.to_string())
+}
+
+// --- CPU load ----------------------------------------------------------------
+
+/// Busy and total ticks per logical core from `host_processor_info`.
+///
+/// Tick counters advance at `sysconf(_SC_CLK_TCK)`, so callers turn two readings
+/// into percentages without knowing the rate.
+#[allow(unsafe_code)]
+pub fn cpu_ticks() -> Option<Vec<[u64; 2]>> {
+    // SAFETY: mach_host_self returns a send right that this function owns and
+    // releases on every path through release_ticks.
+    let host = unsafe { mach_host_self() };
+    let mut count: libc::natural_t = 0;
+    let mut info: libc::processor_info_array_t = std::ptr::null_mut();
+    let mut size: libc::mach_msg_type_number_t = 0;
+    // SAFETY: the out parameters point at initialized locals. On success the
+    // kernel fills them with `count` records sized by `size` natural_t words.
+    let status = unsafe {
+        libc::host_processor_info(
+            host,
+            libc::PROCESSOR_CPU_LOAD_INFO,
+            &mut count,
+            &mut info,
+            &mut size,
+        )
+    };
+    let ticks = (status == libc::KERN_SUCCESS && !info.is_null() && count > 0).then(|| {
+        // SAFETY: `info` holds `count` records of CPU_STATE_MAX natural_t words
+        // and stays alive until release_ticks below.
+        unsafe {
+            std::slice::from_raw_parts(info.cast::<libc::processor_cpu_load_info>(), count as usize)
+        }
+        .iter()
+        .map(|core| {
+            let idle = u64::from(core.cpu_ticks[libc::CPU_STATE_IDLE as usize]);
+            let busy = core
+                .cpu_ticks
+                .iter()
+                .enumerate()
+                .filter(|(state, _)| *state != libc::CPU_STATE_IDLE as usize)
+                .map(|(_, ticks)| u64::from(*ticks))
+                .sum();
+            [busy, busy + idle]
+        })
+        .collect()
+    });
+    release_ticks(host, info, size);
+    ticks
+}
+
+#[allow(unsafe_code)]
+fn release_ticks(
+    host: libc::mach_port_t,
+    info: libc::processor_info_array_t,
+    size: libc::mach_msg_type_number_t,
+) {
+    // SAFETY: mach_task_self returns the caller's task port, valid for the
+    // process lifetime and never owned by the caller.
+    #[allow(deprecated)]
+    let task = unsafe { libc::mach_task_self() };
+    if !info.is_null() {
+        // SAFETY: `info` is the kernel-allocated region of `size` natural_t
+        // words that this call owns; vm_deallocate takes it in bytes.
+        unsafe {
+            libc::vm_deallocate(
+                task,
+                info as libc::vm_address_t,
+                size as usize * std::mem::size_of::<libc::natural_t>(),
+            )
+        };
+    }
+    if host != libc::MACH_PORT_NULL as libc::mach_port_t {
+        // SAFETY: `host` is the send right mach_host_self returned to this call.
+        unsafe { mach_port_deallocate(task, host) };
+    }
+}
+
+/// CPU ticks this snapshot consumed, at `sysconf(_SC_CLK_TCK)`.
+///
+/// Covers the process and the probes it waited for, so the load report keeps
+/// its own work out of the window it measures.
+#[allow(unsafe_code)]
+pub fn own_cpu_ticks() -> Option<u64> {
+    // SAFETY: sysconf reads a process constant; -1 falls back to 1 tick.
+    let rate = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as u64;
+    [libc::RUSAGE_SELF, libc::RUSAGE_CHILDREN]
+        .into_iter()
+        .map(|who| ticks(who, rate))
+        .sum()
+}
+
+#[allow(unsafe_code)]
+fn ticks(who: libc::c_int, rate: u64) -> Option<u64> {
+    // SAFETY: rusage holds only integers and timevals, so all-zero is a valid
+    // starting state that getrusage overwrites below.
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    // SAFETY: `usage` is a zeroed rusage and `who` selects this process or the
+    // children it already waited for.
+    (unsafe { libc::getrusage(who, &mut usage) } == 0).then(|| {
+        let micros = |time: libc::timeval| {
+            time.tv_sec.max(0) as u64 * 1_000_000 + time.tv_usec.max(0) as u64
+        };
+        (micros(usage.ru_utime) + micros(usage.ru_stime)) * rate / 1_000_000
+    })
 }
 
 // --- GPU ---------------------------------------------------------------------

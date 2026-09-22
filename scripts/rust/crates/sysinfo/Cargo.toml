@@ -46,4 +46,5 @@ testkit.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 io-kit-sys      = "0.4"
+libc.workspace  = true
 sysctl          = "0.7.1"

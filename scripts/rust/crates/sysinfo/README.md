@@ -1,13 +1,13 @@
 # sysinfo
 
-| Name                 | Value                                                     |
-| -------------------- | --------------------------------------------------------- |
-| Package              | `workstation-sysinfo`                                     |
-| Binary               | `sysinfo`                                                 |
-| Platforms            | Linux, macOS                                              |
-| Collection           | In-process native probes; optional `fastfetch` enrichment |
-| Pretty palette       | `ui-theme`; generated `~/dotfiles/config/ui/theme.json`   |
-| Release measurements | [PERFORMANCE.md](PERFORMANCE.md)                          |
+| Name                 | Value                                                                 |
+| -------------------- | --------------------------------------------------------------------- |
+| Package              | `workstation-sysinfo`                                                 |
+| Binary               | `sysinfo`                                                             |
+| Platforms            | Linux, macOS                                                          |
+| Collection           | Parallel in-process probes per scope; optional `fastfetch` enrichment |
+| Pretty palette       | `ui-theme`; generated `~/dotfiles/config/ui/theme.json`               |
+| Release measurements | [PERFORMANCE.md](PERFORMANCE.md)                                      |
 
 ```sh
 sysinfo
@@ -16,17 +16,33 @@ sysinfo --full --json --timings > system.json
 dotfile dev check --pkg sysinfo --lang rust
 ```
 
+## Scopes and probes
+
+| Scope     | Flags             | Enrichment | Identity probes | CPU load  |
+| --------- | ----------------- | ---------- | --------------- | --------- |
+| Dashboard | `-p`              | no         | no              | sampled   |
+| Summary   | default, `--json` | no         | yes             | not shown |
+| Full      | `-f`, `--full`    | optional   | yes             | sampled   |
+
+| Name        | Value                                                             |
+| ----------- | ----------------------------------------------------------------- |
+| Enrichment  | `fastfetch` on `PATH`, asked only for kinds no collector owns     |
+| Identity    | `$SHELL` version and terminal `--version`                         |
+| CPU load    | Two tick readings around the collectors; no sleep, no subprocess  |
+| Hostnames   | macOS dynamic store in process; `hostname` probe only as fallback |
+
 ## Layout and APIs
 
-| Path                | API                                                                       |
-| ------------------- | ------------------------------------------------------------------------- |
-| `src/collect/`      | `collect_snapshot(full)`, bounded `probe`; Linux/macOS collectors         |
-| `src/model.rs`      | `Snapshot`, `SystemView`, `HealthIssue`, `RenderOptions`                  |
-| `src/inventory.rs`  | `InventoryContext`, `parse_hosts`, `resolve_with`, `local_hostnames_with` |
-| `src/health.rs`     | `health_issues`, `health_summary`, CPU temperature limits                 |
-| `src/presentation/` | `build_view`, plain/pretty renderers, branding assets                     |
-| `src/report.rs`     | `describe_hardware`, `describe_install`, platform normalization           |
-| `tests/`            | Linux/macOS contracts, CLI/probe isolation, render regressions            |
+| Path                   | API                                                                        |
+| ---------------------- | -------------------------------------------------------------------------- |
+| `src/collect/`         | `collect_snapshot(full)`, `Scope`, bounded `probe`; Linux/macOS collectors |
+| `src/collect/cpu.rs`   | `Sampler`, `percentages`, tick counter parsers                             |
+| `src/model.rs`         | `Snapshot`, `SystemView`, `HealthIssue`, `RenderOptions`                   |
+| `src/inventory.rs`     | `InventoryContext`, `parse_hosts`, `resolve_with`, `local_hostnames_with`  |
+| `src/health.rs`        | `health_issues`, `health_summary`, CPU temperature limits                  |
+| `src/presentation/`    | `build_view`, plain/pretty renderers, branding assets                      |
+| `src/report.rs`        | `describe_hardware`, `describe_install`, platform normalization            |
+| `tests/`               | Linux/macOS contracts, CLI/probe isolation, render regressions             |
 
 ## Environment
 
@@ -48,6 +64,8 @@ dotfile dev check --pkg sysinfo --lang rust
 | Timing output   | `--timings`: stderr only, including subprocess probe count       |
 | Host precedence | `SYSINFO_HOST` → host pin → inventory match                      |
 | Health          | Current hardware errors and warnings                             |
+| Module owner    | Native collectors win; enrichment only fills unowned kinds       |
+| CPU load window | The collection itself, minus this process and its probes         |
 | Ownership       | Read-only collection, normalization, and presentation            |
 
 Benchmarks, history, host registration, and tuning are owned by [hwtune](../hwtune/README.md).

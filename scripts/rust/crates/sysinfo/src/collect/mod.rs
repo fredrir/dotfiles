@@ -1,12 +1,13 @@
 mod common;
+mod cpu;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
-mod macos;
+pub(crate) mod macos;
 #[cfg(any(target_os = "linux", test))]
 mod parse;
 
-use crate::{inventory, model::Snapshot};
+use crate::{Module, inventory, model::Snapshot};
 use hostkit::process::{CaptureLimits, output};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -17,6 +18,35 @@ use std::time::{Duration, Instant};
 static PROBES: AtomicUsize = AtomicUsize::new(0);
 pub fn probe_count() -> usize {
     PROBES.load(Ordering::Relaxed)
+}
+
+/// What a render target asks the collectors for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// Compact `-p` dashboard: gauges, disks, and health from native probes.
+    Dashboard,
+    /// Plain summary and JSON reports.
+    Summary,
+    /// `--full` detail view, enriched where no native probe answers.
+    Full,
+}
+
+impl Scope {
+    /// Optional `fastfetch` enrichment for detail views.
+    fn enriches(self) -> bool {
+        matches!(self, Self::Full)
+    }
+    /// Shell and terminal probes behind the software badges.
+    fn probes_identity(self) -> bool {
+        !matches!(self, Self::Dashboard)
+    }
+    /// Per-core CPU load for the gauges; the plain summary never showed it.
+    fn samples_cpu(self) -> bool {
+        !matches!(self, Self::Summary)
+    }
+    fn from_full(full: bool) -> Self {
+        if full { Self::Full } else { Self::Summary }
+    }
 }
 
 pub fn executable(name: &str) -> Option<PathBuf> {
@@ -95,7 +125,6 @@ fn enrichment_modules() -> Vec<Value> {
             "Uptime",
             "Packages",
             "CPUCache",
-            "CPUUsage",
             "OpenCL",
             "Vulkan",
             "TerminalFont",
@@ -109,6 +138,59 @@ fn enrichment_modules() -> Vec<Value> {
         .map(|m| json!(m)),
     );
     modules
+}
+/// Enrichment payload for this platform: everything optional that no native
+/// collector owns, so the probe can start before the collectors finish.
+fn enrichment_request() -> Vec<Value> {
+    enrichment_modules()
+        .into_iter()
+        .filter(|module| {
+            let Some(kind) = module_kind(module) else {
+                return false;
+            };
+            !native_kinds().any(|owned| owned == kind)
+        })
+        .collect()
+}
+fn module_kind(module: &Value) -> Option<&str> {
+    module.as_str().or_else(|| module["type"].as_str())
+}
+fn native_kinds() -> impl Iterator<Item = &'static str> {
+    common::KINDS.iter().chain(platform_kinds().iter()).copied()
+}
+fn platform_collect(out: &mut Vec<Module>) {
+    #[cfg(target_os = "linux")]
+    linux::collect(out);
+    #[cfg(target_os = "macos")]
+    macos::collect(out);
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let _ = out;
+}
+fn platform_kinds() -> &'static [&'static str] {
+    #[cfg(target_os = "linux")]
+    {
+        linux::KINDS
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos::KINDS
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        &[]
+    }
+}
+/// Fill kinds no native collector produced; native results stay authoritative.
+fn merge_enrichment(modules: &mut Map<String, Value>, extras: Vec<Value>) {
+    for (kind, value) in index_modules(extras) {
+        modules.entry(kind).or_insert(value);
+    }
+}
+fn index(collected: Vec<Module>) -> Map<String, Value> {
+    collected
+        .into_iter()
+        .map(|(kind, result)| (kind.into(), result))
+        .collect()
 }
 fn fastfetch(modules: Vec<Value>, trace: bool) -> Option<Vec<Value>> {
     if modules.is_empty() {
@@ -136,37 +218,36 @@ fn fastfetch(modules: Vec<Value>, trace: bool) -> Option<Vec<Value>> {
     let text = result.ok()?;
     serde_json::from_str(&text).ok()
 }
-fn collect_modules(full: bool, trace: bool) -> Map<String, Value> {
+fn collect_modules(scope: Scope, trace: bool) -> Map<String, Value> {
     let started = Instant::now();
-    let mut collected = Vec::new();
-    common::collect(&mut collected);
-    if trace {
-        eprintln!("common: {:?}", started.elapsed());
-    }
-    #[cfg(target_os = "linux")]
-    linux::collect(&mut collected);
-    #[cfg(target_os = "macos")]
-    macos::collect(&mut collected);
-    if trace {
-        eprintln!("platform: {:?}", started.elapsed());
-    }
-    let mut modules: Map<String, Value> = collected
-        .into_iter()
-        .map(|(kind, result)| (kind.into(), result))
-        .collect();
-    if full {
-        let missing = enrichment_modules()
-            .into_iter()
-            .filter(|module| {
-                let kind = module.as_str().or_else(|| module["type"].as_str());
-                !kind.is_some_and(|kind| modules.contains_key(kind))
-            })
-            .collect();
-        if let Some(extras) = fastfetch(missing, trace) {
-            modules.extend(index_modules(extras));
+    let request = scope.enriches().then(enrichment_request);
+    std::thread::scope(|threads| {
+        let common = threads.spawn(|| {
+            let mut collected = Vec::new();
+            common::collect(&mut collected);
+            if trace {
+                eprintln!("common: {:?}", started.elapsed());
+            }
+            collected
+        });
+        let platform = threads.spawn(|| {
+            let mut collected = Vec::new();
+            platform_collect(&mut collected);
+            if trace {
+                eprintln!("platform: {:?}", started.elapsed());
+            }
+            collected
+        });
+        let extras = request.map(|modules| threads.spawn(move || fastfetch(modules, trace)));
+        let mut collected = Vec::new();
+        collected.extend(common.join().unwrap_or_default());
+        collected.extend(platform.join().unwrap_or_default());
+        let mut modules = index(collected);
+        if let Some(extras) = extras.and_then(|handle| handle.join().ok()).flatten() {
+            merge_enrichment(&mut modules, extras);
         }
-    }
-    modules
+        modules
+    })
 }
 pub fn shell_info() -> (String, String) {
     let path = std::env::var("SHELL").unwrap_or_default();
@@ -359,10 +440,10 @@ pub fn parse_nvidia(bytes: &[u8]) -> Vec<Value> {
     }).collect()
 }
 pub fn collect_snapshot(full: bool) -> Snapshot {
-    collect_snapshot_with_timings(full, false)
+    collect_snapshot_with_timings(Scope::from_full(full), false)
 }
-pub fn collect_snapshot_with_timings(full: bool, timings: bool) -> Snapshot {
-    collect_snapshot_in(full, timings, "", &inventory::InventoryContext::from_env())
+pub fn collect_snapshot_with_timings(scope: Scope, timings: bool) -> Snapshot {
+    collect_snapshot_in(scope, timings, "", &inventory::InventoryContext::from_env())
 }
 
 pub fn collect_snapshot_for_host(
@@ -370,40 +451,58 @@ pub fn collect_snapshot_for_host(
     host: &str,
     context: &inventory::InventoryContext,
 ) -> Snapshot {
-    collect_snapshot_in(full, false, host, context)
+    collect_snapshot_in(Scope::from_full(full), false, host, context)
 }
 
 fn collect_snapshot_in(
-    full: bool,
+    scope: Scope,
     timings: bool,
     host: &str,
     context: &inventory::InventoryContext,
 ) -> Snapshot {
     let started = Instant::now();
-    let (modules, (shell_name, shell_version), (terminal_name, terminal_version)) =
-        std::thread::scope(|scope| {
-            let shell = scope.spawn(|| {
-                let began = Instant::now();
-                let result = shell_info();
-                if timings {
-                    eprintln!("shell: {:?}", began.elapsed());
-                }
-                result
+    // CPU load is sampled across the collection itself, so the window is work
+    // the snapshot already does: no sleep and no subprocess.
+    let sampler = scope.samples_cpu().then(cpu::Sampler::start).flatten();
+    let (mut modules, (shell_name, shell_version), (terminal_name, terminal_version)) =
+        std::thread::scope(|threads| {
+            let shell = scope.probes_identity().then(|| {
+                threads.spawn(|| {
+                    let began = Instant::now();
+                    let result = shell_info();
+                    if timings {
+                        eprintln!("shell: {:?}", began.elapsed());
+                    }
+                    result
+                })
             });
-            let terminal = scope.spawn(|| {
-                let began = Instant::now();
-                let result = terminal_info();
-                if timings {
-                    eprintln!("terminal: {:?}", began.elapsed());
-                }
-                result
+            let terminal = scope.probes_identity().then(|| {
+                threads.spawn(|| {
+                    let began = Instant::now();
+                    let result = terminal_info();
+                    if timings {
+                        eprintln!("terminal: {:?}", began.elapsed());
+                    }
+                    result
+                })
             });
+            let joined = |handle: Option<std::thread::ScopedJoinHandle<'_, _>>| {
+                handle
+                    .and_then(|handle| handle.join().ok())
+                    .unwrap_or_default()
+            };
             (
-                collect_modules(full, timings),
-                shell.join().unwrap_or_default(),
-                terminal.join().unwrap_or_default(),
+                collect_modules(scope, timings),
+                joined(shell),
+                joined(terminal),
             )
         });
+    if let Some(usage) = sampler.and_then(cpu::Sampler::usage) {
+        modules.insert("CPUUsage".into(), usage);
+    }
+    if timings {
+        eprintln!("cpu window: {:?}", started.elapsed());
+    }
     let fallback = Value::Null;
     let module = |name: &str| modules.get(name).unwrap_or(&fallback);
     let terminal = if recognized_terminal(module("Terminal")) {
@@ -465,3 +564,7 @@ fn collect_snapshot_in(
         modules,
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/collect/enrichment.rs"]
+mod tests;

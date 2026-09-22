@@ -3,6 +3,9 @@ use sysinfo_backend::{Disks, MemoryRefreshKind, RefreshKind, System};
 
 use crate::Module;
 
+/// Kinds [`collect`] always produces; enrichment never asks for them again.
+pub const KINDS: &[&str] = &["Memory", "Swap", "Disk", "Uptime"];
+
 pub fn collect(out: &mut Vec<Module>) {
     let system = System::new_with_specifics(
         RefreshKind::nothing().with_memory(MemoryRefreshKind::everything()),

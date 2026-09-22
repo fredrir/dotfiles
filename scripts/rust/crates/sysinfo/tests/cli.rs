@@ -57,6 +57,57 @@ fn report(output: &Output) -> Value {
     assert!(value["system"]["components"].is_array());
     value
 }
+fn cpu_load_fact(payload: &Value) -> Option<String> {
+    let components = payload["system"]["components"].as_array()?;
+    let facts = components
+        .iter()
+        .find(|component| component["kind"] == "cpu")?["facts"]
+        .as_array()?;
+    facts
+        .iter()
+        .find(|fact| fact["label"] == "Load")
+        .map(|fact| fact["value"].as_str().unwrap_or_default().to_string())
+}
+
+#[test]
+fn dashboard_renders_gauges_without_subprocess_probes() {
+    let fixture = Fixture::new();
+    let marker = fixture.root.path().join("probe-called");
+    for name in ["ps", "fastfetch", "shell"] {
+        fixture.script(name, "#!/bin/sh\nprintf called >> \"$PROBE_MARKER\"\n");
+    }
+    let output = fixture
+        .command()
+        .args(["--pretty", "--timings"])
+        .env("PROBE_MARKER", &marker)
+        .env("SHELL", fixture.root.path().join("shell"))
+        .output()
+        .unwrap();
+    let text = stdout(&output);
+    for gauge in ["CPU", "RAM"] {
+        assert!(text.contains(gauge), "{text}");
+    }
+    assert!(!marker.exists(), "the dashboard ran a subprocess probe");
+    let diagnostics = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        diagnostics.contains("subprocess probes: 0"),
+        "{diagnostics}"
+    );
+}
+
+#[test]
+fn cpu_load_is_sampled_only_by_views_that_render_it() {
+    let fixture = Fixture::new();
+    let summary = report(&fixture.output(&["--json"]));
+    let detail = report(&fixture.output(&["--full", "--json"]));
+    assert_eq!(
+        cpu_load_fact(&summary),
+        None,
+        "the plain summary renders no load gauge"
+    );
+    let load = cpu_load_fact(&detail).expect("detail view samples CPU load");
+    assert!(load.ends_with('%'), "{load}");
+}
 
 #[test]
 fn native_summary_and_json_work_without_optional_tools() {

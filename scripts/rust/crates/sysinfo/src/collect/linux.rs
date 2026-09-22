@@ -8,6 +8,21 @@ use serde_json::{Value, json};
 use crate::Module;
 use crate::collect::parse::{cpuinfo_value, os_release_field, pruned_cpu_name, x86_march};
 
+/// Kinds [`collect`] always produces; enrichment never asks for them again.
+/// `DE` and `WM` are conditional, so enrichment still offers them and native
+/// results win when a desktop is detected.
+pub const KINDS: &[&str] = &[
+    "OS",
+    "Kernel",
+    "CPU",
+    "GPU",
+    "PhysicalMemory",
+    "PhysicalDisk",
+    "Board",
+    "Battery",
+    "PowerAdapter",
+];
+
 pub fn collect(out: &mut Vec<Module>) {
     out.push(("OS", os_module()));
     out.push(("Kernel", kernel_module()));
