@@ -19,6 +19,7 @@ local copy_selection = require "utils.copy-selection"
 require "utils.scrollback"
 
 local act = wezterm.action
+local pane_cycle_mods = platform.is_mac and MOD.UNIQUE or "SUPER"
 
 local split = hwire_session.split
   or function(direction)
@@ -75,6 +76,16 @@ local keys = bind_keys {
     key = "d",
     mods = MOD.PRIMARY,
     action = split "horizontal",
+  },
+  { -- Cycle panes forward --
+    key = "Tab",
+    mods = pane_cycle_mods,
+    action = act.ActivatePaneDirection "Next",
+  },
+  { -- Cycle panes backward --
+    key = "Tab",
+    mods = pane_cycle_mods .. "|SHIFT",
+    action = act.ActivatePaneDirection "Prev",
   },
   {
     key = "q",

@@ -9,6 +9,12 @@ local ui_config = {
   font = wezterm.font_with_fallback { { family = fonts.nerd_family, weight = "Medium" } },
   font_size = fonts.font_size,
 
+  window_padding = {
+    bottom = 0,
+    top = 0,
+    right = 0,
+    left = 0,
+  },
   -- tab bar
   hide_tab_bar_if_only_one_tab = false,
 
