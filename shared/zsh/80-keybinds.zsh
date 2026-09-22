@@ -15,7 +15,7 @@ vikey $'\e[5;30012~' wezterm-open-yazi
 
 # Motion
 key '^W' motion-backward-kill-shell-word
-key '^U' motion-kill-to-line-start
+key '^X' motion-kill-to-line-start
 key '^[^?' motion-backward-kill-word
 key $'\e[1;5H' motion-document-start
 key $'\e[1;5F' motion-document-end
@@ -46,7 +46,4 @@ selectkey $'\e[1;6F' motion-select-buffer-end
 selkey $'\e[99;9u' motion-copy-selection
 selkey $'\e[200~' motion-replace-selection
 
-for sequence in '^?' '^D' '^K' '^U' '^W' '^[^?' '^[d' '^[[3~'; do
-  selkey "$sequence" motion-kill-selection
-done
 unset sequence

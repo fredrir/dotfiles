@@ -14,7 +14,7 @@ fn pretty_output_respects_16_256_and_truecolor_terminals() {
                 &view,
                 &[],
                 RenderOptions {
-                    full: false,
+                    full: true,
                     health: false,
                 },
                 PrettyContext {

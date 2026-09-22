@@ -1,5 +1,6 @@
 pub mod branding;
 mod hardware;
+mod metrics;
 mod plain;
 mod pretty;
 mod software;
@@ -65,5 +66,7 @@ pub fn build_view(snapshot: &Snapshot) -> SystemView {
         components: hardware::hardware_components(snapshot),
         software,
         system_facts: software::system_facts(snapshot),
+        gauges: metrics::gauges(snapshot),
+        disks: metrics::disks(snapshot),
     }
 }

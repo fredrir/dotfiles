@@ -11,6 +11,7 @@ alias dot="dotfile"
 alias dots="dotfile sync"
 alias dpp="dotfile sync -p"
 
+alias ss="sysinfo -p"
 alias pp="hwire -i"
 
 if [[ $PWD == "$DOTFILES" ]]; then

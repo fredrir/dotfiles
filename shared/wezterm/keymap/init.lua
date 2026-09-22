@@ -109,6 +109,10 @@ local keys = bind_keys {
       mods = "CTRL",
     },
   },
+  { key = "LeftArrow", mods = MOD.SUPER_REV_2, action = act.AdjustPaneSize { "Left", 3 } },
+  { key = "RightArrow", mods = MOD.SUPER_REV_2, action = act.AdjustPaneSize { "Right", 3 } },
+  { key = "UpArrow", mods = MOD.SUPER_REV_2, action = act.AdjustPaneSize { "Up", 3 } },
+  { key = "DownArrow", mods = MOD.SUPER_REV_2, action = act.AdjustPaneSize { "Down", 3 } },
 
   -- Wezterm ---
   { key = "r", mods = MOD.SUPER_REV, action = "ReloadConfiguration" },

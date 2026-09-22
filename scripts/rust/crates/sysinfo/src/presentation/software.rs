@@ -173,10 +173,11 @@ pub fn system_facts(snapshot: &Snapshot) -> Vec<Fact> {
         let name = disk["mountpoint"]
             .as_str()
             .or_else(|| disk["name"].as_str())
-            .unwrap_or("Filesystem");
+            .unwrap_or("");
         values.push(Fact {
-            label: format!("Filesystem {name}"),
+            label: "Filesystem".into(),
             value: joined(&[
+                name,
                 &format!("{} / {}", format_bytes(used), format_bytes(total)),
                 &format!("{:.0}%", percentage(used, total)),
                 string(disk, "filesystem"),

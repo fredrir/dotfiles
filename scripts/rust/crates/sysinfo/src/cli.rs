@@ -16,14 +16,14 @@ pub fn command() -> Command {
                     .long("pretty")
                     .action(ArgAction::SetTrue)
                     .conflicts_with("json")
-                    .help("Show the complete branded hardware presentation"),
+                    .help("Show the system dashboard"),
             )
             .arg(
                 Arg::new("full")
                     .short('f')
                     .long("full")
                     .action(ArgAction::SetTrue)
-                    .help("Include the extended inventory"),
+                    .help("Include the extended inventory and detail view"),
             )
             .arg(
                 Arg::new("health")

@@ -15,6 +15,15 @@ if has_cmd codex; then
   codex() {
     _run_agent codex --yolo "$@"
   }
+  cod() {
+    _run_agent codex --yolo "$@"
+  }
+  coda() {
+    _run_agent codex --profile alibaba --yolo "$@"
+  }
+  codd() {
+    _run_agent codex --profile deepseek --yolo "$@"
+  }
 fi
 
 if has_cmd pi; then

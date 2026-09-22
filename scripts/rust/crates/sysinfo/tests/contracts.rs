@@ -29,6 +29,7 @@ fn desktop() -> Snapshot {
             ("WM".into(), json!({"prettyName":"KWin","protocolName":"Wayland"})),
         ].into_iter().collect(),
         shell_display: "zsh".into(),
+        terminal_display: "ghostty".into(),
         de_display: "KDE Plasma".into(),
         wm_display: "KWin (Wayland)".into(),
         ..Snapshot::default()
@@ -269,23 +270,27 @@ fn plain_default_and_full_modes_preserve_compact_selection() {
 }
 #[test]
 fn branded_rendering_is_complete_borderless_and_respects_terminal_cells() {
-    for width in [36, 45, 70, 80, 93, 94, 120, 132] {
+    // The default `-p` dashboard stays borderless and width-safe at every size.
+    for width in [1, 2, 3, 10, 20, 36, 45, 70, 80, 93, 94, 120, 132] {
         let text = pretty(&desktop(), width, false, false, &[]);
-        assert!(text.contains("TESTER   WORKSTATION"));
-        assert!(text.contains("HARDWARE"));
-        assert!(text.contains('█'));
-        assert!(!text.contains("SOFTWARE"));
-        assert!(!text.contains("SYSTEM\n"));
+        assert!(!text.is_empty(), "{width}");
         assert!(!text.contains("PRIVATE"));
         assert!(!text.starts_with('╭'));
+        assert!(!text.contains('╭'));
         assert!(
             text.lines()
                 .all(|line| unicode_width::UnicodeWidthStr::width(line) <= width),
             "{width}: {text}"
         );
     }
-    let text = pretty(&desktop(), 120, false, false, &[]);
+    let dashboard = pretty(&desktop(), 80, false, false, &[]);
+    assert!(dashboard.contains("CPU"), "{dashboard}");
+    assert!(dashboard.contains('█'), "{dashboard}");
+    // `-p --full` retains the detailed branded inventory.
+    let full = pretty(&desktop(), 120, true, false, &[]);
     for expected in [
+        "TESTER   WORKSTATION",
+        "HARDWARE",
         "AMD",
         "NVIDIA",
         "CORSAIR",
@@ -300,7 +305,7 @@ fn branded_rendering_is_complete_borderless_and_respects_terminal_cells() {
         "PCIe 4.0 ×8",
         "NOCTUA",
     ] {
-        assert!(text.contains(expected), "missing {expected}: {text}");
+        assert!(full.contains(expected), "missing {expected}: {full}");
     }
 }
 #[test]

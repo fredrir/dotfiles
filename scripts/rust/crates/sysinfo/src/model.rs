@@ -82,6 +82,24 @@ pub struct SoftwareBadge {
     pub label: String,
     pub identifiers: Vec<String>,
 }
+/// A compact live metric row for the default `-p` dashboard: CPU, GPU, or RAM.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Gauge {
+    pub kind: String,
+    pub label: String,
+    pub load: Option<f64>,
+    pub temperature: Option<f64>,
+    pub used: Option<f64>,
+    pub total: Option<f64>,
+}
+/// One physical disk with aggregated filesystem usage for the dashboard.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DiskGauge {
+    pub label: String,
+    pub model: String,
+    pub used: f64,
+    pub total: f64,
+}
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SystemView {
     pub platform: SoftwareBadge,
@@ -90,6 +108,12 @@ pub struct SystemView {
     pub components: Vec<Component>,
     pub software: Vec<SoftwareBadge>,
     pub system_facts: Vec<Fact>,
+    /// Dashboard-only metrics; excluded from the versioned JSON schema.
+    #[serde(default, skip_serializing)]
+    pub gauges: Vec<Gauge>,
+    /// Dashboard-only disk usage; excluded from the versioned JSON schema.
+    #[serde(default, skip_serializing)]
+    pub disks: Vec<DiskGauge>,
 }
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RenderOptions {

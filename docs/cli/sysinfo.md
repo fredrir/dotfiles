@@ -13,8 +13,8 @@
 <!-- cli:flags:start -->
 | Flag                    | Description                                                       |
 | ----------------------- | ----------------------------------------------------------------- |
-| `-p`, `--pretty`        | Shows the complete branded hardware presentation.                 |
-| `-f`, `--full`          | Includes the extended hardware inventory.                         |
+| `-p`, `--pretty`        | Shows the system dashboard.                                       |
+| `-f`, `--full`          | Includes the extended inventory and detail view.                  |
 | `--health`, `-hh`       | Explains active errors and warnings.                              |
 | `--json`                | Prints the normalized hardware and installation snapshot as JSON. |
 | `--timings`             | Report probe timings to stderr                                    |
