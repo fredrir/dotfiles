@@ -35,6 +35,7 @@ local function palette(colors)
     cursor_border = colors.foreground,
     selection_fg = selection_foreground(colors),
     selection_bg = colors.primary,
+    split = colors.ansi[1],
     ansi = colors.ansi,
     brights = colors.brights,
   }

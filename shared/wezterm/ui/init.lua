@@ -17,6 +17,7 @@ local ui_config = {
   },
   -- tab bar
   hide_tab_bar_if_only_one_tab = false,
+  pane_focus_follows_mouse = true,
 
   -- window
   window_frame = {

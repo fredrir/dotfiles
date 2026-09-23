@@ -1,11 +1,15 @@
+alias cdi="cd $HOME/infra"
+
 # Projects
 export PROJECTS="$HOME/projects"
-alias cdi="cd $HOME/infra"
 alias cdpw="cd $PROJECTS/wez-plugins/vertical-tabs"
 alias cdwp="cd $PROJECTS/wez-plugins/vertical-tabs"
 alias cdpe="cd $PROJECTS/elvfast"
 alias cdps="cd $PROJECTS/shucked"
-alias cdpc= "cd $PROJECTS/claude-usage-macos"
+alias cdpc="cd $PROJECTS/claude-usage-macos"
+
+export APPKOM="$HOME/appkom"
+alias cda="cd $APPKOM"
 
 # llunde
 export LLUNDE="$HOME/llunde"
