@@ -11,6 +11,7 @@ use crate::event::VecSink;
 use crate::secret::vault::{self, SecretEntry, SecretKind, Variables};
 use clap::{Args as ClapArgs, Subcommand};
 
+mod preserve;
 mod units;
 use units::Unit;
 
@@ -108,9 +109,15 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
     let configuration =
         Configuration::load(context, &context.profile(None)?, &[], &VecSink::default())?;
     let mut entries = Vec::new();
+    let mut preserved = preserve::Preserved::new();
     for package in &configuration.packages {
         if package.kind == PackageKind::System {
-            entries.extend(vault::package_entries(&configuration, package, true)?);
+            let tracked = vault::package_entries(&configuration, package, true)?;
+            preserved.extend(preserve::load(
+                &package.directory.join(".system"),
+                &tracked,
+            )?);
+            entries.extend(tracked);
         }
     }
     entries.sort_by(|left, right| left.destination.cmp(&right.destination));
@@ -124,7 +131,10 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
     }
     let results = entries
         .into_iter()
-        .map(|entry| inspect(context, entry, &variables))
+        .map(|entry| {
+            let prefixes = preserved.remove(&entry.destination).unwrap_or_default();
+            inspect(context, entry, &variables, &prefixes)
+        })
         .collect::<Vec<_>>();
     let units = units::inspect(
         context,
@@ -217,7 +227,12 @@ fn refusal(context: &Context, destination: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn inspect(context: &Context, entry: SecretEntry, variables: &Variables) -> Inspected {
+fn inspect(
+    context: &Context,
+    entry: SecretEntry,
+    variables: &Variables,
+    preserved: &[String],
+) -> Inspected {
     let mut result = Inspected {
         entry,
         state: State::Current,
@@ -255,7 +270,12 @@ fn inspect(context: &Context, entry: SecretEntry, variables: &Variables) -> Insp
         }
     }
     match fs::read(&result.entry.destination) {
-        Ok(data) => result.current = Some(data),
+        Ok(data) => {
+            if let Some(wanted) = result.wanted.as_mut().filter(|_| !preserved.is_empty()) {
+                *wanted = preserve::carry(wanted, &data, preserved);
+            }
+            result.current = Some(data);
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             result.state = State::Absent;
             return result;

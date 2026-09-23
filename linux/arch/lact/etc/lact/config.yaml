@@ -29,5 +29,58 @@ gpus:
     mem_clock_offsets:
       0: 500
     voltage_boost: 0
+profiles:
+  comfort:
+    gpus:
+      10DE:2C05-1458:4181-0000:01:00.0:
+        fan_control_enabled: true
+        fan_control_settings:
+          mode: curve
+          static_speed: 0.5
+          temperature_key: GPU
+          interval_ms: 1000
+          curve:
+            60: 0.3
+            68: 0.4
+            75: 0.52
+            81: 0.68
+            86: 0.85
+            88: 1.0
+          spindown_delay_ms: 30000
+          change_threshold: 2
+          auto_threshold: 55
+        power_mizer_mode: Auto
+        power_cap: 250.0
+        gpu_clock_offsets:
+          0: 150
+        mem_clock_offsets:
+          0: 500
+        voltage_boost: 0
+  performance:
+    gpus:
+      10DE:2C05-1458:4181-0000:01:00.0:
+        fan_control_enabled: true
+        fan_control_settings:
+          mode: curve
+          static_speed: 0.5
+          temperature_key: GPU
+          interval_ms: 1000
+          curve:
+            50: 0.4
+            60: 0.5
+            68: 0.62
+            75: 0.78
+            80: 0.9
+            84: 1.0
+          spindown_delay_ms: 10000
+          change_threshold: 2
+          auto_threshold: 55
+        power_mizer_mode: Auto
+        power_cap: 350.0
+        gpu_clock_offsets:
+          0: 150
+        mem_clock_offsets:
+          0: 500
+        voltage_boost: 0
 current_profile: null
 auto_switch_profiles: false

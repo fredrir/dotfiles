@@ -1,0 +1,136 @@
+dbPath: /var/lib/fan2go/fan2go.db
+runFanInitializationInParallel: false
+tempSensorPollingRate: 500ms
+tempRollingWindowSize: 40
+rpmPollingRate: 1s
+rpmRollingWindowSize: 5
+fanController:
+  adjustmentTickRate: 200ms
+
+fans:
+  - id: radiator
+    hwmon:
+      platform: nct6799
+      rpmChannel: 2
+      pwmChannel: 2
+    curve: radiator
+    neverStop: true
+    useUnscaledCurveValues: true
+    controlAlgorithm:
+      direct:
+        maxPwmChangePerCycle: 2
+
+  - id: pump
+    hwmon:
+      platform: nct6799
+      rpmChannel: 7
+      pwmChannel: 7
+    curve: pump
+    neverStop: true
+    useUnscaledCurveValues: true
+    minPwm: 64
+    startPwm: 64
+    maxPwm: 255
+    pwmMap: identity
+    setPwmToGetPwmMap: identity
+    controlAlgorithm:
+      direct:
+        maxPwmChangePerCycle: 4
+
+  - id: vrm
+    hwmon:
+      platform: nct6799
+      rpmChannel: 1
+      pwmChannel: 1
+    curve: vrm
+    neverStop: true
+    useUnscaledCurveValues: true
+    controlAlgorithm:
+      direct:
+        maxPwmChangePerCycle: 2
+
+  - id: case
+    hwmon:
+      platform: nct6799
+      rpmChannel: 3
+      pwmChannel: 3
+    curve: case
+    neverStop: true
+    useUnscaledCurveValues: true
+    controlAlgorithm:
+      direct:
+        maxPwmChangePerCycle: 2
+
+sensors:
+  - id: cpu
+    hwmon:
+      platform: k10temp
+      index: 1
+
+  - id: vrm
+    hwmon:
+      platform: nct6799
+      index: 7
+
+  - id: gpu
+    nvidia:
+      device: nvidia
+      index: 1
+
+curves:
+  - id: radiator
+    linear:
+      sensor: cpu
+      steps:
+        - 30: 15%
+        - 65: 15%
+        - 75: 25%
+        - 82: 38%
+        - 88: 60%
+        - 92: 100%
+
+  - id: pump
+    linear:
+      sensor: cpu
+      steps:
+        - 30: 30%
+        - 65: 30%
+        - 75: 45%
+        - 85: 70%
+        - 90: 100%
+
+  - id: vrm
+    linear:
+      sensor: vrm
+      steps:
+        - 30: 10%
+        - 60: 10%
+        - 70: 25%
+        - 80: 45%
+        - 90: 100%
+
+  - id: case_cpu
+    linear:
+      sensor: cpu
+      steps:
+        - 30: 18%
+        - 70: 18%
+        - 80: 30%
+        - 90: 55%
+
+  - id: case_gpu
+    linear:
+      sensor: gpu
+      steps:
+        - 30: 18%
+        - 60: 18%
+        - 70: 28%
+        - 78: 45%
+        - 85: 100%
+
+  - id: case
+    function:
+      type: maximum
+      curves:
+        - case_cpu
+        - case_gpu

@@ -215,6 +215,9 @@ pub fn current(host: &str) -> RunContext {
         host: host.into(),
     };
     let mut context = capture_sources(Some(&paths), &Sysfs::from_env(), &paths::lact_config());
+    if let Ok(fans) = crate::profile::live_fans(&crate::profile::Roots::from_env()) {
+        context.observed.insert("fans.profile".into(), fans);
+    }
     if let Ok(gpu) = crate::gpu::query() {
         context
             .observed

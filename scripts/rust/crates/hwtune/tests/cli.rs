@@ -153,6 +153,9 @@ impl Fixture {
             .env("HWTUNE_BENCHMARKS", base.join("benchmarks"))
             .env("HWTUNE_MEASUREMENT_LOCK", base.join("measurement.lock"))
             .env("HWTUNE_BOOT_ID", "boot-a")
+            .env("HWTUNE_ETC_ROOT", base.join("etc"))
+            .env("HWTUNE_PROFILE_STATE", base.join("var/hwtune/profile"))
+            .env("HWTUNE_PROC_ROOT", base.join("proc"))
             .env("XDG_STATE_HOME", base.join("state"))
             .env("XDG_CACHE_HOME", base.join("cache"))
             .env("HOME", base)
@@ -313,6 +316,96 @@ fn status_shows_every_section() {
     ] {
         assert!(status.contains(needle), "missing {needle}:\n{status}");
     }
+}
+
+#[test]
+fn profile_set_switches_fans_cpu_and_gpu_together() {
+    let fixture = Fixture::new();
+    let base = fixture.root.path();
+    for name in ["balanced", "comfort"] {
+        write(
+            &base.join(format!("etc/fan2go/profiles/{name}.yaml")),
+            "fans: []\n",
+        );
+    }
+    write(
+        &base.join("etc/cpu-power/balanced.env"),
+        "CPU_BOOST=1\nCPU_GOVERNOR=powersave\nCPU_EPP=balance_performance\n",
+    );
+    write(
+        &base.join("etc/cpu-power/comfort.env"),
+        "CPU_BOOST=1\nCPU_GOVERNOR=powersave\nCPU_EPP=balance_power\n",
+    );
+    write(
+        &base.join("lact.yaml"),
+        "gpus:\n  GPU-A:\n    power_cap: 350.0\nprofiles:\n  comfort:\n    gpus:\n      GPU-A:\n        power_cap: 250.0\n",
+    );
+    let policy = fixture.sys().join("devices/system/cpu/cpufreq/policy0");
+    write(&policy.join("scaling_governor"), "powersave\n");
+    write(
+        &policy.join("energy_performance_preference"),
+        "balance_performance\n",
+    );
+    fs::create_dir_all(base.join("var/hwtune")).unwrap();
+    fs::create_dir_all(base.join("proc/4242")).unwrap();
+    fixture.stub(
+        "sudo",
+        "[ \"$1\" = -n ] && shift\n[ \"$1\" = -v ] && exit 0\nexec \"$@\"",
+    );
+    fixture.stub(
+        "install",
+        "while [ \"$#\" -gt 2 ]; do shift; done\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done < \"$1\" > \"$2\"",
+    );
+    fixture.stub(
+        "systemctl",
+        "printf '%s\\n' \"systemctl $*\" >> \"$CAPTURE\"\ncase \"$*\" in\n*NeedDaemonReload*) printf 'no\\nno\\n';;\n*MainPID*) echo 4242;;\nrestart*) printf 'balance_power\\n' > \"$HWTUNE_SYSFS_ROOT/devices/system/cpu/cpufreq/policy0/energy_performance_preference\"; printf '/usr/bin/fan2go\\0-c\\0/etc/fan2go/profiles/comfort.yaml\\0' > \"$HWTUNE_PROC_ROOT/4242/cmdline\";;\nis-active*) echo active;;\nis-enabled*) echo enabled;;\nesac",
+    );
+    fixture.stub(
+        "lact",
+        "printf '%s\\n' \"lact $*\" >> \"$CAPTURE\"\ncase \"$3\" in\nset) printf '%s\\n' \"$4\" > \"$HWTUNE_PROC_ROOT/lact\";;\nget) read -r name < \"$HWTUNE_PROC_ROOT/lact\"; echo \"$name\";;\nesac",
+    );
+
+    let unknown = fixture.output(&["profile", "set", "loud"]);
+    assert_eq!(unknown.status.code(), Some(1));
+    assert!(
+        text(&unknown).contains("unknown profile loud; available: balanced, comfort"),
+        "{}",
+        text(&unknown)
+    );
+    assert!(!base.join("var/hwtune/profile").exists());
+
+    let switched = fixture.run(&["profile", "set", "comfort"]);
+    for needle in [
+        "ok    fans     comfort",
+        "ok    cpu      powersave balance_power boost on",
+        "ok    gpu      comfort",
+    ] {
+        assert!(switched.contains(needle), "missing {needle}:\n{switched}");
+    }
+    assert_eq!(
+        fs::read_to_string(base.join("var/hwtune/profile")).unwrap(),
+        "HWTUNE_PROFILE=comfort\n"
+    );
+    let captured = fs::read_to_string(base.join("captured.txt")).unwrap();
+    assert!(
+        captured.contains("systemctl restart fan2go.service cpu-power.service\n"),
+        "{captured}"
+    );
+    assert!(
+        captured.contains("lact cli profile set comfort\n"),
+        "{captured}"
+    );
+
+    let list = fixture.run(&["profile", "list"]);
+    assert!(
+        list.contains("   balanced  powersave balance_performance boost on  Default 350 W"),
+        "{list}"
+    );
+    assert!(
+        list.contains("*  comfort   powersave balance_power boost on        comfort 250 W"),
+        "{list}"
+    );
+    assert!(fixture.run(&["status"]).contains("profile    comfort\n"));
 }
 
 #[test]

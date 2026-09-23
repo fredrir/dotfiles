@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+. "/etc/cpu-power/${1:?profile}.env"
+cpufreq=/sys/devices/system/cpu/cpufreq
+
+echo "$CPU_BOOST" > "$cpufreq/boost"
+# The governor goes first: switching it can reset the energy preference.
+for policy in "$cpufreq"/policy*; do
+	echo "$CPU_GOVERNOR" > "$policy/scaling_governor"
+	echo "$CPU_EPP" > "$policy/energy_performance_preference"
+done

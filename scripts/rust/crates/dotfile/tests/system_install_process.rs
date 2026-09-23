@@ -124,6 +124,43 @@ fn install_enables_units_that_a_tracked_preset_names() {
     );
 }
 
+#[test]
+fn install_keeps_preserved_lines_from_the_installed_file() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.root.join("shared/service/.system"),
+        format!(
+            "preserve {{\n  {} = current_profile:\n}}\n",
+            fixture.destination.join("first.conf").display()
+        ),
+    )
+    .unwrap();
+    fs::write(
+        fixture.root.join("shared/service/etc/first.conf"),
+        "version: 2\ncurrent_profile: null\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.destination.join("first.conf"),
+        "version: 1\ncurrent_profile: comfort\n",
+    )
+    .unwrap();
+    executable(
+        &fixture.bin.join("sudo"),
+        "#!/bin/sh\nwhile [ \"$#\" -gt 2 ]; do shift; done\ncp \"$1\" \"$2\"\n",
+    );
+    let output = fixture.command().output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.destination.join("first.conf")).unwrap(),
+        "version: 2\ncurrent_profile: comfort\n"
+    );
+}
+
 struct Process(Child);
 impl Drop for Process {
     fn drop(&mut self) {

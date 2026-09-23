@@ -80,6 +80,7 @@ pub fn surface_document() -> workstation::surface::Document {
                 (_, "host") => Some("bench-hosts"),
                 (_, "target" | "left" | "right" | "before" | "after") => Some("runs"),
                 ("trend", "metric") => Some("metrics"),
+                ("set", "name") => Some("profiles"),
                 _ => None,
             };
             if let Some(source) = source {
@@ -151,6 +152,11 @@ pub enum Command {
     Tune {
         #[command(subcommand)]
         command: crate::tune::Command,
+    },
+    #[command(about = "Show or switch the fan, CPU, and GPU profile")]
+    Profile {
+        #[command(subcommand)]
+        command: Option<crate::profile::Command>,
     },
     #[command(about = "Run a command under a trial OS profile, then restore the original settings")]
     Run(crate::tune::ScopedOptions),
@@ -273,6 +279,7 @@ pub fn run(cli: Cli) -> Result<ExitCode, String> {
         }
         Command::Sample { minutes } => sample(minutes, &sys),
         Command::Tune { command } => crate::tune::run(command, host, &sys),
+        Command::Profile { command } => crate::profile::command(command, &sys, &style),
         Command::Run(options) => crate::tune::scoped(options, host, &sys),
         Command::Curve { command } => {
             crate::curve::run(command, Paths::discover(host).ok().as_ref(), &sys)
@@ -283,7 +290,9 @@ pub fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Complete { source } => {
-            let values = if source == "known-hosts" {
+            let values = if source == "profiles" {
+                Ok(crate::profile::complete())
+            } else if source == "known-hosts" {
                 bench::hosts::load_hosts().map(|hosts| {
                     hosts
                         .into_iter()

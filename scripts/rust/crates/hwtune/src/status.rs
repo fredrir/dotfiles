@@ -88,6 +88,11 @@ pub fn run(paths: Option<&Paths>, sys: &Sysfs, style: &Style) -> Result<ExitCode
         .collect::<Vec<_>>()
         .join("  ");
     line(style, "services", &units);
+    line(
+        style,
+        "profile",
+        &crate::profile::summary(&crate::profile::Roots::from_env(), sys),
+    );
 
     match cpu::cpufreq(sys) {
         Ok(freq) => line(

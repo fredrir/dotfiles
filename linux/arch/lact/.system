@@ -1,0 +1,3 @@
+preserve {
+  /etc/lact/config.yaml = current_profile:
+}

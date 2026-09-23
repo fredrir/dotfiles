@@ -55,6 +55,7 @@ linux/arch/archie-direct/usr/local/libexec = /usr/local/libexec
 linux/arch/avahi/etc = /etc
 linux/arch/cargo/config.toml = ~/.cargo/config.toml
 linux/arch/cpu-power/etc = /etc
+linux/arch/cpu-power/usr/local/libexec = /usr/local/libexec
 linux/arch/fan2go/etc = /etc
 linux/arch/fastfetch = ~/.config/fastfetch
 linux/arch/fstrim/etc = /etc

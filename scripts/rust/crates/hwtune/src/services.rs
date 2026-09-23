@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use hostkit::process::{self, CaptureLimits};
 
-pub const UNITS: [&str; 3] = ["fan2go", "lactd", "nvidia-persistenced"];
+pub const UNITS: [&str; 4] = ["fan2go", "cpu-power", "lactd", "nvidia-persistenced"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceState {

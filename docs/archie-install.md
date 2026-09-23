@@ -135,5 +135,24 @@ One change per reboot; every step is `hwtune stress mem --tool y-cruncher --minu
 | Step | Command |
 | --- | --- |
 | sweep | `hwtune gpu sweep --caps 250,275,300,325,350` |
-| keep a cap | edit `power_cap` in `linux/arch/lact/etc/lact/config.yaml`, then `dotfile system install` |
+| keep a cap | edit `power_cap` for the profile in `linux/arch/lact/etc/lact/config.yaml` (top-level `gpus` is `balanced`), then `dotfile system install` |
 | verify | `hwtune status` shows the cap; `hwtune bench run --only ai` matches the sweep |
+
+## Profiles
+
+| Step | Command |
+| --- | --- |
+| show the selected profile and live state | `hwtune profile` |
+| list profiles | `hwtune profile list` |
+| switch | `hwtune profile set comfort`, `balanced`, or `performance` |
+| edit fan curves | `linux/arch/fan2go/etc/fan2go/profiles/<name>.yaml`, check with `fan2go -c <file> config validate` |
+| edit CPU settings | `linux/arch/cpu-power/etc/cpu-power/<name>.env` |
+| edit GPU settings | `profiles.<name>` in `linux/arch/lact/etc/lact/config.yaml` |
+| apply edits | `dotfile system install`, then `hwtune profile set <name>` |
+| remove stale files after the first install | `sudo rm /etc/fan2go/fan2go.yaml /etc/tmpfiles.d/cpu-power.conf` |
+
+| Profile | CPU | GPU | Fans |
+| --- | --- | --- | --- |
+| `comfort` | powersave, `balance_power`, boost on | 250 W, quiet curve | later ramps, 20 s temperature window |
+| `balanced` | powersave, `balance_performance`, boost on | 350 W | default curves; selected when no profile is set |
+| `performance` | performance, `performance`, boost on | 350 W, steep curve | higher floors, 5 s temperature window |

@@ -67,3 +67,7 @@ _wezterm_open_yazi() {
 }
 
 zle -N wezterm-open-yazi _wezterm_open_yazi
+
+if [[ -n $MACOS ]]; then
+  alias wez-restart="launchctl kickstart -k gui/$(id -u)/com.fredrir.wezterm-mux"
+fi

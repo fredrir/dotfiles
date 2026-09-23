@@ -1,0 +1,12 @@
+[Unit]
+Description=CPU boost, governor and energy preference for the hwtune profile
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=HWTUNE_PROFILE=balanced
+EnvironmentFile=-/var/lib/hwtune/profile
+ExecStart=/usr/local/libexec/cpu-power ${HWTUNE_PROFILE}
+
+[Install]
+WantedBy=multi-user.target

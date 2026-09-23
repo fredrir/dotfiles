@@ -5,6 +5,7 @@
 | Package / binary | `hwtune` |
 | Benchmarks | Linux, macOS |
 | Automatic tuning | Linux CPU governors, energy preference, cpuidle governor, and platform profiles |
+| Profiles | fan2go curves, CPU boost/governor/energy preference, LACT GPU profile |
 | Guards | Families measured with the objective; a regression there rejects a candidate |
 | Collection API | [sysinfo](../sysinfo/README.md): normalized hardware and installation snapshots |
 | Measurement worker | `bench-workloads`, built separately |
@@ -22,6 +23,9 @@ hwtune tune auto --metric compile.dev --guard idle
 hwtune tune auto --apply
 hwtune tune apply
 hwtune run --profile performance -- cargo build --release
+hwtune profile
+hwtune profile list
+hwtune profile set comfort
 hwtune curve status
 hwtune curve bench
 hwtune gpu sweep --caps 250,275,300,325,350
@@ -45,6 +49,7 @@ dotfile dev check --pkg hwtune --lang rust,python
 | `src/bench/suites/compile/` | Pinned crate and lockfile built by the compile job |
 | `src/power.rs` | RAPL package energy counters |
 | `src/tune/` | OS control discovery, candidate trials, guards, monitored validation, reversible application, scoped runs |
+| `src/profile.rs` | Installed profiles, selection state, live fan/CPU/GPU checks, switching |
 | `src/curve.rs` | Per-core Curve Optimizer evidence, suggestions, per-core throughput samples |
 | `src/gpu_sweep.rs` | LACT power-cap sweep with restoration |
 | `tests/` | Store, comparison, CLI, tuning, and platform contracts |
@@ -63,6 +68,10 @@ dotfile dev check --pkg hwtune --lang rust,python
 | Bench settings | `config/hwtune/<host>.bench.dotfile` |
 | Per-core throughput samples | `benchmarks/hosts/<host>/curve/<id>.json` |
 | GPU sweep sessions | `benchmarks/hosts/<host>/tuning/gpu-sweep-<id>.json` |
+| Selected profile | `/var/lib/hwtune/profile`: `HWTUNE_PROFILE=<name>`; absent: `balanced` |
+| Fan profiles | `linux/arch/fan2go/etc/fan2go/profiles/<name>.yaml` |
+| CPU profiles | `linux/arch/cpu-power/etc/cpu-power/<name>.env` |
+| GPU profiles | `profiles` in `linux/arch/lact/etc/lact/config.yaml`; `balanced`: LACT `Default` |
 
 ## Environment
 
@@ -72,6 +81,9 @@ dotfile dev check --pkg hwtune --lang rust,python
 | `HWTUNE_BENCHMARKS` | `$DOTFILE_ROOT/benchmarks` |
 | `HWTUNE_HOST` | Shared host pin, inventory match, then local hostname |
 | `HWTUNE_LACT_CONFIG` | `/etc/lact/config.yaml` |
+| `HWTUNE_ETC_ROOT` | `/etc` |
+| `HWTUNE_PROFILE_STATE` | `/var/lib/hwtune/profile` |
+| `HWTUNE_PROC_ROOT` | `/proc` |
 | `HWTUNE_MEASUREMENT_LOCK` | `/tmp/hwtune-measurement.lock` |
 | `XDG_CONFIG_HOME` | `$HOME/.config`; shared host pin: `dotfile/host` |
 | `XDG_CACHE_HOME` | `$HOME/.cache`; benchmark work/cache: `hwtune/bench` |
@@ -109,6 +121,11 @@ dotfile dev check --pkg hwtune --lang rust,python
 | Desired state | Git-tracked host profile; `tune apply` validates and applies the checked-out revision |
 | Profile application | Validates local identity, controls, and stability; permits slower restored settings |
 | Profile rollback | Restore the file with Git, then run `hwtune tune apply` |
+| `profile` names | Installed `fan2go/profiles/*.yaml` stems; `[a-z0-9-]`, at most 32 bytes |
+| `profile set` | Measurement lock, one `sudo` prompt, state write, restart `fan2go` and `cpu-power`, `lact cli profile set` |
+| `profile` at boot | `fan2go` and `cpu-power` units read the state file; lactd keeps `current_profile` |
+| `profile` check | Live fan2go `-c` file, every cpufreq policy, `lact cli profile get`; mismatch exits 1 |
+| `profile` provenance | Live fan profile recorded as `fans.profile` in benchmark runs |
 
 ```sh
 git restore --source=<commit> -- config/hwtune/<host>.json

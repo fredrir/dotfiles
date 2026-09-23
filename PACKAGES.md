@@ -33,13 +33,13 @@
 - `archie-direct` — Reversible shared Wi-Fi AP for Macie
 - `avahi` — mDNS confined to the home LAN so <peer>.local cannot resolve to a cable or archie-direct address
 - `cargo` — mold linker and sccache wrapper for every Rust build on this machine
-- `cpu-power` — amd_pstate boost, governor and energy preference applied at boot
-- `fan2go` — nct6775 at boot, fan curves for the NCT6799 headers: radiator, pump, VRM fan, and case fans keyed to CPU and GPU
+- `cpu-power` — amd_pstate boost, governor and energy preference per hwtune profile, applied at boot
+- `fan2go` — nct6775 at boot, fan curves per hwtune profile for the NCT6799 headers: radiator, pump, VRM fan, and case fans keyed to CPU and GPU
 - `fastfetch` — Arch fastfetch logo and configuration
 - `fstrim` — Weekly TRIM of mounted filesystems
 - `git` — Arch-specific Git configuration
 - `kernel` — UKI command line without root=, mkinitcpio config and preset
-- `lact` — RTX 5070 Ti power cap, clock offsets and fan curve through lactd
+- `lact` — RTX 5070 Ti power cap, clock offsets and fan curve through lactd; comfort and performance profiles
 - `macie-usb` — USB-C direct link to the Mac: interface naming, 10.77.77.2/30, DHCP for the Mac, NetworkManager opt-out
 - `nvidia` — nvidia_drm modeset and the nouveau blacklist
 - `paru`

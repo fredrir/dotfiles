@@ -612,13 +612,13 @@ fn execute(
     Ok(ExitCode::SUCCESS)
 }
 
-struct Credentials {
+pub(crate) struct Credentials {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Credentials {
-    fn acquire() -> Result<Option<Self>, String> {
+    pub(crate) fn acquire() -> Result<Option<Self>, String> {
         use std::sync::atomic::{AtomicBool, Ordering};
         if effective_uid()? == 0 {
             return Ok(None);

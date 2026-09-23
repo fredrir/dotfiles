@@ -12,6 +12,7 @@ pub mod hwmon;
 pub mod journal;
 pub mod paths;
 pub mod power;
+pub mod profile;
 pub mod rows;
 pub mod services;
 pub mod status;

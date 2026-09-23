@@ -27,6 +27,7 @@
 | Identity restore       | `config/age/<host>.age`, scrypt; `dotfile sync` asks when `config/age/keys.txt` is missing    |
 | Git operations         | External `git`; literal pathspecs and bounded blob batches                                    |
 | System installation    | Linux, `sudo install`, then `systemctl enable --now` for tracked presets; dry-run on macOS    |
+| Daemon-owned lines     | `.system`: `preserve { /destination = line prefix }`; installed line kept, no drift           |
 | Completion shell       | Zsh                                                                                           |
 | Remote sync            | Matching native push protocol; install with `./setup.sh --commands-only`                      |
 | Bootstrap              | `setup.sh` builds `dotfile`; `dotfile sync` installs everything else                          |
@@ -55,6 +56,7 @@ dotfile dev test -l python -p dotfile,hyprland,transcript
 | Real encryption, rotation, revocation, recovery, Git history            | `tests/secret_e2e.rs`                                             |
 | Interactive review, exact staged contents, approvals, commit/push hooks | `tests/secret_scan_review.rs`                                     |
 | System ownership/modes, add/remove, doctor                              | `tests/system_manage_doctor.rs`                                   |
+| Preserved daemon-owned lines                                            | `tests/unit/system/preserve_tests.rs`, `tests/system_install_process.rs` |
 | Native/declarative metadata, permissions, locks                         | `tests/surface_native.rs`                                         |
 | Documentation checks, JSON/diff, atomicity, no-Python operation         | `tests/docs_cli.rs`                                               |
 | Keybind parsers, platform deduplication, source links                   | `tests/docs_keybinds.rs`                                          |
