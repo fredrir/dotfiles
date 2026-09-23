@@ -44,6 +44,28 @@
         "reveal": "never",
         "close": true
       }
+    },
+    {
+      "label": "Purge slop comments",
+      "type": "shell",
+      "command": "doc-purge",
+      "args": [
+        "${file}",
+        "-y"
+      ],
+      "options": {
+        "shell": {
+          "executable": "/bin/zsh",
+          "args": [
+            "-ic"
+          ]
+        }
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "never",
+        "close": true
+      }
     }
   ]
 }

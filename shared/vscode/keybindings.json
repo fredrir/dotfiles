@@ -333,5 +333,19 @@
   {
     "key": "shift+cmd+i",
     "command": "workbench.action.toggleAuxiliaryBar"
+  },
+  {
+    "key": "ctrl+alt+cmd+d",
+    "command": "runCommands",
+    "args": {
+      "commands": [
+        "workbench.action.files.save",
+        {
+          "command": "workbench.action.tasks.runTask",
+          "args": "Purge slop comments"
+        }
+      ]
+    },
+    "when": "editorFocus"
   }
 ]

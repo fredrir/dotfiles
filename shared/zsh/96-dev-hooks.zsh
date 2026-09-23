@@ -1,4 +1,3 @@
-# Address on the current machine that this SSH session arrived through.
 _ssh_session_host() {
   [[ -n ${SSH_CONNECTION:-} ]] || return 1
 
@@ -17,15 +16,12 @@ _ssh_session_transport() {
     print USB
     ;;
   *)
-    # In your setup, a non-USB SSH connection is the Tailscale route.
     print Tailscale
     ;;
   esac
 
 }
 
-# Find package manager by walking upward, so this also works
-# from packages inside monorepos.
 _dev_package_manager() {
   [[ -n ${DEV_PM:-} ]] && {
     print -r -- "$DEV_PM"
@@ -65,7 +61,6 @@ dev() {
 
   flag=--hostname
 
-  # Some dev servers, e.g. Vite, use --host.
   if [[ ${1:-} == --host || ${1:-} == --hostname ]]; then
     flag=$1
     shift
