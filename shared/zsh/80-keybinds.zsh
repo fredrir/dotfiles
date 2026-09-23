@@ -45,5 +45,3 @@ selectkey $'\e[1;6F' motion-select-buffer-end
 
 selkey $'\e[99;9u' motion-copy-selection
 selkey $'\e[200~' motion-replace-selection
-
-unset sequence

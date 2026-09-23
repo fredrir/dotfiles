@@ -50,6 +50,16 @@ alias cleanup="kondo"
 
 alias untar="tar -xzf"
 
+unalias gg 2>/dev/null
+function gg() {
+  if [ -z "$1" ]; then
+    print "error: no argument"
+    return 1
+  fi
+
+  git clone git@github.com:fredrir/${1}.git
+}
+
 has_cmd bat && alias cat='bat -pp'
 
 alias sshmux="ssh -O check"
