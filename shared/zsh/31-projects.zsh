@@ -19,4 +19,3 @@ alias cdlf="cd $LLUNDE/frontend"
 alias cdlb="cd $LLUNDE/backend"
 
 alias ww="just --justfile $HOME/projects/wez-plugins/vertical-tabs/justfile"
-alias wwr="just --justfile $HOME/projects/wez-plugins/vertical-tabs/justfile restart"

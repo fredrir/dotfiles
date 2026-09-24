@@ -184,3 +184,11 @@ doppler-refresh() {
   command rm -f -- "$root"/.direnv/doppler.*.enc.json(N)
   direnv reload
 }
+
+inspect-port() {
+  sudo lsof -n -i :"$1" | grep LISTEN
+}
+
+inspect-pid() {
+  ps -p "$1" -o pid,vsz=MEMORY -o user,group=GROUP -o comm,args=ARGS
+}

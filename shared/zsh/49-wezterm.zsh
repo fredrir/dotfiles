@@ -68,6 +68,16 @@ _wezterm_open_yazi() {
 
 zle -N wezterm-open-yazi _wezterm_open_yazi
 
-if [[ -n $MACOS ]]; then
-  alias wez-restart='launchctl kickstart -k gui/$(id -u)/com.fredrir.wezterm-mux || true; open /Applications/WezTerm.app'
-fi
+wez-restart() {
+
+  if [[ -n $MACOS ]]; then
+    launchctl kickstart -k gui/$(id -u)/com.fredrir.wezterm-mux || true
+    open /Applications/WezTerm.app
+    exit 0
+  fi
+
+  if [[ -n $LINUX ]]; then
+    sudo pkill wezterm-mux-ser
+    exit 0
+  fi
+}

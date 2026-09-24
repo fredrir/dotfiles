@@ -15,6 +15,7 @@
 - `transcript`
 - `ui`
 - `vscode`
+- `wez-vtabs` — wez-vtabs deploy targets
 - `wezterm`
 - `yazi`
 - `zsh`

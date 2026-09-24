@@ -1,0 +1,15 @@
+on = "archie"
+
+[targets.macie]
+host = "macie"
+platform = "macos"
+
+[targets.archie]
+host = "archie"
+platform = "arch"
+role = "mux"
+
+[targets.ntnu]
+host = "ntnu"
+platform = "ubuntu-26.04"
+role = "mux"
