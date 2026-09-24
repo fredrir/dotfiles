@@ -11,8 +11,13 @@ alias dot="dotfile"
 alias dots="dotfile sync"
 alias dpp="dotfile sync -p"
 
-alias ss="sysinfo -p"
 alias pp="hwire -i"
+
+alias ss="sysinfo -p"
+
+if [[ -n "$LINUX" ]]; then
+  alias sss="/usr/bin/ss"
+fi
 
 if [[ $PWD == "$DOTFILES" ]]; then
   export SOPS_AGE_KEY_FILE="$DOTFILES/config/age/keys.txt"

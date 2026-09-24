@@ -4,6 +4,7 @@ done
 unset _bin
 
 cached_eval wezterm-completion wezterm shell-completion --shell zsh
+cached_eval llunde-completion llunde completion zsh
 
 compdef _gdd git-discard
 compdef _mux-route attach_mux s
