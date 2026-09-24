@@ -19,13 +19,6 @@ local copy_selection = require "utils.copy-selection"
 require "utils.scrollback"
 
 local act = wezterm.action
-local pane_cycle_mods = platform.is_mac and MOD.UNIQUE or "SUPER"
-
-local split = hwire_session.split
-  or function(direction)
-    local command = { domain = "CurrentPaneDomain" }
-    return direction == "horizontal" and act.SplitHorizontal(command) or act.SplitVertical(command)
-  end
 
 ---@type Key[]
 local keys = bind_keys {
@@ -75,16 +68,16 @@ local keys = bind_keys {
   { -- Pane Controls --
     key = "d",
     mods = MOD.PRIMARY,
-    action = split "horizontal",
+    action = act.SplitHorizontal { domain = "CurrentPaneDomain" },
   },
   { -- Cycle panes forward --
     key = "Tab",
-    mods = pane_cycle_mods,
+    mods = MOD.SUPER_REV,
     action = act.ActivatePaneDirection "Next",
   },
   { -- Cycle panes backward --
     key = "Tab",
-    mods = pane_cycle_mods .. "|SHIFT",
+    mods = MOD.SUPER_REV,
     action = act.ActivatePaneDirection "Prev",
   },
   {
@@ -95,7 +88,7 @@ local keys = bind_keys {
   {
     key = MOD.SPLITBELOW,
     mods = platform.is_mac and { "CTRL", MOD.PRIMARY } or MOD.PRIMARY,
-    action = split "vertical",
+    action = act.SplitVertical { domain = "CurrentPaneDomain" },
   },
   {
     key = "m",
@@ -149,7 +142,7 @@ local keys = bind_keys {
   { key = "p", mods = MOD.SUPER_REV, action = act.ShowLauncherArgs { flags = "WORKSPACES" } },
   { key = "x", mods = MOD.SUPER_REV, action = act.ActivateCopyMode },
   { key = "Space", mods = MOD.SUPER_REV, action = act.QuickSelect },
-  { key = ";", mods = MOD.PRIMARY, action = split "vertical" },
+  { key = ";", mods = MOD.PRIMARY, action = act.SplitVertical { domain = "CurrentPaneDomain" } },
   {
     key = "g",
     mods = MOD.SUPER_REV,

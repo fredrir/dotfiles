@@ -52,5 +52,143 @@
         "maxOutputTokens": 8192
       }
     ]
+  },
+  {
+    "name": "NTNU",
+    "vendor": "customendpoint",
+    "apiKey": "${input:chat.lm.secret.27aa04e0}",
+    "apiType": "responses",
+    "models": [
+      {
+        "id": "zai-org/GLM-5.3-Flash",
+        "name": "GLM-5.3-Flash",
+        "url": "http://llm.localhost",
+        "apiType": "responses",
+        "toolCalling": true,
+        "vision": true,
+        "maxOutputTokens": 349525,
+        "maxInputTokens": 699050,
+        "zeroDataRetentionEnabled": true
+      },
+      {
+        "id": "deepseek-ai/DeepSeek-V4-Flash-Vision-Exp",
+        "name": "DeepSeek-V4-Flash-Vision-Exp",
+        "url": "http://llm.localhost",
+        "apiType": "responses",
+        "toolCalling": true,
+        "vision": true,
+        "maxOutputTokens": 349525,
+        "maxInputTokens": 699050,
+        "zeroDataRetentionEnabled": true
+      },
+      {
+        "id": "deepseek-ai/DeepSeek-V4-Flash-Vision-Exp-instant",
+        "name": "DeepSeek-V4-Flash-Vision-Exp-instant",
+        "url": "http://llm.localhost",
+        "apiType": "responses",
+        "toolCalling": true,
+        "vision": true,
+        "maxOutputTokens": 349525,
+        "maxInputTokens": 699050,
+        "zeroDataRetentionEnabled": true
+      },
+      {
+        "id": "Qwen/Qwen3.8-27B-FP8",
+        "name": "Qwen3.8-27B-FP8",
+        "url": "http://llm.localhost",
+        "apiType": "responses",
+        "toolCalling": true,
+        "vision": true,
+        "maxOutputTokens": 87381,
+        "maxInputTokens": 174762,
+        "zeroDataRetentionEnabled": true
+      },
+      {
+        "id": "Inferact/GLM-5.3-NVFP4",
+        "name": "GLM-5.3-NVFP4",
+        "url": "http://llm.localhost",
+        "apiType": "responses",
+        "toolCalling": true,
+        "vision": false,
+        "maxOutputTokens": 200000,
+        "maxInputTokens": 400000,
+        "zeroDataRetentionEnabled": true
+      },
+      {
+        "id": "mistralai/Mistral-Medium-3.5-128B",
+        "name": "Mistral-Medium-3.5-128B",
+        "url": "http://llm.localhost",
+        "apiType": "chat-completions",
+        "toolCalling": true,
+        "vision": true,
+        "maxOutputTokens": 87381,
+        "maxInputTokens": 174762
+      },
+      {
+        "id": "moonshotai/Kimi-K2.6",
+        "name": "Kimi-K2.6",
+        "url": "http://llm.localhost",
+        "apiType": "responses",
+        "toolCalling": true,
+        "vision": true,
+        "maxOutputTokens": 87381,
+        "maxInputTokens": 174762,
+        "zeroDataRetentionEnabled": true
+      },
+      {
+        "id": "moonshotai/Kimi-K2.6-instant",
+        "name": "Kimi-K2.6-instant",
+        "url": "http://llm.localhost",
+        "apiType": "responses",
+        "toolCalling": true,
+        "vision": true,
+        "maxOutputTokens": 87381,
+        "maxInputTokens": 174762,
+        "zeroDataRetentionEnabled": true
+      },
+      {
+        "id": "openai/gpt-oss-120b",
+        "name": "gpt-oss-120b",
+        "url": "http://llm.localhost",
+        "apiType": "chat-completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxOutputTokens": 43690,
+        "maxInputTokens": 87380
+      },
+      {
+        "id": "NorwAI/NorwAI-Magistral-24B-reasoning",
+        "name": "NorwAI-Magistral-24B-reasoning",
+        "url": "http://llm.localhost",
+        "apiType": "responses",
+        "toolCalling": false,
+        "vision": false,
+        "maxOutputTokens": 13653,
+        "maxInputTokens": 27306,
+        "zeroDataRetentionEnabled": true
+      },
+      {
+        "id": "NbAiLab/borealis-27b",
+        "name": "borealis-27b",
+        "url": "http://llm.localhost",
+        "apiType": "responses",
+        "toolCalling": false,
+        "vision": false,
+        "maxOutputTokens": 43690,
+        "maxInputTokens": 87380,
+        "zeroDataRetentionEnabled": true
+      },
+      {
+        "id": "norallm/normistral-11b-thinking",
+        "name": "normistral-11b-thinking",
+        "url": "http://llm.localhost",
+        "apiType": "responses",
+        "toolCalling": false,
+        "vision": false,
+        "maxOutputTokens": 32768,
+        "maxInputTokens": 65536,
+        "zeroDataRetentionEnabled": true
+      }
+    ]
   }
 ]
