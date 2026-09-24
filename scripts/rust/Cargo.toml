@@ -19,6 +19,7 @@ members = [
  "crates/git/gppf",
  "crates/hcopy",
  "crates/hostkit",
+ "crates/hport",
  "crates/hwire",
  "crates/hwtune",
  "crates/mux-route",

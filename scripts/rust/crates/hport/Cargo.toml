@@ -1,0 +1,27 @@
+[package]
+name              = "hport"
+version.workspace = true
+description       = "The peer's listening ports on <peer>:PORT and localhost:PORT"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace              = true
+crossbeam-channel.workspace = true
+hostkit.workspace           = true
+nix                         = { workspace = true, features = ["signal", "user"] }
+serde.workspace             = true
+serde_json.workspace        = true
+workstation.workspace       = true
+
+listeners   = "0.6.1"
+signal-hook = "0.4.4"
+socket2     = "0.6.5"
+toml        = "1.1.6"
+
+[dev-dependencies]
+tempfile.workspace = true
+testkit.workspace  = true

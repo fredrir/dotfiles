@@ -6,6 +6,7 @@
 - `fastfetch`
 - `gh`
 - `git`
+- `hport` — Ignore rules for the ports hport forwards from the peer
 - `nvim`
 - `obsidian`
 - `rsync`
@@ -39,6 +40,7 @@
 - `fastfetch` — Arch fastfetch logo and configuration
 - `fstrim` — Weekly TRIM of mounted filesystems
 - `git` — Arch-specific Git configuration
+- `hport` — User service forwarding macie's listening ports to macie:PORT and localhost:PORT
 - `kernel` — UKI command line without root=, mkinitcpio config and preset
 - `lact` — RTX 5070 Ti power cap, clock offsets and fan curve through lactd; comfort and performance profiles
 - `macie-usb` — USB-C direct link to the Mac: interface naming, 10.77.77.2/30, DHCP for the Mac, NetworkManager opt-out

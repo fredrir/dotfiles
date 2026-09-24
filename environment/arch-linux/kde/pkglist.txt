@@ -73,6 +73,7 @@ nodejs
 npm
 nvidia-open
 nvidia-utils
+openbsd-netcat
 openssh
 oxygen
 oxygen-cursors

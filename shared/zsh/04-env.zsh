@@ -3,6 +3,8 @@ export DISABLE_MAGIC_FUNCTIONS=true
 export NVM_DIR="$HOME/.config/nvm"
 export ZSH="$HOME/.oh-my-zsh"
 export ZSH_AUTOSUGGEST_STRATEGY=(history)
+# hport serves this host to the peer as http://$HOST:PORT
+export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=$HOST
 
 has_cmd less &&
   export PAGER=less \

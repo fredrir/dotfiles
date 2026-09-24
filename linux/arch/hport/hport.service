@@ -1,0 +1,12 @@
+[Unit]
+Description=hport: macie's listening ports on macie:PORT and localhost:PORT
+
+[Service]
+Type=simple
+Environment=USER=%u
+ExecStart=%h/dotfiles/.bin/hport daemon
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

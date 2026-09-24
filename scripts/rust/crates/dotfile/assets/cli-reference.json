@@ -84,6 +84,14 @@
       "source": "scripts/rust/crates/hwire/"
     },
     {
+      "name": "hport",
+      "title": "hport",
+      "programs": [
+        "hport"
+      ],
+      "source": "scripts/rust/crates/hport/"
+    },
+    {
       "name": "hwtune",
       "title": "hwtune",
       "programs": [
@@ -153,6 +161,7 @@
     "hpull",
     "hpush",
     "hwire",
+    "hport",
     "hwtune",
     "jqfmt",
     "mux-route",
@@ -223,6 +232,10 @@
     "hpush": "Copies a path from this machine to the same place on the other one.",
     "hwire": "Inspects connections or measures latency and throughput between two machines.",
     "hwire serve": "Answers measurements until told to stop.",
+    "hport": "Shows the peer's ports this machine forwards, with their URLs.",
+    "hport daemon": "Forwards the peer's listening ports until stopped; run by launchd or systemd.",
+    "hport listeners": "Prints this machine's forwardable listeners as JSON; the peer's daemon runs it over SSH.",
+    "hport setup": "Maps the peer name to 127.0.0.2, adds the macOS loopback alias, and starts the daemon.",
     "mux-route": "Prints the WezTerm mux domain for the best route to the peer.",
     "path": "Prints the repository-relative or home-relative path of a target.",
     "size": "Reports sizes and line counts for files and directories.",
@@ -397,6 +410,11 @@
       "--bind": "Sets the address on which `hwire serve` listens.",
       "--port": "Sets the server port, with zero selecting an available port.",
       "--idle": "Sets how long an idle server waits before exiting."
+    },
+    "hport": {
+      "--json": "Prints the daemon state as JSON.",
+      "--watch": "Prints the listeners again on every change.",
+      "--dry-run": "Shows the missing setup steps without applying them."
     },
     "mux-route": {
       "--list": "Prints every route with its state, peer address, and domain instead of one domain."

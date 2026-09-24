@@ -1,0 +1,3 @@
+max_port         = 32767
+ignore_ports     = [8443, 8444, 8445, 8446, 8447]
+ignore_processes = ["ControlCenter", "sccache"]
