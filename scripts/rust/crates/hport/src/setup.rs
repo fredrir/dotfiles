@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -45,10 +46,10 @@ pub fn run(style: &Style, dry_run: bool) -> Result<(), String> {
             installed && alias_ready(),
             || {
                 sudo(&["tee", ALIAS_PLIST], Some(ALIAS_PLIST_TEXT))?;
-                let _ = sudo(
-                    &["launchctl", "bootout", &format!("system/{ALIAS_LABEL}")],
-                    None,
-                );
+                let service = format!("system/{ALIAS_LABEL}");
+                if quiet(Command::new("launchctl").args(["print", &service])) {
+                    sudo(&["launchctl", "bootout", &service], None)?;
+                }
                 sudo(&["launchctl", "bootstrap", "system", ALIAS_PLIST], None)
             },
         )?;
@@ -73,11 +74,28 @@ fn agent(style: &Style, dry_run: bool) -> Result<(), String> {
 
 fn unit(style: &Style, dry_run: bool) -> Result<(), String> {
     require(&home()?.join(".config/systemd/user").join(UNIT))?;
-    let running = quiet(Command::new("systemctl").args(["--user", "is-active", "--quiet", UNIT]));
+    let running = quiet(&mut systemctl(&["is-active", "--quiet", UNIT]));
     step(style, dry_run, "daemon", UNIT, running, || {
-        run_checked(Command::new("systemctl").args(["--user", "daemon-reload"]))?;
-        run_checked(Command::new("systemctl").args(["--user", "enable", "--now", UNIT]))
+        run_checked(&mut systemctl(&["daemon-reload"]))?;
+        run_checked(&mut systemctl(&["enable", "--now", UNIT]))
     })
+}
+
+fn systemctl(args: &[&str]) -> Command {
+    let uid = nix::unistd::getuid().as_raw();
+    let mut command = Command::new("systemctl");
+    command.arg("--user").args(args).env(
+        "XDG_RUNTIME_DIR",
+        runtime_dir(std::env::var_os("XDG_RUNTIME_DIR"), uid),
+    );
+    command
+}
+
+// Shells started through attach_mux run under env -i, which drops the user bus path
+pub fn runtime_dir(current: Option<OsString>, uid: u32) -> OsString {
+    current
+        .filter(|directory| !directory.is_empty())
+        .unwrap_or_else(|| OsString::from(format!("/run/user/{uid}")))
 }
 
 fn step(
