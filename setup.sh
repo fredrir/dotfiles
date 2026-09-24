@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Bootstrap only. Everything this repository installs is installed by `dotfile
-# sync`; this script exists to compile the one binary that cannot install itself.
 set -euo pipefail
 
 DOTFILES="${DOTFILE_ROOT:-$HOME/dotfiles}"
 BIN="$DOTFILES/.bin"
-BUILT="$DOTFILES/scripts/rust/target/release/dotfile"
+BUILT="$DOTFILES/scripts/rust/target/commands/dotfile"
 STAGED=""
 
 cleanup() { [ -z "$STAGED" ] || rm -f -- "$STAGED"; }
@@ -16,7 +14,7 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-cargo build --release --locked --quiet \
+cargo build --profile commands --locked --quiet \
   --manifest-path "$DOTFILES/scripts/rust/Cargo.toml" --bin dotfile
 
 mkdir -p "$BIN"

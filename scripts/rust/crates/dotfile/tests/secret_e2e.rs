@@ -158,6 +158,48 @@ fn real_sops_roundtrip_drift_force_clean_and_permissions() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn settled_secrets_skip_decryption_until_either_side_changes() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = Repository::new();
+    repo.init();
+    let live = repo.add("config", b"original");
+    repo.ok(&["apply"]);
+    let tools = repo._temporary.path().join("tools");
+    let log = tools.join("sops.log");
+    fs::create_dir_all(&tools).unwrap();
+    fs::write(
+        tools.join("sops"),
+        format!("#!/bin/sh\necho \"$@\" >> '{}'\nexit 1\n", log.display()),
+    )
+    .unwrap();
+    fs::set_permissions(tools.join("sops"), fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", tools.display(), std::env::var("PATH").unwrap());
+
+    let output = repo
+        .command()
+        .arg("apply")
+        .env("PATH", &path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!log.exists(), "a settled secret was decrypted again");
+    fs::write(&live, b"OVERRIDE").unwrap();
+    assert!(
+        !repo.run(&["apply"]).status.success(),
+        "a same-size local edit is still caught"
+    );
+    assert_eq!(fs::read(&live).unwrap(), b"OVERRIDE");
+    repo.ok(&["apply", "--force"]);
+    assert_eq!(fs::read(&live).unwrap(), b"original");
+}
+
 #[test]
 fn real_sops_rotation_rekeys_and_revocation_excludes_old_key() {
     let repo = Repository::new();

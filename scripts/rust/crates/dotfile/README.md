@@ -30,6 +30,12 @@
 | Daemon-owned lines     | `.system`: `preserve { /destination = line prefix }`; installed line kept, no drift           |
 | Completion shell       | Zsh                                                                                           |
 | Remote sync            | Matching native push protocol; install with `./setup.sh --commands-only`                      |
+| `sync -p` upstream     | No fetch; `git push` only when ahead, beside the peer preflight; rejection = behind           |
+| `sync -p` peer         | Commits pushed over SSH into the peer's upstream ref; `git fetch` if that fails               |
+| `sync -p` peer rebase  | Stash, rebase, pop; any conflict restores the peer untouched                                  |
+| `sync -p` peer prompt  | Conflicting uncommitted changes only; discard = `reset --hard` + `clean -fd`; `--force`: yes  |
+| `sync -p` peer commits | Rebased onto incoming; a conflicting commit fails, never discarded                            |
+| Secret stamps          | `config/sync/secrets`: ciphertext SHA-256 + destination metadata; match skips `sops -d`       |
 | Bootstrap              | `setup.sh` builds `dotfile`; `dotfile sync` installs everything else                          |
 | Interrupted mutations  | Recovered under the next mutation lock; ambiguous or edited paths are preserved               |
 | Python tools           | Standalone Hyprland/transcript; declarative command metadata in `config/command-surface.json` |
@@ -43,7 +49,7 @@
 | Review limits          | Canary/encryption violations block; CI and unavailable terminals fail closed                  |
 
 ```sh
-cargo build --release --locked --manifest-path scripts/rust/Cargo.toml -p dotfile-cli
+cargo build --profile commands --locked --manifest-path scripts/rust/Cargo.toml -p dotfile-cli
 dotfile dev check -l rust -p dotfile-cli
 dotfile dev test -l python -p dotfile,hyprland,transcript
 ```
@@ -62,7 +68,7 @@ dotfile dev test -l python -p dotfile,hyprland,transcript
 | Keybind parsers, platform deduplication, source links                   | `tests/docs_keybinds.rs`                                          |
 | JSONC spans, merge decisions, ignore patterns                           | `tests/unit/sync/merge_tests.rs`, `tests/native_sync_core.rs`     |
 | Comment-preserving JSONC edits and adoption                             | `tests/unit/sync/adoption_tests.rs`                               |
-| Sync UI and remote protocol                                             | `tests/native_sync_core.rs`, `tests/push_path.rs`, `tests/sync_*` |
+| Sync UI and remote protocol                                             | `tests/native_sync_core.rs`, `tests/sync_push.rs`, `tests/sync_*` |
 | Python adapters, hooks, bootstrap                                       | `scripts/python/tests/`                                           |
 
 ```sh
@@ -102,7 +108,11 @@ installed by `src/tooling/` as sync's first phase.
 | Behaviour               | Value                                                      |
 | ----------------------- | ---------------------------------------------------------- |
 | Staleness               | sha256 of inputs, stamped in `config/sync/<language>`      |
+| Staleness cache         | `config/sync/<language>.inputs`, keyed by input metadata   |
 | Build order             | all stale languages in parallel                            |
+| Rust profile            | `commands`: no LTO, incremental                            |
+| Rust profile override   | `[package.metadata.dotfile] profile = "release"`           |
+| Rust profiles           | one Cargo invocation each, in parallel                     |
 | Install                 | one `fs::transaction`; binaries and stamps commit together |
 | Unchanged binary        | left in place, keeps its mtime                             |
 | Missing `cargo` or `uv` | fatal                                                      |

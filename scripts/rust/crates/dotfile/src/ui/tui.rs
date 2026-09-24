@@ -1195,7 +1195,7 @@ fn render_decision_body(
                 area,
                 0,
                 Line::from(vec![Span::styled(
-                    "  REMOTE CHANGES",
+                    "  REMOTE CONFLICT",
                     ui_style(color, theme_color(palette, Role::Warning), Modifier::BOLD),
                 )]),
                 buffer,
@@ -1205,7 +1205,7 @@ fn render_decision_body(
                 area,
                 1,
                 &host,
-                &format!("{count} incoming {count_label}"),
+                &format!("{count} uncommitted {count_label}"),
                 buffer,
                 color,
             );

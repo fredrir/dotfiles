@@ -15,11 +15,20 @@ pub struct IntegrationOutcome {
     pub generated: usize,
 }
 
+type GitConfig = std::collections::HashMap<String, String>;
+
+/// Starts reading the repository's Git settings, so `git` start-up overlaps the rest of sync.
+pub fn prefetch(context: &Context) -> std::thread::JoinHandle<GitConfig> {
+    let root = context.root.clone();
+    std::thread::spawn(move || git_config_map(&root))
+}
+
 pub fn synchronize(
     context: &Context,
     configuration: &Configuration,
     dry_run: bool,
     events: &dyn EventSink,
+    git_config: std::thread::JoinHandle<GitConfig>,
 ) -> Result<IntegrationOutcome, String> {
     events.emit(Event::PhaseStarted {
         phase: Phase::Integrations,
@@ -34,7 +43,7 @@ pub fn synchronize(
     {
         hyprland(context, dry_run, events, &mut outcome, &mut warnings)?;
     }
-    let mut git_configs = git_config_map(context);
+    let mut git_configs = git_config.join().unwrap_or_default();
     git_settings(
         context,
         &mut git_configs,
@@ -188,13 +197,18 @@ fn secret_health(
     outcome: &mut IntegrationOutcome,
     warnings: &mut Vec<(String, Option<String>)>,
 ) {
+    let sops = command_exists("sops");
     let mut encrypted = BTreeSet::new();
-    collect_encrypted(&context.root, &mut encrypted);
+    collect_encrypted(
+        &context.root,
+        &mut encrypted,
+        if sops { 1 } else { usize::MAX },
+    );
     if encrypted.is_empty() {
         return;
     }
     outcome.checked += 1;
-    if !command_exists("sops") {
+    if !sops {
         health_issue(
             events,
             warnings,
@@ -378,7 +392,8 @@ fn load_recipients(path: &Path) -> std::collections::BTreeMap<String, String> {
         .collect()
 }
 
-fn collect_encrypted(directory: &Path, found: &mut BTreeSet<PathBuf>) {
+/// Files at each level come before its subdirectories, so a limit of one stops at the shallowest.
+fn collect_encrypted(directory: &Path, found: &mut BTreeSet<PathBuf>, limit: usize) {
     if matches!(
         directory.file_name().and_then(|name| name.to_str()),
         Some(".git" | "target" | ".venv" | "scripts" | "docs" | ".githooks" | "node_modules")
@@ -388,10 +403,11 @@ fn collect_encrypted(directory: &Path, found: &mut BTreeSet<PathBuf>) {
     let Ok(entries) = fs::read_dir(directory) else {
         return;
     };
+    let mut directories = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            collect_encrypted(&path, found);
+            directories.push(path);
         } else {
             let name = path
                 .file_name()
@@ -402,6 +418,12 @@ fn collect_encrypted(directory: &Path, found: &mut BTreeSet<PathBuf>) {
             }
         }
     }
+    for directory in directories {
+        if found.len() >= limit {
+            return;
+        }
+        collect_encrypted(&directory, found, limit);
+    }
 }
 
 fn command_exists(command: &str) -> bool {
@@ -411,10 +433,10 @@ fn command_exists(command: &str) -> bool {
     std::env::split_paths(&path).any(|directory| directory.join(command).is_file())
 }
 
-fn git_config_map(context: &Context) -> std::collections::HashMap<String, String> {
+fn git_config_map(root: &Path) -> GitConfig {
     let output = Command::new("git")
         .arg("-C")
-        .arg(&context.root)
+        .arg(root)
         .args(["config", "--get-regexp", r"^(core\.hookspath|diff\.sops\.)"])
         .output()
         .ok();

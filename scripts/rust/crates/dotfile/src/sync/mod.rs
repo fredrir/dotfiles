@@ -22,12 +22,12 @@ pub fn run(cli: &SyncCli, events: &dyn EventSink, decisions: &Client) -> Result<
     });
     events.emit(Event::PhaseStarted {
         phase: crate::event::Phase::Preflight,
-        total: Some(if peer.is_some() { 3 } else { 1 }),
+        total: Some(if peer.is_some() { 2 } else { 1 }),
     });
     events.emit(Event::Progress {
         phase: crate::event::Phase::Preflight,
         completed: 0,
-        total: Some(if peer.is_some() { 3 } else { 1 }),
+        total: Some(if peer.is_some() { 2 } else { 1 }),
         label: "waiting for the sync lock".to_string(),
     });
     let _lock = if cli.dry_run {
@@ -38,13 +38,11 @@ pub fn run(cli: &SyncCli, events: &dyn EventSink, decisions: &Client) -> Result<
     events.emit(Event::Progress {
         phase: crate::event::Phase::Preflight,
         completed: 1,
-        total: Some(if peer.is_some() { 3 } else { 1 }),
+        total: Some(if peer.is_some() { 2 } else { 1 }),
         label: "sync lock ready".to_string(),
     });
     let push_plan = match peer.clone() {
-        Some(host) => Some(crate::push::preflight_for_host(
-            &context, cli, host, events,
-        )?),
+        Some(host) => Some(crate::push::preflight_for_host(&context, host, events)?),
         None => None,
     };
     let changed = ChangeSetSink::new(events);

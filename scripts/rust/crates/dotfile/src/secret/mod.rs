@@ -5,6 +5,7 @@ mod patterns;
 pub mod recipients;
 pub mod scan;
 pub mod sops;
+mod stamps;
 mod store;
 pub mod variables;
 pub mod vault;

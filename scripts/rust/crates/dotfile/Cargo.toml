@@ -28,6 +28,7 @@ zeroize = "1"
 aho-corasick = "1"
 serde_yaml_ng = "0.10"
 globset = "0.4"
+rayon.workspace = true
 crossbeam-channel.workspace = true
 crossterm.workspace = true
 similar.workspace = true

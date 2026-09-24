@@ -40,7 +40,7 @@ pub struct SyncCli {
     #[arg(
         long,
         conflicts_with = "resolve",
-        help = "Resolve local edits from the repository; discard remote edits with --push"
+        help = "Resolve local edits from the repository; discard conflicting remote edits with --push"
     )]
     pub force: bool,
 
@@ -52,7 +52,11 @@ pub struct SyncCli {
     )]
     pub resolve: Resolution,
 
-    #[arg(short = 'p', long, help = "Push commits, then pull and sync the peer")]
+    #[arg(
+        short = 'p',
+        long,
+        help = "Push commits, then rebase and sync the peer"
+    )]
     pub push: bool,
 
     #[arg(long, value_name = "HOST", help = "Select the peer; implies --push")]

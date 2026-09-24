@@ -64,15 +64,19 @@ fn stubs(root: &Path) -> PathBuf {
         return path;
     }
     fs::create_dir_all(&path).unwrap();
-    let release = root.join("scripts/rust/target/release");
+    let target = root.join("scripts/rust/target");
     executable(
         &path.join("cargo"),
         &format!(
             "#!/bin/sh\nprintf 'cargo\\n' >> \"$BUILD_LOG\"\n\
              [ -n \"$BUILD_FAILS\" ] && {{ echo 'cargo exploded' >&2; exit 1; }}\n\
-             mkdir -p '{release}'\n\
-             for name in tool left right; do printf 'rust %s %s' \"$name\" \"$BUILD_TAG\" > '{release}'/$name; done\n",
-            release = release.display()
+             while [ $# -gt 0 ]; do case \"$1\" in\n\
+               --profile) profile=$2; shift ;;\n\
+               --package) case \"$2\" in pair) names=\"$names left right\" ;; *) names=\"$names $2\" ;; esac; shift ;;\n\
+             esac; shift; done\n\
+             mkdir -p '{target}'/$profile\n\
+             for name in $names; do printf 'rust %s %s' \"$name\" \"$BUILD_TAG\" > '{target}'/$profile/$name; done\n",
+            target = target.display()
         ),
     );
     executable(
@@ -130,6 +134,63 @@ fn binaries_are_derived_from_the_manifests_that_build_them() {
         toolchain.stage(Language::Go).unwrap().binaries,
         ["copy-file-pretty"]
     );
+}
+
+#[test]
+fn crates_that_opt_into_release_build_beside_the_commands_profile() {
+    let root = sandbox();
+    fs::write(
+        root.path().join("scripts/rust/Cargo.toml"),
+        "[workspace]\nmembers = ['crates/tool', 'crates/pair', 'crates/library', 'crates/probe']\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.path().join("scripts/rust/crates/probe/src")).unwrap();
+    fs::write(
+        root.path().join("scripts/rust/crates/probe/Cargo.toml"),
+        "[package]\nname = 'probe'\n\n[package.metadata.dotfile]\nprofile = 'release'\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("scripts/rust/crates/probe/src/main.rs"),
+        "fn main() {}\n",
+    )
+    .unwrap();
+    let toolchain = Toolchain::read(root.path()).unwrap();
+    let profiles: Vec<(&str, &str)> = toolchain
+        .stage(Language::Rust)
+        .unwrap()
+        .crates
+        .iter()
+        .map(|krate| (krate.package.as_str(), krate.profile.as_str()))
+        .collect();
+    assert_eq!(
+        profiles,
+        [
+            ("tool", "commands"),
+            ("pair", "commands"),
+            ("probe", "release")
+        ]
+    );
+    let mut context = context(root.path());
+    with_build_env(&mut context, root.path(), "first");
+
+    ensure(&context, &install::Options::native()).unwrap();
+
+    let cargo = log(root.path())
+        .iter()
+        .filter(|line| *line == "cargo")
+        .count();
+    assert_eq!(cargo, 2, "one Cargo invocation per profile");
+    let target = root.path().join("scripts/rust/target");
+    assert!(target.join("release/probe").is_file());
+    assert!(!target.join("commands/probe").exists());
+    assert!(target.join("commands/tool").is_file());
+    for name in ["tool", "left", "right", "probe"] {
+        assert_eq!(
+            fs::read_to_string(root.path().join(".bin").join(name)).unwrap(),
+            format!("rust {name} first")
+        );
+    }
 }
 
 #[test]
@@ -209,7 +270,9 @@ fn native_only_never_reaches_the_python_toolchain() {
 
     ensure(&context, &install::Options::native()).unwrap();
 
-    assert_eq!(log(root.path()), ["cargo", "go"]);
+    let mut builders = log(root.path());
+    builders.sort();
+    assert_eq!(builders, ["cargo", "go"], "languages build in parallel");
     assert!(!root.path().join(".bin/transcript").exists());
     assert!(!root.path().join("config/sync/python").exists());
 }
@@ -306,4 +369,30 @@ fn a_digest_follows_content_and_ignores_build_output() {
 
     fs::write(root.path().join("scripts/go/go.mod"), "module other\n").unwrap();
     assert_ne!(digest::of(&inputs).unwrap(), before);
+}
+
+#[test]
+fn a_cached_digest_holds_until_an_input_moves() {
+    let root = sandbox();
+    let inputs = [root.path().join("scripts/go")];
+    let cache = root.path().join("config/sync/go.inputs");
+    assert_eq!(
+        digest::cached(&inputs, &cache).unwrap(),
+        digest::of(&inputs).unwrap()
+    );
+    let saved = fs::read_to_string(&cache).unwrap();
+    let (fingerprint, _) = saved.trim().split_once(' ').unwrap();
+    fs::write(&cache, format!("{fingerprint} remembered\n")).unwrap();
+
+    assert_eq!(
+        digest::cached(&inputs, &cache).unwrap(),
+        "remembered",
+        "unchanged metadata never reads the sources"
+    );
+
+    fs::write(root.path().join("scripts/go/go.mod"), "module other\n").unwrap();
+    assert_eq!(
+        digest::cached(&inputs, &cache).unwrap(),
+        digest::of(&inputs).unwrap()
+    );
 }

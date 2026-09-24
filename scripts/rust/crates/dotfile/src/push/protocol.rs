@@ -14,11 +14,16 @@ pub enum Message {
     },
     State {
         branch: String,
+        #[serde(default)]
+        upstream: String,
+        #[serde(default)]
+        upstream_head: String,
     },
     Change {
         value: String,
     },
     Ready,
+    Conflict,
     Phase {
         operation: String,
     },

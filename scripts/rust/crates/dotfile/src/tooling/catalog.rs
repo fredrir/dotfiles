@@ -51,6 +51,26 @@ pub struct Stage {
     pub language: Language,
     pub binaries: Vec<String>,
     pub inputs: Vec<PathBuf>,
+    /// Rust only: which Cargo profile builds each package's binaries.
+    pub crates: Vec<Crate>,
+}
+
+pub struct Crate {
+    pub package: String,
+    pub profile: String,
+    pub binaries: Vec<String>,
+}
+
+/// Installed commands trade fat LTO's machine code for rebuilds in seconds.
+pub const COMMANDS_PROFILE: &str = "commands";
+
+/// The directory under `target/` that Cargo writes a profile's artifacts to.
+pub fn profile_directory(profile: &str) -> &str {
+    match profile {
+        "dev" | "test" => "debug",
+        "bench" => "release",
+        other => other,
+    }
 }
 
 pub struct Toolchain {
@@ -63,10 +83,19 @@ impl Toolchain {
     pub fn read(root: &Path) -> Result<Self, String> {
         let mut stages = Vec::new();
         for language in Language::ALL {
-            let binaries = match language {
-                Language::Rust => rust_binaries(root)?,
-                Language::Python => python_binaries(root)?,
-                Language::Go => go_binaries(root)?,
+            let (binaries, crates) = match language {
+                Language::Rust => {
+                    let crates = rust_crates(root)?;
+                    let mut binaries: Vec<String> = crates
+                        .iter()
+                        .flat_map(|krate| krate.binaries.iter().cloned())
+                        .collect();
+                    binaries.sort();
+                    binaries.dedup();
+                    (binaries, crates)
+                }
+                Language::Python => (python_binaries(root)?, Vec::new()),
+                Language::Go => (go_binaries(root)?, Vec::new()),
             };
             if binaries.is_empty() {
                 continue;
@@ -75,6 +104,7 @@ impl Toolchain {
                 language,
                 binaries,
                 inputs: inputs(root, language),
+                crates,
             });
         }
         Ok(Self { stages })
@@ -122,6 +152,19 @@ struct CrateManifest {
 #[derive(Deserialize)]
 struct CrateName {
     name: String,
+    #[serde(default)]
+    metadata: CrateMetadata,
+}
+
+#[derive(Default, Deserialize)]
+struct CrateMetadata {
+    #[serde(default)]
+    dotfile: InstallMetadata,
+}
+
+#[derive(Default, Deserialize)]
+struct InstallMetadata {
+    profile: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -131,27 +174,44 @@ struct BinaryTarget {
 
 /// A crate's explicit `[[bin]]` targets, or its package name when `src/main.rs`
 /// makes it an implicit one; library-only crates contribute nothing.
-fn rust_binaries(root: &Path) -> Result<Vec<String>, String> {
+fn rust_crates(root: &Path) -> Result<Vec<Crate>, String> {
     let workspace = root.join("scripts/rust");
     if !workspace.is_dir() {
         return Ok(Vec::new());
     }
     let manifest: WorkspaceManifest = read_toml(&workspace.join("Cargo.toml"))?;
-    let mut names = Vec::new();
+    let mut crates = Vec::new();
     for member in manifest.workspace.members {
         let directory = workspace.join(&member);
         let manifest: CrateManifest = read_toml(&directory.join("Cargo.toml"))?;
-        if manifest.binaries.is_empty() {
+        let binaries = if manifest.binaries.is_empty() {
             if directory.join("src/main.rs").is_file() {
-                names.push(manifest.package.name);
+                vec![manifest.package.name.clone()]
+            } else {
+                Vec::new()
             }
         } else {
-            names.extend(manifest.binaries.into_iter().map(|target| target.name));
+            manifest
+                .binaries
+                .into_iter()
+                .map(|target| target.name)
+                .collect()
+        };
+        if binaries.is_empty() {
+            continue;
         }
+        crates.push(Crate {
+            profile: manifest
+                .package
+                .metadata
+                .dotfile
+                .profile
+                .unwrap_or_else(|| COMMANDS_PROFILE.to_string()),
+            package: manifest.package.name,
+            binaries,
+        });
     }
-    names.sort();
-    names.dedup();
-    Ok(names)
+    Ok(crates)
 }
 
 #[derive(Deserialize)]

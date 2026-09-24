@@ -58,9 +58,9 @@
 | ----------------------------- | --------------------------------------------------------------------------------------------------- |
 | `-n`, `--dry-run`             | Plans without changing files or contacting the peer.                                                |
 | `--override <GROUP=NAME>`     | Selects a machine override with `<group>=<name\|none>`.                                             |
-| `--force`                     | Resolves local edits from the repository and discards remote edits with `--push`.                   |
+| `--force`                     | Resolves local edits from the repository and discards conflicting remote edits with `--push`.       |
 | `--resolve <RESOLVE>`         | Chooses `skip`, `repo`, or `live` for locally edited merged configs.                                |
-| `-p`, `--push`                | Pushes commits, then pulls and syncs the peer.                                                      |
+| `-p`, `--push`                | Pushes commits, then rebases and syncs the peer, keeping its uncommitted changes.                   |
 | `--to <HOST>`                 | Selects the peer and implies `--push`.                                                              |
 | `-v`, `--verbose`             | Shows detailed sync actions or live development commands, output, and timings.                      |
 | `--commands-only`             | Installs the workstation commands and stops.                                                        |

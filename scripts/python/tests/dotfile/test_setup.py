@@ -29,14 +29,14 @@ def executable(path, body):
 
 
 def repository(tmp_path, *, cargo: str = CARGO_STUB, built: str | None = DOTFILE_STUB):
-    """A repository whose `cargo` has already produced the release binary."""
+    """A repository whose `cargo` has already produced the installed binary."""
     root = tmp_path / "dotfiles"
     log = tmp_path / "dotfile.log"
     path = tmp_path / "path"
     path.mkdir(parents=True, exist_ok=True)
     executable(path / "cargo", cargo)
     if built is not None:
-        executable(root / "scripts/rust/target/release/dotfile", built)
+        executable(root / "scripts/rust/target/commands/dotfile", built)
     environment = dict(os.environ)
     environment.update(
         DOTFILE_ROOT=str(root),
@@ -68,7 +68,7 @@ def test_setup_builds_installs_then_hands_over_to_dotfile_sync(tmp_path):
 
     assert result.returncode == 0, result.stderr
     manifest = root / "scripts/rust/Cargo.toml"
-    build = f"cargo build --release --locked --quiet --manifest-path {manifest} --bin dotfile"
+    build = f"cargo build --profile commands --locked --quiet --manifest-path {manifest} --bin dotfile"
     assert calls(log) == [build, "sync"]
     assert os.access(root / ".bin/dotfile", os.X_OK)
 
@@ -118,7 +118,7 @@ def test_a_rebuilt_binary_replaces_the_installed_one(tmp_path):
     root, environment, _ = repository(tmp_path)
     assert run_setup(environment).returncode == 0
     executable(
-        root / "scripts/rust/target/release/dotfile",
+        root / "scripts/rust/target/commands/dotfile",
         DOTFILE_STUB.replace("exit 0", "exit 0 # rebuilt"),
     )
 

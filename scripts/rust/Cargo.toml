@@ -106,3 +106,10 @@ gix = { version = "0.87.1", default-features = false, features = [
 [profile.release]
 lto           = true
 codegen-units = 1
+
+# What `dotfile sync` installs; a crate opts back into `release` with `[package.metadata.dotfile]`.
+[profile.commands]
+inherits      = "release"
+lto           = "off"
+codegen-units = 256
+incremental   = true

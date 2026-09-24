@@ -5,7 +5,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::thread::JoinHandle;
+use std::sync::{Mutex, PoisonError};
+use std::thread::{JoinHandle, ScopedJoinHandle};
 use std::time::Duration;
 
 use hostkit::shell::quote as shell_quote;
@@ -56,7 +57,29 @@ struct LocalBranch {
 #[derive(Debug)]
 struct RemoteState {
     branch: String,
-    changes: Vec<String>,
+    upstream: String,
+    upstream_head: String,
+}
+
+/// The GitHub push, running while the peer reports its state.
+struct Upstream<'scope> {
+    push: Option<ScopedJoinHandle<'scope, Result<(), Failure>>>,
+}
+
+impl Upstream<'_> {
+    fn settle(&mut self) -> Result<(), Failure> {
+        match self.push.take() {
+            Some(push) => push
+                .join()
+                .unwrap_or_else(|_| Err(Failure::push("git push panicked"))),
+            None => Ok(()),
+        }
+    }
+}
+
+enum Delivery {
+    Behind,
+    Unavailable(String),
 }
 
 #[derive(Debug)]
@@ -163,11 +186,10 @@ pub fn preflight(context: &Context, cli: &SyncCli) -> Result<PushPlan, String> {
 
 pub fn preflight_for_host(
     context: &Context,
-    cli: &SyncCli,
     host: String,
     events: &dyn EventSink,
 ) -> Result<PushPlan, String> {
-    preflight_host(context, cli, host, Some(events)).map_err(|failure| failure.message)
+    preflight_host(context, host, Some(events)).map_err(|failure| failure.message)
 }
 
 pub fn run_preflighted(
@@ -220,33 +242,21 @@ pub fn resolve_host(context: &Context, requested: Option<&str>) -> Result<String
 fn preflight_inner(context: &Context, cli: &SyncCli) -> Result<PushPlan, Failure> {
     active(Phase::Push)?;
     let host = resolve_host_inner(context, cli.to.as_deref())?;
-    preflight_host(context, cli, host, None)
+    preflight_host(context, host, None)
 }
 
 fn preflight_host(
     context: &Context,
-    cli: &SyncCli,
     host: String,
     events: Option<&dyn EventSink>,
 ) -> Result<PushPlan, Failure> {
     let directory = repo_directory(context);
-    if !cli.dry_run {
-        if let Some(events) = events {
-            events.emit(Event::Progress {
-                phase: Phase::Preflight,
-                completed: 1,
-                total: Some(3),
-                label: format!("{host} | refreshing upstream"),
-            });
-        }
-        fetch_upstream(context)?;
-    }
     let branch = current_branch(context)?;
     if let Some(events) = events {
         events.emit(Event::Progress {
             phase: Phase::Preflight,
-            completed: 3,
-            total: Some(3),
+            completed: 2,
+            total: Some(2),
             label: format!("{host} | ready"),
         });
     }
@@ -294,20 +304,23 @@ fn execute(
     }
 
     active(Phase::Push)?;
-    push_branch(context, &branch, events)?;
-    events.emit(Event::Progress {
-        phase: Phase::Push,
-        completed: 1,
-        total: Some(3),
-        label: branch.upstream.clone(),
-    });
-    events.emit(Event::PhaseStarted {
-        phase: Phase::Remote,
-        total: Some(2),
-    });
-
-    active(Phase::Remote)?;
-    protocol_session(context, &host, &directory, &branch, cli, events, decisions)
+    announce_push(&branch, events);
+    std::thread::scope(|scope| {
+        let mut upstream = Upstream {
+            push: (branch.ahead > 0).then(|| scope.spawn(|| push_branch(context))),
+        };
+        let session = protocol_session(
+            context,
+            &host,
+            &directory,
+            &branch,
+            cli,
+            events,
+            decisions,
+            &mut upstream,
+        );
+        upstream.settle().and(session)
+    })
 }
 
 fn resolve_host_inner(context: &Context, requested: Option<&str>) -> Result<String, Failure> {
@@ -494,23 +507,7 @@ fn git(context: &Context, arguments: &[&str]) -> Result<Output, Failure> {
         .map_err(|error| Failure::push(format!("cannot run git: {error}")))
 }
 
-fn fetch_upstream(context: &Context) -> Result<(), Failure> {
-    let output = git(context, &["fetch", "--quiet", "--no-tags"])?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(Failure::push(format!(
-            "cannot refresh the tracked branch: {}",
-            first_line(&output.stderr).unwrap_or("git fetch failed")
-        )))
-    }
-}
-
-fn push_branch(
-    context: &Context,
-    branch: &LocalBranch,
-    events: &dyn EventSink,
-) -> Result<(), Failure> {
+fn announce_push(branch: &LocalBranch, events: &dyn EventSink) {
     if branch.ahead == 0 {
         events.emit(Event::Item {
             action: Action::Check,
@@ -526,6 +523,10 @@ fn push_branch(
             changed: true,
         });
     }
+}
+
+/// Rejection is how a branch that fell behind its upstream is caught: nothing is fetched first.
+fn push_branch(context: &Context) -> Result<(), Failure> {
     let output = git(context, &["push"])?;
     if output.status.success() {
         Ok(())
@@ -541,6 +542,42 @@ fn push_branch(
             "{reason}; fetch and pull --ff-only or rebase before retrying"
         )))
     }
+}
+
+/// The peer fast-forwards to what GitHub accepted; the pre-push scan already cleared it.
+fn send_commits(
+    context: &Context,
+    host: &str,
+    directory: &str,
+    head: &str,
+    upstream: &str,
+) -> Result<(), Delivery> {
+    let mut command = context.command("git");
+    command
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .arg("-C")
+        .arg(&context.root)
+        .arg("-c")
+        .arg(format!("core.sshCommand={}", hostkit::ssh::transport()))
+        .args(["push", "--no-verify", "--porcelain"])
+        .arg(format!("{host}:{directory}"))
+        .arg(format!("{head}:{upstream}"));
+    let output = captured_output(command, Phase::Remote).map_err(Delivery::Unavailable)?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let rejected = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .any(|line| line.starts_with('!') && line.contains("[rejected]"));
+    Err(if rejected {
+        Delivery::Behind
+    } else {
+        Delivery::Unavailable(
+            first_line(&output.stderr)
+                .unwrap_or("git push failed")
+                .to_string(),
+        )
+    })
 }
 
 fn unsupported_remote(host: &str, directory: &str) -> Failure {
@@ -560,6 +597,7 @@ fn remote_upgrade_failure(host: &str, directory: &str, reason: String) -> Failur
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn protocol_session(
     context: &Context,
     host: &str,
@@ -568,6 +606,7 @@ fn protocol_session(
     cli: &SyncCli,
     events: &dyn EventSink,
     decisions: &dyn DecisionClient,
+    upstream: &mut Upstream<'_>,
 ) -> Result<usize, Failure> {
     let local_branch = branch.name.as_str();
     let local_head = branch.oid.as_str();
@@ -600,7 +639,8 @@ fn protocol_session(
     let mut ready = false;
     let mut state = RemoteState {
         branch: String::new(),
-        changes: Vec::new(),
+        upstream: String::new(),
+        upstream_head: String::new(),
     };
 
     loop {
@@ -641,8 +681,15 @@ fn protocol_session(
                 }
                 hello = true;
             }
-            Ok(Message::State { branch }) if hello => state.branch = branch,
-            Ok(Message::Change { value }) if hello => state.changes.push(value),
+            Ok(Message::State {
+                branch,
+                upstream,
+                upstream_head,
+            }) if hello => {
+                state.branch = branch;
+                state.upstream = upstream;
+                state.upstream_head = upstream_head;
+            }
             Ok(Message::Ready) if hello => {
                 ready = true;
                 break;
@@ -707,25 +754,51 @@ fn protocol_session(
         let _ = finish_child(child, stderr_thread, stdout_thread);
         return Err(branch_mismatch(host, local_branch, &state.branch));
     }
-    report_remote_changes(host, &state, cli.force, events);
-    let decision = if state.changes.is_empty() {
-        Message::Continue
-    } else if cli.force
-        || decisions
-            .discard_remote_changes(host, &state.changes)
-            .map_err(Failure::remote)?
-    {
-        Message::Discard
-    } else {
-        Message::Cancel
-    };
-    send_decision(&mut stdin, &decision)?;
-    if decision == Message::Cancel {
+    if let Err(failure) = upstream.settle() {
+        send_decision(&mut stdin, &Message::Cancel)?;
         drop(stdin);
         let _ = finish_child(child, stderr_thread, stdout_thread);
-        return Err(dirty_failure(host));
+        return Err(failure);
     }
+    events.emit(Event::Progress {
+        phase: Phase::Push,
+        completed: 1,
+        total: Some(3),
+        label: branch.upstream.clone(),
+    });
+    events.emit(Event::PhaseStarted {
+        phase: Phase::Remote,
+        total: Some(2),
+    });
+    if !state.upstream.is_empty() && state.upstream_head != local_head {
+        events.emit(Event::Progress {
+            phase: Phase::Remote,
+            completed: 0,
+            total: Some(2),
+            label: format!("{host} | receiving {local_branch}"),
+        });
+        match send_commits(context, host, directory, local_head, &state.upstream) {
+            Ok(()) => {}
+            Err(Delivery::Behind) => {
+                send_decision(&mut stdin, &Message::Cancel)?;
+                drop(stdin);
+                let _ = finish_child(child, stderr_thread, stdout_thread);
+                return Err(Failure::push(format!(
+                    "'{local_branch}' is behind {} as {host} last saw it; pull with --ff-only or rebase before dotfile sync -p",
+                    branch.upstream
+                )));
+            }
+            Err(Delivery::Unavailable(reason)) => events.emit(Event::Item {
+                action: Action::Pull,
+                path: PathBuf::from(host),
+                detail: format!("pulling from origin; direct delivery failed: {reason}"),
+                changed: false,
+            }),
+        }
+    }
+    send_decision(&mut stdin, &Message::Continue)?;
 
+    let mut changes = Vec::new();
     let mut completed = false;
     let mut sync_ready = false;
     let mut remote_finished = false;
@@ -743,8 +816,7 @@ fn protocol_session(
         match protocol::decode(&line) {
             Ok(Message::Phase { operation }) => {
                 let completed_steps = match operation.as_str() {
-                    "discard" => 0,
-                    "pull" => 0,
+                    "discard" | "rebase" => 0,
                     "update" | "sync" => 1,
                     _ => 1,
                 };
@@ -767,6 +839,22 @@ fn protocol_session(
                     detail: value,
                     changed: false,
                 });
+            }
+            Ok(Message::Change { value }) if !sync_ready => changes.push(value),
+            Ok(Message::Conflict) if !sync_ready => {
+                report_remote_changes(host, &changes, cli.force, events);
+                let discard = cli.force
+                    || decisions
+                        .discard_remote_changes(host, &changes)
+                        .map_err(Failure::remote)?;
+                if !discard {
+                    send_decision(&mut stdin, &Message::Cancel)?;
+                    drop(stdin);
+                    let _ = finish_child(child, stderr_thread, stdout_thread);
+                    return Err(conflict_failure(host, local_branch));
+                }
+                send_decision(&mut stdin, &Message::Discard)?;
+                changes.clear();
             }
             Ok(Message::SyncReady { version }) => {
                 if version != protocol::VERSION {
@@ -865,15 +953,22 @@ fn protocol_session(
     Ok(remote_changed)
 }
 
+/// macOS pipes turn close-on-exec after creation, so a concurrent spawn could keep another child's pipe open.
+static SPAWN: Mutex<()> = Mutex::new(());
+
+fn spawn(command: &mut Command) -> std::io::Result<Child> {
+    let _one_at_a_time = SPAWN.lock().unwrap_or_else(PoisonError::into_inner);
+    command.spawn()
+}
+
 fn spawn_ssh(context: &Context, host: &str, script: &str) -> Result<Child, Failure> {
-    Session::new(host)
-        .script(script)
-        .command()
+    let mut command = Session::new(host).script(script).command();
+    command
         .envs(&context.process_env)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+    spawn(&mut command)
         .map_err(|error| Failure::remote(format!("{host}: cannot start ssh: {error}")))
 }
 
@@ -1061,15 +1156,15 @@ fn phase_label(phase: Phase) -> &'static str {
     }
 }
 
-fn report_remote_changes(host: &str, state: &RemoteState, force: bool, events: &dyn EventSink) {
-    if state.changes.is_empty() {
-        return;
-    }
+fn report_remote_changes(host: &str, changes: &[String], force: bool, events: &dyn EventSink) {
     events.emit(Event::Warning {
-        message: format!("{host} has {} uncommitted change(s)", state.changes.len()),
+        message: format!(
+            "{host} has {} uncommitted change(s) that conflict with incoming commits",
+            changes.len()
+        ),
         hint: force.then(|| "discarding them because --force was passed".to_string()),
     });
-    for change in &state.changes {
+    for change in changes {
         events.emit(Event::Item {
             action: Action::Check,
             path: PathBuf::from(host),
@@ -1085,11 +1180,44 @@ fn branch_mismatch(host: &str, local_branch: &str, remote_branch: &str) -> Failu
     ))
 }
 
-fn dirty_failure(host: &str) -> Failure {
+fn conflict_failure(host: &str, branch: &str) -> Failure {
     Failure::remote(format!(
-        "{host}'s working tree is not clean, rerun with --force to discard it"
+        "{host}'s uncommitted changes conflict with '{branch}'; resolve them there, or rerun with --force to discard them"
     ))
 }
+
+/// `pull --rebase --autostash`, but a conflict restores the peer; `--autostash` exits 0 with markers.
+const REBASE_ONTO: &str = r#"rebase_onto() {
+  rebase_failure=
+  for state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD; do
+    if [ -e "$(git rev-parse --git-path "$state")" ]; then rebase_failure=busy; return 1; fi
+  done
+  before=$(git rev-parse HEAD) || return 1
+  if git merge-base --is-ancestor "$expected_head" HEAD; then return 0; fi
+  stash=$(git stash create) || return 1
+  if [ -n "$stash" ]; then
+    git stash store -q -m 'dotfile sync -p' "$stash" && git reset -q --hard || return 1
+  fi
+  if ! git rebase -q "$expected_head" >/dev/null 2>&1; then
+    if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
+      rebase_failure=commits
+    else
+      rebase_failure=changes
+    fi
+    git rebase --abort >/dev/null 2>&1
+    restore_peer
+    return 1
+  fi
+  if [ -n "$stash" ] && ! git stash pop -q >/dev/null 2>&1; then
+    rebase_failure=changes
+    restore_peer
+    return 1
+  fi
+}
+restore_peer() {
+  git reset -q --hard "$before"
+  if [ -n "$stash" ]; then git stash pop -q --index >/dev/null 2>&1 || git stash pop -q; fi
+}"#;
 
 fn protocol_script(
     host: &str,
@@ -1146,24 +1274,41 @@ fn protocol_script(
         "code=$?".to_string(),
         "if [ \"$code\" -ne 0 ] || [ -z \"$branch\" ]; then emit_error state \"${branch:-no branch checked out}\" \"$code\"; exit \"${code:-1}\"; fi".to_string(),
         "branch_json=$(printf '%s' \"$branch\" | json_string)".to_string(),
-        "printf '{\"message\":\"state\",\"branch\":\"%s\"}\\n' \"$branch_json\"".to_string(),
-        "tree_state=$(git -c core.quotePath=true status --porcelain 2>&1)".to_string(),
-        "code=$?".to_string(),
-        "if [ \"$code\" -ne 0 ]; then emit_error state \"$tree_state\" \"$code\"; exit \"$code\"; fi".to_string(),
+        "upstream=$(git rev-parse -q --verify --symbolic-full-name '@{u}' 2>/dev/null)".to_string(),
+        "upstream_head=$(git rev-parse -q --verify '@{u}' 2>/dev/null)".to_string(),
+        "upstream_json=$(printf '%s' \"$upstream\" | json_string)".to_string(),
+        "printf '{\"message\":\"state\",\"branch\":\"%s\",\"upstream\":\"%s\",\"upstream_head\":\"%s\"}\\n' \"$branch_json\" \"$upstream_json\" \"$upstream_head\"".to_string(),
         "current_head=$(git rev-parse HEAD 2>&1)".to_string(),
         "code=$?".to_string(),
         "if [ \"$code\" -ne 0 ]; then emit_error state \"$current_head\" \"$code\"; exit \"$code\"; fi".to_string(),
-        "if [ -n \"$tree_state\" ]; then".to_string(),
-        "  printf '%s\\n' \"$tree_state\" | while IFS= read -r line; do".to_string(),
-        "    encoded=$(printf '%s' \"$line\" | json_string)".to_string(),
-        "    printf '{\"message\":\"change\",\"value\":\"%s\"}\\n' \"$encoded\"".to_string(),
-        "  done".to_string(),
-        "fi".to_string(),
         "printf '{\"message\":\"ready\"}\\n'".to_string(),
         "IFS= read -r decision || exit 2".to_string(),
         "case \"$decision\" in".to_string(),
         "  '{\"message\":\"cancel\"}') exit 0 ;;".to_string(),
-        "  '{\"message\":\"discard\"}')".to_string(),
+        "  '{\"message\":\"continue\"}') ;;".to_string(),
+        "  *) emit_error control 'invalid client decision' 2; exit 2 ;;".to_string(),
+        "esac".to_string(),
+        REBASE_ONTO.to_string(),
+        "if [ \"$current_head\" != \"$expected_head\" ]; then".to_string(),
+        "  printf '{\"message\":\"phase\",\"operation\":\"rebase\"}\\n'".to_string(),
+        "  if ! git cat-file -e \"${expected_head}^{commit}\" 2>/dev/null; then".to_string(),
+        "    fetched=$(git fetch --quiet 2>&1) || { emit_error pull \"$fetched\" 1; exit 1; }".to_string(),
+        "    git cat-file -e \"${expected_head}^{commit}\" 2>/dev/null || { emit_error pull \"origin has no $expected_head\" 1; exit 1; }".to_string(),
+        "  fi".to_string(),
+        "  rebase_onto".to_string(),
+        "  code=$?".to_string(),
+        "  if [ \"$code\" -ne 0 ] && [ \"$rebase_failure\" = changes ]; then".to_string(),
+        "    git -c core.quotePath=true status --porcelain | while IFS= read -r line; do".to_string(),
+        "      encoded=$(printf '%s' \"$line\" | json_string)".to_string(),
+        "      printf '{\"message\":\"change\",\"value\":\"%s\"}\\n' \"$encoded\"".to_string(),
+        "    done".to_string(),
+        "    printf '{\"message\":\"conflict\"}\\n'".to_string(),
+        "    IFS= read -r decision || exit 2".to_string(),
+        "    case \"$decision\" in".to_string(),
+        "      '{\"message\":\"cancel\"}') exit 0 ;;".to_string(),
+        "      '{\"message\":\"discard\"}') ;;".to_string(),
+        "      *) emit_error control 'invalid client decision' 2; exit 2 ;;".to_string(),
+        "    esac".to_string(),
         "    printf '{\"message\":\"phase\",\"operation\":\"discard\"}\\n'".to_string(),
         "    discard=$(git reset --hard 2>&1)".to_string(),
         "    code=$?".to_string(),
@@ -1173,16 +1318,18 @@ fn protocol_script(
         "    code=$?".to_string(),
         "    emit_lines discard \"$clean\"".to_string(),
         "    if [ \"$code\" -ne 0 ]; then emit_error discard \"$clean\" \"$code\"; exit \"$code\"; fi".to_string(),
-        "    ;;".to_string(),
-        "  '{\"message\":\"continue\"}') ;;".to_string(),
-        "  *) emit_error control 'invalid client decision' 2; exit 2 ;;".to_string(),
-        "esac".to_string(),
-        "if [ \"$current_head\" != \"$expected_head\" ]; then".to_string(),
-        "  printf '{\"message\":\"phase\",\"operation\":\"pull\"}\\n'".to_string(),
-        "  pull=$(git pull --ff-only 2>&1)".to_string(),
-        "  code=$?".to_string(),
-        "  emit_lines pull \"$pull\"".to_string(),
-        "  if [ \"$code\" -ne 0 ]; then emit_error pull \"$pull\" \"$code\"; exit \"$code\"; fi".to_string(),
+        "    rebase_onto".to_string(),
+        "    code=$?".to_string(),
+        "  fi".to_string(),
+        "  if [ \"$code\" -ne 0 ]; then".to_string(),
+        "    case \"$rebase_failure\" in".to_string(),
+        "      commits) emit_error rebase \"local commits conflict with incoming $branch\" 1 ;;".to_string(),
+        "      busy) emit_error rebase 'a rebase or merge is already in progress' 1 ;;".to_string(),
+        "      *) emit_error rebase 'cannot rebase onto the incoming commits' 1 ;;".to_string(),
+        "    esac".to_string(),
+        "    exit 1".to_string(),
+        "  fi".to_string(),
+        "  emit_lines pull \"$(git log --format='%h %s' --reverse \"$current_head..HEAD\")\"".to_string(),
         "fi".to_string(),
         "export PATH=\"$DOTFILES_COMPILED/:$PATH\"".to_string(),
         format!("if ! {probe} >/dev/null 2>&1; then"),
@@ -1220,6 +1367,8 @@ fn remote_operation_failure(host: &str, operation: &str, value: &str) -> Failure
     };
     if operation == "pull" {
         message.push_str("; pull with --ff-only or rebase there before retrying");
+    } else if operation == "rebase" {
+        message.push_str(&format!("; resolve it on {host}, then retry"));
     } else if operation == "update" {
         message.push_str("; run ./setup.sh --commands-only on that machine and retry");
     }
@@ -1229,7 +1378,7 @@ fn remote_operation_failure(host: &str, operation: &str, value: &str) -> Failure
 fn captured_output(mut command: Command, phase: Phase) -> Result<Output, String> {
     active(phase).map_err(|failure| failure.message)?;
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = ChildGuard::new(command.spawn().map_err(|error| error.to_string())?);
+    let mut child = ChildGuard::new(spawn(&mut command).map_err(|error| error.to_string())?);
     let stdout = child
         .child()
         .stdout
@@ -1253,7 +1402,7 @@ fn captured_output(mut command: Command, phase: Phase) -> Result<Output, String>
                 child.0 = None;
                 break status;
             }
-            None => std::thread::sleep(Duration::from_millis(20)),
+            None => std::thread::sleep(Duration::from_millis(5)),
         }
     };
     Ok(Output {

@@ -118,11 +118,19 @@ fn current(context: &Context, options: &install::Options) -> Result<bool, String
             return Ok(false);
         }
         let saved = fs::read_to_string(stamps.join(language.key())).unwrap_or_default();
-        if saved.trim() != digest::of(&stage.inputs)? {
+        if saved.trim() != stage_digest(&stamps, stage)? {
             return Ok(false);
         }
     }
     Ok(install::completions_current(context))
+}
+
+/// Unchanged file metadata reuses the digest `config/sync/<language>.inputs` recorded.
+pub(crate) fn stage_digest(stamps: &Path, stage: &catalog::Stage) -> Result<String, String> {
+    digest::cached(
+        &stage.inputs,
+        &stamps.join(format!("{}.inputs", stage.language)),
+    )
 }
 
 fn is_installed(home: &Path, executable: &Path) -> bool {

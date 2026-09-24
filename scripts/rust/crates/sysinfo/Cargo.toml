@@ -9,6 +9,10 @@ autotests         = false
 [lints]
 workspace = true
 
+# Startup-bound: fat LTO's smaller binary starts measurably faster.
+[package.metadata.dotfile]
+profile = "release"
+
 [[bin]]
 name = "sysinfo"
 path = "src/main.rs"

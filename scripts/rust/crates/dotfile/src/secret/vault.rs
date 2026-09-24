@@ -65,14 +65,45 @@ pub fn reconcile(
         return Ok(SecretOutcome::default());
     }
     let total = entries.len();
-    let variables = load_variables(context);
+    let mut stamps = super::stamps::Stamps::load(context);
+    let inputs = super::stamps::Inputs::new(context, &entries);
+    let inputs: Vec<Option<String>> = entries.iter().map(|entry| inputs.of(entry)).collect();
+    let current: Vec<bool> = entries
+        .iter()
+        .zip(&inputs)
+        .map(|(entry, input)| {
+            input
+                .as_deref()
+                .is_some_and(|input| stamps.holds(&entry.destination, input))
+        })
+        .collect();
+    let pending: Vec<&SecretEntry> = entries
+        .iter()
+        .zip(&current)
+        .filter(|(_, current)| !**current)
+        .map(|(entry, _)| entry)
+        .collect();
+    let mut productions = produce_all(context, &pending)?.into_iter();
     let mut outcome = SecretOutcome::default();
     let mut blocked = 0;
     let mut warnings = Vec::new();
     for (index, mut entry) in entries.into_iter().enumerate() {
         crate::cancel::check()?;
         outcome.checked += 1;
-        let result = materialize(context, &mut entry, &variables, dry_run, force, consent)?;
+        let result = if current[index] {
+            SecretResult::current()
+        } else {
+            let production = productions.next().ok_or("secret production is missing")??;
+            let result = settle(&mut entry, production, dry_run, force, consent)?;
+            if !dry_run {
+                let settled = !result.blocked && !result.warning;
+                stamps.record(
+                    &entry.destination,
+                    inputs[index].as_deref().filter(|_| settled),
+                );
+            }
+            result
+        };
         if result.changed {
             outcome.changed += 1;
             outcome.secrets += 1;
@@ -128,12 +159,53 @@ pub fn reconcile(
                 .or_else(|| Some("use -v to inspect every secret".to_string())),
         });
     }
+    if !dry_run {
+        stamps.save(context)?;
+    }
     if blocked == 0 {
         Ok(outcome)
     } else {
         outcome.blocked = blocked;
         Ok(outcome)
     }
+}
+
+/// Decrypts concurrently; `sops` start-up, not the work, is what each one costs.
+fn produce_all(
+    context: &Context,
+    entries: &[&SecretEntry],
+) -> Result<Vec<Result<Production, String>>, String> {
+    use rayon::prelude::*;
+    let none = Variables {
+        values: Default::default(),
+        ok: true,
+        note: String::new(),
+    };
+    let templated = entries
+        .iter()
+        .any(|entry| entry.kind == SecretKind::Template);
+    let (variables, mut produced) = rayon::join(
+        || templated.then(|| load_variables(context)),
+        || {
+            entries
+                .par_iter()
+                .map(|entry| {
+                    (entry.kind != SecretKind::Template).then(|| production(context, entry, &none))
+                })
+                .collect::<Vec<_>>()
+        },
+    );
+    crate::cancel::check()?;
+    let variables = variables.unwrap_or(none);
+    Ok(entries
+        .iter()
+        .zip(produced.iter_mut())
+        .map(|(entry, produced)| {
+            produced
+                .take()
+                .unwrap_or_else(|| production(context, entry, &variables))
+        })
+        .collect())
 }
 
 fn replace_destination(
@@ -174,6 +246,18 @@ pub struct SecretResult {
     pub hint: Option<String>,
 }
 
+impl SecretResult {
+    fn current() -> Self {
+        Self {
+            changed: false,
+            blocked: false,
+            warning: false,
+            detail: "current".to_string(),
+            hint: None,
+        }
+    }
+}
+
 pub fn materialize(
     context: &Context,
     entry: &mut SecretEntry,
@@ -182,7 +266,18 @@ pub fn materialize(
     force: bool,
     consent: &Consent<'_>,
 ) -> Result<SecretResult, String> {
-    let produced = match production(context, entry, variables)? {
+    let production = production(context, entry, variables)?;
+    settle(entry, production, dry_run, force, consent)
+}
+
+fn settle(
+    entry: &mut SecretEntry,
+    production: Production,
+    dry_run: bool,
+    force: bool,
+    consent: &Consent<'_>,
+) -> Result<SecretResult, String> {
+    let produced = match production {
         Production::Ready(content) => content,
         Production::Sealed(detail) => {
             return Ok(SecretResult {
@@ -321,13 +416,7 @@ pub fn materialize(
                 hint: None,
             });
         }
-        return Ok(SecretResult {
-            changed: false,
-            blocked: false,
-            warning: false,
-            detail: "current".to_string(),
-            hint: None,
-        });
+        return Ok(SecretResult::current());
     }
     if !dry_run {
         write_private(&entry.destination, &produced)?;

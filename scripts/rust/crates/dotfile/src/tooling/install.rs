@@ -4,8 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use super::catalog::{Language, Stage, Toolchain};
-use super::digest;
+use super::catalog::{Crate, Language, Stage, Toolchain, profile_directory};
 use crate::context::Context;
 use crate::event::{Event, EventSink, Phase};
 use crate::process::CaptureLimits;
@@ -82,7 +81,7 @@ pub fn ensure(
         if !options.languages.contains(&stage.language) {
             continue;
         }
-        let digest = digest::of(&stage.inputs)?;
+        let digest = super::stage_digest(&stamps, stage)?;
         if !options.rebuild && current(&stamps, stage, &digest, &bin) {
             continue;
         }
@@ -173,13 +172,17 @@ fn missing_driver(language: Language) -> Result<(), String> {
     ))
 }
 
+/// Where each binary was built, by name.
+type Built = BTreeMap<String, PathBuf>;
+type Artifacts = BTreeMap<Language, Built>;
+
 fn build_all(
     context: &Context,
     options: &Options,
     pending: &[(&Stage, String)],
     staging: &Path,
     events: &dyn EventSink,
-) -> Result<BTreeMap<Language, PathBuf>, String> {
+) -> Result<Artifacts, String> {
     let total = pending.len();
     for (index, (stage, _)) in pending.iter().enumerate() {
         events.emit(Event::Progress {
@@ -189,13 +192,12 @@ fn build_all(
             label: format!("building {}", stage.language.source()),
         });
     }
-    let results: Vec<(Language, Result<PathBuf, String>)> = std::thread::scope(|scope| {
+    let results: Vec<(Language, Result<Built, String>)> = std::thread::scope(|scope| {
         let handles: Vec<_> = pending
             .iter()
             .map(|(stage, _)| {
-                let language = stage.language;
-                let output = staging.join(language.key());
-                scope.spawn(move || (language, build(context, options, language, &output)))
+                let output = staging.join(stage.language.key());
+                scope.spawn(move || (stage.language, build(context, options, stage, &output)))
             })
             .collect();
         handles
@@ -219,32 +221,70 @@ fn build_all(
     Ok(built)
 }
 
-/// Returns the directory holding the freshly built binaries for this language.
 fn build(
     context: &Context,
     options: &Options,
-    language: Language,
+    stage: &Stage,
     output: &Path,
-) -> Result<PathBuf, String> {
+) -> Result<Built, String> {
     crate::cancel::check()?;
-    match language {
-        Language::Rust => build_rust(context),
-        Language::Go => build_go(context, output),
-        Language::Python => build_python(context, options, output),
-    }
+    let directory = match stage.language {
+        Language::Rust => return build_rust(context, &stage.crates),
+        Language::Go => build_go(context, output)?,
+        Language::Python => build_python(context, options, output)?,
+    };
+    Ok(stage
+        .binaries
+        .iter()
+        .map(|name| (name.clone(), directory.join(name)))
+        .collect())
 }
 
-fn build_rust(context: &Context) -> Result<PathBuf, String> {
-    let manifest = context.root.join("scripts/rust/Cargo.toml");
-    run(
-        context
-            .command("cargo")
-            .args(["build", "--release", "--locked", "--quiet"])
-            .arg("--manifest-path")
-            .arg(&manifest),
-        "cargo build",
-    )?;
-    Ok(context.root.join("scripts/rust/target/release"))
+/// One Cargo invocation per profile, side by side: fat-LTO links overlap the rest of the build.
+fn build_rust(context: &Context, crates: &[Crate]) -> Result<Built, String> {
+    let workspace = context.root.join("scripts/rust");
+    let mut profiles: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for krate in crates {
+        profiles
+            .entry(krate.profile.as_str())
+            .or_default()
+            .push(krate.package.as_str());
+    }
+    std::thread::scope(|scope| {
+        let builds: Vec<_> = profiles
+            .iter()
+            .map(|(profile, packages)| {
+                let manifest = workspace.join("Cargo.toml");
+                scope.spawn(move || {
+                    let mut command = context.command("cargo");
+                    command
+                        .args(["build", "--locked", "--quiet", "--profile", profile])
+                        .arg("--manifest-path")
+                        .arg(&manifest);
+                    for package in packages {
+                        command.args(["--package", package]);
+                    }
+                    run(&mut command, "cargo build")
+                })
+            })
+            .collect();
+        builds.into_iter().try_for_each(|build| {
+            build
+                .join()
+                .unwrap_or_else(|_| panic!("cargo build thread"))
+        })
+    })?;
+    let target = workspace.join("target");
+    Ok(crates
+        .iter()
+        .flat_map(|krate| {
+            let directory = target.join(profile_directory(&krate.profile));
+            krate
+                .binaries
+                .iter()
+                .map(move |name| (name.clone(), directory.join(name)))
+        })
+        .collect())
 }
 
 fn build_go(context: &Context, output: &Path) -> Result<PathBuf, String> {
@@ -345,7 +385,7 @@ fn install(
     bin: &Path,
     stamps: &Path,
     pending: &[(&Stage, String)],
-    built: &BTreeMap<Language, PathBuf>,
+    built: &Artifacts,
     events: &dyn EventSink,
 ) -> Result<Report, String> {
     crate::cancel::check()?;
@@ -353,12 +393,14 @@ fn install(
     let mut report = Report::default();
     let mut transaction = crate::fs::transaction::Transaction::new(context)?;
     for (stage, _) in pending {
-        let Some(source) = built.get(&stage.language) else {
+        let Some(artifacts) = built.get(&stage.language) else {
             continue;
         };
         for name in &stage.binaries {
-            let from = source.join(name);
-            let bytes = fs::read(&from).map_err(|e| format!("{}: {e}", from.display()))?;
+            let from = artifacts
+                .get(name)
+                .ok_or_else(|| format!("{}: no build produced {name}", stage.language))?;
+            let bytes = fs::read(from).map_err(|e| format!("{}: {e}", from.display()))?;
             let destination = bin.join(name);
             if crate::fs::content_matches(&destination, &bytes)? && is_executable(&destination) {
                 continue;

@@ -15,6 +15,7 @@ pub fn reconcile(
     events: &dyn EventSink,
 ) -> Result<Summary, String> {
     let changed = ChangeSetSink::new(events);
+    let git_config = super::integrations::prefetch(context);
     crate::cancel::check()?;
     let configuration = Configuration::load(context, profile, &cli.overrides, &changed)?;
     let (merge_entries, merge_paths) = super::merge::discover(context, &configuration)?;
@@ -47,8 +48,13 @@ pub fn reconcile(
         &changed,
     )?;
     crate::cancel::check()?;
-    let integrations =
-        super::integrations::synchronize(context, &configuration, cli.dry_run, &changed)?;
+    let integrations = super::integrations::synchronize(
+        context,
+        &configuration,
+        cli.dry_run,
+        &changed,
+        git_config,
+    )?;
     context.save_profile(profile, cli.dry_run)?;
     configuration.save_overrides(context, cli.dry_run)?;
     if secrets.blocked > 0 || merges.blocked > 0 {

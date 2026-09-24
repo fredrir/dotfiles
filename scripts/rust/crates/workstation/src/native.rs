@@ -85,6 +85,7 @@ impl Resolver {
             };
             directories.push(parent.to_path_buf());
         }
+        directories.push(self.root.join("scripts/rust/target/commands"));
         directories.push(self.root.join("scripts/rust/target/release"));
         if !self.home.as_os_str().is_empty() {
             directories.push(self.home.join("dotfiles/.bin"));
