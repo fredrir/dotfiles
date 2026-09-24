@@ -1,0 +1,645 @@
+{
+  "schema": 1,
+  "run_id": "2026-09-24T11-07-22.866398000Z-31c0c4e0-11bb1",
+  "host": "macie",
+  "epoch": "31c0c4e0",
+  "started": "2026-09-24T11:07:22Z",
+  "tier": "quick",
+  "grade": "noisy",
+  "note": "",
+  "tags": [],
+  "dotfiles_sha": "d373c36b-dirty",
+  "gate_reasons": [
+    "load average is 7.46 across 15 logical cores"
+  ],
+  "bytes_written": 0,
+  "snapshot": {
+    "cpu": {
+      "model": "Apple M5 Pro",
+      "vendor": "Apple",
+      "cores_physical": 15,
+      "cores_logical": 15,
+      "frequency_max": 4608,
+      "march": "ARMv9.3-A"
+    },
+    "gpu": [
+      {
+        "name": "Apple M5 Pro",
+        "vendor": "Apple",
+        "type": "Integrated",
+        "memory_total": null,
+        "driver": "com.apple.AGXG17X 360.34.5"
+      }
+    ],
+    "memory": {
+      "total": 25769803776,
+      "modules": 1
+    },
+    "board": {
+      "vendor": "Apple Inc.",
+      "name": "J714sAP"
+    },
+    "disks": [
+      {
+        "name": "APPLE SSD AP1024Z Media",
+        "size": 1000555581440,
+        "kind": "SSD",
+        "interconnect": "Apple Fabric"
+      }
+    ],
+    "configured": {
+      "case": "not set",
+      "cpu": "M5 Pro",
+      "cpu_cooler": "not set",
+      "memory": "APPLE Unified 24 GB",
+      "power_supply": "not set"
+    },
+    "virtualized": false
+  },
+  "install": {
+    "os": "macos",
+    "name": "macOS 27.0 (26A428)",
+    "version": "27.0",
+    "kernel": "27.0.0",
+    "arch": "arm64",
+    "driver": "com.apple.AGXG17X 360.34.5"
+  },
+  "conditions": {
+    "on_battery": false,
+    "governor": "",
+    "loadavg_1": 7.4638671875,
+    "cpu_count": 15,
+    "idle_temp_c": 28.893345424107142,
+    "free_ram_bytes": 11008999424,
+    "free_disk_bytes": 302108114944,
+    "free_disk_ratio": 0.30374525462798285,
+    "throttled_at_start": false,
+    "virtualized": false,
+    "platform": "darwin",
+    "filesystem": {
+      "fstype": "apfs",
+      "source": "/dev/disk3s1s1",
+      "target": "/"
+    }
+  },
+  "metrics": [
+    {
+      "key": "cpu.single",
+      "method": "cpu.single/1.0.0",
+      "tool": "7zz",
+      "tool_version": "26.03",
+      "scale": "MIPS",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        12683.0,
+        12911.0,
+        12790.0
+      ],
+      "median": 12790.0,
+      "mad": 107.0,
+      "rsd_pct": 0.8915559733165533,
+      "detail": {
+        "dictionary": "-md22",
+        "passes": "1"
+      }
+    },
+    {
+      "key": "cpu.multi",
+      "method": "cpu.multi/1.0.0",
+      "tool": "7zz",
+      "tool_version": "26.03",
+      "scale": "MIPS",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 6,
+      "samples": [
+        148317.0,
+        150447.0,
+        137238.0,
+        144795.0,
+        147593.0,
+        147802.0
+      ],
+      "median": 147697.5,
+      "mad": 1684.5,
+      "rsd_pct": 3.1994417756565072,
+      "detail": {
+        "dictionary": "-md22",
+        "passes": "1"
+      }
+    },
+    {
+      "key": "cpu.crypto",
+      "method": "cpu.crypto/1.0.0",
+      "tool": "openssl",
+      "tool_version": "3.6.4",
+      "scale": "MB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        8516.04632,
+        8670.55191,
+        8610.26462
+      ],
+      "median": 8610.26462,
+      "mad": 60.28729000000021,
+      "rsd_pct": 0.9055901803901151,
+      "detail": {
+        "cipher": "aes-256-gcm",
+        "block": "16384",
+        "implementation": "OpenSSL"
+      }
+    },
+    {
+      "key": "cpu.native_single",
+      "method": "cpu.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "Mops/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 5,
+      "samples": [
+        746.827,
+        749.198,
+        747.944,
+        710.219,
+        747.601
+      ],
+      "median": 747.601,
+      "mad": 0.7740000000000009,
+      "rsd_pct": 2.2786016875758244,
+      "detail": {
+        "iterations": 800000000
+      }
+    },
+    {
+      "key": "cpu.native_multi",
+      "method": "cpu.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "Mops/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 5,
+      "samples": [
+        10116.997,
+        10147.89,
+        9648.442,
+        9898.237,
+        10196.138
+      ],
+      "median": 10116.997,
+      "mad": 79.14100000000144,
+      "rsd_pct": 2.279817197408181,
+      "detail": {
+        "iterations": 800000000
+      }
+    },
+    {
+      "key": "mem.native_read",
+      "method": "mem.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "GiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 6,
+      "samples": [
+        84.112,
+        84.468,
+        82.748,
+        81.189,
+        84.38,
+        85.141
+      ],
+      "median": 84.246,
+      "mad": 0.5585000000000093,
+      "rsd_pct": 1.7323594958809259,
+      "detail": {
+        "buffer_mib": 256,
+        "passes": 128,
+        "threads": 1
+      }
+    },
+    {
+      "key": "mem.native_write",
+      "method": "mem.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "GiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 6,
+      "samples": [
+        128.681,
+        110.33,
+        114.407,
+        105.92,
+        126.928,
+        120.805
+      ],
+      "median": 117.606,
+      "mad": 8.299,
+      "rsd_pct": 7.769705833727247,
+      "detail": {
+        "buffer_mib": 256,
+        "passes": 128,
+        "threads": 1
+      }
+    },
+    {
+      "key": "mem.latency",
+      "method": "mem.latency/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "ns",
+      "proportion": "LIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        107.221,
+        107.637,
+        107.162
+      ],
+      "median": 107.221,
+      "mad": 0.0589999999999975,
+      "rsd_pct": 0.24119222275726812,
+      "detail": {
+        "buffer_mib": 256,
+        "passes": 4,
+        "threads": 1,
+        "access": "dependent pointer chase"
+      }
+    },
+    {
+      "key": "mem.write",
+      "method": "mem.bandwidth/3.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 6,
+      "samples": [
+        33930.12,
+        31591.46,
+        33580.62,
+        33103.64,
+        34023.41,
+        34074.79
+      ],
+      "median": 33755.37,
+      "mad": 293.72999999999956,
+      "rsd_pct": 2.8463814214055154,
+      "detail": {
+        "block": "1G",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1073741824
+      }
+    },
+    {
+      "key": "mem.read",
+      "method": "mem.bandwidth/3.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 6,
+      "samples": [
+        34402.42,
+        31663.02,
+        34147.37,
+        33419.92,
+        34332.66,
+        34132.18
+      ],
+      "median": 34139.775,
+      "mad": 227.76499999999942,
+      "rsd_pct": 3.1156249567758376,
+      "detail": {
+        "block": "1G",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1073741824
+      }
+    },
+    {
+      "key": "mem.random",
+      "method": "mem.random/3.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        1232.56,
+        1224.1,
+        1190.64
+      ],
+      "median": 1224.1,
+      "mad": 8.460000000000036,
+      "rsd_pct": 1.823347828459919,
+      "detail": {
+        "block": "1G",
+        "seconds": "2",
+        "mode": "rnd",
+        "threads": 1,
+        "working_set": 1073741824
+      }
+    },
+    {
+      "key": "cache.write",
+      "method": "cache.bandwidth/1.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "host",
+      "times_to_run": 6,
+      "samples": [
+        34085.6,
+        34217.15,
+        32202.18,
+        33426.76,
+        33650.0,
+        33698.62
+      ],
+      "median": 33674.31,
+      "mad": 329.41999999999825,
+      "rsd_pct": 2.1478277561176706,
+      "detail": {
+        "block": "1M",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1048576
+      }
+    },
+    {
+      "key": "cache.read",
+      "method": "cache.bandwidth/1.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "host",
+      "times_to_run": 6,
+      "samples": [
+        34328.29,
+        33582.08,
+        32031.38,
+        34121.94,
+        34406.16,
+        34274.72
+      ],
+      "median": 34198.33,
+      "mad": 168.89500000000044,
+      "rsd_pct": 2.696299875355896,
+      "detail": {
+        "block": "1M",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1048576
+      }
+    },
+    {
+      "key": "gpu.compute",
+      "method": "gpu.compute/1.0.0",
+      "tool": "metal",
+      "tool_version": "1.0.0",
+      "scale": "GFLOPS",
+      "proportion": "HIB",
+      "comparable": "host",
+      "times_to_run": 1,
+      "samples": [
+        4350.66
+      ],
+      "median": 4350.66,
+      "mad": 0.0,
+      "rsd_pct": 0.0,
+      "detail": {
+        "kernel": "fma",
+        "api": "Metal"
+      }
+    },
+    {
+      "key": "workload.nvim_startup",
+      "method": "workload.nvim_startup/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        40.93320800000001,
+        40.030666,
+        39.897292,
+        40.927667,
+        39.997291999999995
+      ],
+      "median": 40.030666,
+      "mad": 0.13337399999999633,
+      "rsd_pct": 1.3022923969485918,
+      "detail": {
+        "command": "nvim --headless +qa",
+        "runs": "5",
+        "warmup": "2"
+      }
+    },
+    {
+      "key": "workload.git_status",
+      "method": "workload.git_status/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        13.364709000000001,
+        13.426167,
+        13.257458,
+        13.548084,
+        13.318541
+      ],
+      "median": 13.364709000000001,
+      "mad": 0.061457999999998236,
+      "rsd_pct": 0.8301043119300919,
+      "detail": {
+        "command": "git -C . status --porcelain",
+        "runs": "5",
+        "warmup": "2"
+      }
+    },
+    {
+      "key": "workload.git_log",
+      "method": "workload.git_log/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        6.8285420000000006,
+        6.907584000000001,
+        6.641667,
+        6.701917000000001,
+        6.5527500000000005
+      ],
+      "median": 6.701917000000001,
+      "mad": 0.12662499999999977,
+      "rsd_pct": 2.118084911480276,
+      "detail": {
+        "command": "git -C . log --oneline -n 200",
+        "runs": "5",
+        "warmup": "2"
+      }
+    },
+    {
+      "key": "workload.tar_repo",
+      "method": "workload.tar_repo/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        10.706625,
+        10.864791,
+        10.559166999999999,
+        10.814875,
+        10.724167
+      ],
+      "median": 10.724167,
+      "mad": 0.09070800000000112,
+      "rsd_pct": 1.0930204505561734,
+      "detail": {
+        "command": "tar -cf /dev/null scripts/python/src",
+        "runs": "5",
+        "warmup": "2"
+      }
+    },
+    {
+      "key": "compile.dev",
+      "method": "compile.pinned/1.0.0",
+      "tool": "rustc",
+      "tool_version": "1.97.1",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "world",
+      "times_to_run": 6,
+      "samples": [
+        5234.5176249999995,
+        4793.622917000001,
+        4936.574541999999,
+        5014.852875,
+        5035.315417,
+        5036.678834
+      ],
+      "median": 5025.084145999999,
+      "mad": 50.05214600000045,
+      "rsd_pct": 2.8792540591437867,
+      "detail": {
+        "packages": 162,
+        "lockfile_sha256": "5b97304b2e1481c28ab022e0b58d040a399eb76e1d742c83eca7809d18951130",
+        "profiles": [
+          "dev",
+          "release"
+        ],
+        "jobs": 15
+      }
+    },
+    {
+      "key": "compile.release",
+      "method": "compile.pinned/1.0.0",
+      "tool": "rustc",
+      "tool_version": "1.97.1",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "world",
+      "times_to_run": 6,
+      "samples": [
+        7201.002125,
+        7170.1082910000005,
+        7304.247832999999,
+        7372.725,
+        7298.712958,
+        7563.6237089999995
+      ],
+      "median": 7301.4803955,
+      "mad": 85.86143750000019,
+      "rsd_pct": 1.927051198011955,
+      "detail": {
+        "packages": 162,
+        "lockfile_sha256": "5b97304b2e1481c28ab022e0b58d040a399eb76e1d742c83eca7809d18951130",
+        "profiles": [
+          "dev",
+          "release"
+        ],
+        "jobs": 15
+      }
+    },
+    {
+      "key": "sched.wake_idle",
+      "method": "sched.wake/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "us",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 3,
+      "samples": [
+        4040.0,
+        4041.0,
+        4055.0
+      ],
+      "median": 4041.0,
+      "mad": 1.0,
+      "rsd_pct": 0.20731288110430332,
+      "detail": {
+        "iterations": "2000",
+        "sleep_us": "1000",
+        "statistic": "p99 oversleep"
+      }
+    },
+    {
+      "key": "sched.wake_loaded",
+      "method": "sched.wake/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "us",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 3,
+      "samples": [
+        6147.0,
+        6048.0,
+        6058.0
+      ],
+      "median": 6058.0,
+      "mad": 10.0,
+      "rsd_pct": 0.895755730903932,
+      "detail": {
+        "iterations": "2000",
+        "sleep_us": "1000",
+        "statistic": "p99 oversleep"
+      }
+    }
+  ],
+  "context": {
+    "observed": {}
+  }
+}
