@@ -21,6 +21,9 @@ struct Cli {
     #[arg(short = 'f', long = "full")]
     full: bool,
 
+    #[arg(short = 'r', long = "relative", conflicts_with = "full")]
+    relative: bool,
+
     #[command(flatten)]
     completions: Completions,
 }
@@ -41,9 +44,14 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         println!("{}", resolved.display());
         return Ok(ExitCode::SUCCESS);
     }
-    let root = repository_root(&resolved);
     let home = std::env::var_os("HOME").map(|home| real_path(Path::new(&home)));
-    println!("{}", describe(&resolved, root.as_deref(), home.as_deref()));
+    let output = if cli.relative {
+        home_relative(&resolved, home.as_deref())
+    } else {
+        let root = repository_root(&resolved);
+        describe(&resolved, root.as_deref(), home.as_deref())
+    };
+    println!("{output}");
     Ok(ExitCode::SUCCESS)
 }
 
@@ -51,6 +59,10 @@ fn describe(resolved: &Path, root: Option<&Path>, home: Option<&Path>) -> String
     if let Some(inside) = root.and_then(|root| relative(resolved, root)) {
         return format!("/{inside}");
     }
+    home_relative(resolved, home)
+}
+
+fn home_relative(resolved: &Path, home: Option<&Path>) -> String {
     match home.and_then(|home| relative(resolved, home)) {
         Some(inside) if inside.is_empty() => "~".to_string(),
         Some(inside) => format!("~/{inside}"),

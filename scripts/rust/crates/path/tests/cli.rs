@@ -58,6 +58,40 @@ fn full_prints_the_resolved_path() {
 }
 
 #[test]
+fn relative_forces_the_home_directory_even_inside_a_repository() {
+    let home = tree(&[".git/", "dotfiles/sub/file.txt"]);
+    let repo = home.path().join("dotfiles");
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .args(["-r", "sub/file.txt"])
+        .current_dir(&repo)
+        .env("HOME", home.path())
+        .output();
+    assert_eq!(line(&output), "~/dotfiles/sub/file.txt");
+}
+
+#[test]
+fn relative_outside_home_prints_the_full_path() {
+    let home = tree(&[]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .args(["-r", "/usr/share"])
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .output();
+    assert_eq!(line(&output), "/usr/share");
+}
+
+#[test]
+fn full_and_relative_conflict() {
+    let home = tree(&[]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .args(["-f", "-r"])
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .output();
+    assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
 fn outside_a_repository_the_home_directory_is_a_tilde() {
     let home = tree(&["docs/"]);
     let bare = Bin::new(env!("CARGO_BIN_EXE_path"))

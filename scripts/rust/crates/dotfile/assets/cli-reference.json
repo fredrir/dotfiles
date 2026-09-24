@@ -402,7 +402,8 @@
       "--list": "Prints every route with its state, peer address, and domain instead of one domain."
     },
     "path": {
-      "--full": "Prints the full path instead of a relative one."
+      "--full": "Prints the full path instead of a relative one.",
+      "--relative": "Prints the path relative to the home directory, or the full path outside it."
     },
     "size": {
       "-r": "Lists the immediate contents of the directory.",
