@@ -1,59 +1,53 @@
 local M = {}
 
----@type SearchAppearance
-local appearance
----@type PickerKeys
-local keys
-
----@param ui SearchAppearance
----@param mappings PickerKeys
-function M.setup(ui, mappings)
-  appearance, keys = ui, mappings
-end
-
 ---@alias utils.SearchKind "files"|"grep"
----@alias utils.PickerMap fun(modes: string|string[], key: string, action: fun(), opts?: vim.keymap.set.Opts)
----@alias utils.PickerAttach fun(prompt_bufnr: integer, map: utils.PickerMap): boolean
 
 ---@class utils.SearchOptions
----@field terminal? boolean
 ---@field default_text? string
 ---@field cwd? string
----@field prompt_title? string
----@field attach_mappings? utils.PickerAttach
+---@field terminal? boolean
+
+local open
+
+local titles = { files = "Files  <C-g> Grep", grep = "Grep  <C-f> Files" }
+local pickers = { files = "find_files", grep = "live_grep" }
 
 ---@param prompt_bufnr integer
----@param search fun(opts?: utils.SearchOptions)
----@param terminal boolean
----@return fun()
-local function switch_to(prompt_bufnr, search, terminal)
+---@param kind utils.SearchKind
+---@param opts utils.SearchOptions
+local function switch_to(prompt_bufnr, kind, opts)
   return function()
     local prompt = require("telescope.actions.state").get_current_line()
     require("telescope.actions").close(prompt_bufnr)
-    vim.schedule_wrap(search) { default_text = prompt, terminal = terminal }
+    vim.schedule(function()
+      open(kind, { default_text = prompt, cwd = opts.cwd, terminal = opts.terminal })
+    end)
   end
 end
 
-local function quit_neovim()
-  vim.cmd "qall!"
-end
-
----@param prompt_bufnr integer
-local function attach_terminal(prompt_bufnr)
-  local picker = require("telescope.actions.state").get_current_picker(prompt_bufnr)
-
-  local function quit()
-    require("telescope.actions").close(prompt_bufnr)
-    vim.schedule(quit_neovim)
-  end
-
+---@return integer[]
+local function picker_buffers(picker)
+  local buffers = {}
   for _, bufnr in pairs { picker.prompt_bufnr, picker.results_bufnr, picker.preview_bufnr } do
     if vim.api.nvim_buf_is_valid(bufnr) then
-      for _, mapping in ipairs(keys.close_terminal) do
-        local opts = vim.tbl_extend("force", keys.terminal_opts, { buffer = bufnr, desc = mapping.desc })
-        vim.keymap.set(mapping.mode, mapping.lhs, quit, opts)
-      end
+      buffers[#buffers + 1] = bufnr
     end
+  end
+  return buffers
+end
+
+local function bind_quit(picker)
+  local function quit()
+    require("telescope.actions").close(picker.prompt_bufnr)
+    vim.schedule(function()
+      vim.cmd "qall!"
+    end)
+  end
+
+  for _, bufnr in ipairs(picker_buffers(picker)) do
+    vim.keymap.set({ "i", "n" }, "<Esc>", quit, { nowait = true, buffer = bufnr, desc = "Close terminal search" })
+    vim.keymap.set("i", "<C-c>", quit, { nowait = true, buffer = bufnr, desc = "Close terminal search" })
+    vim.keymap.set("n", "q", quit, { nowait = true, buffer = bufnr, desc = "Close terminal search" })
   end
 
   vim.schedule(function()
@@ -63,62 +57,62 @@ local function attach_terminal(prompt_bufnr)
   end)
 end
 
----@param terminal boolean
----@return utils.PickerAttach
-local function attach_picker(terminal)
-  return function(prompt_bufnr, map)
-    local searches = { files = M.files, grep = M.grep }
-    for kind, mapping in pairs(keys.switch) do
-      map(mapping.mode, mapping.lhs, switch_to(prompt_bufnr, searches[kind], terminal), { desc = mapping.desc })
-    end
-
-    if terminal then
-      attach_terminal(prompt_bufnr)
-    end
-
-    return true
+---@param kind utils.SearchKind
+---@param prompt_bufnr integer
+---@param opts utils.SearchOptions
+local function attach(kind, prompt_bufnr, picker_map, opts)
+  if kind == "files" then
+    picker_map({ "i", "n" }, "<C-g>", switch_to(prompt_bufnr, "grep", opts), { desc = "Search by grep" })
+  else
+    picker_map({ "i", "n" }, "<C-f>", switch_to(prompt_bufnr, "files", opts), { desc = "Search files" })
   end
+
+  if opts.terminal then
+    bind_quit(require("telescope.actions.state").get_current_picker(prompt_bufnr))
+  end
+
+  return true
 end
 
 ---@param kind utils.SearchKind
 ---@param opts? utils.SearchOptions
----@return utils.SearchOptions
-local function picker_options(kind, opts)
-  local options = vim.tbl_extend("force", {
-    prompt_title = appearance.prompt_titles[kind]:format(keys.switch[kind == "files" and "grep" or "files"].lhs),
-    attach_mappings = attach_picker(opts ~= nil and opts.terminal == true),
-  }, opts or {})
-  options.terminal = nil
-  return options
-end
-
----@param opts? utils.SearchOptions
-function M.files(opts)
-  require("telescope.builtin").find_files(picker_options("files", opts))
-end
-
----@param opts? utils.SearchOptions
-function M.grep(opts)
-  require("telescope.builtin").live_grep(picker_options("grep", opts))
-end
-
-function M.terminal()
-  vim.schedule_wrap(M.files) { terminal = true }
-end
-
-function M.buffer()
-  require("telescope.builtin").current_buffer_fuzzy_find(require("telescope.themes").get_dropdown(appearance.buffer))
-end
-
-function M.open_files()
-  require("telescope.builtin").live_grep {
-    grep_open_files = true,
-    prompt_title = appearance.prompt_titles.open_files,
+open = function(kind, opts)
+  opts = opts or {}
+  require("telescope.builtin")[pickers[kind]] {
+    prompt_title = titles[kind],
+    default_text = opts.default_text,
+    cwd = opts.cwd,
+    attach_mappings = function(prompt_bufnr, picker_map)
+      return attach(kind, prompt_bufnr, picker_map, opts)
+    end,
   }
 end
 
+function M.files()
+  open "files"
+end
+
+function M.grep()
+  open "grep"
+end
+
+function M.terminal()
+  vim.schedule(function()
+    open("files", { terminal = true })
+  end)
+end
+
 function M.neovim()
-  require("telescope.builtin").find_files { cwd = vim.fn.stdpath "config" }
+  open("files", { cwd = vim.fn.stdpath "config" })
+end
+
+function M.buffer()
+  local themes = require "telescope.themes"
+  require("telescope.builtin").current_buffer_fuzzy_find(themes.get_dropdown { winblend = 10, previewer = false })
+end
+
+function M.open_files()
+  require("telescope.builtin").live_grep { grep_open_files = true, prompt_title = "Live Grep in Open Files" }
 end
 
 return M

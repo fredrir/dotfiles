@@ -1,13 +1,5 @@
 local M = {}
 
----@type { show: boolean }
-local sync_options
-
----@param opts { show: boolean }
-function M.setup(opts)
-  sync_options = opts
-end
-
 local function is_file_window(window)
   if not window or not vim.api.nvim_win_is_valid(window) then
     return false
@@ -82,6 +74,7 @@ local function get_neo_tree_state()
         local ok, manager = pcall(require, "neo-tree.sources.manager")
         if ok then
           local state = manager.get_state(source, tabpage)
+          ---@diagnostic disable-next-line: undefined-field
           local node = state.tree and state.tree:get_node()
           restart_state.node = node and node:get_id() or nil
           restart_state.root = state.path
@@ -109,8 +102,6 @@ function M.restart()
   }
   local payload = vim.base64.encode(vim.json.encode(state))
 
-  -- Native session restoration serializes plugin and placeholder buffers.
-  -- Skip it and restore only the real editor and Neo-tree state captured above.
   local command = ("restart! lua require('utils.session').restore(%q)"):format(payload)
   vim.cmd(command)
 end
@@ -213,10 +204,10 @@ function M.restore(payload)
     restore_neo_tree(state.neo_tree, editor_window)
 
     if
-      editor_window
-      and vim.api.nvim_win_is_valid(editor_window)
-      and type(state.editor) == "table"
-      and type(state.editor.view) == "table"
+        editor_window
+        and vim.api.nvim_win_is_valid(editor_window)
+        and type(state.editor) == "table"
+        and type(state.editor.view) == "table"
     then
       vim.api.nvim_win_call(editor_window, function()
         vim.fn.winrestview(state.editor.view)
@@ -231,9 +222,6 @@ function M.restore(payload)
     return
   end
 
-  -- When Nvim was started with a directory, Neo-tree replaces that directory
-  -- buffer on a debounced callback. Restore after its first filesystem render
-  -- so the hijack cannot replace the editor buffer again.
   local loaded
   loaded, events = pcall(require, "neo-tree.events")
   if not loaded then
@@ -253,8 +241,6 @@ function M.restore(payload)
     id = "session_restart_restore",
     handler = function(args)
       if args.source == "filesystem" then
-        -- The hijack queues its directory-buffer cleanup after opening the
-        -- window. Two schedules put restoration behind that cleanup.
         vim.schedule(function()
           vim.schedule(restore)
         end)
@@ -273,10 +259,7 @@ function M.sync()
   end
 
   local synced, err = pcall(function()
-    lazy.sync {
-      wait = true,
-      show = sync_options.show,
-    }
+    lazy.sync { wait = true, show = false }
   end)
 
   if not synced then

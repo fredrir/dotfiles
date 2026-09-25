@@ -4,6 +4,7 @@
   ],
   "ruff.configuration": "${workspaceFolder}/scripts/python/pyproject.toml",
   "ruff.configurationPreference": "filesystemFirst",
+  "Lua.runtime.version": "LuaJIT",
   "Lua.runtime.path": [
     "?.lua",
     "?/init.lua",
@@ -16,14 +17,19 @@
     "${workspaceFolder}/shared/wezterm/lua_modules/share/lua/5.5/wezterm/types",
     "${workspaceFolder}/shared/wezterm/_types",
     "/opt/homebrew/share/nvim/runtime/lua",
-    "${env:HOME}/.local/share/nvim/lazy/LuaSnip/lua",
+    "/usr/local/share/nvim/runtime/lua",
+    "/usr/share/nvim/runtime/lua",
+    "${env:HOME}/.local/share/nvim/lazy/lazy.nvim/lua",
+    "${env:HOME}/.local/share/nvim/lazy/blink.cmp/lua",
     "${env:HOME}/.local/share/nvim/lazy/conform.nvim/lua",
-    "${env:HOME}/.local/share/nvim/lazy/diffview.nvim/lua",
+    "${env:HOME}/.local/share/nvim/lazy/gitsigns.nvim/lua",
+    "${env:HOME}/.local/share/nvim/lazy/harpoon/lua",
     "${env:HOME}/.local/share/nvim/lazy/neo-tree.nvim/lua"
   ],
   "Lua.workspace.checkThirdParty": false,
   "Lua.workspace.ignoreDir": [
     ".git",
+    ".uv",
     "scripts/python/.venv",
     "scripts/rust/target"
   ],

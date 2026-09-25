@@ -10,101 +10,93 @@
 
 ## Shared Keybinds
 
-[<code>vim.g.mapleader = Space</code>](../../shared/nvim/lua/options.lua#L2) · [<code>vim.g.maplocalleader = Space</code>](../../shared/nvim/lua/options.lua#L3)
+[<code>vim.g.mapleader = Space</code>](../../shared/nvim/lua/options.lua#L1) · [<code>vim.g.maplocalleader = Space</code>](../../shared/nvim/lua/options.lua#L2)
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code>'</code> | [<code>&lt;cmd&gt;Neotree focus&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L51) | Focus NeoTree<br><code>mode=n</code> |
-| <code>-</code> | [<code>&lt;cmd&gt;Oil&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L52) | Open parent directory<br><code>mode=n</code> |
-| <code>&lt;C-\&gt;</code> | [<code>&lt;cmd&gt;ToggleTerm&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L95) | Toggle terminal<br><code>mode=n</code> |
-| <code>&lt;C-\&gt;</code> | [<code>&lt;cmd&gt;ToggleTerm&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L96) | Toggle terminal<br><code>mode=t</code> |
-| <code>&lt;C-c&gt;</code> | [—](../../shared/nvim/lua/utils/search.lua#L34) | <code>mode=i</code> |
-| <code>&lt;C-c&gt;</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L57) | Close terminal search<br><code>bind_quit; vim.api.nvim_buf_is_valid(bufnr); mode=i; buffer=picker.preview_bufnr; nowait=true</code> |
-| <code>&lt;C-c&gt;</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L57) | Close terminal search<br><code>bind_quit; vim.api.nvim_buf_is_valid(bufnr); mode=i; buffer=picker.prompt_bufnr; nowait=true</code> |
-| <code>&lt;C-c&gt;</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L57) | Close terminal search<br><code>bind_quit; vim.api.nvim_buf_is_valid(bufnr); mode=i; buffer=picker.results_bufnr; nowait=true</code> |
-| <code>&lt;C-e&gt;</code> | [<code>&lt;cmd&gt;HarpoonMenu&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L87) | Harpoon: Quick menu<br><code>mode=n</code> |
-| <code>&lt;C-h&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;h</code>](../../shared/nvim/lua/keymaps.lua#L37) | Move to left window<br><code>mode=t</code> |
-| <code>&lt;C-h&gt;</code> | [<code>&lt;C-w&gt;&lt;C-h&gt;</code>](../../shared/nvim/lua/keymaps.lua#L33) | Move focus to the left window<br><code>mode=n</code> |
-| <code>&lt;C-j&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;j</code>](../../shared/nvim/lua/keymaps.lua#L38) | Move to lower window<br><code>mode=t</code> |
-| <code>&lt;C-j&gt;</code> | [<code>&lt;C-w&gt;&lt;C-j&gt;</code>](../../shared/nvim/lua/keymaps.lua#L35) | Move focus to the lower window<br><code>mode=n</code> |
-| <code>&lt;C-k&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;k</code>](../../shared/nvim/lua/keymaps.lua#L39) | Move to upper window<br><code>mode=t</code> |
-| <code>&lt;C-k&gt;</code> | [<code>&lt;C-w&gt;&lt;C-k&gt;</code>](../../shared/nvim/lua/keymaps.lua#L36) | Move focus to the upper window<br><code>mode=n</code> |
-| <code>&lt;C-l&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;l</code>](../../shared/nvim/lua/keymaps.lua#L40) | Move to right window<br><code>mode=t</code> |
-| <code>&lt;C-l&gt;</code> | [<code>&lt;C-w&gt;&lt;C-l&gt;</code>](../../shared/nvim/lua/keymaps.lua#L34) | Move focus to the right window<br><code>mode=n</code> |
-| <code>&lt;Esc&gt;</code> | [—](../../shared/nvim/lua/utils/search.lua#L33) | <code>mode=i,n</code> |
-| <code>&lt;Esc&gt;</code> | [<code>&lt;cmd&gt;nohlsearch&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L9) | Clear search highlight<br><code>mode=n</code> |
-| <code>&lt;Esc&gt;</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L57) | Close terminal search<br><code>bind_quit; vim.api.nvim_buf_is_valid(bufnr); mode=i,n; buffer=picker.preview_bufnr; nowait=true</code> |
-| <code>&lt;Esc&gt;</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L57) | Close terminal search<br><code>bind_quit; vim.api.nvim_buf_is_valid(bufnr); mode=i,n; buffer=picker.prompt_bufnr; nowait=true</code> |
-| <code>&lt;Esc&gt;</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L57) | Close terminal search<br><code>bind_quit; vim.api.nvim_buf_is_valid(bufnr); mode=i,n; buffer=picker.results_bufnr; nowait=true</code> |
-| <code>&lt;Esc&gt;&lt;Esc&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;</code>](../../shared/nvim/lua/keymaps.lua#L97) | Exit terminal mode<br><code>mode=t</code> |
-| <code>&lt;S-h&gt;</code> | [<code>&lt;cmd&gt;bprevious&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L27) | Previous buffer<br><code>mode=n</code> |
-| <code>&lt;S-l&gt;</code> | [<code>&lt;cmd&gt;bnext&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L28) | Next buffer<br><code>mode=n</code> |
-| <code>&lt;leader&gt;/</code> | [<code>&lt;cmd&gt;SearchBuffer&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L76) | &#91;/&#93; Fuzzily search in current buffer<br><code>mode=n</code> |
-| <code>&lt;leader&gt;1</code> | [<code>&lt;cmd&gt;HarpoonSelect 1&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L88) | Harpoon file 1<br><code>mode=n</code> |
-| <code>&lt;leader&gt;2</code> | [<code>&lt;cmd&gt;HarpoonSelect 2&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L89) | Harpoon file 2<br><code>mode=n</code> |
-| <code>&lt;leader&gt;3</code> | [<code>&lt;cmd&gt;HarpoonSelect 3&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L90) | Harpoon file 3<br><code>mode=n</code> |
-| <code>&lt;leader&gt;4</code> | [<code>&lt;cmd&gt;HarpoonSelect 4&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L91) | Harpoon file 4<br><code>mode=n</code> |
-| <code>&lt;leader&gt;&lt;leader&gt;</code> | [<code>&lt;cmd&gt;Telescope buffers&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L75) | &#91; &#93; Find existing buffers<br><code>mode=n</code> |
-| <code>&lt;leader&gt;a</code> | [<code>&lt;cmd&gt;HarpoonAdd&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L86) | Harpoon: &#91;A&#93;dd file<br><code>mode=n</code> |
-| <code>&lt;leader&gt;d</code> | [<code>&lt;cmd&gt;Trouble diagnostics toggle&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L57) | Diagnostics (Trouble)<br><code>mode=n</code> |
-| <code>&lt;leader&gt;e</code> | [<code>&lt;cmd&gt;Neotree toggle&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L50) | File &#91;E&#93;xplorer<br><code>mode=n</code> |
-| <code>&lt;leader&gt;f</code> | [<code>&lt;cmd&gt;Format&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L61) | &#91;F&#93;ormat buffer<br><code>mode=n,v</code> |
-| <code>&lt;leader&gt;g</code> | [<code>&lt;cmd&gt;Lazygit&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L82) | Lazygit<br><code>mode=n</code> |
-| <code>&lt;leader&gt;gD</code> | [<code>&lt;cmd&gt;Gitsigns diffthis @&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L116) | git &#91;D&#93;iff against last commit<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;gR</code> | [<code>&lt;cmd&gt;Gitsigns reset_buffer&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L112) | git &#91;R&#93;eset buffer<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;gS</code> | [<code>&lt;cmd&gt;Gitsigns stage_buffer&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L110) | git &#91;S&#93;tage buffer<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;gb</code> | [<code>&lt;cmd&gt;Gitsigns blame_line&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L114) | git &#91;b&#93;lame line<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;gd</code> | [<code>&lt;cmd&gt;Gitsigns diffthis&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L115) | git &#91;d&#93;iff against index<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;gp</code> | [<code>&lt;cmd&gt;Gitsigns preview_hunk&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L113) | git &#91;p&#93;review hunk<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;gr</code> | [<code>&lt;cmd&gt;Gitsigns reset_hunk&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L109) | git &#91;r&#93;eset hunk<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;gs</code> | [<code>&lt;cmd&gt;Gitsigns stage_hunk&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L108) | git &#91;s&#93;tage hunk<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;gu</code> | [<code>&lt;cmd&gt;Gitsigns undo_stage_hunk&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L111) | git &#91;u&#93;ndo stage hunk<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;hr</code> | [<code>callback @L105</code>](../../shared/nvim/lua/cmds.lua#L105) | git &#91;r&#93;eset hunk<br><code>M.gitsigns; mode=v; buffer=bufnr</code> |
-| <code>&lt;leader&gt;hs</code> | [<code>callback @L102</code>](../../shared/nvim/lua/cmds.lua#L102) | git &#91;s&#93;tage hunk<br><code>M.gitsigns; mode=v; buffer=bufnr</code> |
-| <code>&lt;leader&gt;nl</code> | [<code>&lt;cmd&gt;Lazy&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L17) | Lazy Open<br><code>mode=n</code> |
-| <code>&lt;leader&gt;nq</code> | [<code>&lt;cmd&gt;NeovimClose&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L15) | Neovim Close<br><code>mode=n</code> |
-| <code>&lt;leader&gt;nr</code> | [<code>&lt;cmd&gt;NeovimRestart&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L13) | Neovim Restart<br><code>mode=n</code> |
-| <code>&lt;leader&gt;ns</code> | [<code>&lt;cmd&gt;Lazy sync&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L16) | Neovim Sync<br><code>mode=n</code> |
-| <code>&lt;leader&gt;p</code> | [<code>"_dP</code>](../../shared/nvim/lua/keymaps.lua#L23) | Replace line with yanked content<br><code>mode=n</code> |
-| <code>&lt;leader&gt;q</code> | [<code>&lt;cmd&gt;lua vim.diagnostic.setloclist()&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L56) | Open diagnostic &#91;Q&#93;uickfix list<br><code>mode=n</code> |
-| <code>&lt;leader&gt;rn</code> | [<code>vim.lsp.buf.rename</code>](../../shared/nvim/lua/cmds.lua#L153) | LSP: &#91;R&#93;e&#91;n&#93;ame<br><code>mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;rr</code> | [<code>&lt;cmd&gt;NeovimRestart&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L14) | Restart Neovim<br><code>mode=n</code> |
-| <code>&lt;leader&gt;s.</code> | [<code>&lt;cmd&gt;Telescope oldfiles&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L73) | &#91;S&#93;earch Recent Files ("." for repeat)<br><code>mode=n</code> |
-| <code>&lt;leader&gt;s/</code> | [<code>&lt;cmd&gt;SearchGrepOpen&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L77) | &#91;S&#93;earch &#91;/&#93; in Open Files<br><code>mode=n</code> |
-| <code>&lt;leader&gt;sc</code> | [<code>&lt;cmd&gt;Telescope commands&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L74) | &#91;S&#93;earch &#91;C&#93;ommands<br><code>mode=n</code> |
-| <code>&lt;leader&gt;sd</code> | [<code>&lt;cmd&gt;Telescope diagnostics&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L71) | &#91;S&#93;earch &#91;D&#93;iagnostics<br><code>mode=n</code> |
-| <code>&lt;leader&gt;sf</code> | [<code>&lt;cmd&gt;SearchFiles&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L67) | &#91;S&#93;earch &#91;F&#93;iles<br><code>mode=n</code> |
-| <code>&lt;leader&gt;sg</code> | [<code>&lt;cmd&gt;SearchGrep&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L70) | &#91;S&#93;earch by &#91;G&#93;rep<br><code>mode=n</code> |
-| <code>&lt;leader&gt;sh</code> | [<code>&lt;cmd&gt;Telescope help_tags&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L65) | &#91;S&#93;earch &#91;H&#93;elp<br><code>mode=n</code> |
-| <code>&lt;leader&gt;sk</code> | [<code>&lt;cmd&gt;Telescope keymaps&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L66) | &#91;S&#93;earch &#91;K&#93;eymaps<br><code>mode=n</code> |
-| <code>&lt;leader&gt;sn</code> | [<code>&lt;cmd&gt;SearchConfig&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L78) | &#91;S&#93;earch &#91;N&#93;eovim files<br><code>mode=n</code> |
-| <code>&lt;leader&gt;sr</code> | [<code>&lt;cmd&gt;Telescope resume&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L72) | &#91;S&#93;earch &#91;R&#93;esume<br><code>mode=n</code> |
-| <code>&lt;leader&gt;ss</code> | [<code>&lt;cmd&gt;Telescope builtin&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L68) | &#91;S&#93;earch &#91;S&#93;elect Telescope<br><code>mode=n</code> |
-| <code>&lt;leader&gt;sw</code> | [<code>&lt;cmd&gt;Telescope grep_string&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L69) | &#91;S&#93;earch current &#91;W&#93;ord<br><code>mode=n,v</code> |
-| <code>&lt;leader&gt;tD</code> | [<code>&lt;cmd&gt;Gitsigns preview_hunk_inline&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L121) | &#91;T&#93;oggle git show &#91;D&#93;eleted<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;tb</code> | [<code>&lt;cmd&gt;Gitsigns toggle_current_line_blame&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L117) | &#91;T&#93;oggle git show &#91;b&#93;lame line<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;th</code> | [<code>callback @L167</code>](../../shared/nvim/lua/cmds.lua#L167) | LSP: &#91;T&#93;oggle Inlay &#91;H&#93;ints<br><code>client and client:supports_method("textDocument/inlayHint", bufnr); mode=n; buffer=bufnr</code> |
-| <code>&lt;leader&gt;w&lt;Down&gt;</code> | [<code>&lt;cmd&gt;rightbelow new&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L45) | Split down<br><code>mode=n</code> |
-| <code>&lt;leader&gt;w&lt;Left&gt;</code> | [<code>&lt;cmd&gt;leftabove vnew&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L42) | Split left<br><code>mode=n</code> |
-| <code>&lt;leader&gt;w&lt;Right&gt;</code> | [<code>&lt;cmd&gt;rightbelow vnew&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L43) | Split right<br><code>mode=n</code> |
-| <code>&lt;leader&gt;w&lt;Up&gt;</code> | [<code>&lt;cmd&gt;leftabove new&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L44) | Split up<br><code>mode=n</code> |
-| <code>&lt;leader&gt;wq</code> | [<code>&lt;cmd&gt;close&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L46) | Close current window<br><code>mode=n</code> |
-| <code>&lt;leader&gt;x</code> | [<code>&lt;cmd&gt;bdelete&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L29) | Close buffer<br><code>mode=n</code> |
-| <code>J</code> | [<code>:m '&gt;+1&lt;CR&gt;gv=gv</code>](../../shared/nvim/lua/keymaps.lua#L21) | Move selection down<br><code>mode=v</code> |
-| <code>K</code> | [<code>:m '&lt;-2&lt;CR&gt;gv=gv</code>](../../shared/nvim/lua/keymaps.lua#L22) | Move selection up<br><code>mode=v</code> |
-| <code>&#91;c</code> | [<code>callback @L99</code>](../../shared/nvim/lua/cmds.lua#L99) | Jump to previous git &#91;c&#93;hange<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>&#93;c</code> | [<code>callback @L96</code>](../../shared/nvim/lua/cmds.lua#L96) | Jump to next git &#91;c&#93;hange<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
-| <code>gO</code> | [<code>&lt;cmd&gt;Telescope lsp_document_symbols&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L160) | Open Document Symbols<br><code>mode=n; buffer=bufnr</code> |
-| <code>gW</code> | [<code>&lt;cmd&gt;Telescope lsp_dynamic_workspace_symbols&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L161) | Open Workspace Symbols<br><code>mode=n; buffer=bufnr</code> |
-| <code>grD</code> | [<code>vim.lsp.buf.declaration</code>](../../shared/nvim/lua/cmds.lua#L155) | LSP: &#91;G&#93;oto &#91;D&#93;eclaration<br><code>mode=n; buffer=bufnr</code> |
-| <code>gra</code> | [<code>vim.lsp.buf.code_action</code>](../../shared/nvim/lua/cmds.lua#L154) | LSP: &#91;G&#93;oto Code &#91;A&#93;ction<br><code>mode=n,x; buffer=bufnr</code> |
-| <code>grd</code> | [<code>&lt;cmd&gt;Telescope lsp_definitions&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L158) | &#91;G&#93;oto &#91;D&#93;efinition<br><code>mode=n; buffer=bufnr</code> |
-| <code>gri</code> | [<code>&lt;cmd&gt;Telescope lsp_implementations&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L157) | &#91;G&#93;oto &#91;I&#93;mplementation<br><code>mode=n; buffer=bufnr</code> |
-| <code>grn</code> | [<code>vim.lsp.buf.rename</code>](../../shared/nvim/lua/cmds.lua#L152) | LSP: &#91;R&#93;e&#91;n&#93;ame<br><code>mode=n; buffer=bufnr</code> |
-| <code>grr</code> | [<code>&lt;cmd&gt;Telescope lsp_references&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L156) | &#91;G&#93;oto &#91;R&#93;eferences<br><code>mode=n; buffer=bufnr</code> |
-| <code>grt</code> | [<code>&lt;cmd&gt;Telescope lsp_type_definitions&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L159) | &#91;G&#93;oto &#91;T&#93;ype Definition<br><code>mode=n; buffer=bufnr</code> |
-| <code>q</code> | [—](../../shared/nvim/lua/utils/search.lua#L35) | <code>mode=n</code> |
-| <code>q</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L57) | Close terminal search<br><code>bind_quit; vim.api.nvim_buf_is_valid(bufnr); mode=n; buffer=picker.preview_bufnr; nowait=true</code> |
-| <code>q</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L57) | Close terminal search<br><code>bind_quit; vim.api.nvim_buf_is_valid(bufnr); mode=n; buffer=picker.prompt_bufnr; nowait=true</code> |
-| <code>q</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L57) | Close terminal search<br><code>bind_quit; vim.api.nvim_buf_is_valid(bufnr); mode=n; buffer=picker.results_bufnr; nowait=true</code> |
-| <code>spec.switch</code> | [<code>callback @L82</code>](../../shared/nvim/lua/utils/search.lua#L82) | spec.desc<br><code>open; mode=i,n; unresolved key expression</code> |
+| <code>'</code> | [<code>&lt;cmd&gt;Neotree focus&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L47) | Focus NeoTree<br><code>mode=n</code> |
+| <code>-</code> | [<code>&lt;cmd&gt;Oil&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L48) | Open parent directory<br><code>mode=n</code> |
+| <code>&lt;C-\&gt;</code> | [<code>&lt;cmd&gt;ToggleTerm&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L91) | Toggle terminal<br><code>mode=n</code> |
+| <code>&lt;C-\&gt;</code> | [<code>&lt;cmd&gt;ToggleTerm&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L92) | Toggle terminal<br><code>mode=t</code> |
+| <code>&lt;C-c&gt;</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L49) | Close terminal search<br><code>bind_quit; for _, bufnr in ipairs(picker_buffers(picker)); mode=i; buffer=bufnr; nowait=true</code> |
+| <code>&lt;C-e&gt;</code> | [<code>&lt;cmd&gt;HarpoonMenu&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L83) | Harpoon: Quick menu<br><code>mode=n</code> |
+| <code>&lt;C-f&gt;</code> | [<code>switch_to(prompt_bufnr, "files", opts)</code>](../../shared/nvim/lua/utils/search.lua#L67) | Search files<br><code>attach; not (kind == "files"); mode=i,n; Telescope picker</code> |
+| <code>&lt;C-g&gt;</code> | [<code>switch_to(prompt_bufnr, "grep", opts)</code>](../../shared/nvim/lua/utils/search.lua#L65) | Search by grep<br><code>attach; kind == "files"; mode=i,n; Telescope picker</code> |
+| <code>&lt;C-h&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;h</code>](../../shared/nvim/lua/keymaps.lua#L33) | Move to left window<br><code>mode=t</code> |
+| <code>&lt;C-h&gt;</code> | [<code>&lt;C-w&gt;&lt;C-h&gt;</code>](../../shared/nvim/lua/keymaps.lua#L29) | Move focus to the left window<br><code>mode=n</code> |
+| <code>&lt;C-j&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;j</code>](../../shared/nvim/lua/keymaps.lua#L34) | Move to lower window<br><code>mode=t</code> |
+| <code>&lt;C-j&gt;</code> | [<code>&lt;C-w&gt;&lt;C-j&gt;</code>](../../shared/nvim/lua/keymaps.lua#L31) | Move focus to the lower window<br><code>mode=n</code> |
+| <code>&lt;C-k&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;k</code>](../../shared/nvim/lua/keymaps.lua#L35) | Move to upper window<br><code>mode=t</code> |
+| <code>&lt;C-k&gt;</code> | [<code>&lt;C-w&gt;&lt;C-k&gt;</code>](../../shared/nvim/lua/keymaps.lua#L32) | Move focus to the upper window<br><code>mode=n</code> |
+| <code>&lt;C-l&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;l</code>](../../shared/nvim/lua/keymaps.lua#L36) | Move to right window<br><code>mode=t</code> |
+| <code>&lt;C-l&gt;</code> | [<code>&lt;C-w&gt;&lt;C-l&gt;</code>](../../shared/nvim/lua/keymaps.lua#L30) | Move focus to the right window<br><code>mode=n</code> |
+| <code>&lt;Esc&gt;</code> | [<code>&lt;cmd&gt;nohlsearch&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L5) | Clear search highlight<br><code>mode=n</code> |
+| <code>&lt;Esc&gt;</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L48) | Close terminal search<br><code>bind_quit; for _, bufnr in ipairs(picker_buffers(picker)); mode=i,n; buffer=bufnr; nowait=true</code> |
+| <code>&lt;Esc&gt;&lt;Esc&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;</code>](../../shared/nvim/lua/keymaps.lua#L93) | Exit terminal mode<br><code>mode=t</code> |
+| <code>&lt;S-h&gt;</code> | [<code>&lt;cmd&gt;bprevious&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L23) | Previous buffer<br><code>mode=n</code> |
+| <code>&lt;S-l&gt;</code> | [<code>&lt;cmd&gt;bnext&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L24) | Next buffer<br><code>mode=n</code> |
+| <code>&lt;leader&gt;/</code> | [<code>&lt;cmd&gt;SearchBuffer&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L72) | &#91;/&#93; Fuzzily search in current buffer<br><code>mode=n</code> |
+| <code>&lt;leader&gt;1</code> | [<code>&lt;cmd&gt;HarpoonSelect 1&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L84) | Harpoon file 1<br><code>mode=n</code> |
+| <code>&lt;leader&gt;2</code> | [<code>&lt;cmd&gt;HarpoonSelect 2&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L85) | Harpoon file 2<br><code>mode=n</code> |
+| <code>&lt;leader&gt;3</code> | [<code>&lt;cmd&gt;HarpoonSelect 3&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L86) | Harpoon file 3<br><code>mode=n</code> |
+| <code>&lt;leader&gt;4</code> | [<code>&lt;cmd&gt;HarpoonSelect 4&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L87) | Harpoon file 4<br><code>mode=n</code> |
+| <code>&lt;leader&gt;&lt;leader&gt;</code> | [<code>&lt;cmd&gt;Telescope buffers&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L71) | &#91; &#93; Find existing buffers<br><code>mode=n</code> |
+| <code>&lt;leader&gt;a</code> | [<code>&lt;cmd&gt;HarpoonAdd&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L82) | Harpoon: &#91;A&#93;dd file<br><code>mode=n</code> |
+| <code>&lt;leader&gt;d</code> | [<code>&lt;cmd&gt;Trouble diagnostics toggle&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L53) | Diagnostics (Trouble)<br><code>mode=n</code> |
+| <code>&lt;leader&gt;e</code> | [<code>&lt;cmd&gt;Neotree toggle&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L46) | File &#91;E&#93;xplorer<br><code>mode=n</code> |
+| <code>&lt;leader&gt;f</code> | [<code>&lt;cmd&gt;Format&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L57) | &#91;F&#93;ormat buffer<br><code>mode=n,v</code> |
+| <code>&lt;leader&gt;g</code> | [<code>&lt;cmd&gt;Lazygit&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L78) | Lazygit<br><code>mode=n</code> |
+| <code>&lt;leader&gt;gD</code> | [<code>&lt;cmd&gt;Gitsigns diffthis @&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L108) | git &#91;D&#93;iff against last commit<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;gR</code> | [<code>&lt;cmd&gt;Gitsigns reset_buffer&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L104) | git &#91;R&#93;eset buffer<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;gS</code> | [<code>&lt;cmd&gt;Gitsigns stage_buffer&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L102) | git &#91;S&#93;tage buffer<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;gb</code> | [<code>&lt;cmd&gt;Gitsigns blame_line&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L106) | git &#91;b&#93;lame line<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;gd</code> | [<code>&lt;cmd&gt;Gitsigns diffthis&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L107) | git &#91;d&#93;iff against index<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;gp</code> | [<code>&lt;cmd&gt;Gitsigns preview_hunk&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L105) | git &#91;p&#93;review hunk<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;gr</code> | [<code>&lt;cmd&gt;Gitsigns reset_hunk&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L101) | git &#91;r&#93;eset hunk<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;gs</code> | [<code>&lt;cmd&gt;Gitsigns stage_hunk&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L100) | git &#91;s&#93;tage hunk<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;gu</code> | [<code>&lt;cmd&gt;Gitsigns undo_stage_hunk&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L103) | git &#91;u&#93;ndo stage hunk<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;hr</code> | [<code>callback @L97</code>](../../shared/nvim/lua/cmds.lua#L97) | git &#91;r&#93;eset hunk<br><code>M.gitsigns; mode=v; buffer=bufnr</code> |
+| <code>&lt;leader&gt;hs</code> | [<code>callback @L94</code>](../../shared/nvim/lua/cmds.lua#L94) | git &#91;s&#93;tage hunk<br><code>M.gitsigns; mode=v; buffer=bufnr</code> |
+| <code>&lt;leader&gt;nl</code> | [<code>&lt;cmd&gt;Lazy&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L13) | Lazy Open<br><code>mode=n</code> |
+| <code>&lt;leader&gt;nq</code> | [<code>&lt;cmd&gt;NeovimClose&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L11) | Neovim Close<br><code>mode=n</code> |
+| <code>&lt;leader&gt;nr</code> | [<code>&lt;cmd&gt;NeovimRestart&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L9) | Neovim Restart<br><code>mode=n</code> |
+| <code>&lt;leader&gt;ns</code> | [<code>&lt;cmd&gt;Lazy sync&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L12) | Neovim Sync<br><code>mode=n</code> |
+| <code>&lt;leader&gt;p</code> | [<code>"_dP</code>](../../shared/nvim/lua/keymaps.lua#L19) | Replace line with yanked content<br><code>mode=n</code> |
+| <code>&lt;leader&gt;q</code> | [<code>&lt;cmd&gt;lua vim.diagnostic.setloclist()&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L52) | Open diagnostic &#91;Q&#93;uickfix list<br><code>mode=n</code> |
+| <code>&lt;leader&gt;rn</code> | [<code>vim.lsp.buf.rename</code>](../../shared/nvim/lua/cmds.lua#L141) | LSP: &#91;R&#93;e&#91;n&#93;ame<br><code>mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;rr</code> | [<code>&lt;cmd&gt;NeovimRestart&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L10) | Restart Neovim<br><code>mode=n</code> |
+| <code>&lt;leader&gt;s.</code> | [<code>&lt;cmd&gt;Telescope oldfiles&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L69) | &#91;S&#93;earch Recent Files ("." for repeat)<br><code>mode=n</code> |
+| <code>&lt;leader&gt;s/</code> | [<code>&lt;cmd&gt;SearchGrepOpen&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L73) | &#91;S&#93;earch &#91;/&#93; in Open Files<br><code>mode=n</code> |
+| <code>&lt;leader&gt;sc</code> | [<code>&lt;cmd&gt;Telescope commands&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L70) | &#91;S&#93;earch &#91;C&#93;ommands<br><code>mode=n</code> |
+| <code>&lt;leader&gt;sd</code> | [<code>&lt;cmd&gt;Telescope diagnostics&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L67) | &#91;S&#93;earch &#91;D&#93;iagnostics<br><code>mode=n</code> |
+| <code>&lt;leader&gt;sf</code> | [<code>&lt;cmd&gt;SearchFiles&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L63) | &#91;S&#93;earch &#91;F&#93;iles<br><code>mode=n</code> |
+| <code>&lt;leader&gt;sg</code> | [<code>&lt;cmd&gt;SearchGrep&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L66) | &#91;S&#93;earch by &#91;G&#93;rep<br><code>mode=n</code> |
+| <code>&lt;leader&gt;sh</code> | [<code>&lt;cmd&gt;Telescope help_tags&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L61) | &#91;S&#93;earch &#91;H&#93;elp<br><code>mode=n</code> |
+| <code>&lt;leader&gt;sk</code> | [<code>&lt;cmd&gt;Telescope keymaps&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L62) | &#91;S&#93;earch &#91;K&#93;eymaps<br><code>mode=n</code> |
+| <code>&lt;leader&gt;sn</code> | [<code>&lt;cmd&gt;SearchConfig&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L74) | &#91;S&#93;earch &#91;N&#93;eovim files<br><code>mode=n</code> |
+| <code>&lt;leader&gt;sr</code> | [<code>&lt;cmd&gt;Telescope resume&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L68) | &#91;S&#93;earch &#91;R&#93;esume<br><code>mode=n</code> |
+| <code>&lt;leader&gt;ss</code> | [<code>&lt;cmd&gt;Telescope builtin&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L64) | &#91;S&#93;earch &#91;S&#93;elect Telescope<br><code>mode=n</code> |
+| <code>&lt;leader&gt;sw</code> | [<code>&lt;cmd&gt;Telescope grep_string&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L65) | &#91;S&#93;earch current &#91;W&#93;ord<br><code>mode=n,v</code> |
+| <code>&lt;leader&gt;tD</code> | [<code>&lt;cmd&gt;Gitsigns preview_hunk_inline&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L113) | &#91;T&#93;oggle git show &#91;D&#93;eleted<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;tb</code> | [<code>&lt;cmd&gt;Gitsigns toggle_current_line_blame&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L109) | &#91;T&#93;oggle git show &#91;b&#93;lame line<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;th</code> | [<code>callback @L155</code>](../../shared/nvim/lua/cmds.lua#L155) | LSP: &#91;T&#93;oggle Inlay &#91;H&#93;ints<br><code>client and client:supports_method("textDocument/inlayHint", bufnr); mode=n; buffer=bufnr</code> |
+| <code>&lt;leader&gt;w&lt;Down&gt;</code> | [<code>&lt;cmd&gt;rightbelow new&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L41) | Split down<br><code>mode=n</code> |
+| <code>&lt;leader&gt;w&lt;Left&gt;</code> | [<code>&lt;cmd&gt;leftabove vnew&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L38) | Split left<br><code>mode=n</code> |
+| <code>&lt;leader&gt;w&lt;Right&gt;</code> | [<code>&lt;cmd&gt;rightbelow vnew&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L39) | Split right<br><code>mode=n</code> |
+| <code>&lt;leader&gt;w&lt;Up&gt;</code> | [<code>&lt;cmd&gt;leftabove new&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L40) | Split up<br><code>mode=n</code> |
+| <code>&lt;leader&gt;wq</code> | [<code>&lt;cmd&gt;close&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L42) | Close current window<br><code>mode=n</code> |
+| <code>&lt;leader&gt;x</code> | [<code>&lt;cmd&gt;bdelete&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L25) | Close buffer<br><code>mode=n</code> |
+| <code>J</code> | [<code>:m '&gt;+1&lt;CR&gt;gv=gv</code>](../../shared/nvim/lua/keymaps.lua#L17) | Move selection down<br><code>mode=v</code> |
+| <code>K</code> | [<code>:m '&lt;-2&lt;CR&gt;gv=gv</code>](../../shared/nvim/lua/keymaps.lua#L18) | Move selection up<br><code>mode=v</code> |
+| <code>&#91;c</code> | [<code>callback @L91</code>](../../shared/nvim/lua/cmds.lua#L91) | Jump to previous git &#91;c&#93;hange<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>&#93;c</code> | [<code>callback @L88</code>](../../shared/nvim/lua/cmds.lua#L88) | Jump to next git &#91;c&#93;hange<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
+| <code>gO</code> | [<code>&lt;cmd&gt;Telescope lsp_document_symbols&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L148) | Open Document Symbols<br><code>mode=n; buffer=bufnr</code> |
+| <code>gW</code> | [<code>&lt;cmd&gt;Telescope lsp_dynamic_workspace_symbols&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L149) | Open Workspace Symbols<br><code>mode=n; buffer=bufnr</code> |
+| <code>grD</code> | [<code>vim.lsp.buf.declaration</code>](../../shared/nvim/lua/cmds.lua#L143) | LSP: &#91;G&#93;oto &#91;D&#93;eclaration<br><code>mode=n; buffer=bufnr</code> |
+| <code>gra</code> | [<code>vim.lsp.buf.code_action</code>](../../shared/nvim/lua/cmds.lua#L142) | LSP: &#91;G&#93;oto Code &#91;A&#93;ction<br><code>mode=n,x; buffer=bufnr</code> |
+| <code>grd</code> | [<code>&lt;cmd&gt;Telescope lsp_definitions&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L146) | &#91;G&#93;oto &#91;D&#93;efinition<br><code>mode=n; buffer=bufnr</code> |
+| <code>gri</code> | [<code>&lt;cmd&gt;Telescope lsp_implementations&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L145) | &#91;G&#93;oto &#91;I&#93;mplementation<br><code>mode=n; buffer=bufnr</code> |
+| <code>grn</code> | [<code>vim.lsp.buf.rename</code>](../../shared/nvim/lua/cmds.lua#L140) | LSP: &#91;R&#93;e&#91;n&#93;ame<br><code>mode=n; buffer=bufnr</code> |
+| <code>grr</code> | [<code>&lt;cmd&gt;Telescope lsp_references&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L144) | &#91;G&#93;oto &#91;R&#93;eferences<br><code>mode=n; buffer=bufnr</code> |
+| <code>grt</code> | [<code>&lt;cmd&gt;Telescope lsp_type_definitions&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L147) | &#91;G&#93;oto &#91;T&#93;ype Definition<br><code>mode=n; buffer=bufnr</code> |
+| <code>q</code> | [<code>quit</code>](../../shared/nvim/lua/utils/search.lua#L50) | Close terminal search<br><code>bind_quit; for _, bufnr in ipairs(picker_buffers(picker)); mode=n; buffer=bufnr; nowait=true</code> |
