@@ -104,7 +104,7 @@ fn is_preset(destination: &Path) -> bool {
             .is_some_and(|parent| parent.ends_with("systemd/system-preset"))
 }
 
-fn valid(unit: &str) -> bool {
+pub(crate) fn valid(unit: &str) -> bool {
     unit.rsplit_once('.').is_some_and(|(name, kind)| {
         !name.is_empty()
             && matches!(

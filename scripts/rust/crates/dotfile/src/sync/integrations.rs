@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use crate::context::{Context, write_atomic};
 use crate::event::{Action, Event, EventSink, Phase};
@@ -42,6 +43,9 @@ pub fn synchronize(
         .any(|group| group == "linux/hyprland")
     {
         hyprland(context, dry_run, events, &mut outcome, &mut warnings)?;
+    }
+    if command_exists("systemctl") {
+        user_units(context, dry_run, events, &mut outcome, &mut warnings)?;
     }
     let mut git_configs = git_config.join().unwrap_or_default();
     git_settings(
@@ -132,6 +136,147 @@ fn hyprland(
         let _ = Command::new("hyprctl").arg("reload").output();
     }
     Ok(())
+}
+
+/// Reloads systemd when a linked user unit changed on disk, then restarts the running ones.
+fn user_units(
+    context: &Context,
+    dry_run: bool,
+    events: &dyn EventSink,
+    outcome: &mut IntegrationOutcome,
+    warnings: &mut Vec<(String, Option<String>)>,
+) -> Result<(), String> {
+    crate::cancel::check()?;
+    let directory = context.external_config.join("systemd/user");
+    let linked = linked_units(context, &directory);
+    if linked.is_empty() {
+        return Ok(());
+    }
+    outcome.checked += linked.len();
+    let mut show = context.command("systemctl");
+    show.args([
+        "--user",
+        "show",
+        "--property=Id,NeedDaemonReload,ActiveState",
+        "--",
+    ])
+    .args(&linked);
+    let stale = match systemctl(&mut show, Duration::from_secs(5)) {
+        Ok(stdout) => stale_units(&stdout),
+        Err(message) => {
+            warnings.push((message, None));
+            return Ok(());
+        }
+    };
+    if stale.is_empty() {
+        return Ok(());
+    }
+    let running: Vec<&str> = stale
+        .iter()
+        .filter(|(_, running)| *running)
+        .map(|(unit, _)| unit.as_str())
+        .collect();
+    let mut restarted = true;
+    if !dry_run {
+        crate::cancel::check()?;
+        let mut reload = context.command("systemctl");
+        reload.args(["--user", "daemon-reload"]);
+        if let Err(message) = systemctl(&mut reload, Duration::from_secs(30)) {
+            warnings.push((message, Some("systemctl --user daemon-reload".to_string())));
+            return Ok(());
+        }
+        if !running.is_empty() {
+            let mut restart = context.command("systemctl");
+            restart.args(["--user", "try-restart", "--"]).args(&running);
+            if let Err(message) = systemctl(&mut restart, Duration::from_secs(60)) {
+                restarted = false;
+                warnings.push((
+                    message,
+                    Some(format!("systemctl --user restart {}", running.join(" "))),
+                ));
+            }
+        }
+    }
+    for (unit, running) in &stale {
+        outcome.changed += 1;
+        events.emit(Event::Item {
+            action: Action::Sync,
+            path: directory.join(unit),
+            detail: match (running, restarted) {
+                (true, true) => "restarted",
+                (true, false) => "reloaded; restart failed",
+                (false, _) => "reloaded",
+            }
+            .to_string(),
+            changed: true,
+        });
+    }
+    Ok(())
+}
+
+fn linked_units(context: &Context, directory: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut units: Vec<String> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let target = fs::read_link(entry.path()).ok()?;
+            let name = entry.file_name().into_string().ok()?;
+            (directory.join(target).starts_with(&context.root)
+                && crate::system::units::valid(&name))
+            .then_some(name)
+        })
+        .collect();
+    units.sort();
+    units
+}
+
+/// `systemctl show` prints one blank-line separated block per unit, in any property order.
+fn stale_units(stdout: &str) -> Vec<(String, bool)> {
+    stdout
+        .split("\n\n")
+        .filter_map(|block| {
+            let mut id = None;
+            let mut stale = false;
+            let mut running = false;
+            for line in block.lines() {
+                match line.split_once('=') {
+                    Some(("Id", value)) => id = Some(value.to_string()),
+                    Some(("NeedDaemonReload", value)) => stale = value == "yes",
+                    Some(("ActiveState", value)) => {
+                        running = matches!(value, "active" | "activating" | "reloading");
+                    }
+                    _ => {}
+                }
+            }
+            match (id, stale) {
+                (Some(id), true) => Some((id, running)),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+fn systemctl(command: &mut Command, timeout: Duration) -> Result<String, String> {
+    let label = format!(
+        "systemctl {}",
+        command
+            .get_args()
+            .map(|argument| argument.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    let output =
+        crate::process::output(command, hostkit::process::CaptureLimits::default(), timeout)
+            .map_err(|error| format!("{label}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "{label}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// Repository-local Git settings this repository depends on: hooks that run the

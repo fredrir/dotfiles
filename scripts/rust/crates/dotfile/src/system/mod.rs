@@ -12,7 +12,7 @@ use crate::secret::vault::{self, SecretEntry, SecretKind, Variables};
 use clap::{Args as ClapArgs, Subcommand};
 
 mod preserve;
-mod units;
+pub(crate) mod units;
 use units::Unit;
 
 #[derive(Debug, ClapArgs)]
