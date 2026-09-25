@@ -39,7 +39,7 @@ new session uses USB
 
 `<peer>.local` answers on every link the peer advertises on, and
 `avahi-resolve-host-name` returns one address without regard to interface. With
-the cable up it returned `10.77.77.1` for `macie-2.local` every time, so the
+the cable up it returned `10.77.77.1` for `macie.local` every time, so the
 subnet filter rejected it and the LAN route went dead for as long as the cable
 was plugged in.
 
@@ -54,7 +54,7 @@ was plugged in.
 | Cached | pair refreshed by the LAN mux relays; see [wezterm-mux.md](wezterm-mux.md#the-lan-route) |
 
 ```console
-$ avahi-browse -a -r -t -p | grep macie-2.local
+$ avahi-browse -a -r -t -p | grep macie.local
 ```
 
 ## Direct Wi-Fi AP

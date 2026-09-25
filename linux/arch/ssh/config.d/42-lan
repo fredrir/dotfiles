@@ -1,5 +1,5 @@
 Host lan-macie
-    HostName macie-2.local
+    HostName macie.local
     User fredrir
     HostKeyAlias macie
     ProxyCommand ~/dotfiles/scripts/shell/home-lan-connect %h %p

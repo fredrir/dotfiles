@@ -1,7 +1,7 @@
 # ProxyCommand must only be added after both earlier routes fail. OpenSSH
 # keeps an earlier HostName but would still accept this later, unset option.
-Match originalhost macie exec "! /usr/bin/nc -4 -z -w 1 -s 10.77.77.2 10.77.77.1 22 >/dev/null 2>&1 && ! /usr/bin/nc -4 -z -w 1 -s 10.77.78.2 10.77.78.1 22 >/dev/null 2>&1 && ~/dotfiles/scripts/shell/home-lan-connect --probe macie-2.local 22 >/dev/null 2>&1"
-    HostName macie-2.local
+Match originalhost macie exec "! /usr/bin/nc -4 -z -w 1 -s 10.77.77.2 10.77.77.1 22 >/dev/null 2>&1 && ! /usr/bin/nc -4 -z -w 1 -s 10.77.78.2 10.77.78.1 22 >/dev/null 2>&1 && ~/dotfiles/scripts/shell/home-lan-connect --probe macie.local 22 >/dev/null 2>&1"
+    HostName macie.local
     User fredrir
     HostKeyAlias macie
     ProxyCommand ~/dotfiles/scripts/shell/home-lan-connect %h %p

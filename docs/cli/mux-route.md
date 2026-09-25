@@ -37,7 +37,7 @@ failure, as is naming this machine: its panes are already in `localmux`.
 $ mux-route --list
 down  cable      10.77.77.2:8443
 down  wifi       10.77.78.2:8443
-up    lan        192.168.1.162:8443  archie-lan
+up    lan        192.168.50.248:8443 archie-lan
 up    tailscale  100.124.205.100:8443 archie-tailscale
 ```
 
