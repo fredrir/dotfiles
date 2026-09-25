@@ -1,4 +1,5 @@
 local wezterm = require "wezterm"
+local host = require "domain.hosts" ---@type Hosts"
 
 local local_domains = {
   ["local"] = true,
@@ -89,4 +90,116 @@ local function is_remote(pane)
   return is_remote_program(pane:get_foreground_process_name())
 end
 
-return is_remote
+-- ssh(1)/mosh(1) options that consume the following argument
+local value_options = {
+  B = true,
+  c = true,
+  D = true,
+  E = true,
+  e = true,
+  F = true,
+  I = true,
+  i = true,
+  J = true,
+  L = true,
+  l = true,
+  m = true,
+  O = true,
+  o = true,
+  P = true,
+  p = true,
+  Q = true,
+  R = true,
+  S = true,
+  W = true,
+  w = true,
+  ssh = true,
+  port = true,
+  predict = true,
+}
+
+---@param command string?
+---@return string?
+local function command_target(command)
+  ---@type string[]
+  local tokens = {}
+  for token in (command or ""):gmatch "%S+" do
+    table.insert(tokens, token)
+  end
+
+  local executable = tokens[1] and tokens[1]:match "([^/\\]+)$"
+  if not executable or not remote_programs[executable:lower():gsub("%.exe$", "")] then
+    return nil
+  end
+
+  local skip = false
+  for index = 2, #tokens do
+    local token = tokens[index]
+    if skip then
+      skip = false
+    elseif token:sub(1, 1) == "-" then
+      local option = token:match "^%-%-([^=]+)" or token:match "^%-(.)"
+      local attached = token:find("=", 1, true) ~= nil or (token:sub(1, 2) ~= "--" and #token > 2)
+      if option and value_options[option] and not attached then
+        skip = true
+      end
+    else
+      return token:match "[^@]+$"
+    end
+  end
+end
+
+---@param pane Pane
+---@return string?
+local function target(pane)
+  local user_vars = pane:get_user_vars()
+
+  if is_remote_hostname(user_vars.WEZTERM_HOST) then
+    return command_target(user_vars.WEZTERM_PROG) or user_vars.WEZTERM_HOST
+  end
+
+  local cwd = pane:get_current_working_dir()
+  if cwd ~= nil and is_remote_hostname(cwd.host) then
+    return cwd.host
+  end
+
+  return command_target(user_vars.WEZTERM_PROG)
+end
+
+---@param window Window
+---@param pane Pane
+---@return string?
+local function ssh_target(window, pane)
+  local name = pane:get_domain_name()
+
+  if name and name ~= "" then
+    local config = window:effective_config()
+
+    for _, domain in ipairs(config.ssh_domains or {}) do
+      if domain.name == name then
+        return name
+      end
+    end
+
+    for _, domain in ipairs(config.unix_domains or {}) do
+      if domain.name == name and domain.proxy_command then
+        return name
+      end
+    end
+
+    for _, domain in ipairs(config.tls_clients or {}) do
+      if domain.name == name then
+        return host.target.hostname
+      end
+    end
+  end
+
+  local platform = require "utils.platform" -- deferred: utils.platform requires utils.remote
+  return platform.remote_target(pane)
+end
+
+return {
+  is_remote = is_remote,
+  target = target,
+  ssh_target = ssh_target,
+}

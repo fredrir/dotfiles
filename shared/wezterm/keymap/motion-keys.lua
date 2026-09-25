@@ -1,97 +1,83 @@
 local wezterm = require "wezterm"
 local MOD = require "keymap.modifiers"
+local map = require "keymap.map"
 local act = wezterm.action
-
-local ctrl_a = "\x01"
-local ctrl_b = "\x02"
-local ctrl_e = "\x05"
-local ctrl_u = "\x15"
-local ctrl_k = "\x0b"
-
-local ctrl_home = "\x1b[1;5H"
-local ctrl_end = "\x1b[1;5F"
-local shift_home = "\x1b[1;2H"
-local shift_end = "\x1b[1;2F"
-local ctrl_shift_home = "\x1b[1;6H"
-local ctrl_shift_end = "\x1b[1;6F"
-
-local shift_left = "\x1b[1;2D"
-local shift_right = "\x1b[1;2C"
-local shift_up = "\x1b[1;2A"
-local shift_down = "\x1b[1;2B"
-local home = "\x1b[H"
-local line_end = "\x1b[F"
-local ctrl_left = "\x1b[1;5D"
-local ctrl_right = "\x1b[1;5C"
-local ctrl_shift_left = "\x1b[1;6D"
-local ctrl_shift_right = "\x1b[1;6C"
-
-local alt_b = act.SendKey { key = "b", mods = "ALT" }
-local alt_f = act.SendKey { key = "f", mods = "ALT" }
-local ctrl_a_key = act.SendKey { key = "a", mods = "CTRL" }
-local ctrl_e_key = act.SendKey { key = "e", mods = "CTRL" }
-
-local shift_enter_sequence = "\x1b[13;2u"
-local shift_enter = act.SendString(shift_enter_sequence)
-
-local open_line_below = act.SendString(ctrl_e .. shift_enter_sequence)
-local open_line_above = act.SendString(ctrl_a .. shift_enter_sequence .. ctrl_b)
-
-local delete_to_start = act.SendString(ctrl_u)
-local delete_to_end = act.SendString(ctrl_k)
 
 ---@type KeySpec[]
 local motion_keys = {
-  { key = "LeftArrow", mods = MOD.UNIQUE, action = act.SendString(ctrl_left), alt_b },
-  { key = "RightArrow", mods = MOD.UNIQUE, action = act.SendString(ctrl_right), alt_f },
-  { key = "LeftArrow", mods = MOD.PRIMARY, action = act.SendString(home), ctrl_a_key },
-  { key = "RightArrow", mods = MOD.PRIMARY, action = act.SendString(line_end), ctrl_e_key },
+  { -- Back one word
+    key = "LeftArrow",
+    mods = MOD.UNIQUE,
+    action = act.SendString(map.ctrl_left),
+    act.SendKey { key = "b", mods = "ALT" },
+  },
+  { -- Forward one word
+    key = "RightArrow",
+    mods = MOD.UNIQUE,
+    action = act.SendString(map.ctrl_right),
+    act.SendKey { key = "f", mods = "ALT" },
+  },
+  { -- Line start
+    key = "LeftArrow",
+    mods = MOD.PRIMARY,
+    action = act.SendString(map.home),
+    act.SendKey { key = "a", mods = "CTRL" },
+  },
+  { -- Line end
+    key = "RightArrow",
+    mods = MOD.PRIMARY,
+    action = act.SendString(map.line_end),
+    act.SendKey { key = "e", mods = "CTRL" },
+  },
 
-  { key = "UpArrow", mods = MOD.PRIMARY, action = act.SendString(ctrl_home), act.ScrollToTop },
-  {
+  { -- Document start
+    key = "UpArrow",
+    mods = MOD.PRIMARY,
+    action = act.ScrollToTop,
+  },
+  { -- Document end
     key = "DownArrow",
     mods = MOD.PRIMARY,
-    action = act.SendString(ctrl_end),
-    act.ScrollToBottom,
+    action = act.ScrollToBottom,
   },
-  { key = "LeftArrow", mods = MOD.SUPER_REV, action = act.SendString(shift_home) },
-  { key = "RightArrow", mods = MOD.SUPER_REV, action = act.SendString(shift_end) },
-  { key = "UpArrow", mods = MOD.SUPER_REV, action = act.SendString(ctrl_shift_home) },
-  { key = "DownArrow", mods = MOD.SUPER_REV, action = act.SendString(ctrl_shift_end) },
+  { key = "LeftArrow", mods = MOD.SUPER_REV, action = act.SendString(map.shift_home) }, -- Select to line start
+  { key = "RightArrow", mods = MOD.SUPER_REV, action = act.SendString(map.shift_end) }, -- Select to line end
+  { key = "UpArrow", mods = MOD.SUPER_REV, action = act.SendString(map.ctrl_shift_home) }, -- Select to document start
+  { key = "DownArrow", mods = MOD.SUPER_REV, action = act.SendString(map.ctrl_shift_end) }, -- Select to document end
 
-  { key = "UpArrow", mods = MOD.UNIQUE, action = act.ScrollToPrompt(-1) },
-  { key = "DownArrow", mods = MOD.UNIQUE, action = act.ScrollToPrompt(1) },
+  { key = "UpArrow", mods = MOD.UNIQUE, action = act.ScrollToPrompt(-1) }, -- Previous prompt
+  { key = "DownArrow", mods = MOD.UNIQUE, action = act.ScrollToPrompt(1) }, -- Next prompt
 
-  { key = "LeftArrow", mods = "SHIFT", action = act.SendString(shift_left) },
-  { key = "RightArrow", mods = "SHIFT", action = act.SendString(shift_right) },
-  { key = "UpArrow", mods = "SHIFT", action = act.SendString(shift_up) },
-  { key = "DownArrow", mods = "SHIFT", action = act.SendString(shift_down) },
-  { key = "LeftArrow", mods = MOD.UNIQUE .. "|SHIFT", action = act.SendString(ctrl_shift_left) },
-  { key = "RightArrow", mods = MOD.UNIQUE .. "|SHIFT", action = act.SendString(ctrl_shift_right) },
-  {
+  { key = "LeftArrow", mods = "SHIFT", action = act.SendString(map.shift_left) }, -- Select char left
+  { key = "RightArrow", mods = "SHIFT", action = act.SendString(map.shift_right) }, -- Select char right
+  { key = "UpArrow", mods = "SHIFT", action = act.SendString(map.shift_up) }, -- Select line up
+  { key = "DownArrow", mods = "SHIFT", action = act.SendString(map.shift_down) }, -- Select line down
+  { key = "LeftArrow", mods = MOD.UNIQUE .. "|SHIFT", action = act.SendString(map.ctrl_shift_left) }, -- Select word left
+  { key = "RightArrow", mods = MOD.UNIQUE .. "|SHIFT", action = act.SendString(map.ctrl_shift_right) }, -- Select word right
+  { -- Newline without submit
     key = "Enter",
     mods = "SHIFT",
-    action = shift_enter,
+    action = act.SendString(map.shift_enter),
   },
-  {
+  { -- Open line below
     key = "Enter",
     mods = MOD.PRIMARY,
-    action = open_line_below,
+    action = act.SendString(map.ctrl_e .. map.shift_enter),
   },
-  {
+  { -- Open line above
     key = "Enter",
     mods = MOD.PRIMARY .. "|SHIFT",
-    action = open_line_above,
+    action = act.SendString(map.ctrl_a .. map.shift_enter .. map.ctrl_b),
   },
-  {
+  { -- Delete to start
     key = "Backspace",
     mods = MOD.PRIMARY,
-    action = delete_to_start,
+    action = act.SendString(map.ctrl_u),
   },
-  {
+  { -- Delete to end
     key = "Backspace",
     mods = MOD.SUPER_REV,
-    action = delete_to_end,
+    action = act.SendString(map.ctrl_k),
   },
 }
 

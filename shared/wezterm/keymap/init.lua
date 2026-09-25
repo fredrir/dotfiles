@@ -1,6 +1,6 @@
 local wezterm = require "wezterm" ---@type Wezterm
 local platform = require "utils.platform"
-local bind_keys = require "utils.bind-keys"
+local bind_keys = require "utils.keymap.bind-keys"
 local physical_keys = require "keymap.physical-keys"
 local motion_keys = require "keymap.motion-keys"
 local extend = require "utils.extend"
@@ -12,12 +12,12 @@ local mux = require "utils.mux"
 local attach_mux = require "utils.attach-mux"
 local hwire_session = require "utils.hwire-session"
 local MOD = require "keymap.modifiers"
-local open_vscode = require "utils.open-vscode"
-local open_github = require "utils.open-github"
-local open_yazi = require "utils.open-yazi"
+local open_vscode = require "utils.keymap.open-vscode"
+local open_github = require "utils.keymap.open-github"
+local open_yazi = require "utils.keymap.open-yazi"
 local close_window = require "utils.close_window"
 local copy_selection = require "utils.copy-selection"
-require "utils.scrollback"
+local clear_screen = require "utils.keymap.clear_screen"
 
 local act = wezterm.action
 
@@ -109,10 +109,7 @@ local keys = bind_keys {
   {
     key = "l",
     mods = platform.is_mac and { MOD.PRIMARY, MOD.SECONDARY, MOD.UNIQUE } or { MOD.PRIMARY, MOD.UNIQUE },
-    action = act.SendKey {
-      key = "l",
-      mods = "CTRL",
-    },
+    action = clear_screen,
   },
   { key = "LeftArrow", mods = MOD.SUPER_REV_2, action = act.AdjustPaneSize { "Left", 3 } },
   { key = "RightArrow", mods = MOD.SUPER_REV_2, action = act.AdjustPaneSize { "Right", 3 } },

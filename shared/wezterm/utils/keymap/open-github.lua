@@ -1,6 +1,6 @@
 local wezterm = require "wezterm" ---@type Wezterm
 local platform = require "utils.platform"
-local host = require "domain.hosts" ---@type Hosts
+local remote = require "utils.remote"
 
 local SCRIPT = [[
 root=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) || exit 1
@@ -84,36 +84,6 @@ end
 
 ---@param window Window
 ---@param pane Pane
----@return string?
-local function ssh_target(window, pane)
-  local name = pane:get_domain_name()
-  if not name or name == "" then
-    return
-  end
-
-  local config = window:effective_config()
-
-  for _, domain in ipairs(config.ssh_domains or {}) do
-    if domain.name == name then
-      return name
-    end
-  end
-
-  for _, domain in ipairs(config.unix_domains or {}) do
-    if domain.name == name and domain.proxy_command then
-      return name
-    end
-  end
-
-  for _, domain in ipairs(config.tls_clients or {}) do
-    if domain.name == name then
-      return host.target.hostname
-    end
-  end
-end
-
----@param window Window
----@param pane Pane
 ---@param cwd Url
 ---@return string?
 local function resolve(window, pane, cwd)
@@ -123,7 +93,7 @@ local function resolve(window, pane, cwd)
     return run_login(command)
   end
 
-  local target = ssh_target(window, pane)
+  local target = remote.ssh_target(window, pane)
   if not target then
     return
   end
