@@ -61,14 +61,14 @@ def test_doctor_reports_link_health(tool, sandbox):
     tool("dotfile", "sync", "test", env=env)
     result = tool("dotfile", "doctor", "test", env=env)
     assert result.returncode == 0
-    assert "1 linked, 0 missing, 0 differing" in result.stdout
+    assert "nothing missing" in result.stdout
 
 
 def test_doctor_fails_when_a_profile_link_is_missing(tool, sandbox):
     _repo, _home, env = sandbox
     result = tool("dotfile", "doctor", "test", env=env)
     assert result.returncode == 1
-    assert "0 linked, 1 missing, 0 differing" in result.stdout
+    assert "Issues:\nlinks  ~/.config/alpha\n" in result.stdout
 
 
 def test_an_unregistered_name_runs_the_binary_behind_it(tool, tmp_path):

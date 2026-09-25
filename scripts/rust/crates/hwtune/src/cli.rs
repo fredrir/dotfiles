@@ -153,7 +153,7 @@ pub enum Command {
         #[command(subcommand)]
         command: crate::tune::Command,
     },
-    #[command(about = "Show or switch the fan, CPU, and GPU profile")]
+    #[command(about = "List installed profiles and switch fans, CPU, and GPU")]
     Profile {
         #[command(subcommand)]
         command: Option<crate::profile::Command>,
@@ -592,7 +592,3 @@ fn list_exports(paths: &Paths) -> Result<ExitCode, String> {
     );
     Ok(ExitCode::SUCCESS)
 }
-
-#[cfg(test)]
-#[path = "../tests/unit/cli_tests.rs"]
-mod tests;

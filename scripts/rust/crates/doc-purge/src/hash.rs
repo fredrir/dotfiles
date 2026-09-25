@@ -602,7 +602,7 @@ impl<'a> Shell<'a> {
     }
 
     fn take_heredocs(&mut self) -> Result<(), Bail> {
-        let queued: Vec<Here> = self.heredocs.drain(..).collect();
+        let queued = std::mem::take(&mut self.heredocs);
         for here in queued {
             let body = self.at;
             loop {
@@ -858,7 +858,7 @@ impl<'a> Ruby<'a> {
     }
 
     fn take_heredocs(&mut self) -> Result<(), Bail> {
-        let queued: Vec<Here> = self.heredocs.drain(..).collect();
+        let queued = std::mem::take(&mut self.heredocs);
         for here in queued {
             let body = self.at;
             loop {

@@ -24,7 +24,6 @@ hwtune tune auto --apply
 hwtune tune apply
 hwtune run --profile performance -- cargo build --release
 hwtune profile
-hwtune profile list
 hwtune profile set comfort
 hwtune curve status
 hwtune curve bench

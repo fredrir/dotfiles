@@ -128,43 +128,6 @@ fn class(pattern: &[char], at: usize, ch: char) -> Option<(usize, bool)> {
     None
 }
 
-fn compact(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    let mut space = false;
-    for ch in text.chars() {
-        if let Some(mark) = quote {
-            out.push(ch);
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == mark {
-                quote = None;
-            }
-            continue;
-        }
-        if ch == '"' || ch == '\'' {
-            if space && !out.is_empty() {
-                out.push(' ');
-            }
-            space = false;
-            quote = Some(ch);
-            out.push(ch);
-        } else if ch == ' ' || ch == '\t' {
-            space = true;
-        } else {
-            if space && !out.is_empty() {
-                out.push(' ');
-            }
-            space = false;
-            out.push(ch);
-        }
-    }
-    out
-}
-
 fn format_lines(lines: &[&str], mode: Mode) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut printed = false;

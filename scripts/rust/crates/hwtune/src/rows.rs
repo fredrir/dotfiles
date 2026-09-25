@@ -51,13 +51,26 @@ impl Row {
     }
 }
 
-pub fn mark(kind: Kind, style: &Style) -> String {
+pub fn state(kind: Kind) -> &'static str {
     match kind {
-        Kind::Ok => style.paint(Role::Success, "ok  "),
-        Kind::Bad => style.paint(Role::Danger, "bad "),
-        Kind::Warn => style.paint(Role::Warning, "warn"),
-        Kind::Note => style.paint(Role::Muted, "note"),
+        Kind::Ok => "ok",
+        Kind::Bad => "bad",
+        Kind::Warn => "warn",
+        Kind::Note => "note",
     }
+}
+
+pub fn role(kind: Kind) -> Role {
+    match kind {
+        Kind::Ok => Role::Success,
+        Kind::Bad => Role::Danger,
+        Kind::Warn => Role::Warning,
+        Kind::Note => Role::Muted,
+    }
+}
+
+pub fn mark(kind: Kind, style: &Style) -> String {
+    style.paint(role(kind), &format!("{:<4}", state(kind)))
 }
 
 pub fn render(rows: &[Row], style: &Style) -> String {

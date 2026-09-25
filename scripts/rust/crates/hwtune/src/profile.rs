@@ -8,6 +8,7 @@ use std::time::Duration;
 use clap::Subcommand;
 use hostkit::process::{self, CaptureLimits};
 use serde_yaml_ng::Value;
+use ui_theme::Role;
 use workstation::Style;
 
 use crate::env::{Sysfs, read_text};
@@ -20,8 +21,6 @@ const UNITS: [&str; 2] = ["fan2go.service", "cpu-power.service"];
 
 #[derive(Subcommand)]
 pub enum Command {
-    #[command(about = "List installed profiles")]
-    List,
     #[command(about = "Switch fans, CPU, and GPU to a profile")]
     Set { name: String },
 }
@@ -76,16 +75,17 @@ impl Profile {
             .collect()
     }
 
-    fn cpu_summary(&self) -> String {
-        self.cpu.as_ref().map_or("missing".into(), cpu_summary)
+    fn cpu_cell(&self, layout: &CpuLayout) -> table::Cell {
+        self.cpu.as_ref().map_or_else(
+            || table::Cell::paint(Role::Muted, "missing"),
+            |values| cpu_cell(values, layout),
+        )
     }
 
-    fn gpu_summary(&self) -> String {
-        self.gpu.as_ref().map_or("missing".into(), |gpu| {
-            gpu.power_cap
-                .as_ref()
-                .map_or(gpu.lact.clone(), |cap| format!("{} {cap} W", gpu.lact))
-        })
+    fn gpu_cell(&self) -> table::Cell {
+        self.gpu
+            .as_ref()
+            .map_or_else(|| table::Cell::paint(Role::Muted, "missing"), gpu_cell)
     }
 }
 
@@ -106,18 +106,87 @@ pub fn assignments(text: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
+fn boost_label(value: &str) -> &str {
+    match value {
+        "1" => "on",
+        "0" => "off",
+        other => other,
+    }
+}
+
+fn boost_role(value: &str) -> Role {
+    match value {
+        "1" => Role::Success,
+        "0" => Role::Danger,
+        _ => Role::Muted,
+    }
+}
+
+fn value<'a>(values: &'a BTreeMap<String, String>, key: &str) -> &'a str {
+    values.get(key).map_or("?", String::as_str)
+}
+
+fn pad(width: usize, text: &str) -> String {
+    " ".repeat(width.saturating_sub(text.chars().count()))
+}
+
+/// Widest governor, energy preference, and boost label across the profiles.
+#[derive(Default)]
+struct CpuLayout {
+    governor: usize,
+    epp: usize,
+    boost: usize,
+}
+
+impl CpuLayout {
+    fn of(profiles: &[Profile]) -> Self {
+        profiles
+            .iter()
+            .filter_map(|profile| profile.cpu.as_ref())
+            .fold(Self::default(), |mut layout, values| {
+                layout.governor = layout
+                    .governor
+                    .max(value(values, "CPU_GOVERNOR").chars().count());
+                layout.epp = layout.epp.max(value(values, "CPU_EPP").chars().count());
+                layout.boost = layout
+                    .boost
+                    .max(boost_label(value(values, "CPU_BOOST")).chars().count());
+                layout
+            })
+    }
+}
+
 fn cpu_summary(values: &BTreeMap<String, String>) -> String {
-    let get = |key: &str| values.get(key).map_or("?", String::as_str);
     format!(
         "{} {} boost {}",
-        get("CPU_GOVERNOR"),
-        get("CPU_EPP"),
-        match get("CPU_BOOST") {
-            "1" => "on",
-            "0" => "off",
-            other => other,
-        }
+        value(values, "CPU_GOVERNOR"),
+        value(values, "CPU_EPP"),
+        boost_label(value(values, "CPU_BOOST"))
     )
+}
+
+fn cpu_cell(values: &BTreeMap<String, String>, layout: &CpuLayout) -> table::Cell {
+    let governor = value(values, "CPU_GOVERNOR");
+    let epp = value(values, "CPU_EPP");
+    let boost = value(values, "CPU_BOOST");
+    let label = boost_label(boost);
+    table::Cell::new()
+        .push(table::Span::new(governor).role(Role::Info))
+        .push(table::Span::new(format!(
+            "{} ",
+            pad(layout.governor, governor)
+        )))
+        .push(table::Span::new(epp).role(Role::Info))
+        .push(table::Span::new(format!("{} boost ", pad(layout.epp, epp))))
+        .push(table::Span::new(label).role(boost_role(boost)))
+        .push(table::Span::new(pad(layout.boost, label)))
+}
+
+fn gpu_cell(gpu: &Gpu) -> table::Cell {
+    match &gpu.power_cap {
+        Some(cap) => table::Cell::paint(Role::Theirs, format!("{cap} W")),
+        None => table::Cell::paint(Role::Muted, "—"),
+    }
 }
 
 pub fn lact_gpus(config: &Value, lact: &str) -> Option<Gpu> {
@@ -331,20 +400,58 @@ pub fn summary(roots: &Roots, sys: &Sysfs) -> String {
     }
 }
 
-fn list(roots: &Roots) -> Result<ExitCode, String> {
-    let active = selected(roots)?;
-    let rows = installed(roots)?
+fn profile_table(profiles: &[Profile], active: &str, style: &Style) -> String {
+    let layout = CpuLayout::of(profiles);
+    let columns = [
+        table::Column::new("PROFILE"),
+        table::Column::new("CPU"),
+        table::Column::new("GPU"),
+    ];
+    let rows = profiles
         .iter()
         .map(|profile| {
-            vec![
-                if profile.name == active { "*" } else { "" }.into(),
-                profile.name.clone(),
-                profile.cpu_summary(),
-                profile.gpu_summary(),
-            ]
+            let name = if profile.name == active {
+                table::Cell::paint(Role::Accent, profile.name.clone())
+            } else {
+                table::Cell::text(profile.name.clone())
+            };
+            vec![name, profile.cpu_cell(&layout), profile.gpu_cell()]
         })
         .collect::<Vec<_>>();
-    print!("{}", table::render(&["", "profile", "cpu", "gpu"], &rows));
+    table::styled(style, &columns, &rows)
+}
+
+fn status_table(rows: &[Row], style: &Style) -> String {
+    let columns = [
+        table::Column::new("PART"),
+        table::Column::new("STATUS"),
+        table::Column::new("DETAIL"),
+    ];
+    let cells = rows
+        .iter()
+        .flat_map(|row| {
+            let line = vec![
+                table::Cell::text(row.label.clone()),
+                table::Cell::paint(rows::role(row.kind), rows::state(row.kind)),
+                table::Cell::text(row.summary.clone()),
+            ];
+            let details = row.details.iter().map(|detail| {
+                vec![
+                    table::Cell::new(),
+                    table::Cell::new(),
+                    table::Cell::paint(Role::Muted, detail.clone()),
+                ]
+            });
+            std::iter::once(line).chain(details)
+        })
+        .collect::<Vec<_>>();
+    table::styled(style, &columns, &cells)
+}
+
+fn list(roots: &Roots, style: &Style) -> Result<ExitCode, String> {
+    let active = selected(roots)?;
+    let profiles = installed(roots)?;
+    print!("{}", profile_table(&profiles, &active, style));
     Ok(ExitCode::SUCCESS)
 }
 
@@ -429,7 +536,7 @@ fn set(name: &str, roots: &Roots, sys: &Sysfs, style: &Style) -> Result<ExitCode
 
 fn show(roots: &Roots, sys: &Sysfs, style: &Style) -> Result<ExitCode, String> {
     let rows = check(roots, sys)?;
-    print!("{}", rows::render(&rows, style));
+    print!("{}", status_table(&rows, style));
     Ok(rows::exit_code(&rows))
 }
 
@@ -442,8 +549,7 @@ pub fn complete() -> Vec<String> {
 pub fn command(command: Option<Command>, sys: &Sysfs, style: &Style) -> Result<ExitCode, String> {
     let roots = Roots::from_env();
     match command {
-        None => show(&roots, sys, style),
-        Some(Command::List) => list(&roots),
+        None => list(&roots, style),
         Some(Command::Set { name }) => set(&name, &roots, sys, style),
     }
 }

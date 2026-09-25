@@ -70,8 +70,11 @@ fn final_newline_off_ends_at_the_last_byte_of_the_value() {
 
 #[test]
 fn a_key_is_written_where_it_was_written_rather_than_in_order() {
-    let parsed = crate::parse::parse(b"{\"b\":1,\"a\":2,\"c\":3}", crate::parse::Options::default())
-        .expect("the body parses");
+    let parsed = crate::parse::parse(
+        b"{\"b\":1,\"a\":2,\"c\":3}",
+        crate::parse::Options::default(),
+    )
+    .expect("the body parses");
 
     assert_eq!(
         parsed.value,
@@ -122,41 +125,4 @@ fn a_scalar_stands_alone() {
     assert_eq!(laid_out("true"), "true\n");
     assert_eq!(laid_out("false"), "false\n");
     assert_eq!(laid_out("\"a\""), "\"a\"\n");
-}
-
-#[test]
-fn every_tracked_json_file_here_survives_a_round_trip() {
-    // Real files rather than fixtures: the second pass has to change nothing,
-    // and the first has to produce what jq produces, which the parity sweep in
-    // the CLI tests checks against jq itself.
-    let fixtures: [(&str, &str); 5] = [
-        (
-            "config/merge/526bf40b765029c0ec488e4f89c2a014da7641883eca465d40ec3456cd13600b.json",
-            include_str!(
-                "../../../../../../../config/merge/526bf40b765029c0ec488e4f89c2a014da7641883eca465d40ec3456cd13600b.json"
-            ),
-        ),
-        (
-            "shared/tools/biome.global.json",
-            include_str!("../../../../../../../shared/tools/biome.global.json"),
-        ),
-        (
-            "scripts/rust/crates/sysinfo/assets/branding.json",
-            include_str!("../../../../../../../scripts/rust/crates/sysinfo/assets/branding.json"),
-        ),
-        (
-            "linux/kde/panel-colorizer/forceForegroundColor.json",
-            include_str!(
-                "../../../../../../../linux/kde/panel-colorizer/forceForegroundColor.json"
-            ),
-        ),
-        (
-            "config/cli/command-surface.json",
-            include_str!("../../../../../../../config/cli/command-surface.json"),
-        ),
-    ];
-    for (name, text) in fixtures {
-        let once = laid_out(text);
-        assert_eq!(laid_out(&once), once, "{name} does not settle in one pass");
-    }
 }

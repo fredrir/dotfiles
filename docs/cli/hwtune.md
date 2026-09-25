@@ -21,8 +21,7 @@
 | `hwtune tune plan`      | Shows supported controls and proposed trials without applying settings.                      |
 | `hwtune tune auto`      | Benchmarks candidate settings and restores the original settings unless --apply is selected. |
 | `hwtune tune apply`     | Validates and applies the checked-out host profile.                                          |
-| `hwtune profile`        | Shows the selected fan, CPU, and GPU profile and whether each part is live.                  |
-| `hwtune profile list`   | Lists installed profiles with their CPU and GPU settings.                                    |
+| `hwtune profile`        | Lists installed profiles with their CPU and GPU settings.                                    |
 | `hwtune profile set`    | Switches fans, CPU, and GPU to a profile and keeps it across reboots.                        |
 | `hwtune run`            | Runs a command under a trial OS profile, then restores the original settings.                |
 | `hwtune curve`          | Tracks the per-core Curve Optimizer ladder from stress evidence and BIOS exports.            |

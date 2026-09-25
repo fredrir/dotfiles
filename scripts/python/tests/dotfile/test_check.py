@@ -67,8 +67,9 @@ def test_reads_every_entry_kind(ctx):
     )
     result = ctx[2]("--all")
     assert result.returncode == 1
-    for expected in ("tools", "fonts", "files", "optional", "install-me", "missing-file"):
+    for expected in ("fonts", "files", "install-me", "native-test-optional", "missing-file"):
         assert expected in result.stdout
+    assert "native-test-optional" not in ctx[2]().stdout, "an optional package needs --all"
 
 
 def test_missing_file_means_no_requirements(ctx):
@@ -149,26 +150,30 @@ def test_pkglist_drops_comments_and_blank_lines(ctx):
     script.chmod(0o755)
     result = doctor(PATH=str(binary) + os.pathsep + "/usr/bin")
     assert result.returncode == 0, result.stdout
-    assert "2 installed" in result.stdout
+    assert "nothing missing" in result.stdout
 
 
-def test_missing_tools_show_package_hints_below_the_section(ctx):
+def test_missing_tools_are_named_in_the_install_block(ctx):
     write_requires(ctx, "shared {\n missing-tool-one\n missing-tool-two = install-package\n}\n")
     result = ctx[2]()
     assert result.returncode == 1
-    assert result.stdout.index("tools") < result.stdout.index("missing-tool-one")
-    assert "install-package" in result.stdout
+    assert "Install:" in result.stdout
+    for expected in ("missing-tool-one", "install-package"):
+        assert expected in result.stdout
 
 
 def test_clips_items_and_all_lists_every_finding(ctx):
     write_requires(
-        ctx, "shared {\n" + "".join(f" missing-native-{index:02}\n" for index in range(15)) + "}\n"
+        ctx,
+        "shared {\n"
+        + "".join(f" file ~/.config/missing-{index:02}\n" for index in range(15))
+        + "}\n",
     )
     result = ctx[2]()
     assert "and 3 more" in result.stdout
-    assert "missing-native-14" not in result.stdout
+    assert "missing-14" not in result.stdout
     full = ctx[2]("--all")
-    assert "missing-native-14" in full.stdout
+    assert "missing-14" in full.stdout
     assert "and 3 more" not in full.stdout
 
 
@@ -180,5 +185,5 @@ def test_a_requirement_in_two_groups_is_checked_once(ctx):
     result = doctor()
     assert result.returncode == 1
     assert result.stdout.count("missing-native-check") == 1
-    assert "1 missing" in result.stdout
+    assert "sudo pacman -S --needed \\\n  missing-native-check\n" in result.stdout
     assert "optional" not in result.stdout

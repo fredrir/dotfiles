@@ -173,7 +173,7 @@ pub fn unhex(text: &str) -> Result<[u8; 16], String> {
         return Err("a token is 32 hex digits".into());
     }
     let mut token = [0u8; 16];
-    for (byte, pair) in token.iter_mut().zip(digits.chunks_exact(2)) {
+    for (byte, pair) in token.iter_mut().zip(digits.as_chunks::<2>().0) {
         let pair = std::str::from_utf8(pair).map_err(|_| "a token is 32 hex digits".to_string())?;
         *byte = u8::from_str_radix(pair, 16).map_err(|_| "a token is 32 hex digits".to_string())?;
     }

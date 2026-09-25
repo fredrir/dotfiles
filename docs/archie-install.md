@@ -144,7 +144,7 @@ One change per reboot; every step is `hwtune stress mem --tool y-cruncher --minu
 | Step | Command |
 | --- | --- |
 | show the selected profile and live state | `hwtune profile` |
-| list profiles | `hwtune profile list` |
+| list profiles | `hwtune profile` |
 | switch | `hwtune profile set comfort`, `balanced`, or `performance` |
 | edit fan curves | `linux/arch/fan2go/etc/fan2go/profiles/<name>.yaml`, check with `fan2go -c <file> config validate` |
 | edit CPU settings | `linux/arch/cpu-power/etc/cpu-power/<name>.env` |

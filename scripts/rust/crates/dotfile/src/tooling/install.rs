@@ -430,7 +430,7 @@ fn install(
 }
 
 /// Binaries and entry points this repository used to install.
-const RETIRED: [&str; 8] = [
+const RETIRED: [&str; 11] = [
     "doc-keybinds",
     "sysinfo-collect",
     "tardirs",
@@ -439,6 +439,9 @@ const RETIRED: [&str; 8] = [
     "acp",
     "update-readme-fastfetch",
     "gdd",
+    "power-menu",
+    "confirm-exit",
+    "clean-copy",
 ];
 
 fn prune(context: &Context) -> Result<usize, String> {

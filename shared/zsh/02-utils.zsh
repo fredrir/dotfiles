@@ -1,3 +1,4 @@
+# shuck: disable-file=C001
 typeset -gU path PATH
 typeset -gU plugins
 typeset -gaU zsh_plugin_path

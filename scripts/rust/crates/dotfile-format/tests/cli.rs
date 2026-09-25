@@ -80,7 +80,7 @@ fn checkout() -> TempDir {
         ".taplo.toml",
         ".yamllint.yaml",
         ".sqlfluff",
-        "shuckeded.toml",
+        "shucked.toml",
     ] {
         fs::write(tools.join(name), format!("live {name}\n")).unwrap();
     }
@@ -949,11 +949,7 @@ fn shell_startup_files_use_shucked_and_check_mode_also_lints_without_writing() {
         ".bashrc=echo ok\n",
     ]);
     let bin = only(&["shucked"]);
-    stub(
-        bin.path(),
-        "shucked",
-        r#"printf '%s|%s\n' "$shucked_EXPERIMENTAL" "$*" >> "$DFF_LOG""#,
-    );
+    stub(bin.path(), "shucked", r#"printf '%s\n' "$*" >> "$DFF_LOG""#);
     let logged = root.path().join("log");
     for check in [false, true] {
         fs::write(&logged, "").unwrap();
@@ -969,19 +965,20 @@ fn shell_startup_files_use_shucked_and_check_mode_also_lints_without_writing() {
             &[
                 ("PATH", &bin.path().display().to_string()),
                 ("DFF_LOG", &logged.display().to_string()),
-                ("shucked_EXPERIMENTAL", ""),
             ],
         );
         assert!(output.status.success(), "{}", stderr(&output));
         let calls = log(&logged);
         assert_eq!(calls.len(), if check { 2 } else { 1 }, "{calls:?}");
-        assert!(calls[0].starts_with(if check {
-            "1|format --check "
-        } else {
-            "1|format "
-        }));
+        assert!(
+            calls[0].starts_with(if check { "format --check " } else { "format " }),
+            "{calls:?}"
+        );
         if check {
-            assert!(calls[1].starts_with("|check --output-format concise "));
+            assert!(
+                calls[1].starts_with("check --output-format concise "),
+                "{calls:?}"
+            );
         }
         for call in &calls {
             for file in [".zshrc", "conf/helper.zsh", ".bashrc"] {

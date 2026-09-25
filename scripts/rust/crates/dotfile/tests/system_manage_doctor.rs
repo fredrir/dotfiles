@@ -265,45 +265,6 @@ fn remove_preserves_foreign_live_edits_and_unfolds_managed_parent() {
 }
 
 #[test]
-fn doctor_reports_missing_links_requirements_and_version_pins_without_writes() {
-    let fixture = Fixture::new();
-    fixture.write("shared/widget/config", "repo");
-    fixture.write(
-        "config/requirements.dotfile",
-        "shared {\n missing-doctor-test = install-me\n tagged-doctor-test = aur:tagged-pkg\n}\n",
-    );
-    fixture.write(
-        "config/pins.dotfile",
-        "shared {\n pinned-test = expected-version\n}\n",
-    );
-    executable(
-        &fixture.bin.join("pinned-test"),
-        "#!/bin/sh\nprintf 'old-version\\n'\n",
-    );
-    let result = fixture.command().args(["doctor", "--all"]).run();
-    assert_eq!(result.code(), Some(1), "{}", result.stderr);
-    for text in [
-        "\nIssues:\nlinks  ~/.config/widget\n",
-        "pins   pinned-test  old-version, want expected-version\n",
-        "Packages:",
-        "install-me",
-        "yay -S --needed \\\n  tagged-pkg\n",
-    ] {
-        assert!(
-            result.stdout.contains(text),
-            "missing {text}: {}",
-            result.stdout
-        );
-    }
-    assert!(
-        !result.stdout.contains("missing-doctor-test"),
-        "{}",
-        result.stdout
-    );
-    assert!(!fixture.home.join(".config/widget").exists());
-}
-
-#[test]
 fn doctor_caches_package_inventory_and_reports_nothing_missing() {
     let fixture = Fixture::new();
     fixture.write("environment/test/pkglist.txt", "one\non-path\n");

@@ -90,7 +90,12 @@ fn installed_profiles_join_fan_cpu_and_gpu_parts() {
     );
     assert_eq!(profiles[0].missing(), ["cpu"]);
     assert!(profiles[1].missing().is_empty());
-    assert_eq!(profiles[1].gpu_summary(), "comfort 250 W");
+    let table = profile_table(&profiles, "balanced", &Style::plain());
+    assert!(table.contains("comfort"), "{table}");
+    assert!(table.contains("250 W"), "{table}");
+    // The LACT profile name is gone from the GPU column; only the cap remains.
+    assert!(!table.contains("comfort 250 W"), "{table}");
+    assert!(!table.contains("Default 350 W"), "{table}");
 }
 
 #[test]
@@ -127,4 +132,15 @@ fn live_cpu_joins_differing_policy_values() {
         cpu_summary(&live_cpu(&sys).unwrap()),
         "powersave balance_power+power boost on"
     );
+}
+
+#[test]
+fn status_table_headers_the_check_columns() {
+    let rows = vec![Row::ok("fans", "performance"), Row::bad("cpu", "missing")];
+    let text = status_table(&rows, &Style::plain());
+    assert!(text.starts_with("PART"), "{text}");
+    assert!(text.contains("STATUS"), "{text}");
+    assert!(text.contains("DETAIL"), "{text}");
+    assert!(text.contains("ok"), "{text}");
+    assert!(text.contains("bad"), "{text}");
 }

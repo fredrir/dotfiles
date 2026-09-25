@@ -21,11 +21,32 @@ printf 'cargo %s\\n' "$*" >> "$DOTFILE_TEST_LOG"
 exit 0
 """
 
+# setup.sh runs under `/usr/bin/env bash` and shells out to these. They are
+# linked into the sandbox PATH so that PATH holds nothing but the sandbox: a
+# real cargo anywhere else on this machine must never stand in for the missing
+# one the last test removes.
+UTILITIES = ("bash", "mkdir", "cmp", "install", "mktemp", "mv", "rm")
+
 
 def executable(path, body):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body)
     path.chmod(0o755)
+
+
+def link_utilities(path):
+    search = os.environ.get("PATH", os.defpath)
+    for name in UTILITIES:
+        found = next(
+            (
+                os.path.join(entry, name)
+                for entry in search.split(os.pathsep)
+                if os.path.isfile(os.path.join(entry, name))
+            ),
+            None,
+        )
+        assert found is not None, f"{name} is not on PATH"
+        (path / name).symlink_to(found)
 
 
 def repository(tmp_path, *, cargo: str = CARGO_STUB, built: str | None = DOTFILE_STUB):
@@ -35,13 +56,14 @@ def repository(tmp_path, *, cargo: str = CARGO_STUB, built: str | None = DOTFILE
     path = tmp_path / "path"
     path.mkdir(parents=True, exist_ok=True)
     executable(path / "cargo", cargo)
+    link_utilities(path)
     if built is not None:
         executable(root / "scripts/rust/target/commands/dotfile", built)
     environment = dict(os.environ)
     environment.update(
         DOTFILE_ROOT=str(root),
         DOTFILE_TEST_LOG=str(log),
-        PATH=f"{path}:/usr/bin:/bin",
+        PATH=str(path),
     )
     return root, environment, log
 
@@ -68,7 +90,9 @@ def test_setup_builds_installs_then_hands_over_to_dotfile_sync(tmp_path):
 
     assert result.returncode == 0, result.stderr
     manifest = root / "scripts/rust/Cargo.toml"
-    build = f"cargo build --profile commands --locked --quiet --manifest-path {manifest} --bin dotfile"
+    build = (
+        f"cargo build --profile commands --locked --quiet --manifest-path {manifest} --bin dotfile"
+    )
     assert calls(log) == [build, "sync"]
     assert os.access(root / ".bin/dotfile", os.X_OK)
 

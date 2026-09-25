@@ -294,10 +294,6 @@ fn every_tracked_dotfile_survives_a_round_trip() {
 
 // ------------------------------------------------------------------- modes
 
-fn mode_of(path: &str) -> Mode {
-    conf::mode(path)
-}
-
 #[test]
 fn the_matcher_handles_the_rest_of_what_fnmatch_reads() {
     assert!(conf::matches("*", ""));
@@ -471,7 +467,6 @@ fn a_scoped_empty_token_picks_up_the_ssh_directory_and_nothing_else() {
     );
 }
 
-#[test]
 #[test]
 fn a_bang_can_take_the_built_in_dotfile_entry_away() {
     let selection = picks(&["!.dotfile"], &[]);

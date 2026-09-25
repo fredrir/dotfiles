@@ -52,7 +52,7 @@ fn context(root: &Path) -> Context {
     )
     .unwrap();
     // Enough PATH for the stubs to run, never enough to find a real toolchain.
-    let path = format!("{}:/usr/bin:/bin", stubs(root).display());
+    let path = stubs(root).display().to_string();
     context.process_env.insert("PATH".into(), path.into());
     context
 }
@@ -64,6 +64,9 @@ fn stubs(root: &Path) -> PathBuf {
         return path;
     }
     fs::create_dir_all(&path).unwrap();
+    for utility in UTILITIES {
+        link_utility(&path, utility);
+    }
     let target = root.join("scripts/rust/target");
     executable(
         &path.join("cargo"),
@@ -95,6 +98,18 @@ fn stubs(root: &Path) -> PathBuf {
          chmod 0755 \"$UV_TOOL_BIN_DIR/transcript\"\n",
     );
     path
+}
+
+/// The stubs shell out to these, and PATH holds nothing else: a real cargo, go
+/// or uv on this machine must never stand in for a missing one.
+const UTILITIES: [&str; 2] = ["mkdir", "chmod"];
+
+fn link_utility(directory: &Path, name: &str) {
+    let found = std::env::split_paths(&std::env::var("PATH").unwrap_or_default())
+        .map(|entry| entry.join(name))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| panic!("{name} is not on PATH"));
+    std::os::unix::fs::symlink(found, directory.join(name)).unwrap();
 }
 
 fn ensure(context: &Context, options: &install::Options) -> Result<install::Report, String> {
@@ -341,15 +356,20 @@ fn retired_commands_are_removed_and_completions_written() {
     with_build_env(&mut context, root.path(), "first");
     let retired = root.path().join(".bin/tardirs");
     let completion = root.path().join(".cache/zsh/tardirs-completion.zsh");
+    // A retired Python entry point, whose launcher outlives the module it
+    // imported: leaving it in place keeps a broken command on PATH.
+    let entry_point = root.path().join(".bin/power-menu");
     fs::create_dir_all(completion.parent().unwrap()).unwrap();
     fs::write(&retired, "old").unwrap();
     fs::write(&completion, "old").unwrap();
+    fs::write(&entry_point, "old").unwrap();
 
     let report = ensure(&context, &install::Options::everything()).unwrap();
 
-    assert_eq!(report.pruned, 2);
+    assert_eq!(report.pruned, 3);
     assert!(!retired.exists());
     assert!(!completion.exists());
+    assert!(!entry_point.exists());
     assert!(
         root.path()
             .join(".cache/zsh/tools-completion.zsh")

@@ -6,7 +6,6 @@ from typing import Annotated
 import typer
 
 from tools.transcript import clipboard
-from tools.transcript import completion as surface
 
 app = typer.Typer(add_completion=False)
 

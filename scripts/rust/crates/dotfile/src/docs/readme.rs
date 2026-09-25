@@ -188,4 +188,3 @@ pub(super) fn output_file(context: &Context) -> Result<Output, String> {
         super::markdown::replace_block(&previous, "fastfetch", &format!("\n```\n{body}\n```\n"))?;
     Ok(Output::text("README.md", updated))
 }
-

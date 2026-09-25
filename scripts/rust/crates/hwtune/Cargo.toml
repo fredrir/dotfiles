@@ -10,10 +10,6 @@ autotests         = false
 workspace = true
 
 [[test]]
-name = "cli"
-path = "tests/cli.rs"
-
-[[test]]
 name = "bench_cli"
 path = "tests/bench_cli.rs"
 

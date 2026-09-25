@@ -56,10 +56,10 @@ impl Sandbox {
             ("DOTFILE_ROOT", self.path("repo")),
             ("HOME", self.path("home")),
             ("XDG_CONFIG_HOME", self.path("home/.config")),
-            (
-                "PATH",
-                PathBuf::from(format!("{}:/usr/bin:/bin", self.path("bin").display())),
-            ),
+            // Only the sandbox bin: age, age-keygen and sops are installed on
+            // this machine, and a real one on PATH would leave nothing missing
+            // for the prompt to offer.
+            ("PATH", self.path("bin")),
         ]
     }
 
