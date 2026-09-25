@@ -15,8 +15,8 @@ fn snapshot() -> Snapshot {
         routes: vec![
             RouteState {
                 route: Route::Lan,
-                local: Some(Ipv4Addr::new(192, 168, 1, 10)),
-                peer: Some(Ipv4Addr::new(192, 168, 1, 20)),
+                local: Some(Ipv4Addr::new(192, 168, 50, 10)),
+                peer: Some(Ipv4Addr::new(192, 168, 50, 20)),
                 available: true,
                 elapsed: Duration::from_millis(2),
                 error: None,

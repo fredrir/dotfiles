@@ -169,15 +169,15 @@ fn route_order_matches_ssh_policy() {
 #[test]
 fn filtered_lan_pair_has_exactly_two_ipv4_addresses() {
     assert_eq!(
-        parse_lan_pair("192.168.1.178 192.168.1.162\n").unwrap(),
+        parse_lan_pair("192.168.50.178 192.168.50.162\n").unwrap(),
         (
-            Ipv4Addr::new(192, 168, 1, 178),
-            Ipv4Addr::new(192, 168, 1, 162)
+            Ipv4Addr::new(192, 168, 50, 178),
+            Ipv4Addr::new(192, 168, 50, 162)
         )
     );
     assert!(parse_lan_pair("").is_err());
-    assert!(parse_lan_pair("192.168.1.178 nope").is_err());
-    assert!(parse_lan_pair("192.168.1.178 192.168.1.162 extra").is_err());
+    assert!(parse_lan_pair("192.168.50.178 nope").is_err());
+    assert!(parse_lan_pair("192.168.50.178 192.168.50.162 extra").is_err());
 }
 
 #[test]

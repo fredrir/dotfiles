@@ -127,7 +127,7 @@ fn route_for(address: IpAddr, this: Host) -> Option<Route> {
 
 fn is_home_lan(address: Ipv4Addr) -> bool {
     let octets = address.octets();
-    octets[0..3] == [192, 168, 1]
+    octets[0..3] == [192, 168, 50]
 }
 
 #[cfg(test)]

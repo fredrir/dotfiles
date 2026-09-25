@@ -8,16 +8,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[4]
 SCRIPT = ROOT / "scripts/shell/home-lan-connect"
 HOST = "archie.local"
-PAIR = "192.168.1.178 192.168.1.162"
+PAIR = "192.168.50.178 192.168.50.162"
 
 STUBS = {
     "uname": "echo Darwin",
     "dscacheutil": """
 echo lookup >> "$STUB_LOG"
-[ -f "$STUB_DOWN" ] || printf 'name: archie.local\\nip_address: 192.168.1.162\\n'
+[ -f "$STUB_DOWN" ] || printf 'name: archie.local\\nip_address: 192.168.50.162\\n'
 """,
     "route": "printf 'interface: en0\\n'",
-    "ipconfig": "echo 192.168.1.178",
+    "ipconfig": "echo 192.168.50.178",
     "socat": 'echo socat "$@"',
     "nc": 'echo nc "$@"',
 }
@@ -74,7 +74,7 @@ def test_a_fresh_absent_pair_fails_without_a_lookup(lan):
     resolved = lan.run("--resolve", HOST)
 
     assert resolved.returncode == 1
-    assert "not on 192.168.1.0/24" in resolved.stderr
+    assert "not on 192.168.50.0/24" in resolved.stderr
     assert lan.lookups() == 1
 
 
@@ -112,11 +112,11 @@ def test_a_connection_is_relayed_with_nagle_off(lan):
     lan.run("--refresh", HOST)
     result = lan.run(HOST, "8443")
     assert result.stdout.strip() == (
-        "socat STDIO TCP4:192.168.1.162:8443,bind=192.168.1.178,nodelay"
+        "socat STDIO TCP4:192.168.50.162:8443,bind=192.168.50.178,nodelay"
     )
 
 
 def test_a_probe_stays_a_zero_io_nc(lan):
     lan.run("--refresh", HOST)
     result = lan.run("--probe", HOST)
-    assert result.stdout.strip() == "nc -4 -z -G 1 -s 192.168.1.178 192.168.1.162 22"
+    assert result.stdout.strip() == "nc -4 -z -G 1 -s 192.168.50.178 192.168.50.162 22"

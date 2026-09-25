@@ -7,7 +7,7 @@
 set -eu
 
 PROGRAM=home-lan-connect
-HOME_PREFIX=192.168.1.
+HOME_PREFIX=192.168.50.
 STATE_DIR=${HOME_LAN_CONNECT_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/home-lan-connect}
 FRESH_MINUTES=1
 

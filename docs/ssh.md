@@ -4,7 +4,7 @@
 ssh archie
    ├── USB          10.77.77.1 → 10.77.77.2
    ├── direct Wi-Fi 10.77.78.1 → 10.77.78.2
-   ├── regular LAN  filtered mDNS on 192.168.1.0/24
+   ├── regular LAN  filtered mDNS on 192.168.50.0/24
    └── Tailscale    100.75.71.79 → 100.124.205.100
 ```
 
@@ -50,7 +50,7 @@ was plugged in.
 | Package | `linux/arch/avahi` |
 | Effect | `<peer>.local` is learned on the home LAN only |
 | Unchanged | cable, direct Wi-Fi and Tailscale address literals; none of them use mDNS |
-| Still enforced | the `192.168.1.0/24` filter in `home-lan-connect`, as defence in depth |
+| Still enforced | the `192.168.50.0/24` filter in `home-lan-connect`, as defence in depth |
 | Cached | pair refreshed by the LAN mux relays; see [wezterm-mux.md](wezterm-mux.md#the-lan-route) |
 
 ```console

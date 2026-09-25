@@ -2,8 +2,8 @@ use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 
-const LOCAL_LAN: Ipv4Addr = Ipv4Addr::new(192, 168, 1, 178);
-const PEER_LAN: Ipv4Addr = Ipv4Addr::new(192, 168, 1, 162);
+const LOCAL_LAN: Ipv4Addr = Ipv4Addr::new(192, 168, 50, 178);
+const PEER_LAN: Ipv4Addr = Ipv4Addr::new(192, 168, 50, 162);
 
 fn refused() -> io::Error {
     io::Error::from(io::ErrorKind::ConnectionRefused)

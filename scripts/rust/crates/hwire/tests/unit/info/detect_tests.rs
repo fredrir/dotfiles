@@ -6,7 +6,7 @@ fn ssh_addresses_identify_every_fixed_route() {
         ("10.77.77.2", Route::Cable),
         ("10.77.78.2", Route::Wifi),
         ("100.124.205.100", Route::Tailscale),
-        ("192.168.1.162", Route::Lan),
+        ("192.168.50.162", Route::Lan),
     ];
     for (server, route) in cases {
         let found = parse_ssh(&format!("192.0.2.1 54321 {server} 22"), Host::Archie).unwrap();

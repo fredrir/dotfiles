@@ -89,6 +89,7 @@ linux/arch {
   taskset                   = util-linux
   plymouth
   file /usr/lib/systemd/system-generators/zram-generator = zram-generator
+  file /usr/lib/firmware/regulatory.db = wireless-regdb
   ?memtester
   ?y-cruncher               = aur:y-cruncher
   ?llama-cli                = aur:llama.cpp-cuda

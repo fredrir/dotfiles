@@ -171,7 +171,7 @@ pub(crate) fn lan_pair_with_timeout(
     if !status.success() {
         let reason = String::from_utf8_lossy(&stderr).trim().to_string();
         return Err(if reason.is_empty() {
-            "regular LAN is not resolvable on 192.168.1.0/24".into()
+            "regular LAN is not resolvable on 192.168.50.0/24".into()
         } else {
             reason
         });
