@@ -15,13 +15,17 @@ reached through `socat`.
 | `attach_mux archie`, `attach_mux macie` | Fresh shell replaces the invoking split; sibling panes and existing sessions remain  |
 | `attach_mux`                            | Fresh shell on the GUI computer's peer                                               |
 | `attach_mux <ssh-host>`                 | SSH session replaces the invoking split; see [SSH domains](#ssh-domains)             |
+| `attach_mux --adopt [host]`             | Selector: `__detached` tabs and the host's unowned panes; picked one opens as a tab  |
+| `CMD+SHIFT+a` / `CTRL+SHIFT+a`          | `attach_mux --adopt` for the peer                                                    |
 | Request                                 | Shell emits `ATTACH_MUX`; GUI resolves its localmux pane ID                          |
-| TLS layouts                             | `local_pane_layout=true`; localmux owns tabs/splits, remote tabs are not imported    |
+| TLS layouts                             | `local_pane_layout=true`; localmux owns tabs/splits, remote tabs are adopted only    |
+| Backing tabs                            | Remote workspace `__backing:<origin>`; hidden from the remote's GUI                  |
+| Orphans                                 | First attach after a localmux restart moves them into `__detached`                   |
 | Return to GUI computer                  | Fresh shell in localmux's `local` domain                                             |
 | Remote shell exits                      | Pane swaps back to a fresh local shell; closing the pane or tab still closes it      |
 | Failure                                 | Source pane stays open; GUI reports the error                                        |
 | Prerequisite                            | Updated vertical-tabs WezTerm GUI, CLI and localmux server; reload shell definitions |
-| Restart                                 | Restarting localmux terminates its active sessions; save work first                  |
+| Restart                                 | Terminates localmux's local sessions; remote shells return as orphans                |
 | macOS Local Network                     | Allow `wezterm-mux-server` per WezTerm update; else cable/LAN: `No route to host`    |
 
 

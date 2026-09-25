@@ -14,6 +14,7 @@ alias dpp="dotfile sync -p"
 alias pp="hwire -i"
 
 alias ss="sysinfo -p"
+alias ssp="sysinfo -s"
 
 if [[ -n "$LINUX" ]]; then
   alias sss="/usr/bin/ss"

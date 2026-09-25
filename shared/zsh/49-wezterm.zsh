@@ -18,6 +18,12 @@ attach_mux() {
     return
   fi
 
+  local request_name=ATTACH_MUX
+  if [[ $1 == -a || $1 == --adopt ]]; then
+    request_name=ADOPT_MUX
+    shift
+  fi
+
   if [[ -z $WEZTERM_PANE ]]; then
     print -ru2 'mux: not a wezterm pane'
     return 1
@@ -30,7 +36,7 @@ attach_mux() {
 
   zmodload zsh/datetime
   local request="v1:$target:$$:$EPOCHREALTIME"
-  printf '\e]1337;SetUserVar=ATTACH_MUX=%s\a' "$(print -rn -- "$request" | base64 | tr -d '\r\n')"
+  printf '\e]1337;SetUserVar=%s=%s\a' "$request_name" "$(print -rn -- "$request" | base64 | tr -d '\r\n')"
 }
 
 [[ $HOST == "macie" ]] && alias archie='attach_mux archie'

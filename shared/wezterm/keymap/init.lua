@@ -9,6 +9,7 @@ local skip_close_confirmation = require "utils.skip_close_confirmation"
 local close_tab = require "utils.close-tab"
 local close_pane = require "utils.close-pane"
 local mux = require "utils.mux"
+local attach_mux = require "utils.attach-mux"
 local hwire_session = require "utils.hwire-session"
 local MOD = require "keymap.modifiers"
 local open_vscode = require "utils.open-vscode"
@@ -72,12 +73,12 @@ local keys = bind_keys {
   },
   { -- Cycle panes forward --
     key = "Tab",
-    mods = MOD.SUPER_REV,
+    mods = MOD.UNIQUE,
     action = act.ActivatePaneDirection "Next",
   },
   { -- Cycle panes backward --
     key = "Tab",
-    mods = MOD.SUPER_REV,
+    mods = MOD.UNIQUE,
     action = act.ActivatePaneDirection "Prev",
   },
   {
@@ -148,7 +149,7 @@ local keys = bind_keys {
     mods = MOD.SUPER_REV,
     action = open_github,
   },
-  { key = "a", mods = MOD.SUPER_REV, action = act.Nop },
+  { key = "a", mods = MOD.SUPER_REV, action = attach_mux.adopt },
   { key = "z", mods = MOD.SUPER_REV, action = act.TogglePaneZoomState },
 }
 
