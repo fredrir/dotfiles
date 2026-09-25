@@ -9,5 +9,6 @@ pub mod inventory;
 pub mod model;
 pub mod presentation;
 pub mod report;
+pub mod top;
 
 pub type Module = (&'static str, serde_json::Value);

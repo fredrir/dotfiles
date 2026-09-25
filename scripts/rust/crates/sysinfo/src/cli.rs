@@ -1,8 +1,9 @@
 use crate::model::RenderOptions;
-use crate::{collect, health, presentation, report};
-use clap::{Arg, ArgAction, Args, Command, CommandFactory};
+use crate::{collect, health, presentation, report, top};
+use clap::{Arg, ArgAction, ArgGroup, ArgMatches, Args, Command, CommandFactory, value_parser};
+use hostkit::Host;
 use std::ffi::OsString;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::time::Instant;
 
 pub fn command() -> Command {
@@ -42,6 +43,65 @@ pub fn command() -> Command {
                     .long("timings")
                     .action(ArgAction::SetTrue)
                     .help("Report probe timings to stderr"),
+            )
+            .arg(
+                Arg::new("system")
+                    .short('s')
+                    .long("system")
+                    .action(ArgAction::SetTrue)
+                    .conflicts_with_all(["pretty", "full", "health"])
+                    .help("Show the processes using the most resources"),
+            )
+            .arg(
+                Arg::new("cpu")
+                    .short('c')
+                    .long("cpu")
+                    .action(ArgAction::SetTrue)
+                    .requires("system")
+                    .help("Rank by CPU"),
+            )
+            .arg(
+                Arg::new("memory")
+                    .short('m')
+                    .long("memory")
+                    .action(ArgAction::SetTrue)
+                    .requires("system")
+                    .help("Rank by memory"),
+            )
+            .arg(
+                Arg::new("gpu")
+                    .short('g')
+                    .long("gpu")
+                    .action(ArgAction::SetTrue)
+                    .requires("system")
+                    .help("Rank by GPU"),
+            )
+            .group(ArgGroup::new("rank").args(["cpu", "memory", "gpu"]))
+            .arg(
+                Arg::new("number")
+                    .short('n')
+                    .long("number")
+                    .value_name("N")
+                    .value_parser(value_parser!(u16).range(1..))
+                    .default_value("5")
+                    .requires("system")
+                    .help("Rows to show"),
+            )
+            .arg(
+                Arg::new("target")
+                    .short('t')
+                    .long("target")
+                    .value_name("HOST")
+                    .value_parser(value_parser!(Host))
+                    .requires("system")
+                    .help("Host to inspect"),
+            )
+            .arg(
+                Arg::new("split")
+                    .long("split")
+                    .action(ArgAction::SetTrue)
+                    .requires("system")
+                    .help("One row per process instead of per app"),
             ),
     )
 }
@@ -119,11 +179,19 @@ pub fn run() -> Result<(), String> {
     if completions.emit::<Factory>("sysinfo").is_some() {
         return Ok(());
     }
+    let timings = matches.get_flag("timings");
+    if matches.get_flag("system") {
+        let output = processes(&matches, timings)?;
+        write_stdout(&output)?;
+        if timings {
+            eprintln!("total: {:?}", started.elapsed());
+        }
+        return Ok(());
+    }
     let options = RenderOptions {
         full: matches.get_flag("full"),
         health: matches.get_flag("health"),
     };
-    let timings = matches.get_flag("timings");
     // The dashboard renders gauges, disks, and health, so it skips the identity
     // probes and the enrichment only the detail views show.
     let scope = if options.full {
@@ -143,14 +211,68 @@ pub fn run() -> Result<(), String> {
     } else {
         presentation::render_plain(&view, &issues, options)
     };
-    if let Err(error) = std::io::stdout().lock().write_all(output.as_bytes())
-        && error.kind() != std::io::ErrorKind::BrokenPipe
-    {
-        return Err(error.to_string());
-    }
+    write_stdout(&output)?;
     if timings {
         eprintln!("subprocess probes: {}", collect::probe_count());
         eprintln!("total: {:?}", started.elapsed());
     }
     Ok(())
+}
+
+fn write_stdout(output: &str) -> Result<(), String> {
+    match std::io::stdout().lock().write_all(output.as_bytes()) {
+        Err(error) if error.kind() != std::io::ErrorKind::BrokenPipe => Err(error.to_string()),
+        _ => Ok(()),
+    }
+}
+
+fn processes(matches: &ArgMatches, timings: bool) -> Result<String, String> {
+    let sort = if matches.get_flag("cpu") {
+        top::Sort::Cpu
+    } else if matches.get_flag("memory") {
+        top::Sort::Memory
+    } else if matches.get_flag("gpu") {
+        top::Sort::Gpu
+    } else {
+        top::Sort::Total
+    };
+    let options = top::Options {
+        sort,
+        count: matches
+            .get_one::<u16>("number")
+            .copied()
+            .unwrap_or(5)
+            .into(),
+        split: matches.get_flag("split"),
+    };
+    let remote = matches
+        .get_one::<Host>("target")
+        .copied()
+        .filter(|host| Host::this().ok() != Some(*host));
+    let report = match remote {
+        Some(host) => top::remote::fetch(host, options)?,
+        None => {
+            let sample = top::sample(top::WINDOW);
+            if timings {
+                eprintln!("window: {:?}", sample.window);
+            }
+            top::report(&sample, options)
+        }
+    };
+    if sort == top::Sort::Gpu && !report.gpu {
+        eprintln!("sysinfo: no per-process GPU data on {}", report.host);
+    }
+    if matches.get_flag("json") {
+        return serde_json::to_string_pretty(&report)
+            .map(|json| json + "\n")
+            .map_err(|error| error.to_string());
+    }
+    let terminal = std::io::stdout().is_terminal();
+    let width = terminal.then(workstation::terminal_width).flatten();
+    Ok(top::render::render(
+        &report,
+        sort,
+        &workstation::Style::for_stdout(),
+        width,
+    ))
 }

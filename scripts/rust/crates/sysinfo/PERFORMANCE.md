@@ -91,3 +91,37 @@ hyperfine --shell=none --warmup 1 --runs 5 \
   'scripts/rust/target/release/dotfile docs --dry-run' \
   'scripts/rust/target/release/dotfile docs --only keybinds --dry-run'
 ```
+
+## Process view
+
+| Measurement | Value |
+| --- | --- |
+| Date | 2026-09-25 |
+| Platform | macOS 27.0, Apple Silicon; archie: Arch Linux, Ryzen 7 9800X3D |
+| Build | Cargo release profile |
+| Harness | Hyperfine, `-N --warmup 2 --runs 15` |
+| Window | 200 ms; this session's timer coalescing stretched `sleep 0.2` to 320 ms |
+
+| Operation | Mean ms | User + system CPU ms |
+| --- | ---: | ---: |
+| `sleep 0.2` | 320.5 | 2.3 |
+| `sysinfo -s` | 364.7 | 74.6 |
+| `sysinfo -sc` | 343.9 | 72.5 |
+| `sysinfo -s --split` | 367.2 | 74.6 |
+| `sysinfo -st archie` | 297.3 | 48.2 |
+| `ps aux` | 32.3 | 24.9 |
+
+| `-s` cost on macOS | ms |
+| --- | ---: |
+| Process pass, first then second | 10–18 |
+| `ps -p` over other users' processes, twice inside the window | 12 |
+| IOKit GPU client readings | 1 |
+| Grouping, ranking, and user names | 3 |
+
+```sh
+cargo build --release --locked --manifest-path scripts/rust/Cargo.toml -p workstation-sysinfo
+hyperfine -N --warmup 2 --runs 15 'sleep 0.2' \
+  'scripts/rust/target/release/sysinfo -s' \
+  'scripts/rust/target/release/sysinfo -st archie' \
+  'ps aux'
+```

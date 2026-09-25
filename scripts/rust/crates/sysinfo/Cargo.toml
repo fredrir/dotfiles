@@ -33,14 +33,12 @@ clap_complete.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 hostkit.workspace = true
+nix = { workspace = true, features = ["user"] }
 workstation.workspace = true
 tempfile.workspace = true
 unicode-width.workspace = true
 rustix = { workspace = true, features = ["system"] }
-sysinfo_backend = { package = "sysinfo", version = "0.37", default-features = false, features = [
-  "system",
-  "disk",
-] }
+sysinfo_backend = { workspace = true, features = ["system", "disk"] }
 regex = "1"
 csv = "1"
 
@@ -52,3 +50,6 @@ core-foundation = "0.10"
 io-kit-sys      = "0.4"
 libc.workspace  = true
 sysctl          = "0.7.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nvml-wrapper = "0.13.0"

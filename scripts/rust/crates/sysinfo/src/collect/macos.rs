@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::{CString, c_void};
 use std::fs;
 
@@ -12,9 +13,9 @@ use io_kit_sys::ret::kIOReturnSuccess;
 use io_kit_sys::types::{io_iterator_t, io_object_t};
 use io_kit_sys::{
     IOIteratorNext, IOObjectConformsTo, IOObjectRelease, IORegistryEntryCreateCFProperty,
-    IORegistryEntryGetName, IORegistryEntrySearchCFProperty, IOServiceGetMatchingServices,
-    IOServiceMatching, kIOMasterPortDefault, kIORegistryIterateParents,
-    kIORegistryIterateRecursively,
+    IORegistryEntryGetChildIterator, IORegistryEntryGetName, IORegistryEntrySearchCFProperty,
+    IOServiceGetMatchingServices, IOServiceMatching, kIOMasterPortDefault,
+    kIORegistryIterateParents, kIORegistryIterateRecursively,
 };
 use serde_json::{Value, json};
 use sysctl::{Ctl, CtlValue, Sysctl};
@@ -133,18 +134,36 @@ fn matching_services(class: &str) -> Vec<IoObject> {
     if status != kIOReturnSuccess {
         return Vec::new();
     }
-    let iterator = IoObject(iterator);
-    let mut services = Vec::new();
+    drain(IoObject(iterator))
+}
+
+#[allow(unsafe_code)]
+fn drain(iterator: IoObject) -> Vec<IoObject> {
+    let mut entries = Vec::new();
     loop {
         // SAFETY: iterator owns a live iterator; each nonzero result transfers
         // one object reference to the new guard.
-        let service = unsafe { IOIteratorNext(iterator.0) };
-        if service == 0 {
+        let entry = unsafe { IOIteratorNext(iterator.0) };
+        if entry == 0 {
             break;
         }
-        services.push(IoObject(service));
+        entries.push(IoObject(entry));
     }
-    services
+    entries
+}
+
+#[allow(unsafe_code)]
+fn children(entry: &IoObject) -> Vec<IoObject> {
+    let mut iterator: io_iterator_t = 0;
+    // SAFETY: entry is owned, IOKit treats the mutable plane pointer as an
+    // input string, and iterator points to initialized writable storage.
+    let status = unsafe {
+        IORegistryEntryGetChildIterator(entry.0, c"IOService".as_ptr().cast_mut(), &mut iterator)
+    };
+    if status != kIOReturnSuccess {
+        return Vec::new();
+    }
+    drain(IoObject(iterator))
 }
 
 #[allow(unsafe_code)]
@@ -223,6 +242,20 @@ fn dict_value(dict: &CFDictionary, key: &str) -> Option<CFType> {
     // SAFETY: these dictionaries come from IOKit CF properties, whose values
     // are CF objects. dict keeps the value alive; the get rule retains it.
     Some(unsafe { CFType::wrap_under_get_rule(*raw as CFTypeRef) })
+}
+
+#[allow(unsafe_code)]
+fn array_items(value: CFType) -> Vec<CFType> {
+    let Some(array) = value.downcast::<CFArray>() else {
+        return Vec::new();
+    };
+    array
+        .get_all_values()
+        .into_iter()
+        // SAFETY: IOKit property arrays hold CF objects; array keeps each one
+        // alive while the get rule retains it.
+        .map(|item| unsafe { CFType::wrap_under_get_rule(item as CFTypeRef) })
+        .collect()
 }
 
 #[allow(unsafe_code)]
@@ -643,6 +676,70 @@ fn ticks(who: libc::c_int, rate: u64) -> Option<u64> {
         };
         (micros(usage.ru_utime) + micros(usage.ru_stime)) * rate / 1_000_000
     })
+}
+
+// --- Processes ---------------------------------------------------------------
+
+/// Nanoseconds of GPU time per process, summed over its accelerator clients.
+///
+/// `AppUsage` is undocumented; `None` when no accelerator exposes it.
+pub fn gpu_time_by_pid() -> Option<HashMap<u32, u64>> {
+    let accelerators = matching_services("IOAccelerator");
+    let mut times = HashMap::new();
+    let mut found = false;
+    for client in accelerators.iter().flat_map(children) {
+        let Some(usage) = registry_property(&client, "AppUsage") else {
+            continue;
+        };
+        found = true;
+        let Some(pid) = as_string(registry_property(&client, "IOUserClientCreator"))
+            .and_then(|c| creator_pid(&c))
+        else {
+            continue;
+        };
+        let entries = array_items(usage);
+        if entries.is_empty() {
+            continue;
+        }
+        let total: u64 = entries
+            .iter()
+            .filter_map(|entry| entry.downcast::<CFDictionary>())
+            .filter_map(|entry| as_i64(dict_value(&entry, "accumulatedGPUTime")))
+            .map(|time| time.max(0) as u64)
+            .sum();
+        *times.entry(pid).or_insert(0) += total;
+    }
+    found.then_some(times)
+}
+
+/// `pid 431, WindowServer` → 431.
+pub fn creator_pid(creator: &str) -> Option<u32> {
+    creator
+        .strip_prefix("pid ")?
+        .split(',')
+        .next()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Physical footprint, the memory figure Activity Monitor reports.
+#[allow(unsafe_code)]
+pub fn footprint(pid: u32) -> Option<u64> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    // SAFETY: rusage_info_v2 holds only integers, so all-zero is a valid
+    // starting state that proc_pid_rusage overwrites below.
+    let mut info: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
+    // SAFETY: the V2 flavor matches the buffer's type, so the kernel writes at
+    // most size_of::<rusage_info_v2>() bytes into initialized local storage.
+    let status = unsafe {
+        libc::proc_pid_rusage(
+            pid,
+            libc::RUSAGE_INFO_V2,
+            (&raw mut info).cast::<libc::rusage_info_t>(),
+        )
+    };
+    (status == 0).then_some(info.ri_phys_footprint)
 }
 
 // --- GPU ---------------------------------------------------------------------

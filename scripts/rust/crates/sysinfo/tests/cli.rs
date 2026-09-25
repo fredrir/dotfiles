@@ -232,3 +232,91 @@ fn reports_do_not_read_benchmark_history_or_mutate_host_configuration() {
     report(&fixture.output(&["--json", "--health"]));
     assert_eq!(std::fs::read(config).unwrap(), before);
 }
+
+fn processes(output: &Output) -> Value {
+    let value: Value = serde_json::from_str(&stdout(output)).unwrap();
+    assert_eq!(value["schema"], 1);
+    assert!(value["cores"].as_u64().is_some_and(|cores| cores > 0));
+    assert!(value["memory"].as_u64().is_some_and(|memory| memory > 0));
+    value
+}
+
+#[test]
+fn system_view_ranks_live_processes() {
+    let fixture = Fixture::new();
+    let text = stdout(&fixture.output(&["-s"]));
+    let mut lines = text.lines();
+    let header: Vec<_> = lines.next().unwrap().split_whitespace().collect();
+    assert_eq!(
+        header,
+        ["USER", "PID", "CPU", "MEM", "GPU", "TIME", "COMMAND"]
+    );
+    assert_eq!(lines.count(), 5);
+
+    let report = processes(&fixture.output(&["-sm", "-n", "3", "--json"]));
+    let rows = report["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    let memory: Vec<f64> = rows
+        .iter()
+        .map(|row| row["memory_share"].as_f64().unwrap())
+        .collect();
+    assert!(
+        memory.windows(2).all(|pair| pair[0] >= pair[1]),
+        "{memory:?}"
+    );
+    assert!(
+        rows.iter().all(|row| row["uid"].is_null()),
+        "uids stay local"
+    );
+}
+
+#[test]
+fn split_view_never_reports_itself() {
+    let fixture = Fixture::new();
+    let child = fixture
+        .command()
+        .args(["-sc", "--split", "-n", "1000", "--json"])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let report = processes(&child.wait_with_output().unwrap());
+    let rows = report["rows"].as_array().unwrap();
+    assert!(rows.iter().all(|row| row["count"] == 1));
+    assert!(
+        rows.iter().any(|row| row["pid"] == std::process::id()),
+        "the test runner is listed"
+    );
+    assert!(rows.iter().all(|row| row["pid"] != pid), "{rows:?}");
+}
+
+#[test]
+fn system_flags_reject_invalid_combinations() {
+    let fixture = Fixture::new();
+    for args in [
+        &["-c"][..],
+        &["--split"],
+        &["-n", "3"],
+        &["-t", "archie"],
+        &["-s", "-p"],
+        &["-s", "--full"],
+        &["-s", "-c", "-m"],
+        &["-s", "-n", "0"],
+        &["-s", "-t", "nowhere"],
+    ] {
+        let output = fixture.output(args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+    }
+}
+
+#[test]
+fn local_target_samples_in_process() {
+    let fixture = Fixture::new();
+    let this = if cfg!(target_os = "macos") {
+        "macie"
+    } else {
+        "archie"
+    };
+    let report = processes(&fixture.output(&["-s", "-t", this, "-n", "2", "--json"]));
+    assert_eq!(report["rows"].as_array().unwrap().len(), 2);
+}

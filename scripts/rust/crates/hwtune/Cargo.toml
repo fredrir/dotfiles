@@ -31,7 +31,7 @@ blake2 = "0.10"
 fs2 = "0.4"
 rustix = { workspace = true, features = ["fs", "process"] }
 regex = "1"
-sysinfo_backend = { package = "sysinfo", version = "0.37", default-features = false, features = ["system"] }
+sysinfo_backend = { workspace = true, features = ["system"] }
 tempfile.workspace = true
 ui-picker.workspace = true
 chrono                  = { version = "0.4", default-features = false, features = ["clock", "std"] }

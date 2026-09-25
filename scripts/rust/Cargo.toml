@@ -88,6 +88,7 @@ ui-theme = { path = "crates/ui/theme" }
 ui-widgets = { path = "crates/ui/widgets" }
 unicode-width = "0.2"
 similar = "2"
+sysinfo_backend = { package = "sysinfo", version = "0.39.6", default-features = false }
 
 gix-glob   = "0.27.1"
 gix-ignore = "0.22.1"

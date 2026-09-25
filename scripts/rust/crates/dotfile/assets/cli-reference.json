@@ -437,7 +437,14 @@
       "--pretty": "Shows the system dashboard.",
       "--full": "Includes the extended inventory and detail view.",
       "--health": "Explains active errors and warnings.",
-      "--json": "Prints the normalized hardware and installation snapshot as JSON."
+      "--json": "Prints the normalized hardware and installation snapshot, or the process report, as JSON.",
+      "--system": "Shows the processes using the most CPU, memory, and GPU, grouped by app.",
+      "--cpu": "Ranks processes by CPU share.",
+      "--memory": "Ranks processes by memory share.",
+      "--gpu": "Ranks processes by GPU share.",
+      "--number": "Sets how many processes to show; defaults to 5.",
+      "--target": "Shows the processes of another host over SSH.",
+      "--split": "Shows one row per process instead of one per app."
     },
     "transcript": {
       "--provider": "Overrides clipboard provider detection for `capture`.",

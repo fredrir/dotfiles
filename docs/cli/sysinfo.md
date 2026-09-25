@@ -11,14 +11,21 @@
 ## Flags
 
 <!-- cli:flags:start -->
-| Flag                    | Description                                                       |
-| ----------------------- | ----------------------------------------------------------------- |
-| `-p`, `--pretty`        | Shows the system dashboard.                                       |
-| `-f`, `--full`          | Includes the extended inventory and detail view.                  |
-| `--health`, `-hh`       | Explains active errors and warnings.                              |
-| `--json`                | Prints the normalized hardware and installation snapshot as JSON. |
-| `--timings`             | Report probe timings to stderr                                    |
-| `-h`, `--help`          | Shows help for the selected command and exits.                    |
-| `--completions <SHELL>` | Prints a shell completion script for the named shell and exits.   |
-| `-V`, `--version`       | Prints the version and exits.                                     |
+| Flag                    | Description                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `-p`, `--pretty`        | Shows the system dashboard.                                                               |
+| `-f`, `--full`          | Includes the extended inventory and detail view.                                          |
+| `--health`, `-hh`       | Explains active errors and warnings.                                                      |
+| `--json`                | Prints the normalized hardware and installation snapshot, or the process report, as JSON. |
+| `--timings`             | Report probe timings to stderr                                                            |
+| `-s`, `--system`        | Shows the processes using the most CPU, memory, and GPU, grouped by app.                  |
+| `-c`, `--cpu`           | Ranks processes by CPU share.                                                             |
+| `-m`, `--memory`        | Ranks processes by memory share.                                                          |
+| `-g`, `--gpu`           | Ranks processes by GPU share.                                                             |
+| `-n`, `--number <N>`    | Sets how many processes to show; defaults to 5.                                           |
+| `-t`, `--target <HOST>` | Shows the processes of another host over SSH.                                             |
+| `--split`               | Shows one row per process instead of one per app.                                         |
+| `-h`, `--help`          | Shows help for the selected command and exits.                                            |
+| `--completions <SHELL>` | Prints a shell completion script for the named shell and exits.                           |
+| `-V`, `--version`       | Prints the version and exits.                                                             |
 <!-- cli:flags:end -->

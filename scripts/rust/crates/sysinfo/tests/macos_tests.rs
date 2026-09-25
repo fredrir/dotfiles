@@ -94,3 +94,20 @@ fn native_service_guards_cover_empty_and_populated_queries() {
         }
     }
 }
+
+#[test]
+fn accelerator_clients_name_their_creator_pid() {
+    assert_eq!(creator_pid("pid 431, WindowServer"), Some(431));
+    assert_eq!(creator_pid("pid 2804, zen"), Some(2804));
+    assert_eq!(creator_pid("WindowServer"), None);
+}
+
+#[test]
+fn accelerator_time_and_footprint_read_without_privileges() {
+    assert!(
+        gpu_time_by_pid().is_some(),
+        "Apple silicon exposes AppUsage"
+    );
+    assert!(footprint(std::process::id()).is_some_and(|bytes| bytes > 0));
+    assert_eq!(footprint(u32::MAX), None);
+}
