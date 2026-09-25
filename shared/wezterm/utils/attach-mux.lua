@@ -87,6 +87,7 @@ end
 local function isolated_zsh(home, session)
   return "HOME=" .. home,
     "TERM=xterm-256color",
+    "COLORTERM=truecolor",
     "PATH=/usr/local/bin:/usr/bin:/bin",
     "HWIRE_SESSION=" .. session,
     "zsh",

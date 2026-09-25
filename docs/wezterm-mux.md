@@ -45,19 +45,19 @@ reached through `socat`.
 
 ## SSH domains
 
-| Name          | Value                                                                        |
-| ------------- | ---------------------------------------------------------------------------- |
-| WezTerm mux   | `ssh-mux.lua` hosts; unix domain via `ssh -T <host> wezterm cli proxy`       |
-| Transport     | OpenSSH: `~/.ssh/config`, ControlMaster, ProxyCommand                        |
-| Remote        | WezTerm at the host's `wezterm` path; its mux server starts on demand        |
-| Requires      | `wezterm.mux.local_pane_layout_domains` containing `unix` (vertical-tabs)    |
-| Disconnect    | ssh drop closes the local panes; shells keep running in the remote mux       |
-| Plain SSH     | every other literal `Host` in `~/.ssh/config`; `multiplexing = "None"`       |
-| Excluded      | `macie`, `archie`; they attach over TLS                                      |
-| Resolution    | WezTerm's SSH client at connect time; `Match exec` is unsupported there      |
-| `Include`     | relative to `~/.ssh`; WezTerm does not expand `~`                            |
-| ProxyCommand  | runs with localmux's `PATH`; the launchd job prepends `/opt/homebrew/bin`    |
-| New host      | restart localmux; reloading the config does not register new domains         |
+| Name         | Value                                                                     |
+| ------------ | ------------------------------------------------------------------------- |
+| WezTerm mux  | `ssh-mux.lua` hosts; unix domain via `ssh -T <host> wezterm cli proxy`    |
+| Transport    | OpenSSH: `~/.ssh/config`, ControlMaster, ProxyCommand                     |
+| Remote       | WezTerm at the host's `wezterm` path; its mux server starts on demand     |
+| Requires     | `wezterm.mux.local_pane_layout_domains` containing `unix` (vertical-tabs) |
+| Disconnect   | ssh drop closes the local panes; shells keep running in the remote mux    |
+| Plain SSH    | every other literal `Host` in `~/.ssh/config`; `multiplexing = "None"`    |
+| Excluded     | `macie`, `archie`; they attach over TLS                                   |
+| Resolution   | WezTerm's SSH client at connect time; `Match exec` is unsupported there   |
+| `Include`    | relative to `~/.ssh`; WezTerm does not expand `~`                         |
+| ProxyCommand | runs with localmux's `PATH`; the launchd job prepends `/opt/homebrew/bin` |
+| New host     | restart localmux; reloading the config does not register new domains      |
 
 ```console
 $ attach_mux ntnu
@@ -102,11 +102,18 @@ is empty or set cannot identify the mux domain or prove which route carried the
 connection. `hwire` therefore accepts only the validated session stamp as TLS
 evidence. `hwire -iv` shows that evidence and the selected domain.
 
-Existing remote panes predate the stamp and must be reopened once after this
-change. New tabs and splits opened from a stamped TLS pane propagate the stamp
-automatically. Because an unstamped legacy pane is indistinguishable from a
-local pane, it is shown as local route availability instead of a guessed TLS
-route.
+Attached shells start under `env -i`; `attach-mux.lua` restores only:
+
+| Env             | Value                          |
+| --------------- | ------------------------------ |
+| `HOME`          | destination home               |
+| `TERM`          | `xterm-256color`               |
+| `COLORTERM`     | `truecolor`                    |
+| `PATH`          | `/usr/local/bin:/usr/bin:/bin` |
+| `HWIRE_SESSION` | validated route stamp          |
+
+`COLORTERM=truecolor` is required: without it `ui-theme` detects `Ansi256` and
+the `ui_indexed` fallback paints `#1c1c1c` instead of `#15152b`.
 
 ## Why the two halves differ
 
@@ -143,14 +150,14 @@ mtls doctor --probe 10.77.77.2:8443 --peer-name archie
 lsof -nP -iTCP -sTCP:LISTEN | grep 844          # exactly the intended addresses
 ```
 
-| Name             | Value                                                          |
-| ---------------- | -------------------------------------------------------------- |
-| Live             | `~/.local/share/wezterm/mtls/{ca,cert,private_key}.pem`        |
-| Encrypted        | `linux/arch/wezterm-mtls/`, `macos/wezterm-mtls/`              |
-| Restored by      | `./setup.sh` / `dotfile sync`, once the age identity is back   |
-| Age identity     | `config/age/<host>.age`; see [Reinstall](#reinstall)           |
-| CA key           | offline; needed only to re-issue                               |
-| Leaves expire    | 2036-09-19                                                     |
+| Name          | Value                                                        |
+| ------------- | ------------------------------------------------------------ |
+| Live          | `~/.local/share/wezterm/mtls/{ca,cert,private_key}.pem`      |
+| Encrypted     | `linux/arch/wezterm-mtls/`, `macos/wezterm-mtls/`            |
+| Restored by   | `./setup.sh` / `dotfile sync`, once the age identity is back |
+| Age identity  | `config/age/<host>.age`; see [Reinstall](#reinstall)         |
+| CA key        | offline; needed only to re-issue                             |
+| Leaves expire | 2036-09-19                                                   |
 
 After a re-issue, replace the encrypted copy on that host:
 
