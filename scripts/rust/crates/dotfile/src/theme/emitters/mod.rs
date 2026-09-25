@@ -96,7 +96,7 @@ pub fn targets(repo: &Repository) -> Result<Vec<Target>> {
         ("shared/starship/starship.toml", Kind::Starship),
         ("shared/zsh/20-theme.zsh", Kind::Zsh),
         ("shared/obsidian/themes/Fredrir/theme.css", Kind::Obsidian),
-        ("shared/nvim/lua/ui/theme.lua", Kind::Nvim),
+        ("shared/nvim/lua/theme.lua", Kind::Nvim),
         ("shared/yazi/theme.toml", Kind::Yazi),
     ] {
         add(path.into(), kind, true);

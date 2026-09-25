@@ -17,6 +17,12 @@ use crate::preview::sanitize;
 use crate::session::SessionId;
 use tempfile::NamedTempFile;
 
+/// Non-interactive commands on the peer only see `/usr/bin:/bin:/usr/sbin:/sbin`,
+/// so every remote script re-derives the tool paths the interactive shell sets
+/// up: the compiled dotfiles bin (agent-hop) and `~/.local/bin` (claude, codex).
+pub(crate) const REMOTE_PATH: &str =
+    r#"export PATH="${DOTFILES_COMPILED:-$HOME/dotfiles/.bin}:$HOME/.local/bin:$PATH"; "#;
+
 const MACHINE_PROTOCOL: &str = "agent-hop-machine";
 pub(crate) const MACHINE_PROTOCOL_VERSION: u64 = 2;
 pub(crate) const MAX_REMOTE_SESSIONS: usize = 2_000;
@@ -497,7 +503,8 @@ pub fn preflight_script(workspace: &Path, agent: Agent) -> Result<String, String
     let workspace = quote_path(workspace)?;
     let agent = quote(agent.name());
     Ok(format!(
-        "test -d {workspace} || {{ printf '%s\\n' 'workspace does not exist' >&2; exit 1; }}; \
+        "{REMOTE_PATH}\
+         test -d {workspace} || {{ printf '%s\\n' 'workspace does not exist' >&2; exit 1; }}; \
          command -v {agent} >/dev/null 2>&1 || {{ printf '%s\\n' 'agent command is not available' >&2; exit 1; }}; \
          command -v 'zsh' >/dev/null 2>&1 || {{ printf '%s\\n' 'zsh is not available' >&2; exit 1; }}"
     ))
@@ -568,7 +575,7 @@ pub(crate) fn machine_script(arguments: &[String]) -> String {
         .map(|argument| quote(argument))
         .collect::<Vec<_>>()
         .join(" ");
-    format!("export PATH=\"DOTFILES_COMPILED:$PATH\"; exec agent-hop {command}")
+    format!("{REMOTE_PATH}exec agent-hop {command}")
 }
 
 pub(crate) fn machine_ssh_session(peer: Host, script: &str) -> Session {
