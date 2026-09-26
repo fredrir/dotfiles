@@ -4,7 +4,7 @@ shared {
   fastfetch
   gh
   git
-  hport       = Ignore rules for the ports hport forwards from the peer
+  hport      = Ignore rules for the ports hport forwards from the peer
   nvim
   obsidian
   rsync
@@ -83,6 +83,7 @@ linux/hyprland {
 macos {
   fastfetch  = macOS-specific fastfetch configuration
   git        = macOS-specific Git configuration
+  karabiner
   launchd
   ssh
   sunshine

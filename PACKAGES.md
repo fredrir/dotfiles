@@ -85,6 +85,7 @@
 
 - `fastfetch` — macOS-specific fastfetch configuration
 - `git` — macOS-specific Git configuration
+- `karabiner`
 - `launchd`
 - `ssh`
 - `sunshine`
