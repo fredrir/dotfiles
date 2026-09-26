@@ -47,7 +47,7 @@
     "editor.quickSuggestionsDelay": 1,
     "editor.suggest.snippetsPreventQuickSuggestions": false,
     "editor.formatOnSave": true,
-    "editor.defaultFormatter": "JohnnyMorganz.stylua"
+    "editor.defaultFormatter": "sumneko.lua"
   },
   "[toml]": {
     "editor.defaultFormatter": "tamasfe.even-better-toml"
