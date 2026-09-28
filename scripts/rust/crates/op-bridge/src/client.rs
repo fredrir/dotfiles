@@ -1,0 +1,87 @@
+use std::ffi::OsString;
+use std::io::Write;
+use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
+use std::process::{Command, ExitCode};
+use std::time::Duration;
+
+use crate::paths;
+use crate::protocol::{self, Request, Response};
+
+const REAL_OP: &str = "/usr/bin/op";
+// Long enough for a Touch ID prompt; pi gives up after 10 s on its own
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(60);
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Read {
+    pub reference: String,
+    pub newline: bool,
+}
+
+impl Read {
+    pub fn parse(args: &[OsString]) -> Option<Read> {
+        let (command, rest) = args.split_first()?;
+        if command != "read" {
+            return None;
+        }
+        let mut newline = true;
+        let mut reference = None;
+        for arg in rest {
+            match arg.to_str()? {
+                "-n" | "--no-newline" => newline = false,
+                flag if flag.starts_with('-') => return None,
+                value if reference.is_none() => reference = Some(value.to_string()),
+                _ => return None,
+            }
+        }
+        Some(Read {
+            reference: reference?,
+            newline,
+        })
+    }
+}
+
+pub fn run(args: Vec<OsString>) -> Result<ExitCode, String> {
+    if let Some(read) = Read::parse(&args)
+        && let Ok(stream) = UnixStream::connect(paths::client())
+    {
+        match ask(&stream, &read.reference)? {
+            Response::Value(value) => {
+                let newline: &[u8] = if read.newline { b"\n" } else { b"" };
+                let mut stdout = std::io::stdout().lock();
+                stdout
+                    .write_all(value.as_bytes())
+                    .and_then(|()| stdout.write_all(newline))
+                    .and_then(|()| stdout.flush())
+                    .map_err(|error| format!("stdout: {error}"))?;
+                return Ok(ExitCode::SUCCESS);
+            }
+            Response::Denied(reason) => return Err(reason),
+            Response::Refused(_) => {}
+        }
+    }
+    let real = real_op();
+    let error = Command::new(&real).args(args).exec();
+    Err(format!("{}: {error}", real.to_string_lossy()))
+}
+
+fn ask(stream: &UnixStream, reference: &str) -> Result<Response, String> {
+    stream
+        .set_read_timeout(Some(ANSWER_TIMEOUT))
+        .map_err(|error| error.to_string())?;
+    let request = Request {
+        read: reference.to_string(),
+    };
+    protocol::send(stream, &request)?;
+    protocol::receive(stream).map_err(|error| format!("macie did not answer: {error}"))
+}
+
+fn real_op() -> OsString {
+    std::env::var_os("OP_BRIDGE_OP")
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| OsString::from(REAL_OP))
+}
+
+#[cfg(test)]
+#[path = "../tests/unit/client_tests.rs"]
+mod tests;

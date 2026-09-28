@@ -1,0 +1,27 @@
+[package]
+name              = "op-bridge"
+version.workspace = true
+description       = "1Password reads on archie, approved with Touch ID on macie"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace        = true
+hostkit.workspace     = true
+nix                   = { workspace = true, features = ["signal", "socket", "user"] }
+serde.workspace       = true
+serde_json.workspace  = true
+workstation.workspace = true
+
+signal-hook = "0.4.4"
+zeroize     = { version = "1.9.0", features = ["serde"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+robius-authentication = "0.3.1"
+
+[dev-dependencies]
+tempfile.workspace = true
+testkit.workspace  = true

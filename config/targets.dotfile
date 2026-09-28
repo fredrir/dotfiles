@@ -67,6 +67,7 @@ linux/arch/lact/etc = /etc
 linux/arch/macie-usb/etc = /etc
 linux/arch/macie-usb/usr/lib = /usr/lib
 linux/arch/nvidia/etc = /etc
+linux/arch/op-bridge/op = ~/.local/bin/op
 linux/arch/rapl/etc = /etc
 linux/arch/ssh = ~/.ssh
 linux/arch/tuning-sysctl/etc = /etc

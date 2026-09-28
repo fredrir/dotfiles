@@ -22,6 +22,7 @@ members = [
  "crates/hwire",
  "crates/hwtune",
  "crates/mux-route",
+ "crates/op-bridge",
  "crates/path",
  "crates/size",
  "crates/sysinfo",
