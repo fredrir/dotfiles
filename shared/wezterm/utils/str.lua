@@ -14,4 +14,10 @@ M.ends_with = function(str, suffix)
   return str:sub(-#suffix) == suffix
 end
 
+---@param str string
+---@return string
+M.trim = function(str)
+  return (str:gsub("%s+$", ""))
+end
+
 return M

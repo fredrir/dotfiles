@@ -24,11 +24,7 @@ done
 exit 0
 ]]
 
----@param text string
----@return string
-local function trim(text)
-  return (text:gsub("%s+$", ""))
-end
+local trim = require("utils.str").trim
 
 ---@param raw string
 ---@return string?

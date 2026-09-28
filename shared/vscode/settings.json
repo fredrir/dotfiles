@@ -306,6 +306,7 @@
   "[shellscript]": {
     "editor.defaultFormatter": "fredrir.shucked"
   },
-  "shucked.history.files": true,
-  "shucked.unsafeFixes.enable": true
+  "shucked.unsafeFixes.enable": true,
+  "shucked.environment.policy": "login-shell",
+  "shucked.server.completion.maxItems": 1000
 }

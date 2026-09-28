@@ -17,13 +17,13 @@ reached through `socat`.
 | `attach_mux <ssh-host>`                 | SSH session replaces the invoking split; see [SSH domains](#ssh-domains)             |
 | `attach_mux --adopt [host]`             | Selector: `__detached` tabs and the host's unowned panes; picked one opens as a tab  |
 | `CMD+SHIFT+a` / `CTRL+SHIFT+a`          | `attach_mux --adopt` for the peer                                                    |
-| Request                                 | Shell emits `ATTACH_MUX`; GUI resolves its localmux pane ID                          |
+| Request                                 | Shell emits `ATTACH_MUX`; GUI resolves its localmux pane ID, replies via pane input  |
 | TLS layouts                             | `local_pane_layout=true`; localmux owns tabs/splits, remote tabs are adopted only    |
 | Backing tabs                            | Remote workspace `__backing:<origin>`; hidden from the remote's GUI                  |
 | Orphans                                 | First attach after a localmux restart moves them into `__detached`                   |
-| Return to GUI computer                  | Fresh shell in localmux's `local` domain                                             |
-| Remote shell exits                      | Pane swaps back to a fresh local shell; closing the pane or tab still closes it      |
-| Failure                                 | Source pane stays open; GUI reports the error                                        |
+| `attach_mux <GUI computer>`             | Fresh shell in localmux's `local` domain                                             |
+| Failure                                 | Source pane stays open; shell prints the error (exit 1); picker/keybind: WezTerm log |
+| Timeout                                 | 15s per `wezterm cli` call; shell waits 60s for the GUI's reply                      |
 | Prerequisite                            | Updated vertical-tabs WezTerm GUI, CLI and localmux server; reload shell definitions |
 | Restart                                 | Terminates localmux's local sessions; remote shells return as orphans                |
 | macOS Local Network                     | Allow `wezterm-mux-server` per WezTerm update; else cable/LAN: `No route to host`    |
@@ -195,7 +195,7 @@ shared/wezterm/domain/ssh-mux.lua      SSH hosts with a remote WezTerm mux
 shared/wezterm/utils/attach-mux.lua    the `ATTACH_MUX` handler
 shared/ssh/config                      the `Include` both OpenSSH and WezTerm read
 shared/wezterm/utils/hwire-session.lua propagates TLS metadata to tabs and splits
-shared/zsh/49-wezterm.zsh              `mux`, the `archie`/`macie` aliases, and TLS metadata
+shared/zsh/49-wezterm.zsh              `mux`, `attach_mux`, the `archie`/`macie` aliases
 scripts/rust/crates/mux-route/         which route answers, and the domain to attach over it
 scripts/rust/crates/hostkit/           the addresses those two read, and the guard on hosts.lua
 

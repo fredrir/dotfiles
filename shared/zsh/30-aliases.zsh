@@ -1,7 +1,10 @@
 alias -g NV='| nvim -R -'
 alias -g CP="| dclip"
 
-alias f='find . -type f -name'
+f() {
+  fd -HI -t file "$1"
+}
+
 alias c="clear"
 alias u="uname -mrs"
 

@@ -1,12 +1,12 @@
-local wezterm = require "wezterm"
 local ssh_mux = require "domain.ssh-mux"
+local mux = require "utils.mux"
 
 ---@diagnostic disable: missing-fields
 ---@type UnixDomain[]
 local domains = {
   {
     name = "localmux",
-    socket_path = wezterm.home_dir .. "/.local/share/wezterm/localmux.sock",
+    socket_path = mux.localmux_socket,
     no_serve_automatically = true,
   },
 }

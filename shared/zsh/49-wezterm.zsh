@@ -7,36 +7,47 @@ mux() {
 attach_mux() {
   emulate -L zsh
 
-  local list=0
-  if [[ $1 == -l || $1 == --list ]]; then
-    list=1
-    shift
-  fi
-
-  if ((list)); then
-    mux-route --list $1
+  if [[ $1 == (-l|--list) ]]; then
+    mux-route --list $2
     return
   fi
 
   local request_name=ATTACH_MUX
-  if [[ $1 == -a || $1 == --adopt ]]; then
+  if [[ $1 == (-a|--adopt) ]]; then
     request_name=ADOPT_MUX
     shift
   fi
 
   if [[ -z $WEZTERM_PANE ]]; then
-    print -ru2 'mux: not a wezterm pane'
+    print -ru2 'attach_mux: not a wezterm pane'
     return 1
   fi
   local target=${1:-peer}
   if [[ $target == *[^[:alnum:]._-]* ]]; then
-    print -ru2 "mux: invalid host: $target"
+    print -ru2 "attach_mux: invalid host: $target"
     return 1
   fi
 
   zmodload zsh/datetime
-  local request="v1:$target:$$:$EPOCHREALTIME"
-  printf '\e]1337;SetUserVar=%s=%s\a' "$request_name" "$(print -rn -- "$request" | base64 | tr -d '\r\n')"
+  local id="$$:$EPOCHREALTIME"
+  local tty_state reply
+  tty_state=$(stty -g </dev/tty) || return 1
+  # The GUI answers on this pane's input with "<id> <error>\a"; an empty error means success
+  stty -echo -icanon </dev/tty
+  {
+    set_user_var $request_name "v1:$target:$id"
+    while IFS= read -r -t 60 -d $'\a' reply </dev/tty; do
+      [[ $reply == "$id "* ]] || continue
+      reply=${reply#"$id "}
+      [[ -z $reply ]] && return 0
+      print -ru2 -- "$reply"
+      return 1
+    done
+    print -ru2 'attach_mux: no reply from wezterm'
+    return 1
+  } always {
+    stty "$tty_state" </dev/tty
+  }
 }
 
 [[ $HOST == "macie" ]] && alias archie='attach_mux archie'

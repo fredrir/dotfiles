@@ -41,6 +41,7 @@ add_plugins() {
 
 has_cmd() { (($+commands[$1])); }
 dir_exists() { [[ -d "$1" ]]; }
+set_user_var() { printf '\e]1337;SetUserVar=%s=%s\a' "$1" "$(print -rn -- "$2" | base64 | tr -d '\r\n')"; }
 
 add_fpath() {
   local dir

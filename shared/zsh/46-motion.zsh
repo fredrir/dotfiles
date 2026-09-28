@@ -65,7 +65,7 @@ _motion_up_line() { zle up-line || CURSOR=0; }
 _motion_down_line() { zle down-line || CURSOR=$#BUFFER; }
 
 _motion_scrollback() {
-  printf '\e]1337;SetUserVar=SCROLLBACK=%s\a' "$(print -rn -- "$1" | base64 | tr -d '\r\n')"
+  set_user_var SCROLLBACK "$1"
 }
 
 _motion_document_start() {
