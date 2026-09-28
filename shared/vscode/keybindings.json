@@ -347,5 +347,15 @@
       ]
     },
     "when": "editorFocus"
+  },
+  {
+    "key": "alt+e",
+    "command": "editor.action.marker.next",
+    "when": "editorFocus"
+  },
+  {
+    "key": "alt+f8",
+    "command": "-editor.action.marker.next",
+    "when": "editorFocus"
   }
 ]

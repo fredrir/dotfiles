@@ -8,7 +8,7 @@ local ssh_hosts = require "domain.ssh-hosts"
 local ssh_mux = require "domain.ssh-mux"
 
 local MUX_ROUTE = dotfile.compiled_dir .. "/mux-route"
-local SOCKET = require("utils.mux").localmux_socket
+local SOCKET = require("utils.mux.mux").localmux_socket
 local CLI = wezterm.executable_dir .. "/wezterm"
 local MUX_TIMEOUT_SECONDS = 15
 local ISOLATED = 'exec /usr/bin/env -i WEZTERM_PANE="$WEZTERM_PANE" WEZTERM_UNIX_SOCKET="$WEZTERM_UNIX_SOCKET" "$@"'

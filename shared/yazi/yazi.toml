@@ -23,10 +23,10 @@ suppress_preload = false
 
 [[plugin.prepend_fetchers]]
 url   = "*"
-run   = "git"
+run   = "lua.git"
 group = "git"
 
 [[plugin.prepend_fetchers]]
 url   = "*/"
-run   = "git"
+run   = "lua.git"
 group = "git"

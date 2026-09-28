@@ -8,8 +8,7 @@ local mouse_bindings = require "keymap.mouse-bindings"
 local skip_close_confirmation = require "utils.skip_close_confirmation"
 local close_tab = require "utils.close-tab"
 local close_pane = require "utils.close-pane"
-local mux = require "utils.mux"
-local attach_mux = require "utils.attach-mux"
+local mux = require "utils.mux.mux"
 local hwire_session = require "utils.hwire-session"
 local MOD = require "keymap.modifiers"
 local open_vscode = require "utils.keymap.open-vscode"
@@ -18,6 +17,7 @@ local open_yazi = require "utils.keymap.open-yazi"
 local close_window = require "utils.close_window"
 local copy_selection = require "utils.copy-selection"
 local clear_screen = require "utils.keymap.clear_screen"
+local adopt_pane  = require "utils.mux.adopt_pane"
 
 local act = wezterm.action
 
@@ -125,6 +125,11 @@ local keys = bind_keys {
     mods = MOD.SUPER_REV,
     action = mux.detach_pane,
   },
+  -- {
+  --   key = ".",
+  --   mods = MOD.PRIMARY,
+  --   action = attach_peer
+  -- },
   { -- Domain and workspace launcher --
     key = "d",
     mods = MOD.SUPER_REV,
@@ -146,7 +151,7 @@ local keys = bind_keys {
     mods = MOD.SUPER_REV,
     action = open_github,
   },
-  { key = "a", mods = MOD.SUPER_REV, action = attach_mux.adopt },
+  { key = "a", mods = MOD.SUPER_REV, action = adopt_pane.adopt },
   { key = "z", mods = MOD.SUPER_REV, action = act.TogglePaneZoomState },
 }
 

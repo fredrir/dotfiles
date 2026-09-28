@@ -13,9 +13,9 @@
 | Key | Action | Description |
 | --- | --- | --- |
 | <code>&lt;Esc&gt;</code> | [<code>close</code>](../../shared/yazi/keymap.toml#L43) | Cancel input<br><code>input; prepend_keymap</code> |
-| <code>&lt;Right&gt;</code> | [<code>plugin smart-enter</code>](../../shared/yazi/keymap.toml#L10) | Enter directory or open file<br><code>mgr; prepend_keymap</code> |
-| <code>M</code> | [<code>plugin mount</code>](../../shared/yazi/keymap.toml#L5) | Open mount manager<br><code>mgr; prepend_keymap</code> |
-| <code>f</code> | [<code>plugin smart-filter</code>](../../shared/yazi/keymap.toml#L23) | Filter continuously and enter a unique directory<br><code>mgr; prepend_keymap</code> |
+| <code>&lt;Right&gt;</code> | [<code>plugin lua.smart-enter</code>](../../shared/yazi/keymap.toml#L10) | Enter directory or open file<br><code>mgr; prepend_keymap</code> |
+| <code>M</code> | [<code>plugin lua.mount</code>](../../shared/yazi/keymap.toml#L5) | Open mount manager<br><code>mgr; prepend_keymap</code> |
+| <code>f</code> | [<code>plugin lua.smart-filter</code>](../../shared/yazi/keymap.toml#L23) | Filter continuously and enter a unique directory<br><code>mgr; prepend_keymap</code> |
 | <code>g → a</code> | [<code>cd ~/dotfiles</code>](../../shared/yazi/keymap.toml#L33) | Go to ~/dotfiles<br><code>mgr; prepend_keymap</code> |
 | <code>g → d</code> | [<code>cd ~/Documents</code>](../../shared/yazi/keymap.toml#L38) | Go to ~/Documents<br><code>mgr; prepend_keymap</code> |
 | <code>g → p</code> | [<code>cd ~/projects</code>](../../shared/yazi/keymap.toml#L28) | Go to ~/projects<br><code>mgr; prepend_keymap</code> |

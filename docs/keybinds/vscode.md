@@ -13,7 +13,9 @@
 
 | Key | Action | Description |
 | --- | --- | --- |
+| <code>alt+e</code> | [<code>editor.action.marker.next</code>](../../shared/vscode/keybindings.json#L351) | Editor action marker next<br><code>editorFocus</code> |
 | <code>alt+f5</code> | [<code>-workbench.action.compareEditor.nextChange</code>](../../shared/vscode/keybindings.json#L196) | Compare Editor next Change<br><code>textCompareEditorVisible; remove binding</code> |
+| <code>alt+f8</code> | [<code>-editor.action.marker.next</code>](../../shared/vscode/keybindings.json#L356) | Editor action marker next<br><code>editorFocus; remove binding</code> |
 | <code>alt+tab</code> | [<code>workbench.action.switchWindow</code>](../../shared/vscode/keybindings.json#L2) | Switch Window |
 | <code>ctrl+1</code> | [<code>-workbench.action.openEditorAtIndex1</code>](../../shared/vscode/keybindings.json#L30) | Open Editor At Index1<br><code>global; remove binding</code> |
 | <code>ctrl+2</code> | [<code>-workbench.action.openEditorAtIndex2</code>](../../shared/vscode/keybindings.json#L22) | Open Editor At Index2<br><code>global; remove binding</code> |

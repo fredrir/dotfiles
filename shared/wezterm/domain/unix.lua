@@ -1,5 +1,5 @@
 local ssh_mux = require "domain.ssh-mux"
-local mux = require "utils.mux"
+local mux = require "utils.mux.mux"
 
 ---@diagnostic disable: missing-fields
 ---@type UnixDomain[]

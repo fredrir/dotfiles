@@ -1,9 +1,9 @@
-require("no-status"):setup()
+require("lua.no-status"):setup()
 
-require("smart-enter"):setup {
+require("lua.smart-enter"):setup {
   open_multi = true,
 }
 
-require("git"):setup {
+require("lua.git"):setup {
   order = 1500,
 }

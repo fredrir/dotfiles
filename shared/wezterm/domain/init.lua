@@ -1,5 +1,5 @@
 local append_conf = require "utils.append_conf"
-require "utils.attach-mux"
+require "utils.mux.adopt_pane"
 
 ---@return Config
 return function()
