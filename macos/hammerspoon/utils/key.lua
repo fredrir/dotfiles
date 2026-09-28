@@ -26,4 +26,14 @@ function M.createKeybind(mod, key, action)
     return tap
 end
 
+---@param mod string
+---@param key string
+---@param application string
+---@return hs.eventtap
+function M.openApp(mod, key, application)
+    return M.createKeybind(mod, key, function()
+        hs.application.launchOrFocus("/Applications/" .. application .. ".app")
+    end)
+end
+
 return M

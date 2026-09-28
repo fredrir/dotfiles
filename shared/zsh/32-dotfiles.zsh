@@ -2,6 +2,7 @@ alias cdd="cd $DOTFILES"
 alias cdn="cd $DOTFILES/shared/nvim"
 alias cdw="cd $DOTFILES/shared/wezterm"
 alias cdz="cd $DOTFILES/shared/zsh"
+alias cdhh="cd $DOTFILES/macos/hammerspoon"
 
 # Git
 alias gdd="git-discard"

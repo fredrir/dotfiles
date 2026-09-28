@@ -98,4 +98,4 @@ linux/kde/kvitals = ~/.local/share/plasma/plasmoids/org.kde.plasma.kvitals
 linux/kde/my-panel = ~/.config/my-panel
 linux/kde/panel-colorizer = ~/.config/panel-colorizer
 linux/kde/plasma = ~/.config
-macos/hammerspoon/.hammerspoon = ~/.hammerspoon
+macos/hammerspoon = ~/.hammerspoon
