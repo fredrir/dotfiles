@@ -9,7 +9,6 @@ mod hash;
 mod keep;
 mod lang;
 mod purge;
-mod report;
 mod scan;
 mod walk;
 
@@ -23,7 +22,7 @@ use rayon::prelude::*;
 use workstation::{Completable, Completions, Style, path, text};
 
 use purge::{Outcome, Saved};
-use report::Row;
+use ui_batch::{Decision, Options, Row, Run};
 use walk::{Found, Wanted};
 
 const PROGRAM: &str = "doc-purge";
@@ -105,9 +104,20 @@ fn run(cli: &Cli) -> Result<bool, String> {
         );
     }
     let style = Style::for_stdout();
+    let labels: Vec<String> = cli.targets.iter().map(|target| path::shorten(target)).collect();
+    let run = Run::new(
+        PROGRAM,
+        &labels,
+        &style,
+        Options {
+            every_row: cli.verbose,
+            dry: cli.dry,
+            yes: cli.yes,
+        },
+    );
     let done: Vec<Done> = gathered.files.par_iter().map(inspect).collect();
 
-    let mut rows = Vec::new();
+    let mut changes: Vec<&Done> = Vec::new();
     let mut skips: Vec<(String, String)> = gathered
         .notes
         .iter()
@@ -133,70 +143,87 @@ fn run(cli: &Cli) -> Result<bool, String> {
         docs += entry.docs;
         minus += entry.minus;
         plus += entry.plus;
-        rows.push(Row {
-            path: path::shorten(&entry.path),
-            minus: entry.minus,
-            plus: entry.plus,
-        });
+        changes.push(entry);
     }
-    rows.sort_by(|left, right| left.path.cmp(&right.path));
+    changes.sort_by(|left, right| left.path.cmp(&right.path));
     skips.sort();
 
-    if rows.is_empty() {
+    if changes.is_empty() {
         if !skips.is_empty() || cli.verbose {
-            report::heading(&cli.targets, &style);
-            report::listed("left alone", &skips, cli.verbose, &style);
+            run.heading();
+            run.section("left alone", &left_alone(&skips, &style));
             println!();
         }
         println!("{PROGRAM}: nothing to purge");
         return Ok(true);
     }
 
-    report::heading(&cli.targets, &style);
-    report::purged(&rows, cli.verbose, &style);
+    run.heading();
+    run.section("purge", &purged(&changes, &style));
     if saved.any() {
-        println!();
-        println!("  {}", style.bold("kept"));
-        println!("    {}", style.dim(&sentence(&saved)));
+        run.note("kept", &sentence(&saved));
     }
-    report::listed("left alone", &skips, cli.verbose, &style);
-    println!();
-    println!(
-        "  {}",
-        summary(comments, docs, glyphs, rows.len(), minus, plus, &style)
-    );
+    run.section("left alone", &left_alone(&skips, &style));
+    run.summary(&summary(
+        comments,
+        docs,
+        glyphs,
+        changes.len(),
+        minus,
+        plus,
+        &style,
+    ));
 
-    if cli.dry {
-        return Ok(true);
-    }
-    if !cli.yes {
-        println!();
-        match workstation::confirm("  Continue? [Y/n] ") {
-            Some(true) => {}
-            Some(false) => {
-                println!("{PROGRAM}: cancelled");
-                return Ok(true);
-            }
-            None => {
-                println!();
-                return Ok(false);
-            }
-        }
+    match run.decide() {
+        Decision::Stop => return Ok(true),
+        Decision::Interrupted => return Ok(false),
+        Decision::Proceed => {}
     }
 
-    let mut failures = 0usize;
-    for entry in &done {
-        let Some(content) = &entry.content else {
-            continue;
-        };
-        if let Err(error) = commit(&entry.path, content) {
-            eprintln!("{PROGRAM}: {}: {error}", entry.path.display());
-            failures += 1;
-        }
-    }
-    println!();
-    println!("  {}", style.dim("done"));
+    let failures = run.apply(&changes, |entry| {
+        let content = entry.content.as_deref().unwrap_or_default();
+        commit(&entry.path, content).map_err(|error| format!("{}: {error}", entry.path.display()))
+    });
     Ok(failures == 0)
+}
+
+fn left_alone(skips: &[(String, String)], style: &Style) -> Vec<Row> {
+    skips
+        .iter()
+        .map(|(path, reason)| Row::detailed(path, style.dim(reason)))
+        .collect()
+}
+
+fn purged(changes: &[&Done], style: &Style) -> Vec<Row> {
+    let counts: Vec<(String, String)> = changes
+        .iter()
+        .map(|entry| {
+            (
+                format!("-{}", entry.minus),
+                if entry.plus > 0 {
+                    format!("+{}", entry.plus)
+                } else {
+                    String::new()
+                },
+            )
+        })
+        .collect();
+    let minus_room = counts
+        .iter()
+        .map(|(minus, _)| minus.len())
+        .max()
+        .unwrap_or(0);
+    changes
+        .iter()
+        .zip(counts)
+        .map(|(entry, (minus, plus))| {
+            let lead = " ".repeat(minus_room - minus.len());
+            Row::detailed(
+                path::shorten(&entry.path),
+                format!("{lead}{}  {}", style.red(&minus), style.green(&plus)),
+            )
+        })
+        .collect()
 }
 
 fn inspect(found: &Found) -> Done {

@@ -1,0 +1,11 @@
+{
+  "Lua.runtime.version": "Lua 5.4",
+  "Lua.workspace.library": [
+    "/Users/fredrir/.hammerspoon/Spoons/EmmyLua.spoon/annotations"
+  ],
+  "Lua.diagnostics.globals": [
+    "hs",
+    "spoon"
+  ],
+  "Lua.type.checkTableShape": true
+}

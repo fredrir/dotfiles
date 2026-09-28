@@ -1,0 +1,17 @@
+[package]
+name              = "rm-emptydirs"
+version.workspace = true
+description       = "Delete empty directories below the given targets"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace     = true
+ui-batch.workspace = true
+workstation        = { workspace = true, features = ["walk"] }
+
+[dev-dependencies]
+testkit.workspace = true

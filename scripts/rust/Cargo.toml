@@ -7,7 +7,6 @@ members = [
  "crates/bench-workloads",
  "crates/count",
  "crates/dcloud",
- "crates/doc-purge",
  "crates/dotfile",
  "crates/dotfile-format",
  "crates/dotfmt",
@@ -27,6 +26,7 @@ members = [
  "crates/size",
  "crates/sysinfo",
  "crates/testkit",
+ "crates/ui/batch",
  "crates/ui/cli",
  "crates/ui/diff-view",
  "crates/ui/file-explorer",
@@ -36,6 +36,8 @@ members = [
  "crates/ui/terminal",
  "crates/ui/theme",
  "crates/ui/widgets",
+ "crates/utils/doc-purge",
+ "crates/utils/rm-emptydirs",
  "crates/workstation",
 ]
 
@@ -78,6 +80,7 @@ gitkit = { path = "crates/git/gitkit" }
 hostkit = { path = "crates/hostkit" }
 testkit = { path = "crates/testkit" }
 ui-cli = { path = "crates/ui/cli" }
+ui-batch = { path = "crates/ui/batch" }
 ui-diff-view = { path = "crates/ui/diff-view" }
 ui-file-explorer = { path = "crates/ui/file-explorer" }
 ui-gallery = { path = "crates/ui/gallery" }

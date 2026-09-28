@@ -22,7 +22,7 @@
       "programs": [
         "doc-purge"
       ],
-      "source": "scripts/rust/crates/doc-purge/"
+      "source": "scripts/rust/crates/utils/doc-purge/"
     },
     {
       "name": "dotfile",
@@ -124,6 +124,14 @@
       "source": "scripts/rust/crates/path/"
     },
     {
+      "name": "rm-emptydirs",
+      "title": "rm-emptydirs",
+      "programs": [
+        "rm-emptydirs"
+      ],
+      "source": "scripts/rust/crates/utils/rm-emptydirs/"
+    },
+    {
       "name": "size",
       "title": "size",
       "programs": [
@@ -166,6 +174,7 @@
     "jqfmt",
     "mux-route",
     "path",
+    "rm-emptydirs",
     "size",
     "dotfile",
     "sysinfo"
@@ -238,6 +247,7 @@
     "hport setup": "Maps the peer name to 127.0.0.2, adds the macOS loopback alias, and starts the daemon.",
     "mux-route": "Prints the WezTerm mux domain for the best route to the peer.",
     "path": "Prints the repository-relative or home-relative path of a target.",
+    "rm-emptydirs": "Deletes empty directories below the given targets.",
     "size": "Reports sizes and line counts for files and directories.",
     "sysinfo": "Summarizes the current machine's environment and hardware.",
     "transcript": "Archives AI agent sessions as Obsidian notes.",
@@ -421,6 +431,12 @@
     "path": {
       "--full": "Prints the full path instead of a relative one.",
       "--relative": "Prints the path relative to the home directory, or the full path outside it."
+    },
+    "rm-emptydirs": {
+      "--dry": "Shows what would go without deleting anything.",
+      "--yes": "Runs without asking for confirmation.",
+      "--verbose": "Lists every row instead of truncating after 12 rows.",
+      "--all": "Also deletes folders the usual skip list and hidden entries would keep."
     },
     "size": {
       "-r": "Lists the immediate contents of the directory.",

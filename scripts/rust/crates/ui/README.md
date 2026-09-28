@@ -8,6 +8,7 @@
 | [picker](picker/) | `ui-picker` | Single/multiple selection, cascading menus, fzf presentation |
 | [file-explorer](file-explorer/) | `ui-file-explorer` | Local/remote navigation, source adapters, cancellable loading |
 | [cli](cli/) | `ui-cli` | Clap presentation, diagnostics, plain confirmations |
+| [batch](batch/) | `ui-batch` | Bounded listings, confirmation and apply pipeline |
 | [progress](progress/) | `ui-progress` | Activity, phases, spinners, progress bars, throttled transfer output |
 | [diff-view](diff-view/) | `ui-diff-view` | Bounded text comparison, line/hunk navigation, unified/split views |
 | [gallery](gallery/) | `ui-gallery` | Interactive component gallery and rendered theme previews |
@@ -15,6 +16,7 @@
 | Boundary | Owner |
 |---|---|
 | Terminal lifecycle | `ui-terminal` |
+| Batch listing and confirmation | `ui-batch` |
 | Theme generation and contrast resolution | `dotfile::theme` |
 | Runtime palette contract | `ui-theme` |
 | Git operations and merge decisions | Consumer |
@@ -29,7 +31,7 @@ dotfile theme gallery latte
 dotfile theme preview sexy-purple
 dotfile theme check
 dotfile theme sync
-dotfile dev check -p ui-theme,ui-terminal,ui-widgets,ui-picker,ui-file-explorer,ui-cli,ui-progress,ui-diff-view,ui-gallery
+dotfile dev check -p ui-theme,ui-terminal,ui-widgets,ui-picker,ui-file-explorer,ui-cli,ui-batch,ui-progress,ui-diff-view,ui-gallery
 ```
 
 | Theme input | Priority |
