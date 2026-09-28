@@ -80,6 +80,11 @@ alias dockus="docker compose down -v && docker compose up --build -d && docker c
 
 alias penv="python3 -m venv .venv && source .venv/bin/activate"
 
+# Macos
+if [[ -n $MACOS ]]; then
+  alias cdv='cd "$HOME/Library/Application Support/Code/User"'
+fi
+
 # Linux
 if [[ -n $LINUX ]]; then
   alias pacS="sudo pacman -S --needed"

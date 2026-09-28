@@ -6,8 +6,11 @@ use std::path::PathBuf;
 
 use testkit::{Bin, Ran, TempDir, executable, tree_pairs};
 
+const RUNTIME_DIR: &str = "/run/user/4242";
+
 const SYSTEMCTL: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$SYSTEMCTL_LOG"
+printf '%s\n' "$XDG_RUNTIME_DIR" >> "$SYSTEMCTL_ENV_LOG"
 [ "$2" = show ] || exit 0
 shift 4
 for unit in "$@"; do
@@ -81,6 +84,8 @@ impl Sandbox {
                 ),
             )
             .env("SYSTEMCTL_LOG", self.log())
+            .env("SYSTEMCTL_ENV_LOG", self.env_log())
+            .env("XDG_RUNTIME_DIR", RUNTIME_DIR)
             .env("STALE", stale)
             .env("RUNNING", running)
             .env("CI", "1")
@@ -92,8 +97,20 @@ impl Sandbox {
         self.temporary.path().join("systemctl.log")
     }
 
+    fn env_log(&self) -> PathBuf {
+        self.temporary.path().join("systemctl.env")
+    }
+
     fn calls(&self) -> Vec<String> {
         fs::read_to_string(self.log())
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn runtime_dirs(&self) -> Vec<String> {
+        fs::read_to_string(self.env_log())
             .unwrap_or_default()
             .lines()
             .map(str::to_string)
@@ -119,6 +136,14 @@ fn stale_linked_units_are_reloaded_and_only_running_ones_restarted() {
             "--user daemon-reload",
             "--user try-restart -- app.service",
         ]
+    );
+    assert!(
+        sandbox
+            .runtime_dirs()
+            .iter()
+            .all(|directory| directory == RUNTIME_DIR),
+        "every systemctl call must see the user bus: {:?}",
+        sandbox.runtime_dirs()
     );
 }
 

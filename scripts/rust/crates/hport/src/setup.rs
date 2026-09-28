@@ -1,9 +1,9 @@
-use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use hostkit::Host;
+use hostkit::env::runtime_dir;
 use workstation::Style;
 
 use crate::config::home;
@@ -89,13 +89,6 @@ fn systemctl(args: &[&str]) -> Command {
         runtime_dir(std::env::var_os("XDG_RUNTIME_DIR"), uid),
     );
     command
-}
-
-// Shells started through attach_mux run under env -i, which drops the user bus path
-pub fn runtime_dir(current: Option<OsString>, uid: u32) -> OsString {
-    current
-        .filter(|directory| !directory.is_empty())
-        .unwrap_or_else(|| OsString::from(format!("/run/user/{uid}")))
 }
 
 fn step(

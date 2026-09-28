@@ -87,6 +87,15 @@ impl Profile {
             .as_ref()
             .map_or_else(|| table::Cell::paint(Role::Muted, "missing"), gpu_cell)
     }
+
+    fn status_cell(&self) -> table::Cell {
+        let missing = self.missing();
+        if missing.is_empty() {
+            table::Cell::paint(Role::Success, "ok")
+        } else {
+            table::Cell::paint(Role::Danger, format!("missing {}", missing.join(",")))
+        }
+    }
 }
 
 pub fn valid_name(name: &str) -> bool {
@@ -122,6 +131,24 @@ fn boost_role(value: &str) -> Role {
     }
 }
 
+/// Governor at a glance: performance is the hot end, powersave the cool end.
+fn governor_role(value: &str) -> Role {
+    match value {
+        "performance" => Role::Danger,
+        "powersave" => Role::Success,
+        _ => Role::Info,
+    }
+}
+
+/// Power cap at a glance: a low cap is efficient, a high cap runs hot.
+fn power_cap_role(cap: &str) -> Role {
+    match cap.parse::<f32>() {
+        Ok(watts) if watts <= 250.0 => Role::Success,
+        Ok(watts) if watts >= 350.0 => Role::Warning,
+        _ => Role::Info,
+    }
+}
+
 fn value<'a>(values: &'a BTreeMap<String, String>, key: &str) -> &'a str {
     values.get(key).map_or("?", String::as_str)
 }
@@ -130,12 +157,11 @@ fn pad(width: usize, text: &str) -> String {
     " ".repeat(width.saturating_sub(text.chars().count()))
 }
 
-/// Widest governor, energy preference, and boost label across the profiles.
+/// Widest governor and energy preference across the profiles.
 #[derive(Default)]
 struct CpuLayout {
     governor: usize,
     epp: usize,
-    boost: usize,
 }
 
 impl CpuLayout {
@@ -148,9 +174,6 @@ impl CpuLayout {
                     .governor
                     .max(value(values, "CPU_GOVERNOR").chars().count());
                 layout.epp = layout.epp.max(value(values, "CPU_EPP").chars().count());
-                layout.boost = layout
-                    .boost
-                    .max(boost_label(value(values, "CPU_BOOST")).chars().count());
                 layout
             })
     }
@@ -170,21 +193,25 @@ fn cpu_cell(values: &BTreeMap<String, String>, layout: &CpuLayout) -> table::Cel
     let epp = value(values, "CPU_EPP");
     let boost = value(values, "CPU_BOOST");
     let label = boost_label(boost);
-    table::Cell::new()
-        .push(table::Span::new(governor).role(Role::Info))
+    let mut cell = table::Cell::new()
+        .push(table::Span::new(governor).role(governor_role(governor)))
         .push(table::Span::new(format!(
             "{} ",
             pad(layout.governor, governor)
         )))
-        .push(table::Span::new(epp).role(Role::Info))
-        .push(table::Span::new(format!("{} boost ", pad(layout.epp, epp))))
-        .push(table::Span::new(label).role(boost_role(boost)))
-        .push(table::Span::new(pad(layout.boost, label)))
+        .push(table::Span::new(epp).role(Role::Info));
+    // Boost on is the default, so it stays out of the way.
+    if label != "on" {
+        cell = cell
+            .push(table::Span::new(format!("{} boost ", pad(layout.epp, epp))))
+            .push(table::Span::new(label).role(boost_role(boost)));
+    }
+    cell
 }
 
 fn gpu_cell(gpu: &Gpu) -> table::Cell {
     match &gpu.power_cap {
-        Some(cap) => table::Cell::paint(Role::Theirs, format!("{cap} W")),
+        Some(cap) => table::Cell::paint(power_cap_role(cap), format!("{cap} W")),
         None => table::Cell::paint(Role::Muted, "—"),
     }
 }
@@ -404,6 +431,7 @@ fn profile_table(profiles: &[Profile], active: &str, style: &Style) -> String {
     let layout = CpuLayout::of(profiles);
     let columns = [
         table::Column::new("PROFILE"),
+        table::Column::new("STATUS"),
         table::Column::new("CPU"),
         table::Column::new("GPU"),
     ];
@@ -415,7 +443,12 @@ fn profile_table(profiles: &[Profile], active: &str, style: &Style) -> String {
             } else {
                 table::Cell::text(profile.name.clone())
             };
-            vec![name, profile.cpu_cell(&layout), profile.gpu_cell()]
+            vec![
+                name,
+                profile.status_cell(),
+                profile.cpu_cell(&layout),
+                profile.gpu_cell(),
+            ]
         })
         .collect::<Vec<_>>();
     table::styled(style, &columns, &rows)

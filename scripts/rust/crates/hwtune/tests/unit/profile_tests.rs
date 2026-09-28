@@ -93,7 +93,9 @@ fn installed_profiles_join_fan_cpu_and_gpu_parts() {
     let table = profile_table(&profiles, "balanced", &Style::plain());
     assert!(table.contains("comfort"), "{table}");
     assert!(table.contains("250 W"), "{table}");
-    // The LACT profile name is gone from the GPU column; only the cap remains.
+    assert!(table.contains("STATUS"), "{table}");
+    assert!(table.contains("missing cpu"), "{table}");
+    assert!(table.contains("ok"), "{table}");
     assert!(!table.contains("comfort 250 W"), "{table}");
     assert!(!table.contains("Default 350 W"), "{table}");
 }
@@ -143,4 +145,14 @@ fn status_table_headers_the_check_columns() {
     assert!(text.contains("DETAIL"), "{text}");
     assert!(text.contains("ok"), "{text}");
     assert!(text.contains("bad"), "{text}");
+}
+
+#[test]
+fn governors_and_power_caps_are_color_coded() {
+    assert_eq!(governor_role("performance"), Role::Danger);
+    assert_eq!(governor_role("powersave"), Role::Success);
+    assert_eq!(governor_role("schedutil"), Role::Info);
+    assert_eq!(power_cap_role("250"), Role::Success);
+    assert_eq!(power_cap_role("350"), Role::Warning);
+    assert_eq!(power_cap_role("300"), Role::Info);
 }

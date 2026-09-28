@@ -18,7 +18,6 @@ pub struct IntegrationOutcome {
 
 type GitConfig = std::collections::HashMap<String, String>;
 
-/// Starts reading the repository's Git settings, so `git` start-up overlaps the rest of sync.
 pub fn prefetch(context: &Context) -> std::thread::JoinHandle<GitConfig> {
     let root = context.root.clone();
     std::thread::spawn(move || git_config_map(&root))
@@ -138,7 +137,6 @@ fn hyprland(
     Ok(())
 }
 
-/// Reloads systemd when a linked user unit changed on disk, then restarts the running ones.
 fn user_units(
     context: &Context,
     dry_run: bool,
@@ -153,7 +151,7 @@ fn user_units(
         return Ok(());
     }
     outcome.checked += linked.len();
-    let mut show = context.command("systemctl");
+    let mut show = user_systemctl(context);
     show.args([
         "--user",
         "show",
@@ -179,14 +177,14 @@ fn user_units(
     let mut restarted = true;
     if !dry_run {
         crate::cancel::check()?;
-        let mut reload = context.command("systemctl");
+        let mut reload = user_systemctl(context);
         reload.args(["--user", "daemon-reload"]);
         if let Err(message) = systemctl(&mut reload, Duration::from_secs(30)) {
             warnings.push((message, Some("systemctl --user daemon-reload".to_string())));
             return Ok(());
         }
         if !running.is_empty() {
-            let mut restart = context.command("systemctl");
+            let mut restart = user_systemctl(context);
             restart.args(["--user", "try-restart", "--"]).args(&running);
             if let Err(message) = systemctl(&mut restart, Duration::from_secs(60)) {
                 restarted = false;
@@ -232,7 +230,6 @@ fn linked_units(context: &Context, directory: &Path) -> Vec<String> {
     units
 }
 
-/// `systemctl show` prints one blank-line separated block per unit, in any property order.
 fn stale_units(stdout: &str) -> Vec<(String, bool)> {
     stdout
         .split("\n\n")
@@ -258,6 +255,24 @@ fn stale_units(stdout: &str) -> Vec<(String, bool)> {
         .collect()
 }
 
+#[cfg(unix)]
+fn user_systemctl(context: &Context) -> Command {
+    let mut command = context.command("systemctl");
+    command.env(
+        "XDG_RUNTIME_DIR",
+        hostkit::env::runtime_dir(
+            context.env("XDG_RUNTIME_DIR"),
+            nix::unistd::getuid().as_raw(),
+        ),
+    );
+    command
+}
+
+#[cfg(not(unix))]
+fn user_systemctl(context: &Context) -> Command {
+    context.command("systemctl")
+}
+
 fn systemctl(command: &mut Command, timeout: Duration) -> Result<String, String> {
     let label = format!(
         "systemctl {}",
@@ -279,8 +294,6 @@ fn systemctl(command: &mut Command, timeout: Duration) -> Result<String, String>
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Repository-local Git settings this repository depends on: hooks that run the
-/// secret scan, and a SOPS diff filter that never caches plaintext in `.git`.
 fn git_settings(
     context: &Context,
     configs: &mut std::collections::HashMap<String, String>,
@@ -537,7 +550,6 @@ fn load_recipients(path: &Path) -> std::collections::BTreeMap<String, String> {
         .collect()
 }
 
-/// Files at each level come before its subdirectories, so a limit of one stops at the shallowest.
 fn collect_encrypted(directory: &Path, found: &mut BTreeSet<PathBuf>, limit: usize) {
     if matches!(
         directory.file_name().and_then(|name| name.to_str()),
