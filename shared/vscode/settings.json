@@ -308,5 +308,6 @@
   },
   "shucked.unsafeFixes.enable": true,
   "shucked.environment.policy": "login-shell",
-  "shucked.server.completion.maxItems": 1000
+  "shucked.server.completion.maxItems": 1000,
+  "markdown.extension.tableFormatter.enabled": false
 }
