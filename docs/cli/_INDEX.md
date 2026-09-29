@@ -17,6 +17,7 @@
 | hwtune         | [hwtune.md](./hwtune.md)                 | [scripts/rust/crates/hwtune/]             |
 | jqfmt          | [jqfmt.md](./jqfmt.md)                   | [scripts/rust/crates/format/jqfmt/]       |
 | mux-route      | [mux-route.md](./mux-route.md)           | [scripts/rust/crates/mux-route/]          |
+| op-bridge      | [op-bridge.md](./op-bridge.md)           | [scripts/rust/crates/op-bridge/]          |
 | path           | [path.md](./path.md)                     | [scripts/rust/crates/path/]               |
 | rm-emptydirs   | [rm-emptydirs.md](./rm-emptydirs.md)     | [scripts/rust/crates/utils/rm-emptydirs/] |
 | size           | [size.md](./size.md)                     | [scripts/rust/crates/size/]               |

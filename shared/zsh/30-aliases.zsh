@@ -13,6 +13,8 @@ alias nn="nvim ."
 alias v="nvim"
 alias vv="nvim ."
 
+has_cmd fastfetch && alias ff="fastfetch"
+
 alias l="ls"
 alias la="ls -a"
 alias ll="ls -lah"

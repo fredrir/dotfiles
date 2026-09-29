@@ -57,7 +57,7 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, String> {
                 return Ok(ExitCode::SUCCESS);
             }
             Response::Denied(reason) => return Err(reason),
-            Response::Refused(_) => {}
+            Response::Refused(reason) => eprintln!("op-bridge: {reason}; using local op"),
         }
     }
     let real = real_op();

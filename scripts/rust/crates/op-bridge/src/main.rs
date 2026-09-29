@@ -6,6 +6,7 @@ mod daemon;
 mod onepassword;
 mod paths;
 mod protocol;
+mod setup;
 mod touchid;
 mod tunnel;
 
@@ -13,7 +14,7 @@ use std::ffi::OsString;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use workstation::{Completable, Completions};
+use workstation::{Completable, Completions, Style};
 
 const PROGRAM: &str = "op-bridge";
 
@@ -43,6 +44,24 @@ enum Command {
         vaults: Vec<String>,
     },
 
+    #[command(about = "Install the signed app on macie and (re)start its launchd agent")]
+    Setup {
+        #[arg(
+            long = "identity",
+            value_name = "NAME",
+            default_value = setup::DEFAULT_IDENTITY,
+            help = "Code signing identity; any unique part of its name"
+        )]
+        identity: String,
+
+        #[arg(
+            short = 'n',
+            long = "dry-run",
+            help = "Show missing steps without applying them"
+        )]
+        dry_run: bool,
+    },
+
     #[command(
         about = "Run as op: reads go to macie, everything else to the real op",
         disable_help_flag = true
@@ -61,8 +80,11 @@ impl Completable for Cli {
 
 fn main() -> ExitCode {
     workstation::run::<Cli>(PROGRAM, |cli| match cli.command {
-        None => Err("choose a command: daemon or op; see --help".to_string()),
+        None => Err("choose a command: daemon, setup or op; see --help".to_string()),
         Some(Command::Daemon { vaults }) => daemon::run(vaults).map(|()| ExitCode::SUCCESS),
+        Some(Command::Setup { identity, dry_run }) => {
+            setup::run(&Style::for_stdout(), dry_run, &identity).map(|()| ExitCode::SUCCESS)
+        }
         Some(Command::Op { args }) => client::run(args),
     })
 }

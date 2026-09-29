@@ -86,6 +86,7 @@ fn a_refused_read_falls_back_to_the_real_op() {
     let output = fixture.op(&["read", "op://Personal/bank/password"]);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(stdout(&output), "real op: read op://Personal/bank/password");
+    assert!(stderr(&output).contains("using local op"), "{output:?}");
 }
 
 #[test]

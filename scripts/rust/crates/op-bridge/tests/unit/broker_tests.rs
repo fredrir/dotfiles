@@ -96,7 +96,7 @@ fn a_declined_prompt_is_denied_and_never_fetches() {
 }
 
 #[test]
-fn a_failed_fetch_is_denied_and_not_granted() {
+fn a_failed_fetch_is_refused_so_the_peer_falls_back_and_is_not_granted() {
     let mut broker = broker();
     let now = Instant::now();
     let response = broker.resolve(
@@ -106,7 +106,7 @@ fn a_failed_fetch_is_denied_and_not_granted() {
         |_| Ok(()),
         |_| Err("item not found".to_string()),
     );
-    assert!(matches!(response, Response::Denied(_)), "{response:?}");
+    assert!(matches!(response, Response::Refused(_)), "{response:?}");
     assert!(!broker.granted(REFERENCE, now));
 }
 

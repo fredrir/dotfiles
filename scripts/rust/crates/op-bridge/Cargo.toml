@@ -14,6 +14,7 @@ hostkit.workspace     = true
 nix                   = { workspace = true, features = ["signal", "socket", "user"] }
 serde.workspace       = true
 serde_json.workspace  = true
+sha2.workspace        = true
 workstation.workspace = true
 
 signal-hook = "0.4.4"

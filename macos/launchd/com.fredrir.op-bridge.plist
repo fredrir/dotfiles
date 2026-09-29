@@ -6,9 +6,10 @@
   <string>com.fredrir.op-bridge</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/sh</string>
-    <string>-c</string>
-    <string>exec env PATH="$HOME/dotfiles/.bin:/opt/homebrew/bin:$PATH" "$HOME/dotfiles/.bin/op-bridge" daemon --vault Dev</string>
+    <string>/Users/fredrir/Applications/op-bridge.app/Contents/MacOS/op-bridge</string>
+    <string>daemon</string>
+    <string>--vault</string>
+    <string>Dev</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -16,6 +17,8 @@
     <string>fredrir</string>
     <key>HOME</key>
     <string>/Users/fredrir</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

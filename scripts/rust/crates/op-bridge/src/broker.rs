@@ -58,7 +58,7 @@ impl Broker {
                 self.granted.insert(reference.to_string(), grant);
                 Response::Value(value)
             }
-            Err(reason) => Response::Denied(reason),
+            Err(reason) => Response::Refused(reason),
         }
     }
 }
