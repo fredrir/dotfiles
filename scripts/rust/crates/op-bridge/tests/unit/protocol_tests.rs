@@ -45,3 +45,10 @@ fn a_connection_closed_mid_message_is_an_error() {
     drop(left);
     assert!(receive::<Request>(&right).is_err());
 }
+
+#[test]
+fn a_read_keeps_the_wire_format_older_clients_send() {
+    let text = serde_json::to_string(&Request::Read("op://Dev/pi/credential".to_string())).unwrap();
+    assert_eq!(text, r#"{"read":"op://Dev/pi/credential"}"#);
+    assert_eq!(serde_json::to_string(&Request::Reload).unwrap(), r#""reload""#);
+}

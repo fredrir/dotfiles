@@ -39,8 +39,11 @@ impl Fixture {
     }
 
     fn op(&self, args: &[&str]) -> Output {
+        self.run(&[&["op"], args].concat())
+    }
+
+    fn run(&self, args: &[&str]) -> Output {
         Bin::new(env!("CARGO_BIN_EXE_op-bridge"))
-            .arg("op")
             .args(args)
             .env("OP_BRIDGE_SOCKET", self.socket())
             .env("OP_BRIDGE_OP", self.dir.path().join("op"))
@@ -102,4 +105,32 @@ fn other_commands_and_their_flags_pass_through_untouched() {
     let fixture = Fixture::new();
     let output = fixture.op(&["item", "get", "pi", "--help"]);
     assert_eq!(stdout(&output), "real op: item get pi --help");
+}
+
+#[test]
+fn reload_asks_the_daemon_and_reports_the_refetch() {
+    let fixture = Fixture::new();
+    let server = fixture.serve_once("{\"reloaded\":{\"refilled\":2,\"known\":2}}\n");
+    let output = fixture.run(&["reload"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(stdout(&output), "reloaded 2/2\n");
+    assert_eq!(server.join().unwrap(), "\"reload\"\n");
+}
+
+#[test]
+fn a_partial_reload_fails_and_points_at_the_log() {
+    let fixture = Fixture::new();
+    let _server = fixture.serve_once("{\"reloaded\":{\"refilled\":1,\"known\":2}}\n");
+    let output = fixture.run(&["reload"]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(stderr(&output).contains("1/2"), "{output:?}");
+}
+
+#[test]
+fn reload_without_a_daemon_fails_instead_of_falling_back() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["reload"]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(stderr(&output).contains("daemon unreachable"), "{output:?}");
+    assert!(!stdout(&output).contains("real op"), "{output:?}");
 }

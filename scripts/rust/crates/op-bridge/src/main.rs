@@ -52,6 +52,9 @@ enum Command {
         prompt: Vec<String>,
     },
 
+    #[command(about = "Clear the daemon's memory and refetch its references, e.g. after a rotation")]
+    Reload,
+
     #[command(about = "Install the signed app on macie and (re)start its launchd agent")]
     Setup {
         #[arg(
@@ -88,13 +91,14 @@ impl Completable for Cli {
 
 fn main() -> ExitCode {
     workstation::run::<Cli>(PROGRAM, |cli| match cli.command {
-        None => Err("choose a command: daemon, setup or op; see --help".to_string()),
+        None => Err("choose a command: daemon, reload, setup or op; see --help".to_string()),
         Some(Command::Daemon { silent, prompt }) => {
             daemon::run(silent, prompt).map(|()| ExitCode::SUCCESS)
         }
         Some(Command::Setup { identity, dry_run }) => {
             setup::run(&Style::for_stdout(), dry_run, &identity).map(|()| ExitCode::SUCCESS)
         }
+        Some(Command::Reload) => client::reload(),
         Some(Command::Op { args }) => client::run(args),
     })
 }

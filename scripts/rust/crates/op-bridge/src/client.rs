@@ -48,7 +48,7 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, String> {
     if let Some(read) = Read::parse(&args)
         && let Ok(stream) = UnixStream::connect(paths::client()?)
     {
-        match ask(&stream, &read.reference)? {
+        match ask(&stream, &Request::Read(read.reference))? {
             Response::Value(value) => {
                 let newline: &[u8] = if read.newline { b"\n" } else { b"" };
                 let mut stdout = std::io::stdout().lock();
@@ -61,6 +61,7 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, String> {
             }
             Response::Denied(reason) => return Err(reason),
             Response::Refused(reason) => eprintln!("op-bridge: {reason}; using local op"),
+            Response::Reloaded { .. } => return Err("unexpected answer to a read".to_string()),
         }
     }
     let real = real_op();
@@ -68,14 +69,28 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, String> {
     Err(format!("{}: {error}", real.to_string_lossy()))
 }
 
-fn ask(stream: &UnixStream, reference: &str) -> Result<Response, String> {
+pub fn reload() -> Result<ExitCode, String> {
+    let socket = paths::client()?;
+    let stream = UnixStream::connect(&socket)
+        .map_err(|error| format!("daemon unreachable at {}: {error}", socket.display()))?;
+    match ask(&stream, &Request::Reload)? {
+        Response::Reloaded { refilled, known } if refilled == known => {
+            println!("reloaded {refilled}/{known}");
+            Ok(ExitCode::SUCCESS)
+        }
+        Response::Reloaded { refilled, known } => Err(format!(
+            "reloaded {refilled}/{known}; see ~/Library/Logs/op-bridge.log on macie"
+        )),
+        Response::Refused(reason) | Response::Denied(reason) => Err(reason),
+        Response::Value(_) => Err("unexpected answer to a reload".to_string()),
+    }
+}
+
+fn ask(stream: &UnixStream, request: &Request) -> Result<Response, String> {
     stream
         .set_read_timeout(Some(ANSWER_TIMEOUT))
         .map_err(|error| error.to_string())?;
-    let request = Request {
-        read: reference.to_string(),
-    };
-    protocol::send(stream, &request)?;
+    protocol::send(stream, request)?;
     protocol::receive(stream).map_err(|error| format!("macie did not answer: {error}"))
 }
 

@@ -9,8 +9,11 @@ const MAX_LINE: u64 = 64 * 1024;
 const MAX_REFERENCE: usize = 512;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Request {
-    pub read: String,
+#[serde(rename_all = "snake_case")]
+pub enum Request {
+    Read(String),
+    // Drop everything in memory and refetch the silent references
+    Reload,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -21,6 +24,7 @@ pub enum Response {
     Denied(String),
     // Outside the allowlist or op failed on macie; the caller falls back to the real op
     Refused(String),
+    Reloaded { refilled: usize, known: usize },
 }
 
 pub fn vault(reference: &str) -> Option<&str> {

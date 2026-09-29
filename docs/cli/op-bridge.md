@@ -7,6 +7,7 @@
 | ------------------ | ------------------------------------------------------------------------------------------- |
 | `op-bridge`        | Serves 1Password reads to archie and macie from macie, by vault tier.                       |
 | `op-bridge daemon` | Holds the tunnel to archie and serves reads until stopped; run by launchd.                  |
+| `op-bridge reload` | Clears the daemon's memory and refetches every `Dev` reference; run after rotating a key.   |
 | `op-bridge setup`  | Installs the signed `~/Applications/op-bridge.app` on macie and restarts its launchd agent. |
 | `op-bridge op`     | Runs as `op`: reads go to the daemon, everything else to the real `op`.                     |
 <!-- cli:commands:end -->
@@ -52,7 +53,7 @@ op read op://Dev/… (macie) ─────────────────
 | Sleep | wall clock more than 30 s ahead of the monotonic clock |
 | Refill list | `~/.local/state/op-bridge/known.json`; references only, never values |
 | Refill prompt | 1Password's own, if its CLI session lapsed; one per wake |
-| Rotated key | restart the daemon; memory is the only copy |
+| Rotated key | `op-bridge reload` on either host |
 | Tunnel | `ssh archie`, its own connection; retried every 10 s |
 | Log | reference and outcome, never the value |
 
@@ -118,6 +119,6 @@ $ op-bridge setup
 
 | Name | Value |
 | --- | --- |
-| Restart | `launchctl kickstart -k gui/$(id -u)/com.fredrir.op-bridge`; clears memory |
+| Restart | `launchctl kickstart -k gui/$(id -u)/com.fredrir.op-bridge` |
 | Log | `~/Library/Logs/op-bridge.log` |
 | Bridge up | `test -S "$XDG_RUNTIME_DIR/op-bridge.sock"` on archie |

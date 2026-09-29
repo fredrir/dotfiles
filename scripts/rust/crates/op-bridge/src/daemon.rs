@@ -19,6 +19,7 @@ use crate::protocol::{self, Request, Response};
 use crate::{onepassword, paths, presence, touchid, tunnel};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const POISONED: &str = "broker state poisoned";
 
 pub fn run(silent: Vec<String>, prompt: Vec<String>) -> Result<(), String> {
     let this = Host::this()?;
@@ -105,7 +106,9 @@ fn watch(broker: &Mutex<Broker>) {
     let mut pending = true;
     loop {
         if pending && !presence::locked() {
-            refill(broker);
+            if let Err(reason) = refill(broker) {
+                eprintln!("op-bridge: {reason}");
+            }
             pending = false;
         }
         let (wall, monotonic) = (SystemTime::now(), Instant::now());
@@ -121,30 +124,24 @@ fn watch(broker: &Mutex<Broker>) {
     }
 }
 
-fn refill(broker: &Mutex<Broker>) {
-    let Ok(missing) = broker.lock().map(|broker| broker.missing()) else {
-        return;
-    };
+fn refill(broker: &Mutex<Broker>) -> Result<(usize, usize), String> {
+    let missing = broker.lock().map_err(|_| POISONED)?.missing();
     let Some(vault) = missing.first().and_then(|reference| protocol::vault(reference)) else {
-        return;
+        return Ok((0, 0));
     };
-    if let Err(reason) = onepassword::authorize(vault) {
-        eprintln!("op-bridge: refill skipped: {reason}");
-        return;
-    }
+    onepassword::authorize(vault).map_err(|reason| format!("refill skipped: {reason}"))?;
     let mut filled = 0;
     for reference in &missing {
         match onepassword::read(reference) {
             Ok(value) => {
-                if let Ok(mut broker) = broker.lock() {
-                    broker.store(reference, value);
-                    filled += 1;
-                }
+                broker.lock().map_err(|_| POISONED)?.store(reference, value);
+                filled += 1;
             }
             Err(reason) => eprintln!("op-bridge: refill {reference}: {reason}"),
         }
     }
     eprintln!("op-bridge: refilled {filled}/{}", missing.len());
+    Ok((filled, missing.len()))
 }
 
 fn serve(
@@ -162,12 +159,24 @@ fn serve(
     stream
         .set_read_timeout(Some(REQUEST_TIMEOUT))
         .map_err(|error| error.to_string())?;
-    let request: Request = protocol::receive(stream)?;
+    let response = match protocol::receive(stream)? {
+        Request::Read(reference) => read(&reference, origin, broker, known_path)?,
+        Request::Reload => reload(origin, broker),
+    };
+    protocol::send(stream, &response)
+}
+
+fn read(
+    reference: &str,
+    origin: Origin,
+    broker: &Mutex<Broker>,
+    known_path: &Path,
+) -> Result<Response, String> {
     let now = Instant::now();
-    let mut broker = broker.lock().map_err(|_| "broker state poisoned")?;
-    let cached = broker.cached(&request.read, now);
+    let mut broker = broker.lock().map_err(|_| POISONED)?;
+    let cached = broker.cached(reference, now);
     let response = broker.resolve(
-        &request.read,
+        reference,
         origin,
         now,
         touchid::approve,
@@ -179,12 +188,25 @@ fn serve(
         save_known(known_path, &known)?;
     }
     eprintln!(
-        "op-bridge: {} {}: {}",
+        "op-bridge: {} {reference}: {}",
         origin.name(),
-        request.read,
         outcome(&response, cached)
     );
-    protocol::send(stream, &response)
+    Ok(response)
+}
+
+fn reload(origin: Origin, broker: &Mutex<Broker>) -> Response {
+    if let Ok(mut broker) = broker.lock() {
+        broker.forget();
+    }
+    eprintln!("op-bridge: {} reload: cache cleared", origin.name());
+    match refill(broker) {
+        Ok((refilled, known)) => Response::Reloaded { refilled, known },
+        Err(reason) => {
+            eprintln!("op-bridge: {reason}");
+            Response::Refused(reason)
+        }
+    }
 }
 
 fn outcome(response: &Response, cached: bool) -> String {
@@ -193,6 +215,7 @@ fn outcome(response: &Response, cached: bool) -> String {
         Response::Value(_) => "fetched".to_string(),
         Response::Denied(reason) => format!("denied: {reason}"),
         Response::Refused(reason) => format!("refused: {reason}"),
+        Response::Reloaded { .. } => "reloaded".to_string(),
     }
 }
 
