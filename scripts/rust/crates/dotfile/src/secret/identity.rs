@@ -13,7 +13,6 @@ use crate::context::Context;
 pub const BLOCK: &str = "identities";
 const PUBLIC: &str = "username";
 const SECRET: &str = "credential";
-// sops falls back to <XDG_CONFIG_HOME>/sops/age/keys.txt and skips it only when absent
 const MASKED_CONFIG_HOME: &str = "/var/empty";
 const MAX_ITEM_BYTES: usize = 256 * 1024;
 
@@ -25,7 +24,6 @@ pub struct Reference {
 
 pub type Identities = BTreeMap<String, Reference>;
 
-/// Which private key sops may use: this machine's 1Password item, or an explicit file.
 #[derive(Debug, Clone)]
 pub enum Identity {
     OnePassword,
@@ -184,7 +182,9 @@ pub fn shell_prefix(context: &Context) -> Result<String, String> {
 
 pub fn secret(context: &Context, reference: &Reference) -> Result<Zeroizing<String>, String> {
     let mut command = op(context);
-    command.args(["read", "--no-newline"]).arg(reference.field(SECRET));
+    command
+        .args(["read", "--no-newline"])
+        .arg(reference.field(SECRET));
     let output = sops::capture(&mut command, 4096, "op read")?;
     let text = std::str::from_utf8(&output).map_err(|_| "op read: value is not UTF-8")?;
     Ok(Zeroizing::new(text.trim().to_string()))
@@ -215,7 +215,10 @@ pub fn generate() -> (Zeroizing<String>, String) {
 
 /// Where sops looks when nothing is configured; the key lives here for other projects.
 pub fn default_path(context: &Context) -> PathBuf {
-    let base = match context.env("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
+    let base = match context
+        .env("XDG_CONFIG_HOME")
+        .filter(|value| !value.is_empty())
+    {
         Some(value) => PathBuf::from(value),
         None if cfg!(target_os = "macos") => context.home.join("Library/Application Support"),
         None => context.home.join(".config"),
@@ -297,7 +300,14 @@ pub fn store(
     if created {
         command.args(["item", "create", "--vault", &reference.vault, "--template"]);
     } else {
-        command.args(["item", "edit", &reference.item, "--vault", &reference.vault, "--template"]);
+        command.args([
+            "item",
+            "edit",
+            &reference.item,
+            "--vault",
+            &reference.vault,
+            "--template",
+        ]);
     }
     command.arg(&path);
     sops::capture(&mut command, MAX_ITEM_BYTES, "op item").map(drop)
@@ -367,7 +377,9 @@ pub fn reload(context: &Context) {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     if !command.status().is_ok_and(|status| status.success()) {
-        eprintln!("dotfile: op-bridge reload failed; its cache may hold the old key for up to 30 min");
+        eprintln!(
+            "dotfile: op-bridge reload failed; its cache may hold the old key for up to 30 min"
+        );
     }
 }
 

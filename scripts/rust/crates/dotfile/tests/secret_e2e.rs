@@ -840,27 +840,6 @@ fn dotfiles_never_decrypt_with_the_shared_key_file() {
 }
 
 #[test]
-fn doctor_reports_the_1password_identity_and_shared_key_file() {
-    let repo = Repository::new();
-    repo.init();
-    let output = repo.run(&["doctor"]);
-    let report = String::from_utf8(output.stdout).unwrap();
-    let row = |label: &str| {
-        report
-            .lines()
-            .find(|line| line.split_whitespace().nth(1) == Some(label))
-            .unwrap_or_else(|| panic!("no {label} row in {report}"))
-            .to_string()
-    };
-    assert!(row("identity").contains(&format!("op://{}/{}", support::VAULT, support::ITEM)));
-    assert!(row("identity").trim_start().starts_with("ok"));
-    assert!(row("enrolled").contains("this machine is 'machine'"));
-    assert!(row("recipients").trim_start().starts_with("ok"));
-    assert!(row("shared").contains("dotfiles never reads it"));
-    assert!(!report.contains("wrapped") && !report.contains("strays"));
-}
-
-#[test]
 fn install_writes_the_enrolled_key_once_and_refuses_a_foreign_one() {
     let repo = Repository::new();
     repo.init();

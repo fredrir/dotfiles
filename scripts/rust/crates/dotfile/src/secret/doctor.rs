@@ -77,7 +77,7 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
             .map(|label| format!("this machine is '{label}'"))
             .unwrap_or_else(|| {
                 format!(
-                    "not a recipient yet; on a machine that already decrypts: dotfile secret enroll {} <public key>",
+                    "not a recipient yet; run this on a machine that is enrolled: dotfile secret enroll {} <public key>",
                     suggested_label(context)
                 )
             }),
@@ -101,7 +101,14 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
     let paths = scan::encrypted_paths(context)?;
     let mut locked = Vec::new();
     for path in &paths {
-        if sops::decrypt(context, &context.root.join(path), &Identity::OnePassword, false).is_err() {
+        if sops::decrypt(
+            context,
+            &context.root.join(path),
+            &Identity::OnePassword,
+            false,
+        )
+        .is_err()
+        {
             locked.push(path.display().to_string());
         }
     }
@@ -192,19 +199,7 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
             "sops textconv not configured".into()
         },
     );
-    let shared = identity::default_path(context);
-    let private = vault::mode_of(&shared).is_ok_and(|mode| mode & 0o077 == 0);
-    row(
-        if !shared.is_file() || private { "ok" } else { "warn" },
-        "shared",
-        if !shared.is_file() {
-            format!("{} missing; dotfile sync writes it", shared.display())
-        } else if private {
-            format!("{} for other projects; dotfiles never reads it", shared.display())
-        } else {
-            format!("{} is readable beyond this user", shared.display())
-        },
-    );
+
     if all {
         println!(
             "keys   {}\nsops   {}",
