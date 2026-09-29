@@ -3,12 +3,13 @@ use std::process::Stdio;
 
 use crate::context::Context;
 
-const SECRET_TOOLS: [&str; 3] = ["age", "age-keygen", "sops"];
+pub const SECRET_TOOLS: [&str; 2] = ["sops", "op"];
 
 struct Manager {
     program: &'static str,
     arguments: &'static [&'static str],
     elevated: bool,
+    onepassword: Option<&'static str>,
 }
 
 const MANAGERS: [Manager; 3] = [
@@ -16,16 +17,19 @@ const MANAGERS: [Manager; 3] = [
         program: "brew",
         arguments: &["install"],
         elevated: false,
+        onepassword: Some("1password-cli"),
     },
     Manager {
         program: "pacman",
         arguments: &["-S", "--needed"],
         elevated: true,
+        onepassword: None,
     },
     Manager {
         program: "apt-get",
         arguments: &["install", "-y"],
         elevated: true,
+        onepassword: None,
     },
 ];
 
@@ -46,7 +50,6 @@ pub fn ensure(context: &Context, tools: &[&str]) -> Result<(), String> {
     if missing.is_empty() {
         return Ok(());
     }
-    let packages = packages_for(&missing);
     let Some(manager) = MANAGERS
         .iter()
         .find(|manager| context.program(manager.program).is_some())
@@ -57,6 +60,20 @@ pub fn ensure(context: &Context, tools: &[&str]) -> Result<(), String> {
         );
         return Ok(());
     };
+    let (packages, unavailable) = packages_for(manager, &missing);
+    if !unavailable.is_empty() {
+        eprintln!(
+            "dotfile: {} not installed; install the 1Password CLI",
+            unavailable.join(", ")
+        );
+    }
+    let missing: Vec<&str> = missing
+        .into_iter()
+        .filter(|tool| !unavailable.contains(tool))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
     if !std::io::stdin().is_terminal() {
         eprintln!(
             "dotfile: {} not installed; install with {}",
@@ -105,11 +122,21 @@ fn install(context: &Context, manager: &Manager, packages: &[&str]) -> Result<()
     Ok(())
 }
 
-fn packages_for(missing: &[&str]) -> Vec<&'static str> {
+fn packages_for<'a>(
+    manager: &Manager,
+    missing: &[&'a str],
+) -> (Vec<&'static str>, Vec<&'a str>) {
     let mut packages = Vec::new();
+    let mut unavailable = Vec::new();
     for tool in missing {
         let package = match *tool {
-            "age" | "age-keygen" => "age",
+            "op" => match manager.onepassword {
+                Some(package) => package,
+                None => {
+                    unavailable.push(*tool);
+                    continue;
+                }
+            },
             "sops" => "sops",
             other => Box::leak(other.to_string().into_boxed_str()),
         };
@@ -117,7 +144,7 @@ fn packages_for(missing: &[&str]) -> Vec<&'static str> {
             packages.push(package);
         }
     }
-    packages
+    (packages, unavailable)
 }
 
 fn command_line(manager: &Manager, packages: &[&str]) -> String {

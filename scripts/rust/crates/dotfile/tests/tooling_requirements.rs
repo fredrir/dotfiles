@@ -16,6 +16,10 @@ struct Sandbox {
 
 impl Sandbox {
     fn new() -> Self {
+        Self::with_manager("brew")
+    }
+
+    fn with_manager(manager: &str) -> Self {
         let temporary = tree_pairs(&[
             (
                 "repo/config/targets.dotfile",
@@ -28,7 +32,7 @@ impl Sandbox {
             ("bin/", ""),
         ]);
         let sandbox = Self { temporary };
-        sandbox.write_manager();
+        sandbox.write_manager(manager);
         sandbox
     }
 
@@ -36,8 +40,8 @@ impl Sandbox {
         self.temporary.path().join(relative)
     }
 
-    fn write_manager(&self) {
-        let manager = self.path("bin/brew");
+    fn write_manager(&self, name: &str) {
+        let manager = self.path("bin").join(name);
         fs::write(
             &manager,
             format!(
@@ -56,9 +60,7 @@ impl Sandbox {
             ("DOTFILE_ROOT", self.path("repo")),
             ("HOME", self.path("home")),
             ("XDG_CONFIG_HOME", self.path("home/.config")),
-            // Only the sandbox bin: age, age-keygen and sops are installed on
-            // this machine, and a real one on PATH would leave nothing missing
-            // for the prompt to offer.
+            // Only the sandbox bin, so sops and op are always missing
             ("PATH", self.path("bin")),
         ]
     }
@@ -115,10 +117,10 @@ impl Sandbox {
 fn a_missing_tool_offers_the_package_manager_instead_of_failing() {
     let sandbox = Sandbox::new();
     let rendered = sandbox.answer(b"y\n");
-    assert!(rendered.contains("age, age-keygen, sops"), "{rendered}");
+    assert!(rendered.contains("sops, op"), "{rendered}");
     assert_eq!(
         fs::read_to_string(sandbox.path("installed")).unwrap(),
-        "install age sops\n"
+        "install sops 1password-cli\n"
     );
 }
 
@@ -139,9 +141,32 @@ fn a_batch_run_names_the_install_command_without_asking() {
         .env("CI", "1")
         .run();
     assert!(
-        ran.stderr.contains("install with brew install age sops"),
+        ran.stderr.contains("install with brew install sops 1password-cli"),
         "{}",
         ran.stderr
     );
     assert!(!sandbox.path("installed").exists());
+}
+
+#[test]
+fn a_manager_without_the_1password_cli_names_it_and_installs_the_rest() {
+    let sandbox = Sandbox::with_manager("pacman");
+    let ran = Bin::new(env!("CARGO_BIN_EXE_dotfile"))
+        .args(["sync", "test", "--dry-run"])
+        .envs(sandbox.environment())
+        .env("CI", "1")
+        .run();
+    assert!(
+        ran.stderr
+            .contains("op not installed; install the 1Password CLI"),
+        "{}",
+        ran.stderr
+    );
+    assert!(
+        ran.stderr
+            .contains("install with sudo pacman -S --needed sops"),
+        "{}",
+        ran.stderr
+    );
+    assert!(!ran.stderr.contains("1password-cli"), "{}", ran.stderr);
 }

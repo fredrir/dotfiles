@@ -15,6 +15,8 @@ const PUBLIC: &str = "username";
 const SECRET: &str = "credential";
 const MASKED_CONFIG_HOME: &str = "/var/empty";
 const MAX_ITEM_BYTES: usize = 256 * 1024;
+const MAX_LIST_BYTES: usize = 4 * 1024 * 1024;
+const BRIDGE_UNREACHABLE: i32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reference {
@@ -33,7 +35,7 @@ pub enum Identity {
 impl Identity {
     pub fn public_key(&self, context: &Context) -> Result<String, String> {
         match self {
-            Self::File(path) => sops::public_key(context, path),
+            Self::File(path) => sops::public_key(path),
             Self::OnePassword => enrolled_key(context),
         }
     }
@@ -300,14 +302,11 @@ pub fn store(
     if created {
         command.args(["item", "create", "--vault", &reference.vault, "--template"]);
     } else {
-        command.args([
-            "item",
-            "edit",
-            &reference.item,
-            "--vault",
-            &reference.vault,
-            "--template",
-        ]);
+        let id = document
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or("1Password item has no id")?;
+        command.args(["item", "edit", id, "--vault", &reference.vault, "--template"]);
     }
     command.arg(&path);
     sops::capture(&mut command, MAX_ITEM_BYTES, "op item").map(drop)
@@ -318,29 +317,27 @@ pub fn exists(context: &Context, reference: &Reference) -> Result<bool, String> 
 }
 
 fn item(context: &Context, reference: &Reference) -> Result<Option<Value>, String> {
-    let mut command = op(context);
-    command
-        .args(["item", "get", &reference.item, "--vault", &reference.vault])
+    let mut list = op(context);
+    list.args(["item", "list", "--vault", &reference.vault])
         .args(["--format", "json"]);
-    let output = crate::process::output(
-        &mut command,
-        crate::process::CaptureLimits {
-            stdout: MAX_ITEM_BYTES,
-            stderr: 16 * 1024,
-        },
-        std::time::Duration::from_secs(60),
-    )
-    .map_err(|error| format!("op could not run: {error}"))?;
-    let stdout = Zeroizing::new(output.stdout);
-    if !output.status.success() {
-        let reason = String::from_utf8_lossy(&output.stderr);
-        return if reason.contains("isn't an item") || reason.contains("not found") {
-            Ok(None)
-        } else {
-            Err(format!("op item get {reference}: {}", reason.trim()))
-        };
-    }
-    serde_json::from_slice(&stdout)
+    let items: Vec<Value> =
+        serde_json::from_slice(&sops::capture(&mut list, MAX_LIST_BYTES, "op item list")?)
+            .map_err(|_| format!("op item list {}: unexpected output", reference.vault))?;
+    let ids: Vec<&str> = items
+        .iter()
+        .filter(|item| item.get("title").and_then(Value::as_str) == Some(reference.item.as_str()))
+        .filter_map(|item| item.get("id").and_then(Value::as_str))
+        .collect();
+    let id = match ids.as_slice() {
+        [] => return Ok(None),
+        [id] => *id,
+        _ => return Err(format!("{reference}: several items share that title")),
+    };
+    let mut get = op(context);
+    get.args(["item", "get", id, "--vault", &reference.vault])
+        .args(["--format", "json"]);
+    let output = sops::capture(&mut get, MAX_ITEM_BYTES, "op item get")?;
+    serde_json::from_slice(&output)
         .map(Some)
         .map_err(|_| format!("op item get {reference}: unexpected output"))
 }
@@ -376,7 +373,8 @@ pub fn reload(context: &Context) {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    if !command.status().is_ok_and(|status| status.success()) {
+    let status = command.status().ok().and_then(|status| status.code());
+    if !matches!(status, Some(0 | BRIDGE_UNREACHABLE)) {
         eprintln!(
             "dotfile: op-bridge reload failed; its cache may hold the old key for up to 30 min"
         );

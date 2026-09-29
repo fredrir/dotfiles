@@ -54,6 +54,7 @@ op read op://Dev/… (macie) ─────────────────
 | Refill list | `~/.local/state/op-bridge/known.json`; references only, never values |
 | Refill prompt | 1Password's own, if its CLI session lapsed; one per wake |
 | Rotated key | `op-bridge reload` on either host |
+| Reload, daemon unreachable | exit 3; nothing cached |
 | Tunnel | `ssh archie`, its own connection; retried every 10 s |
 | Log | reference and outcome, never the value |
 

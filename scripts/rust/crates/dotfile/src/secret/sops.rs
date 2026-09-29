@@ -78,16 +78,10 @@ pub fn encrypt(
     capture(&mut cmd, MAX_SECRET_BYTES * 4, "SOPS encryption").map(|v| v.to_vec())
 }
 
-pub fn public_key(context: &Context, path: &Path) -> Result<String, String> {
-    let mut cmd = context.command("age-keygen");
-    cmd.args(["-y"]).arg(path).stdin(Stdio::null());
-    let data = capture(&mut cmd, 4096, "age-keygen")?;
-    let key = String::from_utf8(data.to_vec()).map_err(|_| "age-keygen returned invalid text")?;
-    let key = key.trim();
-    if !super::recipients::valid_key(key) {
-        return Err("not readable as an age identity".into());
-    }
-    Ok(key.to_string())
+pub fn public_key(path: &Path) -> Result<String, String> {
+    let identity = Zeroizing::new(super::vault::read_source(path, 64 * 1024)?);
+    let text = std::str::from_utf8(&identity).map_err(|_| "not readable as an age identity")?;
+    super::identity::public_key(text)
 }
 
 pub fn require_identity(context: &Context, supplied: &Path) -> Result<PathBuf, String> {
@@ -95,7 +89,7 @@ pub fn require_identity(context: &Context, supplied: &Path) -> Result<PathBuf, S
     if !path.is_file() {
         return Err(format!("no such identity file: {}", path.display()));
     }
-    public_key(context, &path)
+    public_key(&path)
         .map_err(|_| format!("not readable as an age identity: {}", path.display()))?;
     Ok(path)
 }

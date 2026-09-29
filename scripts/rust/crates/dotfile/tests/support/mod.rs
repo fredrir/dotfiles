@@ -30,7 +30,10 @@ impl OnePassword {
         .unwrap();
         fs::write(
             bin.join("op-bridge"),
-            format!("#!/bin/sh\necho \"bridge $*\" >> '{}'\n", log.display()),
+            format!(
+                "#!/bin/sh\necho \"bridge $*\" >> '{}'\nexit \"${{FAKE_OP_BRIDGE_EXIT:-0}}\"\n",
+                log.display()
+            ),
         )
         .unwrap();
         #[cfg(unix)]

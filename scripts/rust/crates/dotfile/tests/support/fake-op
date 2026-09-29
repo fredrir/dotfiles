@@ -31,6 +31,19 @@ def load(vault, item):
         fail(f'"{item}" isn\'t an item in the "{vault}" vault')
 
 
+def entries(vault):
+    for file in sorted((STORE / vault).glob("*.json")):
+        document = json.loads(file.read_text())
+        yield document.get("title", file.stem), document.get("id", file.stem), document
+
+
+def title_of(vault, name):
+    for title, identifier, _ in entries(vault):
+        if name in (title, identifier):
+            return title
+    fail(f'"{name}" isn\'t an item in the "{vault}" vault')
+
+
 def save(vault, item, document):
     target = path(vault, item)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -51,16 +64,19 @@ def read(arguments):
 def item(arguments):
     action, rest = arguments[0], arguments[1:]
     vault = option(rest, "--vault")
-    if action == "get":
-        print(json.dumps(load(vault, rest[0])))
+    if action == "list":
+        print(json.dumps([{"id": identifier, "title": title} for title, identifier, _ in entries(vault)]))
+    elif action == "get":
+        print(json.dumps(load(vault, title_of(vault, rest[0]))))
     elif action == "create":
         document = json.loads(Path(option(rest, "--template")).read_text())
         if path(vault, document["title"]).exists():
             fail("item already exists")
+        document.setdefault("id", f"id-{document['title']}")
         save(vault, document["title"], document)
     elif action == "edit":
-        load(vault, rest[0])
-        save(vault, rest[0], json.loads(Path(option(rest, "--template")).read_text()))
+        title = title_of(vault, rest[0])
+        save(vault, title, json.loads(Path(option(rest, "--template")).read_text()))
     else:
         fail(f"unsupported item command {action}")
 

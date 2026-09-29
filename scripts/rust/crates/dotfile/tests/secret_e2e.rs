@@ -820,6 +820,58 @@ fn init_creates_the_item_and_the_shared_key_file_once() {
 }
 
 #[test]
+fn a_failed_item_lookup_is_an_error_not_a_missing_item() {
+    let repo = Repository::new();
+    let output = repo
+        .command()
+        .arg("init")
+        .env("FAKE_OP_FAIL", "item list")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(repo.onepassword.field("credential").is_none());
+    assert!(!repo.onepassword.calls().contains("item create"));
+}
+
+#[test]
+fn items_sharing_a_title_are_refused() {
+    let repo = Repository::new();
+    let vault = repo.onepassword.store.join(support::VAULT);
+    fs::create_dir_all(&vault).unwrap();
+    for id in ["first", "second"] {
+        fs::write(
+            vault.join(format!("{id}.json")),
+            serde_json::json!({"id": id, "title": support::ITEM, "fields": []}).to_string(),
+        )
+        .unwrap();
+    }
+    let output = repo.run(&["init"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("several items share that title"));
+}
+
+#[test]
+fn roll_is_quiet_without_an_op_bridge_daemon_and_warns_on_a_failed_reload() {
+    for (exit, warns) in [("3", false), ("1", true)] {
+        let repo = Repository::new();
+        repo.init();
+        repo.add("one", b"rolled");
+        let output = repo
+            .command()
+            .args(["roll", "machine"])
+            .env("FAKE_OP_BRIDGE_EXIT", exit)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr).contains("op-bridge reload failed"),
+            warns,
+            "exit {exit}: {output:?}"
+        );
+    }
+}
+
+#[test]
 fn dotfiles_never_decrypt_with_the_shared_key_file() {
     let repo = Repository::new();
     repo.init();

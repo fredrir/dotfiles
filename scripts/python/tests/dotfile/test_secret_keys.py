@@ -192,7 +192,7 @@ def test_a_new_machine_is_told_what_to_run_elsewhere(tool, repo, tmp_path):
     result = secret(tool, env, "doctor")
     assert result.returncode == 1
     assert "not a recipient yet" in result.stdout
-    assert "already decrypts" in result.stdout
+    assert "machine that is enrolled" in result.stdout
     assert "dotfile secret enroll" in result.stdout
 
 

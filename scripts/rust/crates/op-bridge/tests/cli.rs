@@ -127,10 +127,10 @@ fn a_partial_reload_fails_and_points_at_the_log() {
 }
 
 #[test]
-fn reload_without_a_daemon_fails_instead_of_falling_back() {
+fn reload_without_a_daemon_exits_3_instead_of_falling_back() {
     let fixture = Fixture::new();
     let output = fixture.run(&["reload"]);
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
     assert!(stderr(&output).contains("daemon unreachable"), "{output:?}");
     assert!(!stdout(&output).contains("real op"), "{output:?}");
 }

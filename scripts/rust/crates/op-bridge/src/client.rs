@@ -14,6 +14,8 @@ const REAL_OP: &str = "/opt/homebrew/bin/op";
 const REAL_OP: &str = "/usr/bin/op";
 // Long enough for a Touch ID prompt; pi gives up after 10 s on its own
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(60);
+// Nothing is cached without a daemon, so callers may treat this as nothing to clear
+pub const UNREACHABLE: u8 = 3;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Read {
@@ -71,8 +73,13 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, String> {
 
 pub fn reload() -> Result<ExitCode, String> {
     let socket = paths::client()?;
-    let stream = UnixStream::connect(&socket)
-        .map_err(|error| format!("daemon unreachable at {}: {error}", socket.display()))?;
+    let stream = match UnixStream::connect(&socket) {
+        Ok(stream) => stream,
+        Err(error) => {
+            eprintln!("op-bridge: daemon unreachable at {}: {error}", socket.display());
+            return Ok(ExitCode::from(UNREACHABLE));
+        }
+    };
     match ask(&stream, &Request::Reload)? {
         Response::Reloaded { refilled, known } if refilled == known => {
             println!("reloaded {refilled}/{known}");

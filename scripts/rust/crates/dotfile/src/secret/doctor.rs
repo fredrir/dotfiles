@@ -1,5 +1,5 @@
 use super::identity::{self, Identity};
-use super::{canaries, recipients, scan, sops, vault};
+use super::{canaries, recipients, scan, sops};
 use crate::context::Context;
 use std::fs;
 use std::path::Path;
@@ -208,7 +208,7 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
         );
     }
     if bad != 0 {
-        println!("{bad} of 10 checks failed");
+        println!("{bad} of 9 checks failed");
     }
     Ok(if bad == 0 {
         ExitCode::SUCCESS

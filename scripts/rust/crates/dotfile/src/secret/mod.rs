@@ -68,7 +68,7 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
         }
         Command::Redact => canaries::stream(context)?,
         Command::Init => {
-            crate::tooling::requirements::ensure(context, &["sops"])?;
+            crate::tooling::requirements::ensure(context, &crate::tooling::requirements::SECRET_TOOLS)?;
             let (host, reference) = identity::this(context)?;
             if identity::exists(context, &reference)? {
                 return Err(format!("{reference} already exists; roll it instead"));
