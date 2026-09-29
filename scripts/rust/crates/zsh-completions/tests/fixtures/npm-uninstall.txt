@@ -1,0 +1,33 @@
+Remove a package
+
+Usage:
+npm uninstall [<@scope>/]<pkg>...
+
+Options:
+[-S|--save|--no-save|--save-prod|--save-dev|--save-optional|--save-peer|--save-bundle]
+[-g|--global]
+[-w|--workspace <workspace-name> [-w|--workspace <workspace-name> ...]]
+[--workspaces] [--include-workspace-root] [--install-links]
+
+  -S|--save
+    Save installed packages to a `package.json` file as dependencies.
+
+  -g|--global
+    Operates in "global" mode, so that packages are installed into the
+
+  -w|--workspace
+    Enable running a command in the context of the configured workspaces of the
+
+  --workspaces
+    Set to true to run the command in the context of **all** configured
+
+  --include-workspace-root
+    Include the workspace root when workspaces are enabled for a command.
+
+  --install-links
+    When set file: protocol dependencies will be packed and installed as
+
+
+aliases: unlink, remove, rm, r, un
+
+Run "npm help uninstall" for more info

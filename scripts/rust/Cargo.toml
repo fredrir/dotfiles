@@ -40,6 +40,7 @@ members = [
  "crates/utils/doc-purge",
  "crates/utils/rm-emptydirs",
  "crates/workstation",
+ "crates/zsh-completions",
 ]
 
 [workspace.package]

@@ -1,0 +1,15 @@
+Usage:
+  pi remove <source> [-l] [--approve|--no-approve]
+
+Remove a package and its source from settings.
+Alias: pi uninstall <source> [-l]
+
+Options:
+  -l, --local       Remove from project settings (.pi/settings.json)
+  -a, --approve     Trust project-local files for this command
+  -na, --no-approve Ignore project-local files for this command
+
+Examples:
+  pi remove npm:@foo/bar
+  pi uninstall npm:@foo/bar
+

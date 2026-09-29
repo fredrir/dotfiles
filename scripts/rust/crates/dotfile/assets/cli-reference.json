@@ -162,6 +162,14 @@
         "transcript"
       ],
       "source": "scripts/python/src/tools/transcript/"
+    },
+    {
+      "name": "zcomp",
+      "title": "zcomp",
+      "programs": [
+        "zcomp"
+      ],
+      "source": "scripts/rust/crates/zsh-completions/"
     }
   ],
   "native": [
@@ -186,7 +194,8 @@
     "rm-emptydirs",
     "size",
     "dotfile",
-    "sysinfo"
+    "sysinfo",
+    "zcomp"
   ],
   "standard": {
     "--help": "Shows help for the selected command and exits.",
@@ -305,7 +314,11 @@
     "hwtune curve status": "Shows per-core Curve Optimizer evidence, throughput drift, and the next suggested step.",
     "hwtune curve bench": "Measures per-core single-thread throughput as a clock-stretching detector.",
     "hwtune gpu": "Sweeps GPU power caps through LACT.",
-    "hwtune gpu sweep": "Measures GPU metrics at each power cap, then restores the original cap."
+    "hwtune gpu sweep": "Measures GPU metrics at each power cap, then restores the original cap.",
+    "zcomp": "Prints zsh completion candidates for npm, pnpm, yarn, bun, their runners, and pi.",
+    "zcomp complete": "Prints the candidates for the word under the cursor; called by the zsh integration.",
+    "zcomp refresh": "Rebuilds one cached source; started in the background when a cache goes stale.",
+    "zcomp warm": "Starts background rebuilds for missing or stale caches; run at shell start."
   },
   "flags": {
     "agent-hop": {
@@ -530,6 +543,12 @@
       "--prompt-vault": "Selects a vault that needs Touch ID per reference; repeat for more.",
       "--identity": "Selects the code signing identity by any unique part of its name. Defaults to `Developer ID Application`.",
       "--dry-run": "Shows the missing setup steps without applying them."
+    },
+    "zcomp": {
+      "--command": "Selects the command being completed, such as `pnpm` or `bunx`.",
+      "--current": "Selects the cursor word by its position, counting from 1 like `$CURRENT`.",
+      "--prefix": "Sets the cursor word up to the cursor, like `$PREFIX`.",
+      "--color": "Colors the candidates with the dotfile theme; set by the zsh integration under fzf-tab."
     }
   }
 }

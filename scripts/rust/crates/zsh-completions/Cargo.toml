@@ -1,0 +1,27 @@
+[package]
+name              = "zcomp"
+version.workspace = true
+description       = "Fast, data-aware zsh completions for node package managers and the pi coding agent"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace        = true
+serde.workspace       = true
+serde_json.workspace  = true
+ui-theme.workspace    = true
+workstation.workspace = true
+
+glob         = "0.3.4"
+indexmap     = { version = "2.14.2", features = ["serde"] }
+memchr       = "2.8.3"
+semver       = "1.0.28"
+serde-saphyr = { version = "1.3.0", default-features = false, features = ["deserialize"] }
+ureq         = { version = "3.4.2", features = ["json"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+testkit.workspace  = true

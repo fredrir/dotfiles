@@ -23,4 +23,5 @@
 | size           | [size.md](./size.md)                     | [scripts/rust/crates/size/]               |
 | sysinfo        | [sysinfo.md](./sysinfo.md)               | [scripts/rust/crates/sysinfo/]            |
 | transcript     | [transcript.md](./transcript.md)         | [scripts/python/src/tools/transcript/]    |
+| zcomp          | [zcomp.md](./zcomp.md)                   | [scripts/rust/crates/zsh-completions/]    |
 <!-- cli:index:end -->
