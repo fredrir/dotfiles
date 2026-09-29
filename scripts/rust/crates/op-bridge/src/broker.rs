@@ -117,9 +117,7 @@ impl Broker {
             Ok(tier) => tier,
             Err(reason) => return Response::Refused(reason),
         };
-        if origin == Origin::Local && tier == Tier::Prompt {
-            return Response::Refused("Touch ID vaults are for the peer only".to_string());
-        }
+
         if self.cached(reference, now) {
             return Response::Value(self.cached[reference].value.clone());
         }

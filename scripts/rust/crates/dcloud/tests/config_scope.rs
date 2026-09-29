@@ -39,7 +39,6 @@ fn operational_changes_and_unrelated_jobs_do_not_strand_pending_transfers() -> R
     let upload = config.upload_digest(&["drive".into()])?;
     config.tools.timeout_seconds = 7;
     config.tools.restic = "/new/restic".into();
-    config.jobs.get_mut("documents").unwrap().schedule.hour = 7;
     config.jobs.get_mut("documents").unwrap().retention.last = 10;
     config.jobs.get_mut("documents").unwrap().alert = vec!["alert".into()];
     config.destinations.get_mut("drive").unwrap().quota_bytes = Some(123);

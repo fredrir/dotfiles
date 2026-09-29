@@ -49,7 +49,7 @@ mount --mkdir /dev/nvme0n1p1 /mnt/efi
 | Step | Command |
 | --- | --- |
 | dotfiles | `git clone <repo> ~/dotfiles && cd ~/dotfiles && ./setup.sh` |
-| age identity, mux certificates | restored by `./setup.sh`; asks for the passphrase of `config/age/archie.age` |
+| age identity, mux certificates | read from 1Password via `op` by `./setup.sh` |
 | user configs | `dotfile sync` |
 | root-owned configs, services | `dotfile system install`; enables every unit a tracked `system-preset/*.preset` names |
 | UKI with the tracked command line | `sudo mkinitcpio -P` |

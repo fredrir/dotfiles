@@ -1,3 +1,4 @@
+use super::identity::{self, Identity};
 use crate::context::Context;
 use crate::process::{self, CaptureLimits};
 use std::path::{Path, PathBuf};
@@ -7,20 +8,11 @@ use zeroize::{Zeroize, Zeroizing};
 
 pub const MAX_SECRET_BYTES: usize = 16 * 1024 * 1024;
 
-pub fn command(context: &Context, identity: Option<&Path>) -> Command {
+pub fn command(context: &Context, identity: Option<&Identity>) -> Result<Command, String> {
     let mut command = context.command("sops");
-    command
-        .env_remove("SOPS_AGE_KEY")
-        .env_remove("SOPS_AGE_KEY_CMD")
-        .current_dir(&context.root)
-        .env(
-            "SOPS_AGE_KEY_FILE",
-            identity
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| super::vault::identity_path(context)),
-        )
-        .stdin(Stdio::null());
-    command
+    identity::configure(context, &mut command, identity)?;
+    command.current_dir(&context.root).stdin(Stdio::null());
+    Ok(command)
 }
 
 pub fn capture(
@@ -51,10 +43,10 @@ pub fn capture(
 pub fn decrypt(
     context: &Context,
     path: &Path,
-    identity: Option<&Path>,
+    identity: &Identity,
     json: bool,
 ) -> Result<Zeroizing<Vec<u8>>, String> {
-    let mut cmd = command(context, identity);
+    let mut cmd = command(context, Some(identity))?;
     cmd.arg("-d");
     if json {
         cmd.args(["--output-type", "json"]);
@@ -69,7 +61,7 @@ pub fn encrypt(
     destination: &Path,
     policy: Option<&Path>,
 ) -> Result<Vec<u8>, String> {
-    let mut cmd = command(context, None);
+    let mut cmd = command(context, None)?;
     cmd.arg("--config")
         .arg(
             policy
@@ -98,22 +90,8 @@ pub fn public_key(context: &Context, path: &Path) -> Result<String, String> {
     Ok(key.to_string())
 }
 
-pub fn generate(context: &Context, path: &Path) -> Result<(), String> {
-    if path.symlink_metadata().is_ok() {
-        return Err(format!("identity already exists: {}", path.display()));
-    }
-    super::vault::create_private_directories(path.parent().ok_or("identity has no parent")?)?;
-    super::vault::set_mode(path.parent().ok_or("identity has no parent")?, 0o700)?;
-    let mut cmd = context.command("age-keygen");
-    cmd.arg("-o").arg(path).stdin(Stdio::null());
-    capture(&mut cmd, 4096, "age-keygen")?;
-    super::vault::set_mode(path, 0o600)
-}
-
-pub fn require_identity(context: &Context, supplied: Option<&Path>) -> Result<PathBuf, String> {
-    let path = supplied
-        .map(|p| super::expand(context, p))
-        .unwrap_or_else(|| super::vault::identity_path(context));
+pub fn require_identity(context: &Context, supplied: &Path) -> Result<PathBuf, String> {
+    let path = super::expand(context, supplied);
     if !path.is_file() {
         return Err(format!("no such identity file: {}", path.display()));
     }

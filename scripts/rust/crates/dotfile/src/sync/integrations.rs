@@ -304,18 +304,14 @@ fn git_settings(
     if !context.root.join(".git").exists() {
         return;
     }
-    let identity = crate::secret::vault::identity_path(context);
-    let wanted = [
-        (
-            "core.hooksPath",
-            context.root.join(".githooks").display().to_string(),
-        ),
-        (
-            "diff.sops.textconv",
-            format!("SOPS_AGE_KEY_FILE={} sops -d", identity.display()),
-        ),
-        ("diff.sops.cachetextconv", "false".to_string()),
-    ];
+    let mut wanted = vec![(
+        "core.hooksPath",
+        context.root.join(".githooks").display().to_string(),
+    )];
+    if let Ok(prefix) = crate::secret::identity::shell_prefix(context) {
+        wanted.push(("diff.sops.textconv", format!("{prefix} sops -d")));
+    }
+    wanted.push(("diff.sops.cachetextconv", "false".to_string()));
     for (key, value) in wanted {
         outcome.checked += 1;
         let lower = key.to_ascii_lowercase();
@@ -379,26 +375,22 @@ fn secret_health(
             Some("install sops before applying secrets".to_string()),
         );
     }
-    let identity = context.root_config.join("age/keys.txt");
     outcome.checked += 1;
-    if !identity.is_file() {
+    if let Err(error) = crate::secret::identity::this(context) {
         health_issue(
             events,
             warnings,
-            identity.clone(),
-            "this machine has no age identity".to_string(),
-            Some("run dotfile secret init or import an existing identity".to_string()),
+            context.root_config.join("keys.dotfile"),
+            error,
+            Some("add this machine to the identities block in config/keys.dotfile".to_string()),
         );
-    } else if mode_of(&identity).is_some_and(|mode| mode & 0o077 != 0) {
+    } else if !command_exists("op") {
         health_issue(
             events,
             warnings,
-            identity.clone(),
-            format!(
-                "age identity permissions are too broad: {mode:04o}",
-                mode = mode_of(&identity).unwrap_or_default()
-            ),
-            Some(format!("chmod 600 {}", identity.display())),
+            context.root_config.join("keys.dotfile"),
+            "sops reads this machine's age key through op, which is missing".to_string(),
+            Some("install the 1Password CLI".to_string()),
         );
     }
     let recipients = load_recipients(&context.root_config.join("keys.dotfile"));
@@ -410,17 +402,6 @@ fn secret_health(
             context.root_config.join("keys.dotfile"),
             "no age recipients are enrolled".to_string(),
             Some("run dotfile secret enroll <label>".to_string()),
-        );
-    } else if !recipients
-        .keys()
-        .any(|label| label.to_ascii_lowercase().starts_with("recovery"))
-    {
-        health_issue(
-            events,
-            warnings,
-            context.root_config.join("keys.dotfile"),
-            "no recovery recipient is enrolled".to_string(),
-            Some("enroll an offline recipient named recovery*".to_string()),
         );
     }
     if !recipients.is_empty() {
@@ -495,26 +476,6 @@ fn secret_health(
             "secret canaries are readable beyond this user".to_string(),
             Some(format!("chmod 600 {}", canaries.display())),
         );
-    }
-    for stray in [
-        context.home.join("dotfiles/config/sops/age/keys.txt"),
-        context
-            .home
-            .join("Library/Application Support/sops/age/keys.txt"),
-    ] {
-        outcome.checked += 1;
-        if stray.is_file() {
-            health_issue(
-                events,
-                warnings,
-                stray.clone(),
-                format!(
-                    "stray age identity outside dotfile state: {}",
-                    stray.display()
-                ),
-                Some("remove it after confirming the managed identity works".to_string()),
-            );
-        }
     }
 }
 

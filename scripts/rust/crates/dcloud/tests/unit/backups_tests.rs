@@ -322,28 +322,6 @@ fn retention_expires_history_but_keeps_latest_and_quarantine_donors() -> Result<
 }
 
 #[test]
-fn required_failure_never_completes_scheduled_occurrence() -> Result<()> {
-    if !has_restic() {
-        return Ok(());
-    }
-    let mut fixture = fixture()?;
-    let blocker = fixture.root.join("remote");
-    fs::write(&blocker, "not a directory")?;
-    assert!(run_due(&fixture.config, &mut fixture.state).is_err());
-    assert!(fixture.state.occurrence("archie", "documents")?.is_none());
-    let run = fixture.state.runs()?.remove(0);
-    assert_eq!(run.state, RunState::Failed);
-    let snapshot = run.snapshot;
-    fs::remove_file(&blocker)?;
-    fs::create_dir(&blocker)?;
-    run_due(&fixture.config, &mut fixture.state)?;
-    assert!(fixture.state.occurrence("archie", "documents")?.is_some());
-    assert_eq!(fixture.state.runs()?.len(), 1);
-    assert_eq!(fixture.state.runs()?.remove(0).snapshot, snapshot);
-    Ok(())
-}
-
-#[test]
 fn complete_readback_is_required_before_automatic_source_quarantine() -> Result<()> {
     if !has_restic() {
         return Ok(());

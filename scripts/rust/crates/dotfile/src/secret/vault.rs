@@ -550,11 +550,7 @@ pub fn plain_name(name: &str) -> String {
 }
 
 pub fn decrypt(context: &Context, source: &Path) -> Result<Vec<u8>, String> {
-    super::sops::decrypt(context, source, None, false).map(|data| data.to_vec())
-}
-
-pub fn identity_path(context: &Context) -> PathBuf {
-    context.root_config.join("age/keys.txt")
+    super::sops::decrypt(context, source, &super::identity::Identity::OnePassword, false).map(|data| data.to_vec())
 }
 
 pub fn secure_package_directories(
@@ -713,13 +709,18 @@ fn production(
     match entry.kind {
         SecretKind::Plain => Ok(Production::Plaintext),
         SecretKind::Encrypted => {
-            if !identity_path(context).is_file() {
+            if !super::identity::available(context) {
                 return Ok(Production::Sealed(
-                    "sealed; no age identity on this machine".into(),
+                    "sealed; no 1Password identity for this machine".into(),
                 ));
             }
             Ok(
-                match super::sops::decrypt(context, &entry.source, None, false) {
+                match super::sops::decrypt(
+                    context,
+                    &entry.source,
+                    &super::identity::Identity::OnePassword,
+                    false,
+                ) {
                     Ok(content) => Production::Ready(content),
                     Err(error) => Production::Invalid(format!("decryption failed: {error}")),
                 },

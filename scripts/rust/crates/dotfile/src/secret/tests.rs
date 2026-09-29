@@ -1,4 +1,4 @@
-use super::{doctor, recipients, variables};
+use super::{identity, recipients, variables};
 use crate::context::Context;
 use std::collections::BTreeMap;
 
@@ -27,7 +27,7 @@ fn recipients_parse_validate_and_format_stably() {
     let parsed = recipients::load(&context).unwrap();
     assert_eq!(parsed.get("alpha"), Some(&key));
     assert_eq!(
-        recipients::document(&parsed),
+        recipients::document(&context, &parsed).unwrap(),
         format!("recipients {{\n  alpha = {key}\n}}\n")
     );
     assert_eq!(
@@ -44,6 +44,58 @@ fn recipients_parse_validate_and_format_stably() {
         std::fs::write(&path, invalid).unwrap();
         assert!(recipients::load(&context).is_err());
     }
+}
+
+#[test]
+fn identities_parse_alongside_recipients_and_render_after_them() {
+    let (_temporary, context) = context();
+    let key = format!("age1{}", "q".repeat(58));
+    std::fs::write(
+        context.root_config.join("keys.dotfile"),
+        format!(
+            "recipients {{\n  alpha = {key}\n}}\n\nidentities {{\n  alpha = op://Secure/ALPHA KEY\n  beta  = op://Dev/BETA\n}}\n"
+        ),
+    )
+    .unwrap();
+    let identities = identity::load(&context).unwrap();
+    assert_eq!(
+        identities["alpha"],
+        identity::Reference {
+            vault: "Secure".into(),
+            item: "ALPHA KEY".into()
+        }
+    );
+    assert_eq!(
+        identities["beta"].field("credential"),
+        "op://Dev/BETA/credential"
+    );
+    let recipients = recipients::load(&context).unwrap();
+    assert_eq!(
+        recipients::document(&context, &recipients).unwrap(),
+        format!(
+            "recipients {{\n  alpha = {key}\n}}\n\nidentities {{\n  alpha = op://Secure/ALPHA KEY\n  beta  = op://Dev/BETA\n}}\n"
+        )
+    );
+    for invalid in [
+        "Secure/ALPHA",
+        "op://Secure",
+        "op:///ALPHA",
+        "op://Secure/",
+        "op://Secure/ALPHA/credential",
+        "op://Secure/ $(boom)",
+        "op://Secure/it's",
+        "op://Sec\"ure/ALPHA",
+    ] {
+        assert_eq!(identity::Reference::parse(invalid), None, "{invalid}");
+    }
+}
+
+#[test]
+fn generated_identities_report_their_own_public_key() {
+    let (secret, public) = identity::generate();
+    assert_eq!(identity::public_key(&secret).unwrap(), public);
+    assert!(identity::public_key(&format!("{}\n{}", *secret, *secret)).is_err());
+    assert!(identity::public_key("not a key").is_err());
 }
 
 #[test]
@@ -90,54 +142,6 @@ fn templates_preserve_literals_and_deduplicate_missing_names() {
         vec!["valid"]
     );
     assert!(variables::references("{{ -invalid }} {{.invalid}}").is_empty());
-}
-
-#[test]
-fn identity_diagnostics_distinguish_duplicates_recovery_and_unrelated_keys() {
-    let mine = "mine";
-    let other = "other";
-    let mut recipients = BTreeMap::new();
-    assert!(
-        doctor::stray_finding(&recipients, Some(mine), Some(mine))
-            .1
-            .contains("own key")
-    );
-    assert_eq!(
-        doctor::stray_finding(&recipients, Some(mine), Some(other)).0,
-        "note"
-    );
-    assert!(
-        doctor::stray_finding(&recipients, Some(mine), Some(other))
-            .1
-            .contains("opens nothing")
-    );
-    recipients.insert("recovery2".into(), other.into());
-    assert!(
-        doctor::stray_finding(&recipients, Some(mine), Some(other))
-            .1
-            .contains("off-machine")
-    );
-    recipients.clear();
-    recipients.insert("otherbox".into(), other.into());
-    assert!(
-        doctor::stray_finding(&recipients, Some(mine), Some(other))
-            .1
-            .contains("wrong machine")
-    );
-    assert!(
-        doctor::stray_finding(&recipients, Some(mine), None)
-            .1
-            .contains("not readable")
-    );
-    for label in ["recovery", "recovery2", "Recovery-yubikey"] {
-        assert!(recipients::is_recovery(label));
-    }
-    assert!(!recipients::is_recovery("my-recovery-box"));
-    let (_temporary, mut context) = context();
-    context
-        .process_env
-        .insert("HOSTNAME".into(), "My Laptop.example.invalid".into());
-    assert!(recipients::valid_label(&doctor::suggested_label(&context)));
 }
 
 #[test]

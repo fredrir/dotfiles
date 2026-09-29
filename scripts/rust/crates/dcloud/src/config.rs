@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -160,7 +160,6 @@ pub struct Job {
     pub required: Vec<String>,
     pub min_copies: usize,
     pub require_offsite: bool,
-    pub schedule: Schedule,
     pub retention: Retention,
     pub exclude: Vec<String>,
     pub category: String,
@@ -172,7 +171,6 @@ pub struct Job {
     pub retries: u32,
     pub retry_delay_seconds: u64,
     pub overdue_hours: u64,
-    pub pending_max_age_days: u32,
     pub ac_only: bool,
     pub network_probe: Option<String>,
     pub before: Vec<Vec<String>>,
@@ -188,7 +186,6 @@ impl Default for Job {
             required: Vec::new(),
             min_copies: 1,
             require_offsite: false,
-            schedule: Schedule::default(),
             retention: Retention::default(),
             exclude: Vec::new(),
             category: String::new(),
@@ -200,36 +197,12 @@ impl Default for Job {
             retries: 3,
             retry_delay_seconds: 5,
             overdue_hours: 192,
-            pending_max_age_days: 30,
             ac_only: false,
             network_probe: None,
             before: Vec::new(),
             after: Vec::new(),
             alert: Vec::new(),
             cleanup: None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Schedule {
-    pub enabled: bool,
-    pub weekdays: Vec<u32>,
-    pub hour: u32,
-    pub minute: u32,
-    pub timezone: String,
-    pub catch_up: bool,
-}
-impl Default for Schedule {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            weekdays: vec![7],
-            hour: 3,
-            minute: 0,
-            timezone: "Europe/Oslo".into(),
-            catch_up: true,
         }
     }
 }
@@ -285,7 +258,6 @@ pub struct SyncPair {
     pub max_delete_percent: u32,
     pub bandwidth_kib: u32,
     pub exclude: Vec<String>,
-    pub schedule: Schedule,
 }
 impl Default for SyncPair {
     fn default() -> Self {
@@ -300,7 +272,6 @@ impl Default for SyncPair {
             max_delete_percent: 10,
             bandwidth_kib: 0,
             exclude: Vec::new(),
-            schedule: Schedule::default(),
         }
     }
 }
@@ -598,7 +569,6 @@ impl Config {
                 job.spool_limit_bytes > 0,
                 "{name}: spool limit must be positive"
             );
-            validate_schedule(&job.schedule)?;
             for dest in &job.destinations {
                 ensure!(
                     self.destinations.contains_key(dest),
@@ -686,7 +656,6 @@ impl Config {
         for (name, pair) in &self.sync {
             identifier(name)?;
             identifier(&pair.owner)?;
-            validate_schedule(&pair.schedule)?;
             ensure!(
                 !pair.left.is_empty() && !pair.right.is_empty() && pair.left != pair.right,
                 "{name}: invalid sync roots"
@@ -743,21 +712,4 @@ fn resolve_prefix(path: &Path) -> PathBuf {
             _ => return path.to_path_buf(),
         }
     }
-}
-
-fn validate_schedule(s: &Schedule) -> Result<()> {
-    ensure!(
-        s.hour < 24
-            && s.minute < 60
-            && !s.weekdays.is_empty()
-            && s.weekdays.iter().all(|d| (1..=7).contains(d)),
-        "invalid schedule; weekdays use Monday=1 through Sunday=7"
-    );
-    s.timezone
-        .parse::<chrono_tz::Tz>()
-        .context("invalid schedule timezone")?;
-    if s.weekdays.len() > 7 {
-        bail!("too many schedule weekdays");
-    }
-    Ok(())
 }

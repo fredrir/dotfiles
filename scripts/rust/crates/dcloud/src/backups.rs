@@ -81,7 +81,7 @@ pub fn repository(config: &Config, host: &str, job: &str, from: &str) -> Result<
 
 pub fn backup(config: &Config, state: &mut State, job_name: &str, dry_run: bool) -> Result<Value> {
     let _lock = state.lock(&job_lock(&config.host, job_name))?;
-    backup_locked(config, state, job_name, dry_run, None)
+    backup_locked(config, state, job_name, dry_run)
 }
 
 fn backup_locked(
@@ -89,7 +89,6 @@ fn backup_locked(
     state: &mut State,
     job_name: &str,
     dry_run: bool,
-    occurrence: Option<DateTime<Utc>>,
 ) -> Result<Value> {
     let job = config
         .jobs
@@ -121,16 +120,6 @@ fn backup_locked(
         );
     }
     state.save_run(&run)?;
-    if let Some(occurrence) = occurrence {
-        state.save_value(
-            "scheduled_run",
-            &job_lock(&config.host, job_name),
-            &ScheduledRun {
-                occurrence,
-                run_id: run.id.clone(),
-            },
-        )?;
-    }
     let capture = capture(config, state, job_name, job, &paths, &mut run);
     if let Err(error) = capture {
         run.state = RunState::Failed;
@@ -508,127 +497,6 @@ fn recover_capture(config: &Config, state: &mut State, run: &mut RunRecord) -> R
     Ok(true)
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct ScheduledRun {
-    occurrence: DateTime<Utc>,
-    run_id: String,
-}
-
-pub fn run_due(config: &Config, state: &mut State) -> Result<Value> {
-    let mut completed = Vec::new();
-    let mut failed = Vec::new();
-    for (name, job) in &config.jobs {
-        if !job.sources.contains_key(&config.host) || !job.schedule.enabled {
-            continue;
-        }
-        let result = (|| -> Result<Option<Value>> {
-            let _lock = state.lock(&job_lock(&config.host, name))?;
-            if let Some(pending) =
-                state.load_value::<ScheduledRun>("scheduled_run", &job_lock(&config.host, name))?
-                && state
-                    .occurrence(&config.host, name)?
-                    .is_none_or(|completed| pending.occurrence > completed)
-                && let Some(mut run) = state.load_run(&pending.run_id)?
-            {
-                if matches!(run.state, RunState::Committed | RunState::Degraded) {
-                    state.set_occurrence(&config.host, name, pending.occurrence, &run.id)?;
-                } else {
-                    resume(config, state, name, job, &mut run)?;
-                    let mut value = serde_json::to_value(&run)?;
-                    attach_cleanup(config, state, job, &run, &mut value)?;
-                    state.set_occurrence(&config.host, name, pending.occurrence, &run.id)?;
-                    return Ok(Some(value));
-                }
-            }
-            let Some(occurrence) = crate::schedule::due(
-                &job.schedule,
-                state.occurrence(&config.host, name)?,
-                Utc::now(),
-            )?
-            else {
-                return Ok(None);
-            };
-            let value = backup_locked(config, state, name, false, Some(occurrence))?;
-            let id = value["id"]
-                .as_str()
-                .context("completed backup did not return its run ID")?;
-            state.set_occurrence(&config.host, name, occurrence, id)?;
-            Ok(Some(value))
-        })();
-        match result {
-            Ok(Some(value)) => completed.push(value),
-            Ok(None) => {}
-            Err(error) => failed.push(json!({"job": name, "error": format!("{error:#}")})),
-        }
-    }
-    let cleanup = retry_cleanup(config, state)?;
-    let maintenance = crate::maintenance::run_due(config, state)?;
-    let synchronized = crate::sync::run_due(config, state)?;
-    if let Some(errors) = synchronized.get("errors").and_then(Value::as_array) {
-        failed.extend(errors.iter().cloned());
-    }
-    notify_overdue(config, state)?;
-    ensure!(
-        failed.is_empty(),
-        "scheduled jobs remain due: {}",
-        serde_json::to_string(&failed)?
-    );
-    Ok(
-        json!({"host": config.host, "runs": completed, "sync": synchronized["pairs"], "cleanup": cleanup, "cleanup_pending": cleanup["cleanup_pending"], "maintenance": maintenance}),
-    )
-}
-
-fn notify_overdue(config: &Config, state: &State) -> Result<()> {
-    let runs = state.runs()?;
-    let now = Utc::now();
-    for (name, job) in &config.jobs {
-        if !job.sources.contains_key(&config.host) || !job.schedule.enabled || job.alert.is_empty()
-        {
-            continue;
-        }
-        let latest = runs.iter().find(|run| {
-            run.host == config.host
-                && run.job == *name
-                && matches!(run.state, RunState::Committed | RunState::Degraded)
-        });
-        let overdue = latest.is_none_or(|run| {
-            now.signed_duration_since(run.started).num_hours()
-                >= i64::try_from(job.overdue_hours).unwrap_or(i64::MAX)
-        });
-        let stale = runs
-            .iter()
-            .filter(|run| {
-                run.host == config.host && run.job == *name && run.state != RunState::Committed
-            })
-            .any(|run| {
-                now.signed_duration_since(run.started).num_days()
-                    >= i64::from(job.pending_max_age_days)
-            });
-        if !overdue && !stale {
-            continue;
-        }
-        let key = job_lock(&config.host, name);
-        if state
-            .load_value::<DateTime<Utc>>("overdue_alert", &key)?
-            .is_some_and(|last| now - last < chrono::Duration::hours(24))
-        {
-            continue;
-        }
-        let mut notification = latest
-            .cloned()
-            .unwrap_or_else(|| RunRecord::new(&config.host, name, "notification"));
-        notification.error = Some(if stale {
-            "pending replicas exceeded their age threshold; their source snapshot is protected"
-                .into()
-        } else {
-            "backup is overdue".into()
-        });
-        alert(config, job, &notification);
-        state.save_value("overdue_alert", &key, &now)?;
-    }
-    Ok(())
-}
-
 fn automatic_retention(config: &Config, state: &mut State, job_name: &str, job: &Job) -> Value {
     if !job.retention.auto {
         return json!([]);
@@ -688,7 +556,7 @@ fn retention_locked(
     let job = config.jobs.get(job_name).context("unknown backup job")?;
     ensure!(
         !apply || job.cleanup.is_none() || config.host == host,
-        "retention with source cleanup must run on source owner {host}; dispatch maintenance there to preserve quarantine donors"
+        "retention with source cleanup must run on source owner {host}; run cleanup there to preserve quarantine donors"
     );
     ensure!(
         !prune || apply,

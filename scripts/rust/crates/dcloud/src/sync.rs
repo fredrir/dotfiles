@@ -32,37 +32,6 @@ pub fn run(config: &Config, name: &str, initialize: bool, apply: bool) -> Result
     run_locked(config, name, initialize, apply)
 }
 
-pub fn run_due(config: &Config, state: &mut crate::state::State) -> Result<Value> {
-    let now = Utc::now();
-    let mut pairs = Vec::new();
-    let mut errors = Vec::new();
-    for (name, pair) in &config.sync {
-        if pair.owner != config.host || !pair.schedule.enabled {
-            continue;
-        }
-        let outcome = (|| -> Result<Option<Value>> {
-            identifier(name)?;
-            let directory = config.state_dir.join("sync").join(name);
-            private_directory(&directory)?;
-            let _lock = SyncLock::acquire(&directory.join("dcloud.lock"))?;
-            let key = format!("{}--{name}", config.host);
-            let last: Option<chrono::DateTime<Utc>> = state.load_value("sync_occurrence", &key)?;
-            let Some(occurrence) = crate::schedule::due(&pair.schedule, last, now)? else {
-                return Ok(None);
-            };
-            let result = run_locked(config, name, false, true)?;
-            state.save_value("sync_occurrence", &key, &occurrence)?;
-            Ok(Some(result))
-        })();
-        match outcome {
-            Ok(Some(result)) => pairs.push(result),
-            Ok(None) => {}
-            Err(error) => errors.push(json!({"pair": name, "error": format!("{error:#}")})),
-        }
-    }
-    Ok(json!({"pairs": pairs, "errors": errors}))
-}
-
 fn run_locked(config: &Config, name: &str, initialize: bool, apply: bool) -> Result<Value> {
     identifier(name)?;
     let configured = config

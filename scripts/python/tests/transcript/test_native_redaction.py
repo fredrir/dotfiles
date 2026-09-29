@@ -147,14 +147,18 @@ def test_cleanup_cancels_initial_sops_decryption_without_orphan(tmp_path, monkey
     (root / "vars.enc.yaml").write_text("encrypted placeholder")
     home = tmp_path / "home"
     home / ".config" / "dotfile"
-    (root / "config" / "age").mkdir(parents=True)
-    (root / "config" / "age" / "keys.txt").write_text("identity placeholder")
+    (root / "config" / "hosts.dotfile").write_text("box {\n  hostnames = box\n}\n")
+    (root / "config" / "keys.dotfile").write_text("identities {\n  box = op://Test/BOX\n}\n")
     tools = tmp_path / "tools"
     tools.mkdir()
     marker = tmp_path / "sops.pid"
     stub = tools / "sops"
     stub.write_text('#!/bin/sh\necho $$ > "$TEST_SOPS_PID"\nsleep 30\n')
     stub.chmod(0o755)
+    op = tools / "op"
+    op.write_text("#!/bin/sh\nexit 1\n")
+    op.chmod(0o755)
+    monkeypatch.setenv("SYSINFO_HOST", "box")
     monkeypatch.setenv("PATH", f"{tools}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))

@@ -233,14 +233,13 @@ fn invalid_configuration_fails_before_backup_side_effects() -> Result<()> {
 }
 
 #[test]
-fn local_status_and_schedule_work_without_available_credentials() -> Result<()> {
+fn local_status_and_offline_browse_work_without_available_credentials() -> Result<()> {
     let fixture = fixture()?;
     let mut c = Config::load(&fixture.config)?;
     c.secrets_file = Some(fixture.root.join("unavailable.sops.json"));
     c.rclone_secrets_file = Some(fixture.root.join("unavailable-rclone.sops.json"));
     fs::write(&fixture.config, toml::to_string_pretty(&c)?)?;
     value(&fixture.config, &["status"]);
-    value(&fixture.config, &["schedule"]);
     let listing = value(&fixture.config, &["browse", "--offline"]);
     assert!(listing["items"].as_array().unwrap().is_empty());
     Ok(())

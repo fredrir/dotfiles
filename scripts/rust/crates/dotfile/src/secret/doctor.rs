@@ -1,3 +1,4 @@
+use super::identity::{self, Identity};
 use super::{canaries, recipients, scan, sops, vault};
 use crate::context::Context;
 use std::fs;
@@ -35,8 +36,7 @@ pub fn suggested_label(context: &Context) -> String {
 
 pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
     let recipients = recipients::load(context)?;
-    let path = vault::identity_path(context);
-    let mine = sops::public_key(context, &path).ok();
+    let this = identity::this(context);
     let mut bad = 0;
     let mut row = |kind: &str, label: &str, detail: String| {
         println!("  {kind:<5} {label:<12} {detail}");
@@ -44,7 +44,7 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
             bad += 1;
         }
     };
-    let missing: Vec<_> = ["age", "age-keygen", "sops"]
+    let missing: Vec<_> = ["sops", "op"]
         .into_iter()
         .filter(|p| context.program(p).is_none())
         .collect();
@@ -52,32 +52,24 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
         if missing.is_empty() { "ok" } else { "bad" },
         "tools",
         if missing.is_empty() {
-            "age and sops present".into()
+            "sops and op present".into()
         } else {
             format!("not on PATH: {}", missing.join(" "))
         },
     );
-    let private = path.is_file() && vault::mode_of(&path).is_ok_and(|mode| mode & 0o077 == 0);
     row(
-        if private && mine.is_some() {
-            "ok"
-        } else {
-            "bad"
-        },
+        if this.is_ok() { "ok" } else { "bad" },
         "identity",
-        if private && mine.is_some() {
-            format!("{} (0600)", path.display())
-        } else {
-            format!(
-                "missing, unreadable, or permissive identity: {}",
-                path.display()
-            )
+        match &this {
+            Ok((_, reference)) => reference.to_string(),
+            Err(error) => error.clone(),
         },
     );
-    let label = recipients
-        .iter()
-        .find(|(_, key)| Some(*key) == mine.as_ref())
-        .map(|(label, _)| label);
+    let label = this
+        .as_ref()
+        .ok()
+        .map(|(host, _)| host)
+        .filter(|host| recipients.contains_key(*host));
     row(
         if label.is_some() { "ok" } else { "bad" },
         "enrolled",
@@ -85,46 +77,15 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
             .map(|label| format!("this machine is '{label}'"))
             .unwrap_or_else(|| {
                 format!(
-                    "not a recipient yet; on a machine that already decrypts, or here with the recovery key: dotfile secret enroll {} --using <recovery>",
+                    "not a recipient yet; on a machine that already decrypts: dotfile secret enroll {} <public key>",
                     suggested_label(context)
                 )
             }),
     );
-    if let Some(label) = label {
-        let wrapped = super::wrap::path(context, label);
-        row(
-            if wrapped.is_file() { "ok" } else { "warn" },
-            "wrapped",
-            if wrapped.is_file() {
-                wrapped
-                    .strip_prefix(&context.root)
-                    .unwrap_or(&wrapped)
-                    .display()
-                    .to_string()
-            } else {
-                "not wrapped; run dotfile secret wrap".into()
-            },
-        );
-    }
-    let recovery = recipients
-        .keys()
-        .any(|label| recipients::is_recovery(label));
     row(
-        if recipients.is_empty() || !recovery {
-            "bad"
-        } else {
-            "ok"
-        },
+        if recipients.is_empty() { "bad" } else { "ok" },
         "recipients",
-        format!(
-            "{} enrolled{}",
-            recipients.len(),
-            if recovery {
-                " including recovery"
-            } else {
-                ", none named recovery*"
-            }
-        ),
+        format!("{} enrolled", recipients.len()),
     );
     let policy_matches = fs::read_to_string(context.root.join(".sops.yaml")).unwrap_or_default()
         == recipients::policy(&recipients);
@@ -140,7 +101,7 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
     let paths = scan::encrypted_paths(context)?;
     let mut locked = Vec::new();
     for path in &paths {
-        if sops::decrypt(context, &context.root.join(path), None, false).is_err() {
+        if sops::decrypt(context, &context.root.join(path), &Identity::OnePassword, false).is_err() {
             locked.push(path.display().to_string());
         }
     }
@@ -231,42 +192,17 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
             "sops textconv not configured".into()
         },
     );
-    let strays = [
-        context
-            .root_config
-            .parent()
-            .unwrap_or(&context.home)
-            .join("sops/age/keys.txt"),
-        context
-            .home
-            .join("Library/Application Support/sops/age/keys.txt"),
-    ];
-    let found: Vec<_> = strays
-        .iter()
-        .filter(|p| p.is_file())
-        .map(|path| {
-            let other = sops::public_key(context, path).ok();
-            let (kind, note) = stray_finding(&recipients, mine.as_deref(), other.as_deref());
-            (kind, format!("{}: {note}", path.display()))
-        })
-        .collect();
+    let shared = identity::default_path(context);
+    let private = vault::mode_of(&shared).is_ok_and(|mode| mode & 0o077 == 0);
     row(
-        if found.is_empty() {
-            "ok"
-        } else if found.iter().any(|(kind, _)| *kind == "warn") {
-            "warn"
+        if !shared.is_file() || private { "ok" } else { "warn" },
+        "shared",
+        if !shared.is_file() {
+            format!("{} missing; dotfile sync writes it", shared.display())
+        } else if private {
+            format!("{} for other projects; dotfiles never reads it", shared.display())
         } else {
-            "note"
-        },
-        "strays",
-        if found.is_empty() {
-            "no identity outside the state directory".into()
-        } else {
-            found
-                .iter()
-                .map(|(_, note)| note.as_str())
-                .collect::<Vec<_>>()
-                .join("; ")
+            format!("{} is readable beyond this user", shared.display())
         },
     );
     if all {
@@ -284,34 +220,4 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
     } else {
         ExitCode::FAILURE
     })
-}
-
-pub(crate) fn stray_finding(
-    recipients: &recipients::Recipients,
-    mine: Option<&str>,
-    other: Option<&str>,
-) -> (&'static str, String) {
-    let Some(other) = other else {
-        return ("warn", "not readable as an age key".into());
-    };
-    if mine == Some(other) {
-        return ("warn", "this machine's own key, duplicated here".into());
-    }
-    let Some((label, _)) = recipients.iter().find(|(_, key)| key.as_str() == other) else {
-        return (
-            "note",
-            "not a recipient here, so it opens nothing in this repository".into(),
-        );
-    };
-    if recipients::is_recovery(label) {
-        (
-            "warn",
-            format!("the '{label}' key, which is meant to live off-machine"),
-        )
-    } else {
-        (
-            "warn",
-            format!("the '{label}' key; that machine's identity, on the wrong machine"),
-        )
-    }
 }

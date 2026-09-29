@@ -1,5 +1,6 @@
 import shutil
 
+import onepassword
 import pytest
 from gitrepo import run_git
 
@@ -128,7 +129,7 @@ def test_a_template_without_a_key_is_sealed_not_broken(vault, writer, tool):
     (root / "config" / "targets.dotfile").write_text("shared/ssh = ~/.ssh\n")
     (root / "shared" / "ssh" / "config.tmpl").write_text("H {{ hosts.parser.origin }}\n")
     seed(secret, writer)
-    shutil.rmtree(root / "config" / "age")
+    onepassword.forget_identity(root)
     result = tool("dotfile", "link", "test", env=env)
     assert result.returncode == 0
     assert "sealed" in result.stdout

@@ -3,11 +3,15 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+mod support;
+use support::OnePassword;
+
 struct Repository {
     _temporary: tempfile::TempDir,
     root: PathBuf,
     home: PathBuf,
     binary: PathBuf,
+    onepassword: OnePassword,
 }
 
 impl Repository {
@@ -23,12 +27,15 @@ impl Repository {
         fs::write(root.join("config/targets.dotfile"), "shared = ~/.config\n").unwrap();
         fs::write(root.join("environment/test/manifest"), "shared\n").unwrap();
         fs::write(root.join("config/profile"), "test\n").unwrap();
+        support::declare_host(&root);
         let binary = PathBuf::from(env!("CARGO_BIN_EXE_dotfile"));
+        let onepassword = OnePassword::install(temporary.path());
         let repository = Self {
             _temporary: temporary,
             root,
             home,
             binary,
+            onepassword,
         };
         repository.git(&["init", "-q"]);
         repository.git(&["config", "user.email", "secret-test@example.invalid"]);
@@ -43,8 +50,10 @@ impl Repository {
             .env("HOME", &self.home)
             .env("XDG_CONFIG_HOME", self.home.join(".config"))
             .env_remove("SOPS_AGE_KEY")
+            .env_remove("SOPS_AGE_KEY_FILE")
             .env_remove("SOPS_AGE_KEY_CMD")
             .env("NO_COLOR", "1");
+        self.onepassword.configure(&mut command);
         command
     }
     fn run(&self, arguments: &[&str]) -> Output {
@@ -78,8 +87,13 @@ impl Repository {
         self.ok(&["init"]);
         self.ok(&["enroll", "machine"]);
     }
+    /// This machine's current key as held in 1Password, copied to a file for direct sops use.
     fn identity(&self) -> PathBuf {
-        self.root.join("config/age/keys.txt")
+        self.onepassword
+            .identity_file(&self._temporary.path().join("current-identity.txt"))
+    }
+    fn shared_key_file(&self) -> PathBuf {
+        self.home.join(".config/sops/age/keys.txt")
     }
     fn recovery(&self) -> PathBuf {
         let path = self._temporary.path().join("recovery.txt");
@@ -109,6 +123,7 @@ impl Repository {
             .arg("-d")
             .arg(file)
             .env("SOPS_AGE_KEY_FILE", identity)
+            .env("XDG_CONFIG_HOME", "/var/empty")
             .env_remove("SOPS_AGE_KEY")
             .env_remove("SOPS_AGE_KEY_CMD")
             .output()
@@ -175,7 +190,7 @@ fn settled_secrets_skip_decryption_until_either_side_changes() {
     )
     .unwrap();
     fs::set_permissions(tools.join("sops"), fs::Permissions::from_mode(0o755)).unwrap();
-    let path = format!("{}:{}", tools.display(), std::env::var("PATH").unwrap());
+    let path = repo.onepassword.path_with(&[&tools]);
 
     let output = repo
         .command()
@@ -214,10 +229,22 @@ fn real_sops_rotation_rekeys_and_revocation_excludes_old_key() {
     assert!(repo.decrypts(&encrypted, &recovery));
     let old_identity = repo._temporary.path().join("old.txt");
     fs::copy(repo.identity(), &old_identity).unwrap();
+    let old_public = repo.onepassword.field("username").unwrap();
     repo.ok(&["roll", "machine"]);
     assert!(repo.decrypts(&encrypted, &repo.identity()));
     assert!(!repo.decrypts(&encrypted, &old_identity));
     assert!(repo.decrypts(&encrypted, &recovery));
+    let new_public = repo.onepassword.field("username").unwrap();
+    assert_ne!(new_public, old_public);
+    assert!(
+        fs::read_to_string(repo.root.join("config/keys.dotfile"))
+            .unwrap()
+            .contains(&new_public)
+    );
+    assert!(repo.onepassword.calls().contains("bridge reload"));
+    let shared = fs::read_to_string(repo.shared_key_file()).unwrap();
+    assert!(shared.contains(fs::read_to_string(&old_identity).unwrap().trim()));
+    assert!(shared.contains(repo.onepassword.field("credential").unwrap().trim()));
     repo.ok(&["revoke", "recovery"]);
     assert!(!repo.decrypts(&encrypted, &recovery));
     assert!(repo.decrypts(&encrypted, &repo.identity()));
@@ -239,8 +266,11 @@ fn unreadable_ciphertext_aborts_recipient_changes_without_partial_writes() {
     let before = ["config/keys.dotfile", ".sops.yaml", "shared/ssh/one.enc"]
         .map(|p| fs::read(repo.root.join(p)).unwrap());
     let identity = fs::read(repo.identity()).unwrap();
+    let shared = fs::read(repo.shared_key_file()).unwrap();
     assert!(!repo.run(&["revoke", "recovery"]).status.success());
-    assert!(!repo.run(&["roll", "machine"]).status.success());
+    let roll = repo.run(&["roll", "machine"]);
+    assert!(!roll.status.success());
+    assert!(String::from_utf8_lossy(&roll.stderr).contains("restored the old key"));
     for (index, path) in ["config/keys.dotfile", ".sops.yaml", "shared/ssh/one.enc"]
         .iter()
         .enumerate()
@@ -248,6 +278,7 @@ fn unreadable_ciphertext_aborts_recipient_changes_without_partial_writes() {
         assert_eq!(fs::read(repo.root.join(path)).unwrap(), before[index]);
     }
     assert_eq!(fs::read(repo.identity()).unwrap(), identity);
+    assert_eq!(fs::read(repo.shared_key_file()).unwrap(), shared);
 }
 
 #[test]
@@ -408,13 +439,12 @@ fn apply_preserves_symlink_target_even_with_force() {
 }
 
 #[test]
-fn interrupted_secret_transaction_restores_configuration_and_identity() {
+fn interrupted_secret_transaction_restores_configuration() {
     let repo = Repository::new();
     repo.init();
     let paths = [
         repo.root.join("config/keys.dotfile"),
         repo.root.join(".sops.yaml"),
-        repo.identity(),
     ];
     let originals: Vec<_> = paths.iter().map(|path| fs::read(path).unwrap()).collect();
     let journal = repo.root.join("config/secret-transaction");
@@ -422,7 +452,7 @@ fn interrupted_secret_transaction_restores_configuration_and_identity() {
     let mut manifest = Vec::new();
     for (index, path) in paths.iter().enumerate() {
         fs::write(journal.join(index.to_string()), &originals[index]).unwrap();
-        manifest.push(serde_json::json!({"path":path,"existed":true,"mode":if index == 2 { 384 } else { 420 }}));
+        manifest.push(serde_json::json!({"path":path,"existed":true,"mode":420}));
         fs::write(path, "interrupted replacement").unwrap();
     }
     fs::write(
@@ -471,8 +501,6 @@ fn recipient_commit_preflights_all_destination_types() {
 fn cancellation_stops_sops_child_group_promptly() {
     use std::os::unix::fs::PermissionsExt;
     let repo = Repository::new();
-    fs::create_dir_all(repo.root.join("config/age")).unwrap();
-    fs::write(repo.identity(), "test identity placeholder").unwrap();
     fs::create_dir_all(repo.root.join("shared/test")).unwrap();
     fs::write(
         repo.root.join("shared/test/file.enc"),
@@ -489,7 +517,7 @@ fn cancellation_stops_sops_child_group_promptly() {
     )
     .unwrap();
     fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
-    let path = format!("{}:{}", tools.display(), std::env::var("PATH").unwrap());
+    let path = repo.onepassword.path_with(&[&tools]);
     let child = repo
         .command()
         .arg("status")
@@ -671,7 +699,8 @@ fn public_recipient_changes_need_no_private_identity_without_ciphertext() {
     repo.ok(&["rekey"]);
     repo.ok(&["roll", "remote", &second]);
     repo.ok(&["sync", "--rewrap"]);
-    assert!(!repo.identity().exists());
+    assert!(repo.onepassword.field("credential").is_none());
+    assert!(!repo.onepassword.calls().contains("read"));
     let policy = fs::read_to_string(repo.root.join(".sops.yaml")).unwrap();
     assert!(policy.contains(&second));
     assert!(!policy.contains(&first));
@@ -698,4 +727,170 @@ fn scanner_caps_report_memory_without_hiding_failure_or_total() {
     assert!(report.contains("50 omitted by report size limit"));
     assert!(report.lines().count() < 10_020);
     assert!(!report.contains(&token));
+}
+
+#[test]
+fn key_command_names_this_machines_item_and_hands_op_the_real_config_home() {
+    let repo = Repository::new();
+    let reference = format!(
+        "op read 'op://{}/{}/credential'",
+        support::VAULT,
+        support::ITEM
+    );
+    let output = repo.ok(&["key-command"]);
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        format!(
+            "env XDG_CONFIG_HOME='{}' {reference}",
+            repo.home.join(".config").display()
+        )
+    );
+    let output = repo
+        .command()
+        .arg("key-command")
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        format!("env -u XDG_CONFIG_HOME {reference}")
+    );
+}
+
+#[test]
+fn identities_block_is_validated_and_survives_recipient_rewrites() {
+    let repo = Repository::new();
+    repo.init();
+    let keys = repo.root.join("config/keys.dotfile");
+    let line = format!("machine = op://{}/{}", support::VAULT, support::ITEM);
+    assert!(fs::read_to_string(&keys).unwrap().contains(&line));
+    repo.ok(&["enroll", "remote", &format!("age1{}", "q".repeat(58))]);
+    repo.ok(&["revoke", "remote"]);
+    let text = fs::read_to_string(&keys).unwrap();
+    assert!(text.starts_with("recipients {"));
+    assert!(text.contains(&line));
+    let keys_output = String::from_utf8(repo.ok(&["keys"]).stdout).unwrap();
+    assert!(keys_output.contains("machine") && keys_output.contains("this machine"));
+
+    for broken in [
+        "identities {\n  machine = Test/Item\n}\n",
+        "identities {\n  machine = op://Test/Item/credential\n}\n",
+        "identities {\n  machine = op://Test/It'em\n}\n",
+        "identities {\n  machine = op://A/B\n  machine = op://C/D\n}\n",
+        "passwords {\n  machine = op://Test/Item\n}\n",
+    ] {
+        fs::write(&keys, broken).unwrap();
+        let output = repo.run(&["key-command"]);
+        assert!(!output.status.success(), "{broken}");
+    }
+    fs::write(&keys, "recipients {\n}\n").unwrap();
+    let output = repo.run(&["key-command"]);
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("no 1Password identity for 'machine'")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn init_creates_the_item_and_the_shared_key_file_once() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = Repository::new();
+    repo.ok(&["init"]);
+    let public = repo.onepassword.field("username").unwrap();
+    let secret = repo.onepassword.field("credential").unwrap();
+    assert!(public.starts_with("age1"));
+    assert!(secret.starts_with("AGE-SECRET-KEY-"));
+    let shared = repo.shared_key_file();
+    assert_eq!(fs::read_to_string(&shared).unwrap().trim(), secret);
+    assert_eq!(
+        fs::metadata(&shared).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let again = repo.run(&["init"]);
+    assert!(!again.status.success());
+    assert!(String::from_utf8_lossy(&again.stderr).contains("already exists"));
+    assert_eq!(repo.onepassword.field("credential").unwrap(), secret);
+    repo.ok(&["enroll", "machine"]);
+    assert!(
+        fs::read_to_string(repo.root.join("config/keys.dotfile"))
+            .unwrap()
+            .contains(&public)
+    );
+}
+
+#[test]
+fn dotfiles_never_decrypt_with_the_shared_key_file() {
+    let repo = Repository::new();
+    repo.init();
+    let live = repo.add("config", b"only through 1Password");
+    repo.ok(&["clean"]);
+    let encrypted = repo.root.join("shared/ssh/config.enc");
+    assert!(repo.decrypts(&encrypted, &repo.shared_key_file()));
+    let output = repo
+        .command()
+        .arg("apply")
+        .env("FAKE_OP_FAIL", "read")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!live.exists());
+    repo.ok(&["apply"]);
+    assert_eq!(fs::read(&live).unwrap(), b"only through 1Password");
+}
+
+#[test]
+fn doctor_reports_the_1password_identity_and_shared_key_file() {
+    let repo = Repository::new();
+    repo.init();
+    let output = repo.run(&["doctor"]);
+    let report = String::from_utf8(output.stdout).unwrap();
+    let row = |label: &str| {
+        report
+            .lines()
+            .find(|line| line.split_whitespace().nth(1) == Some(label))
+            .unwrap_or_else(|| panic!("no {label} row in {report}"))
+            .to_string()
+    };
+    assert!(row("identity").contains(&format!("op://{}/{}", support::VAULT, support::ITEM)));
+    assert!(row("identity").trim_start().starts_with("ok"));
+    assert!(row("enrolled").contains("this machine is 'machine'"));
+    assert!(row("recipients").trim_start().starts_with("ok"));
+    assert!(row("shared").contains("dotfiles never reads it"));
+    assert!(!report.contains("wrapped") && !report.contains("strays"));
+}
+
+#[test]
+fn install_writes_the_enrolled_key_once_and_refuses_a_foreign_one() {
+    let repo = Repository::new();
+    repo.init();
+    let shared = repo.shared_key_file();
+    fs::remove_file(&shared).unwrap();
+    let mut context = dotfile_cli::context::Context::new(
+        repo.root.clone(),
+        repo.home.clone(),
+        repo.root.join("config"),
+        repo.home.join(".config"),
+    )
+    .unwrap();
+    context
+        .process_env
+        .insert("XDG_CONFIG_HOME".into(), repo.home.join(".config").into());
+    for (name, value) in repo.onepassword.environment() {
+        context.process_env.insert(name.into(), value);
+    }
+    use dotfile_cli::secret::identity;
+    assert_eq!(identity::install(&context).unwrap(), Some(shared.clone()));
+    assert_eq!(
+        fs::read_to_string(&shared).unwrap().trim(),
+        repo.onepassword.field("credential").unwrap()
+    );
+    assert_eq!(identity::install(&context).unwrap(), None);
+
+    fs::remove_file(&shared).unwrap();
+    let (secret, public) = identity::generate();
+    repo.onepassword.seed(&secret, &public);
+    let error = identity::install(&context).unwrap_err();
+    assert!(error.contains("not enrolled as 'machine'"), "{error}");
+    assert!(!shared.exists());
 }

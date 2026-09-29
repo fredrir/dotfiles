@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use tempfile::{NamedTempFile, TempDir};
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::config::{Config, expand, home, identifier};
+use crate::config::{Config, expand, identifier};
 
 const MAX_SECRET_BYTES: usize = 4 * 1024 * 1024;
 
@@ -846,7 +846,7 @@ fn decrypt_bytes(ciphertext: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     let plaintext = Zeroizing::new(output.stdout);
     ensure!(
         output.status.success(),
-        "SOPS decryption failed; verify this machine's existing dotfile age identity"
+        "SOPS decryption failed; check this machine's 1Password age identity with dotfile secret doctor"
     );
     ensure!(
         !output.stdout_truncated,
@@ -875,7 +875,7 @@ fn encrypt_with_policy(policy_source: &Path, plaintext: &[u8]) -> Result<Vec<u8>
     ensure_runtime_outside_repository(policy_source, input.path())?;
     input.write_all(plaintext)?;
     input.rewind()?;
-    let mut command = sops_command()?;
+    let mut command = Command::new("sops");
     command
         .current_dir(&repository)
         .arg("--config")
@@ -993,15 +993,42 @@ impl Drop for SecretLock {
 fn sops_command() -> Result<Command> {
     let mut command = Command::new("sops");
     if std::env::var_os("SOPS_AGE_KEY_FILE").is_none() {
-        let config = std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or(home()?.join(".config"));
-        let identity = config.join("dotfile/age/keys.txt");
-        if identity.is_file() {
-            command.env("SOPS_AGE_KEY_FILE", identity);
-        }
+        with_key_command(&mut command, &key_command()?);
     }
     Ok(command)
+}
+
+fn with_key_command(command: &mut Command, key_command: &str) {
+    command
+        .env("SOPS_AGE_KEY_CMD", key_command)
+        // Hides sops' default keys.txt so only the 1Password identity decrypts
+        .env("XDG_CONFIG_HOME", "/dev/null")
+        .env_remove("SOPS_AGE_KEY")
+        .env_remove("SOPS_AGE_KEY_FILE");
+}
+
+fn key_command() -> Result<String> {
+    let dotfile = std::env::current_exe()
+        .ok()
+        .and_then(|executable| Some(executable.parent()?.join("dotfile")))
+        .filter(|sibling| sibling.is_file())
+        .unwrap_or_else(|| PathBuf::from("dotfile"));
+    let mut command = Command::new(&dotfile);
+    command
+        .args(["secret", "key-command"])
+        .stdin(Stdio::null());
+    let output = process::output(&mut command, CaptureLimits::default(), Duration::from_secs(30))
+        .with_context(|| format!("{} could not run", dotfile.display()))?;
+    ensure!(
+        output.status.success() && !output.stdout_truncated,
+        "dotfile secret key-command failed; run dotfile secret doctor: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    let line = String::from_utf8(output.stdout)
+        .context("dotfile secret key-command printed invalid text")?;
+    let line = line.trim();
+    ensure!(!line.is_empty(), "dotfile secret key-command printed nothing");
+    Ok(line.to_string())
 }
 
 fn repository_for(path: &Path) -> Result<PathBuf> {

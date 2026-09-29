@@ -58,7 +58,6 @@ min_free_bytes       = 1073741824
 retries              = 3
 retry_delay_seconds  = 5
 overdue_hours        = 192
-pending_max_age_days = 30
 ac_only              = false
 before               = []
 after                = []
@@ -67,14 +66,6 @@ alert                = []
 [jobs.Documents.sources]
 archie = ["~/Documents"]
 macie  = ["~/Documents"]
-
-[jobs.Documents.schedule]
-enabled  = true
-weekdays = [7]
-hour     = 3
-minute   = 0
-timezone = "Europe/Oslo"
-catch_up = true
 
 [jobs.Documents.retention]
 last    = 3
@@ -98,7 +89,6 @@ min_free_bytes       = 1073741824
 retries              = 3
 retry_delay_seconds  = 5
 overdue_hours        = 192
-pending_max_age_days = 30
 ac_only              = false
 before               = []
 after                = []
@@ -106,14 +96,6 @@ alert                = []
 
 [jobs.Pictures.sources]
 archie = ["~/Pictures"]
-
-[jobs.Pictures.schedule]
-enabled  = true
-weekdays = [7]
-hour     = 3
-minute   = 0
-timezone = "Europe/Oslo"
-catch_up = true
 
 [jobs.Pictures.retention]
 last    = 3

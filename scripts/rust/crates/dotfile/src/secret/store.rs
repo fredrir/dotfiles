@@ -9,7 +9,7 @@ fn require_vault(context: &Context) -> Result<(), String> {
     if recipients::load(context)?.is_empty() {
         return Err("no recipients enrolled (run: dotfile secret enroll <label>)".into());
     }
-    sops::require_identity(context, None)?;
+    super::identity::this(context)?;
     Ok(())
 }
 
@@ -245,7 +245,7 @@ pub fn edit(context: &Context, path: &Path) -> Result<ExitCode, String> {
             &vault::read_source(&entry.source, sops::MAX_SECRET_BYTES * 4)?,
         )?;
     }
-    let mut command = sops::command(context, None);
+    let mut command = sops::command(context, Some(&super::identity::Identity::OnePassword))?;
     command
         .arg("--config")
         .arg(context.root.join(".sops.yaml"))

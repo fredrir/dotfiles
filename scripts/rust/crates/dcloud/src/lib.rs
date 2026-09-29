@@ -10,7 +10,6 @@ pub mod engine;
 pub mod maintenance;
 pub mod objects;
 pub mod policy;
-pub mod schedule;
 pub mod secrets;
 pub mod setup;
 pub mod state;

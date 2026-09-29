@@ -10,10 +10,14 @@ use std::time::{Duration, Instant};
 use testkit::pty::{open_pty, read_available, stdio, take_controlling_terminal, terminal_state};
 use testkit::{TempDir, executable};
 
+mod support;
+use support::OnePassword;
+
 struct Fixture {
     temp: TempDir,
     root: PathBuf,
     home: PathBuf,
+    onepassword: OnePassword,
 }
 impl Fixture {
     fn new() -> Self {
@@ -23,6 +27,8 @@ impl Fixture {
         fs::create_dir_all(root.join("config")).unwrap();
         fs::create_dir_all(temp.path().join("staging")).unwrap();
         fs::write(root.join("config/targets.dotfile"), "").unwrap();
+        support::declare_host(&root);
+        let onepassword = OnePassword::install(temp.path());
         assert!(
             Command::new("git")
                 .args(["init", "-q"])
@@ -31,8 +37,13 @@ impl Fixture {
                 .unwrap()
                 .success()
         );
-        let fixture = Self { temp, root, home };
-        for arguments in [&["init"][..], &["enroll", "test"][..]] {
+        let fixture = Self {
+            temp,
+            root,
+            home,
+            onepassword,
+        };
+        for arguments in [&["init"][..], &["enroll", support::HOST][..]] {
             let output = fixture.command().args(arguments).output().unwrap();
             assert!(
                 output.status.success(),
@@ -52,8 +63,10 @@ impl Fixture {
             .env("XDG_DATA_HOME", self.home.join(".local/share"))
             .env("TMPDIR", self.temp.path().join("staging"))
             .env_remove("SOPS_AGE_KEY")
+            .env_remove("SOPS_AGE_KEY_FILE")
             .env_remove("SOPS_AGE_KEY_CMD")
             .current_dir(&self.root);
+        self.onepassword.configure(&mut command);
         command
     }
 }

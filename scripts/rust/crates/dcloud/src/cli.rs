@@ -70,16 +70,6 @@ pub enum Command {
     Plan { job: String },
     #[command(about = "Retry unfinished replicas of the original snapshot")]
     Retry { run: Option<String> },
-    #[command(about = "Run due jobs on their source computer")]
-    RunDue {
-        #[arg(long)]
-        expect_host: Option<String>,
-    },
-    #[command(about = "Dispatch due work to configured source computers")]
-    Dispatch {
-        #[arg(value_delimiter = ',')]
-        hosts: Vec<String>,
-    },
     #[command(about = "Create a compressed portable archive and upload it")]
     Upload {
         path: PathBuf,
@@ -236,13 +226,6 @@ pub enum Command {
             help = "Read only this computer journal without SSH or credentials"
         )]
         local: bool,
-    },
-    #[command(about = "Render or install a local scheduler")]
-    Schedule {
-        #[arg(long)]
-        install: bool,
-        #[arg(long)]
-        dispatch: bool,
     },
     #[command(about = "Preview or purge expired unchanged quarantine entries")]
     Cleanup {

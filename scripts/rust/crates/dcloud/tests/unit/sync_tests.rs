@@ -312,29 +312,3 @@ fn actual_sync_preserves_deleted_files_and_refuses_mass_deletion() {
         );
     }
 }
-
-#[test]
-fn scheduled_sync_does_not_relock_or_repeat_a_completed_occurrence() {
-    if Command::new("rclone").arg("version").output().is_err() {
-        return;
-    }
-    let temp = tempfile::tempdir().unwrap();
-    let pair = pair(temp.path());
-    fs::create_dir(&pair.left).unwrap();
-    fs::create_dir(&pair.right).unwrap();
-    fs::write(Path::new(&pair.left).join("file.txt"), "test").unwrap();
-    let mut config = Config {
-        host: "macie".into(),
-        state_dir: temp.path().join("state"),
-        ..Config::default()
-    };
-    config.sync.insert("scheduled".into(), pair.clone());
-    run(&config, "scheduled", true, true).unwrap();
-    let mut state = crate::state::State::open(&config.state_dir).unwrap();
-    let first = run_due(&config, &mut state).unwrap();
-    assert!(first["errors"].as_array().unwrap().is_empty(), "{first}");
-    assert_eq!(first["pairs"].as_array().unwrap().len(), 1);
-    let second = run_due(&config, &mut state).unwrap();
-    assert!(second["errors"].as_array().unwrap().is_empty());
-    assert!(second["pairs"].as_array().unwrap().is_empty());
-}

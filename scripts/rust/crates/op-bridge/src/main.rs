@@ -47,7 +47,7 @@ enum Command {
         #[arg(
             long = "prompt-vault",
             value_name = "VAULT",
-            help = "Vault that needs Touch ID per reference, archie only; repeat for more"
+            help = "Vault that needs Touch ID per reference; repeat for more"
         )]
         prompt: Vec<String>,
     },

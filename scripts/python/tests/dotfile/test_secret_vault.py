@@ -2,6 +2,7 @@ import os
 import shutil
 import stat
 
+import onepassword
 import pytest
 from gitrepo import run_git
 
@@ -126,7 +127,7 @@ def test_a_machine_without_a_key_still_links(vault, tool):
     _root, home, env, secret = vault
     live = add_config(home, secret)
     secret("clean")
-    shutil.rmtree(_root / "config" / "age")
+    onepassword.forget_identity(_root)
     result = tool("dotfile", "link", "test", env=env)
     assert result.returncode == 0
     assert "sealed" in result.stdout

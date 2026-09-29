@@ -18,7 +18,7 @@
 | Flag                     | Description                                                                                               |
 | ------------------------ | --------------------------------------------------------------------------------------------------------- |
 | `--vault <VAULT>`        | Selects a vault served without Touch ID until macie sleeps; repeat for more. Defaults to `Dev`.           |
-| `--prompt-vault <VAULT>` | Selects a vault that needs Touch ID per reference, for archie only; repeat for more.                      |
+| `--prompt-vault <VAULT>` | Selects a vault that needs Touch ID per reference; repeat for more.                                       |
 | `--identity <NAME>`      | Selects the code signing identity by any unique part of its name. Defaults to `Developer ID Application`. |
 | `-n`, `--dry-run`        | Shows the missing setup steps without applying them.                                                      |
 | `-h`, `--help`           | Shows help for the selected command and exits.                                                            |
@@ -44,7 +44,7 @@ op read op://Dev/… (macie) ─────────────────
 | --- | --- | --- |
 | op-bridge Touch ID | never | per reference |
 | Held in memory | until macie sleeps | 30 min, or until macie sleeps |
-| Callers | archie and macie | archie; macie uses its own `op` |
+| Callers | archie and macie | archie and macie |
 | Refill | after startup or wake, once the screen is unlocked | never |
 
 | Name | Value |

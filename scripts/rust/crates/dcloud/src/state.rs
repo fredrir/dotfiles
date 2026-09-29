@@ -138,13 +138,7 @@ impl State {
                  record TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS runs_by_job ON runs(host, job, started);
-             CREATE TABLE IF NOT EXISTS occurrences (
-                 host TEXT NOT NULL,
-                 job TEXT NOT NULL,
-                 scheduled_at TEXT NOT NULL,
-                 run_id TEXT NOT NULL REFERENCES runs(id),
-                 PRIMARY KEY(host, job)
-             );
+             DROP TABLE IF EXISTS occurrences;
              CREATE TABLE IF NOT EXISTS catalog (
                  destination TEXT NOT NULL,
                  snapshot TEXT NOT NULL,
@@ -260,64 +254,6 @@ impl State {
             .prepare("SELECT record FROM runs ORDER BY started DESC, id")?;
         let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
         rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
-    }
-
-    pub fn set_occurrence(
-        &mut self,
-        host: &str,
-        job: &str,
-        scheduled_at: DateTime<Utc>,
-        run_id: &str,
-    ) -> Result<()> {
-        let transaction = self
-            .connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let serialized: String =
-            transaction.query_row("SELECT record FROM runs WHERE id = ?1", [run_id], |row| {
-                row.get(0)
-            })?;
-        let run: RunRecord = serde_json::from_str(&serialized)?;
-        ensure!(
-            run.host == host
-                && run.job == job
-                && matches!(run.state, RunState::Committed | RunState::Degraded),
-            "only a committed run for the same host and job completes an occurrence"
-        );
-        let previous: Option<String> = transaction
-            .query_row(
-                "SELECT scheduled_at FROM occurrences WHERE host = ?1 AND job = ?2",
-                params![host, job],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if let Some(previous) = previous {
-            let previous = DateTime::parse_from_rfc3339(&previous)?.with_timezone(&Utc);
-            ensure!(
-                scheduled_at >= previous,
-                "completed occurrence cannot move backwards"
-            );
-        }
-        transaction.execute(
-            "INSERT INTO occurrences(host, job, scheduled_at, run_id) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(host, job) DO UPDATE SET scheduled_at=excluded.scheduled_at, run_id=excluded.run_id",
-            params![host, job, scheduled_at.to_rfc3339(), run_id],
-        )?;
-        transaction.commit()?;
-        Ok(())
-    }
-
-    pub fn occurrence(&self, host: &str, job: &str) -> Result<Option<DateTime<Utc>>> {
-        let value: Option<String> = self
-            .connection
-            .query_row(
-                "SELECT scheduled_at FROM occurrences WHERE host = ?1 AND job = ?2",
-                params![host, job],
-                |row| row.get(0),
-            )
-            .optional()?;
-        value
-            .map(|value| Ok(DateTime::parse_from_rfc3339(&value)?.with_timezone(&Utc)))
-            .transpose()
     }
 
     pub fn cache_manifest<T: Serialize>(

@@ -23,8 +23,9 @@
 | Runtime                | Requirement                                                                                   |
 | ---------------------- | --------------------------------------------------------------------------------------------- |
 | Dotfile commands       | Native Rust executable                                                                        |
-| Encryption             | External `sops` and `age-keygen`                                                              |
-| Identity restore       | `config/age/<host>.age`, scrypt; `dotfile sync` asks when `config/age/keys.txt` is missing    |
+| Encryption             | External `sops`; `age-keygen` for `--using` files                                             |
+| Age identity           | 1Password, `identities` in `config/keys.dotfile`; sops reads it via `SOPS_AGE_KEY_CMD`        |
+| Shared key file        | sops' default `keys.txt`, written by `dotfile sync` for other projects; never read here       |
 | Git operations         | External `git`; literal pathspecs and bounded blob batches                                    |
 | System installation    | Linux, `sudo install`, then `systemctl enable --now` for tracked presets; dry-run on macOS    |
 | User units             | Linked `~/.config/systemd/user` units; stale → `daemon-reload`, running → `try-restart`       |

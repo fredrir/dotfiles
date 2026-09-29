@@ -1,7 +1,9 @@
 import os
 import shutil
+import stat
 import subprocess
 
+import onepassword
 import pytest
 
 KEY_A = "age1" + "q" * 58
@@ -31,8 +33,20 @@ def repo(tmp_path):
     return root, home, env
 
 
+def with_identity(repo, tmp_path):
+    """This machine gets a 1Password item reference and the fake op."""
+    root, _home, env = repo
+    onepassword.declare_host(root)
+    env.update(onepassword.install(tmp_path))
+    return env
+
+
 def write_keys(root, text):
     (root / "config" / "keys.dotfile").write_text(text)
+
+
+def stat_mode(path):
+    return stat.S_IMODE(os.stat(path).st_mode)
 
 
 def secret(tool, env, *args):
@@ -149,11 +163,13 @@ def test_doctor_fails_on_a_fresh_repository(tool, repo):
     assert "recipients" in result.stdout
 
 
-def test_doctor_reports_a_missing_recovery_key(tool, repo):
+def test_doctor_needs_no_recovery_recipient(tool, repo):
     _root, _home, env = repo
     secret(tool, env, "enroll", "archie", KEY_A)
     result = secret(tool, env, "doctor")
-    assert "none named recovery" in result.stdout
+    recipients = next(line for line in result.stdout.splitlines() if "recipients" in line)
+    assert recipients.split()[0] == "ok"
+    assert "1 enrolled" in recipients
 
 
 def test_enroll_stages_what_it_changed(tool, repo):
@@ -169,9 +185,8 @@ def test_enroll_stages_what_it_changed(tool, repo):
     assert ".sops.yaml" in staged
 
 
-@pytest.mark.skipif(not shutil.which("age-keygen"), reason="needs age")
-def test_a_new_machine_is_told_what_to_run_elsewhere(tool, repo):
-    _root, _home, env = repo
+def test_a_new_machine_is_told_what_to_run_elsewhere(tool, repo, tmp_path):
+    env = with_identity(repo, tmp_path)
     assert secret(tool, env, "init").returncode == 0
     secret(tool, env, "enroll", "other", KEY_A)
     result = secret(tool, env, "doctor")
@@ -179,23 +194,38 @@ def test_a_new_machine_is_told_what_to_run_elsewhere(tool, repo):
     assert "not a recipient yet" in result.stdout
     assert "already decrypts" in result.stdout
     assert "dotfile secret enroll" in result.stdout
-    assert "recovery key" in result.stdout
 
 
-@pytest.mark.skipif(not shutil.which("age-keygen"), reason="needs age")
-def test_a_machine_that_is_a_recipient_says_so(tool, repo):
-    _root, _home, env = repo
+def test_a_machine_that_is_a_recipient_says_so(tool, repo, tmp_path):
+    env = with_identity(repo, tmp_path)
     assert secret(tool, env, "init").returncode == 0
-    assert secret(tool, env, "enroll", "here").returncode == 0
+    assert secret(tool, env, "enroll", onepassword.HOST).returncode == 0
     result = secret(tool, env, "doctor")
-    assert "this machine is 'here'" in result.stdout
+    assert f"this machine is '{onepassword.HOST}'" in result.stdout
+    assert onepassword.field(env, "username") in (repo[0] / "config" / "keys.dotfile").read_text()
+
+
+def test_init_puts_the_new_key_in_1password_and_the_shared_key_file(tool, repo, tmp_path):
+    _root, home, _env = repo
+    env = with_identity(repo, tmp_path)
+    result = secret(tool, env, "init")
+    assert result.returncode == 0, result.stderr
+    public = onepassword.field(env, "username")
+    assert public in result.stdout
+    shared = home / ".config" / "sops" / "age" / "keys.txt"
+    assert shared.read_text().strip() == onepassword.field(env, "credential")
+    assert stat_mode(shared) == 0o600
+    again = secret(tool, env, "init")
+    assert again.returncode == 1
+    assert "already exists" in again.stderr
 
 
 @pytest.mark.skipif(
     not (shutil.which("sops") and shutil.which("age-keygen")), reason="needs age and sops"
 )
 def test_a_stranded_machine_enrols_itself_with_the_recovery_key(tool, repo, tmp_path):
-    root, _home, env = repo
+    root, _home, _env = repo
+    env = with_identity(repo, tmp_path)
     (root / "environment" / "test").mkdir(parents=True)
     (root / "environment" / "test" / "manifest").write_text("shared\n")
     (root / "shared").mkdir()
@@ -223,7 +253,7 @@ def test_a_stranded_machine_enrols_itself_with_the_recovery_key(tool, repo, tmp_
     assert secret(tool, env, "init").returncode == 0
     assert secret(tool, env, "vars").returncode == 1
 
-    result = secret(tool, env, "enroll", "worklaptop", "--using", str(recovery))
+    result = secret(tool, env, "enroll", onepassword.HOST, "--using", str(recovery))
     assert result.returncode == 0, result.stderr
     assert "re-wrapped 1 of 1 file" in result.stdout
 
@@ -246,36 +276,21 @@ def test_using_rejects_a_path_that_is_not_an_identity(tool, repo, tmp_path):
     assert "no such identity file" in result.stderr
 
 
-def test_any_recovery_prefixed_label_counts(tool, repo):
-    _root, _home, env = repo
-    secret(tool, env, "enroll", "archie", KEY_A)
-    secret(tool, env, "enroll", "recovery2", KEY_B)
-    result = secret(tool, env, "doctor")
-    assert "no recovery" not in result.stdout
-    assert "none named recovery" not in result.stdout
-
-
-def test_a_label_that_merely_contains_recovery_does_not_count(tool, repo):
-    _root, _home, env = repo
-    secret(tool, env, "enroll", "my-recovery-box", KEY_A)
-    result = secret(tool, env, "doctor")
-    assert "none named recovery" in result.stdout
-
-
 needs_both = pytest.mark.skipif(
     not (shutil.which("sops") and shutil.which("age-keygen")), reason="needs age and sops"
 )
 
 
 def sealed_repo(tool, repo, tmp_path):
-    root, home, env = repo
+    root, home, _env = repo
+    env = with_identity(repo, tmp_path)
     (root / "environment" / "test").mkdir(parents=True)
     (root / "environment" / "test" / "manifest").write_text("shared\n")
     (root / "shared").mkdir()
     (root / "config" / "targets.dotfile").write_text("")
     (root / "config" / "profile").write_text("test\n")
     assert secret(tool, env, "init").returncode == 0
-    assert secret(tool, env, "enroll", "archie").returncode == 0
+    assert secret(tool, env, "enroll", onepassword.HOST).returncode == 0
     recovery = tmp_path / "recovery.txt"
     subprocess.run(["age-keygen", "-o", str(recovery)], check=True, capture_output=True)
     pub = subprocess.run(
@@ -303,7 +318,7 @@ def opens(path, root):
     return (
         subprocess.run(
             ["sops", "-d", str(root / "vars.enc.yaml")],
-            env=dict(os.environ, SOPS_AGE_KEY_FILE=str(path)),
+            env=dict(os.environ, SOPS_AGE_KEY_FILE=str(path), XDG_CONFIG_HOME="/var/empty"),
             capture_output=True,
             check=False,
         ).returncode
@@ -322,20 +337,25 @@ def test_revoke_gives_a_new_data_key(tool, repo, tmp_path):
 
 @needs_both
 def test_rolling_this_machine_swaps_the_identity_and_keeps_the_label(tool, repo, tmp_path):
-    root, _home, env, _recovery = sealed_repo(tool, repo, tmp_path)
-    identity = root / "config" / "age" / "keys.txt"
-    kept = tmp_path / "old-identity.txt"
-    shutil.copy(identity, kept)
+    root, home, env, _recovery = sealed_repo(tool, repo, tmp_path)
+    kept = onepassword.identity_file(env, tmp_path / "old-identity.txt")
+    old_public = onepassword.field(env, "username")
     before = ciphertext(root)
 
-    result = secret(tool, env, "roll", "archie")
+    result = secret(tool, env, "roll", onepassword.HOST)
     assert result.returncode == 0, result.stderr
 
+    current = onepassword.identity_file(env, tmp_path / "new-identity.txt")
     assert not opens(kept, root)
-    assert opens(identity, root)
+    assert opens(current, root)
     assert ciphertext(root) != before
-    assert "archie" in (root / "config" / "keys.dotfile").read_text()
-    assert sorted(p.name for p in identity.parent.iterdir()) == ["keys.txt"]
+    new_public = onepassword.field(env, "username")
+    assert new_public != old_public
+    keys = (root / "config" / "keys.dotfile").read_text()
+    assert f"{onepassword.HOST}" in keys and new_public in keys and old_public not in keys
+    shared = (home / ".config" / "sops" / "age" / "keys.txt").read_text()
+    assert kept.read_text().strip() in shared
+    assert current.read_text().strip() in shared
 
 
 @needs_both
@@ -357,17 +377,19 @@ def test_rolling_another_recipient_locks_the_old_key_out(tool, repo, tmp_path):
 def test_rekey_changes_the_data_key_and_keeps_recipients(tool, repo, tmp_path):
     root, _home, env, recovery = sealed_repo(tool, repo, tmp_path)
     before = ciphertext(root)
+    keys = (root / "config" / "keys.dotfile").read_text()
     assert secret(tool, env, "rekey").returncode == 0
     assert ciphertext(root) != before
     assert opens(recovery, root)
-    assert len((root / "config" / "keys.dotfile").read_text().splitlines()) == 4
+    assert (root / "config" / "keys.dotfile").read_text() == keys
 
 
 @needs_both
 def test_an_unreadable_file_aborts_the_roll_before_anything_changes(tool, repo, tmp_path):
-    root, _home, env, _recovery = sealed_repo(tool, repo, tmp_path)
-    identity = root / "config" / "age" / "keys.txt"
-    before_identity = identity.read_bytes()
+    root, home, env, _recovery = sealed_repo(tool, repo, tmp_path)
+    shared = home / ".config" / "sops" / "age" / "keys.txt"
+    before_identity = onepassword.field(env, "credential")
+    before_shared = shared.read_bytes()
     before_keys = (root / "config" / "keys.dotfile").read_text()
 
     stranger = tmp_path / "stranger.txt"
@@ -388,12 +410,13 @@ def test_an_unreadable_file_aborts_the_roll_before_anything_changes(tool, repo, 
     (root / "foreign.enc.yaml").write_text(foreign)
     run_git(root, "add", "-A")
 
-    result = secret(tool, env, "roll", "archie")
+    result = secret(tool, env, "roll", onepassword.HOST)
     assert result.returncode == 1
     assert "cannot read" in result.stderr
-    assert identity.read_bytes() == before_identity
+    assert "restored the old key" in result.stderr
+    assert onepassword.field(env, "credential") == before_identity
+    assert shared.read_bytes() == before_shared
     assert (root / "config" / "keys.dotfile").read_text() == before_keys
-    assert sorted(p.name for p in identity.parent.iterdir()) == ["keys.txt"]
 
 
 @needs_both
@@ -401,7 +424,7 @@ def test_roll_refuses_a_label_that_is_not_this_machine(tool, repo, tmp_path):
     _root, _home, env, _recovery = sealed_repo(tool, repo, tmp_path)
     result = secret(tool, env, "roll", "recovery")
     assert result.returncode == 1
-    assert "not this machine's key" in result.stderr
+    assert "is not this machine" in result.stderr
 
 
 def test_roll_refuses_an_unknown_label(tool, repo):

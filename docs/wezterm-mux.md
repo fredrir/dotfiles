@@ -150,14 +150,14 @@ mtls doctor --probe 10.77.77.2:8443 --peer-name archie
 lsof -nP -iTCP -sTCP:LISTEN | grep 844          # exactly the intended addresses
 ```
 
-| Name          | Value                                                        |
-| ------------- | ------------------------------------------------------------ |
-| Live          | `~/.local/share/wezterm/mtls/{ca,cert,private_key}.pem`      |
-| Encrypted     | `linux/arch/wezterm-mtls/`, `macos/wezterm-mtls/`            |
-| Restored by   | `./setup.sh` / `dotfile sync`, once the age identity is back |
-| Age identity  | `config/age/<host>.age`; see [Reinstall](#reinstall)         |
-| CA key        | offline; needed only to re-issue                             |
-| Leaves expire | 2036-09-19                                                   |
+| Name          | Value                                                             |
+| ------------- | ----------------------------------------------------------------- |
+| Live          | `~/.local/share/wezterm/mtls/{ca,cert,private_key}.pem`           |
+| Encrypted     | `linux/arch/wezterm-mtls/`, `macos/wezterm-mtls/`                 |
+| Restored by   | `./setup.sh` / `dotfile sync`, through `op`                       |
+| Age identity  | 1Password; `identities` in `config/keys.dotfile`                  |
+| CA key        | offline; needed only to re-issue                                  |
+| Leaves expire | 2036-09-19                                                        |
 
 After a re-issue, replace the encrypted copy on that host:
 
@@ -172,8 +172,7 @@ done
 
 | Step                           | Command                                        |
 | ------------------------------ | ---------------------------------------------- |
-| once per host, after enrolling | `dotfile secret wrap`                          |
-| fresh install                  | `./setup.sh`; asks for the wrap passphrase     |
+| fresh install                  | `./setup.sh`; reads the age identity via `op`  |
 | mux certificates               | restored by the same sync                      |
 | restart the mux on archie      | `systemctl --user restart wezterm-mux`         |
 | check                          | `dotfile secret doctor`, `wezterm-mtls doctor` |

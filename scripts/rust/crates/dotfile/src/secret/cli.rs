@@ -25,12 +25,8 @@ pub enum Command {
         #[arg(long)]
         all: bool,
     },
-    /// Create this machine's age identity and print its public key.
+    /// Create this machine's age identity in 1Password and print its public key.
     Init,
-    /// Seal this machine's enrolled identity with a passphrase for reinstalls.
-    Wrap,
-    /// Restore this machine's identity from its passphrase-sealed copy.
-    Unwrap,
     /// Add a recipient; without a key, enroll this machine.
     Enroll {
         label: String,
@@ -95,6 +91,8 @@ pub enum Command {
     },
     #[command(name = "__redact", hide = true)]
     Redact,
+    #[command(name = "key-command", hide = true)]
+    KeyCommand,
 }
 
 #[derive(Debug, ClapArgs)]
@@ -128,6 +126,7 @@ impl Command {
             self,
             Self::Scan { .. }
                 | Self::Keys
+                | Self::KeyCommand
                 | Self::Doctor { .. }
                 | Self::Status
                 | Self::Vars { .. }

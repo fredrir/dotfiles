@@ -133,12 +133,21 @@ fn a_sleep_ends_a_grant_early() {
 }
 
 #[test]
-fn local_callers_are_refused_prompted_vaults_so_they_use_their_own_op() {
+fn local_callers_need_touch_id_for_prompted_vaults() {
     let mut broker = broker();
-    let response = broker.resolve(SECURE, Origin::Local, Instant::now(), never, |_| {
-        panic!("fetched for a local caller")
-    });
-    assert!(matches!(response, Response::Refused(_)), "{response:?}");
+    let mut asked = false;
+    let response = broker.resolve(
+        SECURE,
+        Origin::Local,
+        Instant::now(),
+        |_| {
+            asked = true;
+            Ok(())
+        },
+        |_| Ok(Zeroizing::new("value".to_string())),
+    );
+    assert!(asked);
+    assert!(matches!(response, Response::Value(_)), "{response:?}");
 }
 
 #[test]

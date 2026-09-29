@@ -5,7 +5,7 @@ use crate::state::RunState;
 use std::fs;
 
 #[test]
-fn scheduled_maintenance_reaps_opted_in_quarantine_once_daily_after_full_restore() {
+fn manual_cleanup_reaps_opted_in_quarantine_after_full_restore() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().canonicalize().unwrap();
     let source = root.join("source");
@@ -57,10 +57,9 @@ fn scheduled_maintenance_reaps_opted_in_quarantine_once_daily_after_full_restore
     assert_eq!(ticket.state, QuarantineState::Held);
     ticket.delete_after = Utc::now() - chrono::Duration::days(1);
     state.save_value("quarantine", &ticket.id, &ticket).unwrap();
-    let first = run_due(&config, &mut state).unwrap();
-    assert_eq!(first["attempted"], true);
-    assert_eq!(first["result"]["warnings"], json!([]), "{first}");
-    assert_eq!(first["result"]["quarantine"][0]["deleted"], true);
+    let first = cleanup(&config, &mut state, true).unwrap();
+    assert_eq!(first["errors"], json!([]), "{first}");
+    assert_eq!(first["quarantine"][0]["deleted"], true);
     assert!(!ticket.held.exists());
     assert_eq!(
         state.load_run(run_id).unwrap().unwrap().state,
@@ -76,74 +75,12 @@ fn scheduled_maintenance_reaps_opted_in_quarantine_once_daily_after_full_restore
         .unwrap()
         .unwrap();
     assert_eq!(after.state, QuarantineState::Deleted);
-    let second = run_due(&config, &mut state).unwrap();
-    assert_eq!(second["attempted"], false);
-    let recorded: DateTime<Utc> = serde_json::from_value(first["at"].clone()).unwrap();
-    assert_eq!(
-        run_due_at(
-            &config,
-            &mut state,
-            recorded + chrono::Duration::minutes(16)
-        )
-        .unwrap()["attempted"],
-        false
-    );
-    assert_eq!(
-        run_due_at(&config, &mut state, recorded + chrono::Duration::days(1)).unwrap()["attempted"],
-        true
-    );
     assert!(
         state
             .load_value::<Value>("maintenance-result", "fixture")
             .unwrap()
             .is_some()
     );
-}
-
-#[test]
-fn a_failed_automatic_maintenance_attempt_is_visible_and_not_repeated_every_tick() {
-    let temp = tempfile::tempdir().unwrap();
-    let unavailable = temp.path().join("storage");
-    fs::write(&unavailable, "not a directory").unwrap();
-    let config = Config {
-        host: "fixture".into(),
-        state_dir: temp.path().join("state"),
-        destinations: [(
-            "local".into(),
-            Destination {
-                location: unavailable.display().to_string(),
-                encrypted: false,
-                ..Destination::default()
-            },
-        )]
-        .into(),
-        ..Config::default()
-    };
-    let mut state = State::open(&config.state_dir).unwrap();
-    let first = run_due(&config, &mut state).unwrap();
-    assert_eq!(first["attempted"], true);
-    assert_eq!(first["result"]["warnings"].as_array().unwrap().len(), 1);
-    assert_eq!(run_due(&config, &mut state).unwrap()["attempted"], false);
-    let manual = cleanup(&config, &mut state, false).unwrap();
-    assert_eq!(manual["errors"].as_array().unwrap().len(), 1);
-    let recorded: DateTime<Utc> = serde_json::from_value(first["at"].clone()).unwrap();
-    assert_eq!(
-        run_due_at(
-            &config,
-            &mut state,
-            recorded + chrono::Duration::minutes(14)
-        )
-        .unwrap()["attempted"],
-        false
-    );
-    let retry = run_due_at(
-        &config,
-        &mut state,
-        recorded + chrono::Duration::minutes(15),
-    )
-    .unwrap();
-    assert_eq!(retry["attempted"], true);
-    assert_eq!(retry["succeeded"], false);
 }
 
 #[test]
@@ -166,12 +103,13 @@ fn successful_manual_cleanup_replaces_warning_but_preview_preserves_history() {
         ..Config::default()
     };
     let mut state = State::open(&config.state_dir).unwrap();
-    let failed = run_due(&config, &mut state).unwrap();
-    let previous: DateTime<Utc> = state
-        .load_value("maintenance-attempt", "fixture")
+    let failed = cleanup(&config, &mut state, true).unwrap();
+    assert_eq!(failed["errors"].as_array().unwrap().len(), 1);
+    let recorded: Value = state
+        .load_value("maintenance-result", "fixture")
         .unwrap()
         .unwrap();
-    assert_eq!(failed["succeeded"], false);
+    assert_eq!(recorded["succeeded"], false);
     fs::remove_file(&storage).unwrap();
     fs::create_dir(&storage).unwrap();
     assert_eq!(
@@ -183,14 +121,7 @@ fn successful_manual_cleanup_replaces_warning_but_preview_preserves_history() {
             .load_value::<Value>("maintenance-result", "fixture")
             .unwrap()
             .unwrap(),
-        failed
-    );
-    assert_eq!(
-        state
-            .load_value::<DateTime<Utc>>("maintenance-attempt", "fixture")
-            .unwrap()
-            .unwrap(),
-        previous
+        recorded
     );
     assert_eq!(
         cleanup(&config, &mut state, true).unwrap()["errors"],
@@ -200,22 +131,13 @@ fn successful_manual_cleanup_replaces_warning_but_preview_preserves_history() {
         .load_value("maintenance-result", "fixture")
         .unwrap()
         .unwrap();
-    let at: DateTime<Utc> = state
-        .load_value("maintenance-attempt", "fixture")
-        .unwrap()
-        .unwrap();
     assert_eq!(successful["manual"], true);
     assert_eq!(successful["succeeded"], true);
     assert_eq!(successful["result"]["warnings"], json!([]));
-    assert_eq!(successful["at"], json!(at));
-    assert_eq!(
-        run_due_at(&config, &mut state, at + chrono::Duration::minutes(16)).unwrap()["attempted"],
-        false
-    );
 }
 
 #[test]
-fn manual_and_automatic_attempts_share_the_same_lock() {
+fn manual_cleanup_respects_the_maintenance_lock() {
     let temp = tempfile::tempdir().unwrap();
     let config = Config {
         host: "fixture".into(),
@@ -225,10 +147,9 @@ fn manual_and_automatic_attempts_share_the_same_lock() {
     let mut state = State::open(&config.state_dir).unwrap();
     let lock = state.lock("maintenance:fixture").unwrap();
     assert!(cleanup(&config, &mut state, true).is_err());
-    assert!(run_due(&config, &mut state).is_err());
     assert!(
         state
-            .load_value::<Value>("maintenance-attempt", "fixture")
+            .load_value::<Value>("maintenance-result", "fixture")
             .unwrap()
             .is_none()
     );
@@ -261,18 +182,17 @@ fn failed_manual_attempt_records_failure_and_retries_instead_of_reusing_old_succ
             .unwrap()
             .contains("quarantine-cleanup")
     );
-    let at: DateTime<Utc> = state
-        .load_value("maintenance-attempt", "fixture")
+    drop(held);
+    cleanup(&config, &mut state, true).unwrap();
+    let retry: Value = state
+        .load_value("maintenance-result", "fixture")
         .unwrap()
         .unwrap();
-    drop(held);
-    let retry = run_due_at(&config, &mut state, at + chrono::Duration::minutes(15)).unwrap();
-    assert_eq!(retry["attempted"], true);
     assert_eq!(retry["succeeded"], true);
 }
 
 #[test]
-fn pending_source_cleanup_and_interrupted_attempts_retry_after_fifteen_minutes() {
+fn pending_source_cleanup_marks_the_manual_attempt_unsuccessful() {
     let temp = tempfile::tempdir().unwrap();
     let config = Config {
         host: "fixture".into(),
@@ -291,10 +211,6 @@ fn pending_source_cleanup_and_interrupted_attempts_retry_after_fifteen_minutes()
     state
         .save_value("backup-cleanup", &progress.run_id, &progress)
         .unwrap();
-    let now = Utc::now();
-    let pending = run_due_at(&config, &mut state, now).unwrap();
-    assert_eq!(pending["succeeded"], false);
-    assert_eq!(pending["result"]["warnings"], json!([]));
     cleanup(&config, &mut state, true).unwrap();
     assert_eq!(
         state
@@ -302,44 +218,5 @@ fn pending_source_cleanup_and_interrupted_attempts_retry_after_fifteen_minutes()
             .unwrap()
             .unwrap()["succeeded"],
         false
-    );
-    let manual_at: DateTime<Utc> = state
-        .load_value("maintenance-attempt", "fixture")
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        run_due_at(
-            &config,
-            &mut state,
-            manual_at + chrono::Duration::minutes(15)
-        )
-        .unwrap()["attempted"],
-        true
-    );
-    let success = json!({"attempted":true,"at":now,"result":{"warnings":[]}});
-    state
-        .save_value("maintenance-result", "fixture", &success)
-        .unwrap();
-    let interrupted = now + chrono::Duration::hours(1);
-    state
-        .save_value("maintenance-attempt", "fixture", &interrupted)
-        .unwrap();
-    assert_eq!(
-        run_due_at(
-            &config,
-            &mut state,
-            interrupted + chrono::Duration::minutes(14)
-        )
-        .unwrap()["attempted"],
-        false
-    );
-    assert_eq!(
-        run_due_at(
-            &config,
-            &mut state,
-            interrupted + chrono::Duration::minutes(15)
-        )
-        .unwrap()["attempted"],
-        true
     );
 }

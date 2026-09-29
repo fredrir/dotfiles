@@ -28,7 +28,3 @@ fi
 if [[ -n "$LINUX" ]]; then
   alias sss="/usr/bin/ss"
 fi
-
-if [[ $PWD == "$DOTFILES" ]]; then
-  export SOPS_AGE_KEY_FILE="$DOTFILES/config/age/keys.txt"
-fi

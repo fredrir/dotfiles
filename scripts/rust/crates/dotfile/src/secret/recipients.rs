@@ -1,3 +1,4 @@
+use super::identity::{self, Identity};
 use super::{sops, vault};
 use crate::context::Context;
 use serde::{Deserialize, Serialize};
@@ -6,6 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub type Recipients = BTreeMap<String, String>;
+
+pub const BLOCKS: [&str; 2] = ["recipients", identity::BLOCK];
 
 pub fn is_recovery(label: &str) -> bool {
     label.to_ascii_lowercase().starts_with("recovery")
@@ -30,6 +33,14 @@ pub fn valid_key(key: &str) -> bool {
 }
 
 pub fn block(path: &Path, expected: &str) -> Result<Vec<(usize, String)>, String> {
+    section(path, expected, &[expected])
+}
+
+pub fn section(
+    path: &Path,
+    expected: &str,
+    allowed: &[&str],
+) -> Result<Vec<(usize, String)>, String> {
     let entries = match crate::config::blocks::read(path) {
         Ok(entries) => entries,
         Err(_) if !path.exists() => return Ok(Vec::new()),
@@ -37,14 +48,19 @@ pub fn block(path: &Path, expected: &str) -> Result<Vec<(usize, String)>, String
     };
     let mut found = Vec::new();
     for entry in entries {
-        if entry.block != expected {
+        if !allowed.contains(&entry.block.as_str()) {
             return Err(format!(
-                "{}:{}: expected '{expected}' block",
+                "{}:{}: expected {} block",
                 path.display(),
-                entry.number
+                entry.number,
+                allowed
+                    .iter()
+                    .map(|name| format!("'{name}'"))
+                    .collect::<Vec<_>>()
+                    .join(" or ")
             ));
         }
-        if !entry.opens {
+        if entry.block == expected && !entry.opens {
             found.push((entry.number, entry.text));
         }
     }
@@ -53,7 +69,11 @@ pub fn block(path: &Path, expected: &str) -> Result<Vec<(usize, String)>, String
 
 pub fn load(context: &Context) -> Result<Recipients, String> {
     let mut recipients = Recipients::new();
-    for (number, line) in block(&context.root_config.join("keys.dotfile"), "recipients")? {
+    for (number, line) in section(
+        &context.root_config.join("keys.dotfile"),
+        "recipients",
+        &BLOCKS,
+    )? {
         let (label, key) = line.split_once('=').ok_or_else(|| {
             format!("config/keys.dotfile:{number}: expected <label> = <age public key>")
         })?;
@@ -75,14 +95,15 @@ pub fn load(context: &Context) -> Result<Recipients, String> {
     Ok(recipients)
 }
 
-pub fn document(recipients: &Recipients) -> String {
+pub fn document(context: &Context, recipients: &Recipients) -> Result<String, String> {
     let width = recipients.keys().map(String::len).max().unwrap_or(0);
     let mut text = String::from("recipients {\n");
     for (label, key) in recipients {
         text.push_str(&format!("  {label:<width$} = {key}\n"));
     }
     text.push_str("}\n");
-    text
+    text.push_str(&identity::document(&identity::load(context)?));
+    Ok(text)
 }
 
 pub fn policy(recipients: &Recipients) -> String {
@@ -104,7 +125,7 @@ pub fn save(context: &Context, recipients: &Recipients) -> Result<bool, String> 
     if load(context)? != *recipients {
         changes.push((
             context.root_config.join("keys.dotfile"),
-            document(recipients).into_bytes(),
+            document(context, recipients)?.into_bytes(),
         ));
     }
     if changed {
@@ -214,8 +235,6 @@ pub(super) fn commit_inner(
         let existed = path.exists();
         let mode = if existed {
             vault::mode_of(path)?
-        } else if *path == vault::identity_path(context) {
-            0o600
         } else {
             0o644
         };
@@ -289,9 +308,9 @@ pub fn stage(context: &Context, paths: &[PathBuf]) -> Result<(), String> {
 pub fn rewrite(
     context: &Context,
     recipients: &Recipients,
-    identity: &Path,
+    identity: &Identity,
     rotate: bool,
-    installed_identity: Option<&Path>,
+    verifying: Option<&Identity>,
 ) -> Result<(), String> {
     if recipients.is_empty() {
         return Err("no recipients enrolled".into());
@@ -300,9 +319,9 @@ pub fn rewrite(
     let temporary = tempfile::tempdir().map_err(|e| e.to_string())?;
     let policy_path = temporary.path().join(".sops.yaml");
     fs::write(&policy_path, policy(recipients)).map_err(|e| e.to_string())?;
-    let verify_identity = installed_identity.unwrap_or(identity);
+    let verify_identity = verifying.unwrap_or(identity);
     if !paths.is_empty() {
-        let pubkey = sops::public_key(context, verify_identity)?;
+        let pubkey = verify_identity.public_key(context)?;
         if !recipients.values().any(|key| *key == pubkey) {
             return Err("the verifying identity is not a remaining recipient; use --using with a remaining identity".into());
         }
@@ -311,7 +330,7 @@ pub fn rewrite(
     for (index, path) in paths.iter().enumerate() {
         crate::cancel::check()?;
         let source = context.root.join(path);
-        let expected = sops::decrypt(context, &source, Some(identity), false).map_err(|_| {
+        let expected = sops::decrypt(context, &source, identity, false).map_err(|_| {
             format!(
                 "this machine cannot read {}; fix that before changing recipients",
                 path.display()
@@ -321,7 +340,7 @@ pub fn rewrite(
         fs::create_dir(&staging).map_err(|e| e.to_string())?;
         let staged = staging.join(source.file_name().ok_or("invalid encrypted filename")?);
         fs::copy(&source, &staged).map_err(|e| e.to_string())?;
-        let mut update = sops::command(context, Some(identity));
+        let mut update = sops::command(context, Some(identity))?;
         update
             .arg("--config")
             .arg(&policy_path)
@@ -329,7 +348,7 @@ pub fn rewrite(
             .arg(&staged);
         sops::capture(&mut update, 64 * 1024, "SOPS recipient update")?;
         if rotate {
-            let mut command = sops::command(context, Some(verify_identity));
+            let mut command = sops::command(context, Some(verify_identity))?;
             command
                 .arg("--config")
                 .arg(&policy_path)
@@ -337,7 +356,7 @@ pub fn rewrite(
                 .arg(&staged);
             sops::capture(&mut command, 64 * 1024, "SOPS data-key rotation")?;
         }
-        let actual = sops::decrypt(context, &staged, Some(verify_identity), false)?;
+        let actual = sops::decrypt(context, &staged, verify_identity, false)?;
         if *actual != *expected {
             return Err(format!(
                 "verification changed secret content: {}",
@@ -349,18 +368,12 @@ pub fn rewrite(
     let mut staged_paths: Vec<_> = changes.iter().map(|(path, _)| path.clone()).collect();
     if load(context)? != *recipients {
         let path = context.root_config.join("keys.dotfile");
-        changes.push((path.clone(), document(recipients).into_bytes()));
+        changes.push((path.clone(), document(context, recipients)?.into_bytes()));
         staged_paths.push(path);
     }
     let policy_file = context.root.join(".sops.yaml");
     changes.push((policy_file.clone(), policy(recipients).into_bytes()));
     staged_paths.push(policy_file);
-    if let Some(fresh) = installed_identity {
-        changes.push((
-            vault::identity_path(context),
-            fs::read(fresh).map_err(|e| e.to_string())?,
-        ));
-    }
     commit(context, changes)?;
     stage(context, &staged_paths)?;
     println!(
@@ -383,14 +396,10 @@ pub fn caveat() {
 }
 
 fn validate_destination(context: &Context, path: &Path) -> Result<(), String> {
-    let anchor = if path == vault::identity_path(context) {
-        &context.root_config
-    } else if path.starts_with(&context.root) {
+    let anchor = if path.starts_with(&context.root) {
         &context.root
     } else {
-        return Err(
-            "secret transaction destination is outside the repository and identity state".into(),
-        );
+        return Err("secret transaction destination is outside the repository".into());
     };
     let relative = path
         .strip_prefix(anchor)

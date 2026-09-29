@@ -7,7 +7,6 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::Duration;
 
 pub fn run(cli: Cli) -> std::result::Result<ExitCode, String> {
     execute(cli).map_err(|error| crate::ui::safe(&format!("{error:#}")))
@@ -139,14 +138,6 @@ fn execute(cli: Cli) -> Result<ExitCode> {
                         };
                         json!({"backups":backups,"uploads":uploads,"errors":errors})
                     }
-                    Command::RunDue { expect_host } => {
-                        ensure!(
-                            expect_host.as_ref().is_none_or(|host| host == &config.host),
-                            "source host identity mismatch"
-                        );
-                        backups::run_due(&config, &mut state)?
-                    }
-                    Command::Dispatch { hosts } => dispatch(&config, &hosts)?,
                     Command::Upload {
                         path,
                         to,
@@ -339,9 +330,6 @@ fn execute(cli: Cli) -> Result<ExitCode> {
                         crate::sync::run(&config, &pair, init, apply)?
                     }
                     Command::Status { .. } => unreachable!(),
-                    Command::Schedule { install, dispatch } => {
-                        scheduler(&config, &path, install, dispatch)?
-                    }
                     Command::Cleanup { apply } => cleanup(&config, &mut state, apply)?,
                     Command::RecoveryExport { to } => {
                         setup::export(&config, &config::expand(&to)?)?
@@ -376,8 +364,6 @@ fn needs_credentials(command: &Command) -> bool {
         command,
         Command::Status { .. }
             | Command::Browse { offline: true, .. }
-            | Command::Schedule { .. }
-            | Command::Dispatch { .. }
             | Command::RecoveryExport { .. }
     )
 }
@@ -487,137 +473,6 @@ fn stats(config: &Config, repository: &Repository, forecast: bool) -> Result<Val
     Ok(
         json!({"stats":stats,"projection":{"method":"average repository growth since first snapshot; ignores future retention","bytes_per_day":daily,"quota_bytes":quota,"days_to_quota":quota.filter(|q|*q>total).filter(|_|daily>0.).map(|q|(q-total)as f64/daily)}}),
     )
-}
-
-fn dispatch(config: &Config, hosts: &[String]) -> Result<Value> {
-    let names = if hosts.is_empty() {
-        config
-            .hosts
-            .keys()
-            .filter(|h| *h != &config.host)
-            .cloned()
-            .collect::<Vec<_>>()
-    } else {
-        hosts.to_vec()
-    };
-    let mut results = Vec::new();
-    let mut errors = Vec::new();
-    for name in names {
-        config::identifier(&name)?;
-        if name == config.host {
-            continue;
-        }
-        let host = config
-            .hosts
-            .get(&name)
-            .with_context(|| format!("unknown host: {name}"))?;
-        let alias = host.ssh.as_deref().context("host has no SSH alias")?;
-        let mut words = vec![
-            host.binary.clone().unwrap_or_else(|| "dcloud".into()),
-            "--json".into(),
-        ];
-        if let Some(path) = &host.config {
-            words.extend(["--config".into(), path.clone()]);
-        }
-        words.extend(["run-due".into(), "--expect-host".into(), name.clone()]);
-        let script = words
-            .iter()
-            .map(|s| hostkit::shell::quote(s))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let output = hostkit::ssh::Session::new(alias)
-            .batch()
-            .script(&script)
-            .output_bounded(
-                hostkit::process::CaptureLimits {
-                    stdout: 8 * 1024 * 1024,
-                    stderr: 64 * 1024,
-                },
-                Duration::from_secs(config.tools.timeout_seconds),
-            );
-        match output {
-            Ok(output) if output.status.success() && !output.stdout_truncated=>results.push(json!({"host":name,"result":serde_json::from_slice::<Value>(&output.stdout).context("invalid scheduler response")?})),
-            Ok(output)=>errors.push(format!("{name}: {}",String::from_utf8_lossy(&output.stderr).trim())),Err(error)=>errors.push(format!("{name}: {error}")),
-        }
-    }
-    Ok(json!({"results":results,"errors":errors}))
-}
-
-fn scheduler(config: &Config, path: &Path, install: bool, dispatch: bool) -> Result<Value> {
-    let executable = std::env::current_exe()?;
-    let path = std::fs::canonicalize(path)?;
-    let label = if dispatch {
-        "io.dcloud.dispatch"
-    } else {
-        "io.dcloud.backup"
-    };
-    let mut files = if cfg!(target_os = "macos") {
-        crate::schedule::launchd_with_logs(
-            &executable,
-            &path,
-            label,
-            &config.state_dir.join("logs"),
-        )?
-    } else {
-        crate::schedule::systemd(&executable, &path, label)?
-    };
-    if dispatch {
-        for file in &mut files {
-            file.contents = file.contents.replace("run-due", "dispatch");
-        }
-    }
-    let directory = if cfg!(target_os = "macos") {
-        config::home()?.join("Library/LaunchAgents")
-    } else {
-        config::home()?.join(".config/systemd/user")
-    };
-    if install {
-        setup::private_dir(&config.state_dir.join("logs"))?;
-        setup::private_dir(&directory)?;
-        for file in &files {
-            let target = directory.join(&file.name);
-            let mut staged = tempfile::NamedTempFile::new_in(&directory)?;
-            use std::io::Write;
-            staged.write_all(file.contents.as_bytes())?;
-            staged.as_file().sync_all()?;
-            staged.persist(&target)?;
-        }
-        if cfg!(target_os = "macos") {
-            let uid = setup::execute(
-                std::process::Command::new("id").arg("-u"),
-                Duration::from_secs(5),
-            )?;
-            let domain = format!("gui/{}", String::from_utf8_lossy(&uid.stdout).trim());
-            let target = directory.join(&files[0].name);
-            let _ = setup::execute(
-                std::process::Command::new("launchctl")
-                    .args(["bootout", &format!("{domain}/{label}")]),
-                Duration::from_secs(10),
-            );
-            setup::execute(
-                std::process::Command::new("launchctl")
-                    .arg("bootstrap")
-                    .arg(&domain)
-                    .arg(target),
-                Duration::from_secs(10),
-            )?;
-        } else {
-            setup::execute(
-                std::process::Command::new("systemctl").args(["--user", "daemon-reload"]),
-                Duration::from_secs(10),
-            )?;
-            setup::execute(
-                std::process::Command::new("systemctl").args([
-                    "--user",
-                    "enable",
-                    "--now",
-                    &format!("{label}.timer"),
-                ]),
-                Duration::from_secs(10),
-            )?;
-        }
-    }
-    Ok(json!({"installed":install,"directory":directory,"files":files,"host":config.host}))
 }
 
 fn cleanup(config: &Config, state: &mut State, apply: bool) -> Result<Value> {

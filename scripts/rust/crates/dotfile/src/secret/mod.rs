@@ -1,6 +1,7 @@
 mod canaries;
 pub mod cli;
 mod doctor;
+pub mod identity;
 mod patterns;
 pub mod recipients;
 pub mod scan;
@@ -9,11 +10,11 @@ mod stamps;
 mod store;
 pub mod variables;
 pub mod vault;
-pub mod wrap;
 pub use cli::Args;
 
 use crate::context::Context;
 use cli::Command;
+use identity::Identity;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -67,28 +68,30 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
         }
         Command::Redact => canaries::stream(context)?,
         Command::Init => {
-            crate::tooling::requirements::ensure(context, &["age", "age-keygen", "sops"])?;
-            let path = vault::identity_path(context);
-            sops::generate(context, &path)?;
-            let key = sops::public_key(context, &path)?;
+            crate::tooling::requirements::ensure(context, &["sops"])?;
+            let (host, reference) = identity::this(context)?;
+            if identity::exists(context, &reference)? {
+                return Err(format!("{reference} already exists; roll it instead"));
+            }
+            let (secret, key) = identity::generate();
+            identity::store(context, &reference, &host, &secret, &key)?;
+            let shared = identity::append(context, &secret)?;
             println!(
-                "created {} (0600)\n\npublic key  {key}\n\nenrolling needs a key that already decrypts; run this on a machine that has one:\n\n    dotfile secret enroll {label} {key}\n\nor with a recovery identity:\n\n    dotfile secret enroll {label} --using /path/to/recovery.txt\n\nonce enrolled, let a reinstall restore it:\n\n    dotfile secret wrap",
-                path.display(),
-                label = doctor::suggested_label(context),
+                "stored a new key in {reference} and {}\n\npublic key  {key}\n\nenrolling needs a key that already decrypts; run this on a machine that has one:\n\n    dotfile secret enroll {host} {key}",
+                shared.display(),
             );
         }
-        Command::Wrap => wrap::wrap(context)?,
-        Command::Unwrap => wrap::unwrap(context)?,
+        Command::KeyCommand => println!("{}", identity::key_command(context)?),
         Command::Keys => {
             let recipients = recipients::load(context)?;
-            let mine = sops::public_key(context, &vault::identity_path(context)).ok();
+            let mine = identity::this(context).ok().map(|(host, _)| host);
             if recipients.is_empty() {
                 println!("no recipients in config/keys.dotfile");
             }
             for (label, key) in recipients {
                 println!(
                     "  {label}  {key}{}",
-                    if mine.as_ref() == Some(&key) {
+                    if mine.as_ref() == Some(&label) {
                         "  this machine"
                     } else {
                         ""
@@ -103,7 +106,10 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
             let mut recipients = recipients::load(context)?;
             let key = match key {
                 Some(key) => key,
-                None => sops::public_key(context, &vault::identity_path(context))?,
+                None => {
+                    let (_, reference) = identity::this(context)?;
+                    identity::public_key(&identity::secret(context, &reference)?)?
+                }
             };
             validate_new_key(&recipients, &label, &key)?;
             if recipients.get(&label) == Some(&key) {
@@ -146,8 +152,8 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
                 .get(&label)
                 .ok_or_else(|| format!("not enrolled: {label}"))?
                 .clone();
-            let identity = operation_identity(context, using.as_deref())?;
             if let Some(key) = key {
+                let identity = operation_identity(context, using.as_deref())?;
                 validate_new_key(&recipients, &label, &key)?;
                 if old == key {
                     println!("{label} already has that key");
@@ -156,19 +162,7 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
                 recipients.insert(label.clone(), key);
                 recipients::rewrite(context, &recipients, &identity, true, None)?;
             } else {
-                if sops::public_key(context, &vault::identity_path(context))? != old {
-                    return Err(format!(
-                        "'{label}' is not this machine's key; pass the new public key"
-                    ));
-                }
-                let staging = tempfile::tempdir().map_err(|e| e.to_string())?;
-                let fresh = staging.path().join("keys.txt");
-                sops::generate(context, &fresh)?;
-                recipients.insert(label.clone(), sops::public_key(context, &fresh)?);
-                recipients::rewrite(context, &recipients, &identity, true, Some(&fresh))?;
-                if wrap::available(context).is_some_and(|(host, _)| host == label) {
-                    println!("the wrapped copy still holds the old key; run: dotfile secret wrap");
-                }
+                roll_this_machine(context, &mut recipients, &label, &old, using.as_deref())?;
             }
             println!("rolled {label}");
             recipients::caveat();
@@ -218,13 +212,66 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
-// Public-only changes need no private identity until a ciphertext is encountered.
-// Explicit --using paths are still validated even for an empty vault.
-fn operation_identity(context: &Context, using: Option<&Path>) -> Result<PathBuf, String> {
-    using.map_or_else(
-        || Ok(vault::identity_path(context)),
-        |path| sops::require_identity(context, Some(path)),
-    )
+fn operation_identity(context: &Context, using: Option<&Path>) -> Result<Identity, String> {
+    using.map_or(Ok(Identity::OnePassword), |path| {
+        sops::require_identity(context, path).map(Identity::File)
+    })
+}
+
+/// 1Password gets the new key before any file is rewritten, and the old one back if that fails.
+fn roll_this_machine(
+    context: &Context,
+    recipients: &mut recipients::Recipients,
+    label: &str,
+    old: &str,
+    using: Option<&Path>,
+) -> Result<(), String> {
+    let (host, reference) = identity::this(context)?;
+    if label != host {
+        return Err(format!(
+            "'{label}' is not this machine; pass the new public key"
+        ));
+    }
+    let current = identity::secret(context, &reference)?;
+    if identity::public_key(&current)? != old {
+        return Err(format!("{reference} does not hold the key enrolled as '{label}'"));
+    }
+    let staging = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let previous = staging.path().join("previous.txt");
+    vault::write_private(&previous, current.as_bytes())?;
+    let decrypting = match using {
+        Some(path) => operation_identity(context, Some(path))?,
+        None => Identity::File(previous),
+    };
+    let (secret, key) = identity::generate();
+    let fresh = staging.path().join("fresh.txt");
+    vault::write_private(&fresh, secret.as_bytes())?;
+    recipients.insert(label.to_string(), key.clone());
+    identity::store(context, &reference, &host, &secret, &key)?;
+    identity::reload(context);
+    if let Err(error) = recipients::rewrite(
+        context,
+        recipients,
+        &decrypting,
+        true,
+        Some(&Identity::File(fresh)),
+    ) {
+        return Err(match identity::store(context, &reference, &host, &current, old) {
+            Ok(()) => {
+                identity::reload(context);
+                format!("{error}; restored the old key in {reference}")
+            }
+            Err(restore) => format!(
+                "{error}; restoring the old key in {reference} failed too ({restore}); recover it from the item's history"
+            ),
+        });
+    }
+    let shared = identity::append(context, &secret)?;
+    println!(
+        "stored the new key in {reference}; added it to {} next to the old one",
+        shared.display()
+    );
+    Ok(())
 }
 
 fn validate_new_key(

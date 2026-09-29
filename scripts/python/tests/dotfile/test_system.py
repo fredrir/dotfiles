@@ -1,6 +1,7 @@
 import os
 import shutil
 
+import onepassword
 import pytest
 from gitrepo import run_git
 
@@ -188,9 +189,11 @@ def test_add_refuses_a_source_under_home(tool, systemd):
 
 @needs_sops
 def test_a_template_renders_from_vars(tool, systemd, writer):
-    _root, fake, pkg, env, system = systemd
+    root, fake, pkg, env, system = systemd
+    onepassword.declare_host(root)
+    env.update(onepassword.install(root.parent))
     assert tool("dotfile", "secret", "init", env=env).returncode == 0
-    assert tool("dotfile", "secret", "enroll", "box", env=env).returncode == 0
+    assert tool("dotfile", "secret", "enroll", onepassword.HOST, env=env).returncode == 0
     seed = dict(env, EDITOR=writer("net:\n  mac: aa:bb:cc:dd:ee:ff\n"))
     assert tool("dotfile", "secret", "edit", "vars.enc.yaml", env=seed).returncode == 0
     place(pkg, "link.conf.tmpl", "MACAddress={{ net.mac }}\n")

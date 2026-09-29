@@ -1,40 +1,16 @@
 use super::*;
 
 #[test]
-fn durable_state_requires_a_committed_matching_run_for_occurrence() -> Result<()> {
+fn committed_run_survives_reopening_state() -> Result<()> {
     let directory = tempfile::tempdir()?;
-    let instant = DateTime::parse_from_rfc3339("2026-09-06T01:00:00Z")?.with_timezone(&Utc);
     let mut run = RunRecord::new("archie", "documents", "config-a");
     {
         let mut state = State::open(directory.path())?;
-        state.save_run(&run)?;
-        assert!(
-            state
-                .set_occurrence("archie", "documents", instant, &run.id)
-                .is_err()
-        );
         run.snapshot = Some("snapshot-1".into());
         run.state = RunState::Committed;
         state.save_run(&run)?;
-        assert!(
-            state
-                .set_occurrence("macie", "documents", instant, &run.id)
-                .is_err()
-        );
-        state.set_occurrence("archie", "documents", instant, &run.id)?;
-        assert!(
-            state
-                .set_occurrence(
-                    "archie",
-                    "documents",
-                    instant - chrono::Duration::days(7),
-                    &run.id
-                )
-                .is_err()
-        );
     }
     let state = State::open(directory.path())?;
-    assert_eq!(state.occurrence("archie", "documents")?, Some(instant));
     assert_eq!(
         state.load_run(&run.id)?.unwrap().snapshot.as_deref(),
         Some("snapshot-1")
@@ -96,7 +72,6 @@ fn journal_and_locks_survive_process_termination() -> Result<()> {
     let runs = state.runs()?;
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].state, RunState::Replicating);
-    assert!(state.occurrence("archie", "documents")?.is_none());
     Ok(())
 }
 

@@ -93,40 +93,24 @@ fn overrides(context: &Context, profile: &str) -> Result<Vec<String>, String> {
     Ok(selected)
 }
 
-/// Restores or creates this machine's age identity before the first sync needs
-/// to read a secret. A wrong passphrase leaves the secrets sealed; Ctrl-C stops sync.
+/// Writes this machine's key from 1Password to sops' default location, for other projects.
+/// A failed read leaves it missing; Ctrl-C stops sync.
 pub fn identity(context: &Context, dry_run: bool) -> Result<(), String> {
-    use crate::secret::cli::{Args, Command};
+    use crate::secret::identity;
     if dry_run
         || !interactive()
-        || crate::secret::vault::identity_path(context).is_file()
-        || !context.root.join(".sops.yaml").is_file()
+        || !identity::available(context)
+        || identity::default_path(context).symlink_metadata().is_ok()
     {
         return Ok(());
     }
-    let command = if crate::secret::wrap::available(context).is_some() {
-        Command::Unwrap
-    } else if context.program("age-keygen").is_some() {
-        Command::Init
-    } else {
-        return Ok(());
-    };
-    println!();
-    let result = crate::secret::run(
-        Args {
-            command: Some(command),
-        },
-        context,
-    );
-    println!();
-    match result {
-        Err(error) if crate::cancel::requested() => Err(error),
-        Err(error) => {
-            eprintln!("dotfile: {error}");
-            Ok(())
-        }
-        Ok(_) => Ok(()),
+    match identity::install(context) {
+        Ok(Some(path)) => println!("wrote this machine's age key to {}", path.display()),
+        Ok(None) => {}
+        Err(error) if crate::cancel::requested() => return Err(error),
+        Err(error) => eprintln!("dotfile: {error}"),
     }
+    Ok(())
 }
 
 fn pick(title: &str, options: &[String], default: Option<&str>) -> Result<Option<String>, String> {

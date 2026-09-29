@@ -17,14 +17,14 @@ pub fn load_variables(context: &Context) -> Variables {
             note: String::new(),
         };
     }
-    if !super::vault::identity_path(context).is_file() {
+    if !super::identity::available(context) {
         return Variables {
             values: BTreeMap::new(),
             ok: false,
-            note: "vars.enc.yaml needs an age identity to read".to_string(),
+            note: "vars.enc.yaml needs this machine's 1Password identity to read".to_string(),
         };
     }
-    let output = match super::sops::decrypt(context, &source, None, true) {
+    let output = match super::sops::decrypt(context, &source, &super::identity::Identity::OnePassword, true) {
         Ok(output) => output,
         Err(note) => {
             return Variables {

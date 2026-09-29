@@ -17,7 +17,6 @@ cap-std                    = "3"
 configparser               = "3"
 age.workspace              = true
 chrono                     = { version = "0.4", features = ["serde"] }
-chrono-tz                  = "0.10"
 clap.workspace             = true
 ui-file-explorer.workspace = true
 filetime                   = "0.2"

@@ -208,9 +208,7 @@
     "dotfile doctor": "Checks the profile's links, tools, fonts and packages; prints install commands for what is missing.",
     "dotfile secret": "Keeps private material out of the repository.",
     "dotfile secret scan": "Scans for leaked tokens, private values, and encryption invariants.",
-    "dotfile secret init": "Creates this machine's age identity and prints its public key.",
-    "dotfile secret wrap": "Seals this machine's enrolled identity with a passphrase so a reinstall can restore it.",
-    "dotfile secret unwrap": "Restores this machine's identity from its passphrase-sealed copy.",
+    "dotfile secret init": "Creates this machine's age identity in 1Password and prints its public key.",
     "dotfile secret enroll": "Adds a recipient or enrolls this machine when no key is provided.",
     "dotfile secret revoke": "Removes a recipient and gives every encrypted file a new data key.",
     "dotfile secret roll": "Replaces a recipient's key while keeping its label.",
@@ -529,7 +527,7 @@
     },
     "op-bridge": {
       "--vault": "Selects a vault served without Touch ID until macie sleeps; repeat for more. Defaults to `Dev`.",
-      "--prompt-vault": "Selects a vault that needs Touch ID per reference, for archie only; repeat for more.",
+      "--prompt-vault": "Selects a vault that needs Touch ID per reference; repeat for more.",
       "--identity": "Selects the code signing identity by any unique part of its name. Defaults to `Developer ID Application`.",
       "--dry-run": "Shows the missing setup steps without applying them."
     }

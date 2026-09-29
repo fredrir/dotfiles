@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::vault::{SecretEntry, SecretKind, identity_path};
+use super::vault::{SecretEntry, SecretKind};
 use crate::context::Context;
 
 #[derive(Default, Serialize, Deserialize)]
@@ -36,7 +36,7 @@ struct File {
 
 /// Everything a destination's content is derived from, shared by every entry.
 pub struct Inputs {
-    identity: Option<File>,
+    identity: Option<String>,
     variables: Option<[u8; 32]>,
 }
 
@@ -46,7 +46,7 @@ impl Inputs {
             .iter()
             .any(|entry| entry.kind == SecretKind::Template);
         Self {
-            identity: file(&identity_path(context)),
+            identity: identity(context),
             variables: templated
                 .then(|| fs::read(context.root.join("vars.enc.yaml")).ok())
                 .flatten()
@@ -56,7 +56,7 @@ impl Inputs {
 
     /// None when the destination cannot be vouched for without producing it.
     pub fn of(&self, entry: &SecretEntry) -> Option<String> {
-        let identity = self.identity?;
+        let identity = self.identity.as_ref()?;
         let mut hash = Sha256::new();
         hash.update(serde_json::to_vec(&identity).ok()?);
         match entry.kind {
@@ -109,6 +109,13 @@ impl Stamps {
         let bytes = serde_json::to_vec(self).map_err(|error| error.to_string())?;
         crate::fs::write_private(&path(context), &bytes).map(|_| ())
     }
+}
+
+/// A rolled key or moved 1Password item must not vouch for output from the old one.
+fn identity(context: &Context) -> Option<String> {
+    let (_, reference) = super::identity::this(context).ok()?;
+    let key = super::identity::enrolled_key(context).ok()?;
+    Some(format!("{reference} {key}"))
 }
 
 fn path(context: &Context) -> PathBuf {

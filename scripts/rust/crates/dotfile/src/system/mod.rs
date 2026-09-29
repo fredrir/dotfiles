@@ -255,7 +255,7 @@ fn inspect(
         Err(error) => {
             result.state = if matches!(result.entry.kind, SecretKind::Template) && variables.ok {
                 State::Unresolved
-            } else if !vault::identity_path(context).is_file() && private(&result.entry) {
+            } else if !crate::secret::identity::available(context) && private(&result.entry) {
                 State::Sealed
             } else {
                 State::Failed

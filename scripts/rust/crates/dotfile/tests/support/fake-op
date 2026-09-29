@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""A stand-in for the 1Password CLI that keeps items as JSON under $FAKE_OP_STORE."""
+
+import json
+import os
+import sys
+from pathlib import Path
+
+STORE = Path(os.environ["FAKE_OP_STORE"])
+
+
+def fail(message):
+    print(f"[ERROR] {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def option(arguments, name):
+    if name not in arguments:
+        fail(f"missing {name}")
+    return arguments[arguments.index(name) + 1]
+
+
+def path(vault, item):
+    return STORE / vault / f"{item}.json"
+
+
+def load(vault, item):
+    try:
+        return json.loads(path(vault, item).read_text())
+    except FileNotFoundError:
+        fail(f'"{item}" isn\'t an item in the "{vault}" vault')
+
+
+def save(vault, item, document):
+    target = path(vault, item)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(document))
+
+
+def read(arguments):
+    newline = not ({"-n", "--no-newline"} & set(arguments))
+    reference = next(argument for argument in arguments if not argument.startswith("-"))
+    vault, item, field = reference.removeprefix("op://").split("/")
+    for entry in load(vault, item).get("fields", []):
+        if field in (entry.get("id"), entry.get("label")):
+            sys.stdout.write(entry.get("value", "") + ("\n" if newline else ""))
+            return
+    fail(f"item '{vault}/{item}' does not have a field '{field}'")
+
+
+def item(arguments):
+    action, rest = arguments[0], arguments[1:]
+    vault = option(rest, "--vault")
+    if action == "get":
+        print(json.dumps(load(vault, rest[0])))
+    elif action == "create":
+        document = json.loads(Path(option(rest, "--template")).read_text())
+        if path(vault, document["title"]).exists():
+            fail("item already exists")
+        save(vault, document["title"], document)
+    elif action == "edit":
+        load(vault, rest[0])
+        save(vault, rest[0], json.loads(Path(option(rest, "--template")).read_text()))
+    else:
+        fail(f"unsupported item command {action}")
+
+
+def main():
+    arguments = sys.argv[1:]
+    if log := os.environ.get("FAKE_OP_LOG"):
+        with open(log, "a") as handle:
+            handle.write(" ".join(arguments[:2]) + "\n")
+    command = " ".join(arguments[:2]) if arguments[:1] == ["item"] else arguments[0]
+    if command in os.environ.get("FAKE_OP_FAIL", "").split(","):
+        fail(f"injected failure for {command}")
+    if arguments[0] == "read":
+        read(arguments[1:])
+    elif arguments[0] == "item":
+        item(arguments[1:])
+    else:
+        fail(f"unsupported command {arguments[0]}")
+
+
+main()

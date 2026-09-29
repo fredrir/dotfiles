@@ -1,3 +1,4 @@
+import onepassword
 import pytest
 from gitrepo import run_git
 
@@ -15,18 +16,18 @@ def vault(tool, tmp_path):
     (root / "config" / "targets.dotfile").write_text(
         "shared/ssh = ~/.ssh\nshared/test = ~/.config/test\n"
     )
-    (root / ".gitignore").write_text("config/age/keys.txt\n")
-    (root / "config" / "scan.dotfile").write_text("allow {\n  config/age/keys.txt\n}\n")
     (root / "shared").mkdir()
     run_git(tmp_path, "init", "-q", str(root))
     run_git(root, "config", "user.email", "test@example.com")
     run_git(root, "config", "user.name", "test")
     (root / "config" / "profile").write_text("test\n")
+    onepassword.declare_host(root)
 
     env = {
         "DOTFILE_ROOT": str(root),
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
+        **onepassword.install(tmp_path),
     }
 
     def secret(*args, editor=None):
@@ -34,7 +35,7 @@ def vault(tool, tmp_path):
         return tool("dotfile", "secret", *args, env=merged)
 
     assert secret("init").returncode == 0
-    assert secret("enroll", "box").returncode == 0
+    assert secret("enroll", onepassword.HOST).returncode == 0
     return root, home, env, secret
 
 
