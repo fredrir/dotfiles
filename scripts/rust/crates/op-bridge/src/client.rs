@@ -8,6 +8,9 @@ use std::time::Duration;
 use crate::paths;
 use crate::protocol::{self, Request, Response};
 
+#[cfg(target_os = "macos")]
+const REAL_OP: &str = "/opt/homebrew/bin/op";
+#[cfg(not(target_os = "macos"))]
 const REAL_OP: &str = "/usr/bin/op";
 // Long enough for a Touch ID prompt; pi gives up after 10 s on its own
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(60);
@@ -43,7 +46,7 @@ impl Read {
 
 pub fn run(args: Vec<OsString>) -> Result<ExitCode, String> {
     if let Some(read) = Read::parse(&args)
-        && let Ok(stream) = UnixStream::connect(paths::client())
+        && let Ok(stream) = UnixStream::connect(paths::client()?)
     {
         match ask(&stream, &read.reference)? {
             Response::Value(value) => {

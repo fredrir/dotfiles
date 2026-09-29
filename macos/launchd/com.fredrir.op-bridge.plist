@@ -10,6 +10,8 @@
     <string>daemon</string>
     <string>--vault</string>
     <string>Dev</string>
+    <string>--prompt-vault</string>
+    <string>Secure</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>

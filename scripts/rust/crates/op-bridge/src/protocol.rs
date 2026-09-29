@@ -28,16 +28,11 @@ pub fn vault(reference: &str) -> Option<&str> {
     (!vault.is_empty() && !path.is_empty()).then_some(vault)
 }
 
-pub fn check(reference: &str, vaults: &[String]) -> Result<(), String> {
+pub fn validate(reference: &str) -> Result<&str, String> {
     if reference.len() > MAX_REFERENCE || reference.chars().any(char::is_control) {
         return Err("malformed secret reference".to_string());
     }
-    let vault = vault(reference).ok_or_else(|| format!("not a secret reference: {reference}"))?;
-    if vaults.iter().any(|allowed| allowed.eq_ignore_ascii_case(vault)) {
-        Ok(())
-    } else {
-        Err(format!("vault {vault} is not shared with the peer"))
-    }
+    vault(reference).ok_or_else(|| format!("not a secret reference: {reference}"))
 }
 
 pub fn send<T: Serialize>(mut stream: &UnixStream, message: &T) -> Result<(), String> {

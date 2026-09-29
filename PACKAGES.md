@@ -9,6 +9,7 @@
 - `hport` — Ignore rules for the ports hport forwards from the peer
 - `nvim`
 - `obsidian`
+- `op-bridge` — op that sends 1Password reads through the op-bridge daemon on macie; the rest goes to the real op
 - `rsync`
 - `ssh`
 - `starship`
@@ -45,7 +46,6 @@
 - `lact` — RTX 5070 Ti power cap, clock offsets and fan curve through lactd; comfort and performance profiles
 - `macie-usb` — USB-C direct link to the Mac: interface naming, 10.77.77.2/30, DHCP for the Mac, NetworkManager opt-out
 - `nvidia` — nvidia_drm modeset and the nouveau blacklist
-- `op-bridge` — op that sends op://Dev reads to macie for Touch ID; the rest goes to /usr/bin/op
 - `paru`
 - `rapl` — Package energy counters readable by wheel, for hwtune idle and compile energy metrics
 - `ssh` — Cable, direct Wi-Fi, LAN, then Tailscale routing to macie

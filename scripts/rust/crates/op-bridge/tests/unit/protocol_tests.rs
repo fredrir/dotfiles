@@ -1,9 +1,5 @@
 use super::*;
 
-fn dev() -> Vec<String> {
-    vec!["Dev".to_string()]
-}
-
 #[test]
 fn the_vault_is_the_first_path_segment() {
     assert_eq!(vault("op://Dev/pi/credential"), Some("Dev"));
@@ -19,23 +15,11 @@ fn a_reference_needs_a_vault_and_an_item() {
 }
 
 #[test]
-fn only_listed_vaults_pass_regardless_of_case() {
-    assert!(check("op://Dev/pi/credential", &dev()).is_ok());
-    assert!(check("op://dev/pi/credential", &dev()).is_ok());
-    let error = check("op://Personal/bank/password", &dev()).unwrap_err();
-    assert!(error.contains("Personal"), "{error}");
-}
-
-#[test]
-fn a_vault_that_merely_starts_with_an_allowed_name_is_refused() {
-    assert!(check("op://Development/pi/credential", &dev()).is_err());
-}
-
-#[test]
 fn control_characters_and_oversized_references_are_refused() {
-    assert!(check("op://Dev/pi/credential\n", &dev()).is_err());
+    assert!(validate("op://Dev/pi/credential\n").is_err());
     let long = format!("op://Dev/{}", "a".repeat(600));
-    assert!(check(&long, &dev()).is_err());
+    assert!(validate(&long).is_err());
+    assert_eq!(validate("op://Dev/pi/credential"), Ok("Dev"));
 }
 
 #[test]

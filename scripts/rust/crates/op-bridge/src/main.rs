@@ -5,6 +5,7 @@ mod client;
 mod daemon;
 mod onepassword;
 mod paths;
+mod presence;
 mod protocol;
 mod setup;
 mod touchid;
@@ -39,9 +40,16 @@ enum Command {
             long = "vault",
             value_name = "VAULT",
             default_value = "Dev",
-            help = "Vault the peer may read; repeat for more"
+            help = "Vault served without Touch ID until macie sleeps; repeat for more"
         )]
-        vaults: Vec<String>,
+        silent: Vec<String>,
+
+        #[arg(
+            long = "prompt-vault",
+            value_name = "VAULT",
+            help = "Vault that needs Touch ID per reference, archie only; repeat for more"
+        )]
+        prompt: Vec<String>,
     },
 
     #[command(about = "Install the signed app on macie and (re)start its launchd agent")]
@@ -81,7 +89,9 @@ impl Completable for Cli {
 fn main() -> ExitCode {
     workstation::run::<Cli>(PROGRAM, |cli| match cli.command {
         None => Err("choose a command: daemon, setup or op; see --help".to_string()),
-        Some(Command::Daemon { vaults }) => daemon::run(vaults).map(|()| ExitCode::SUCCESS),
+        Some(Command::Daemon { silent, prompt }) => {
+            daemon::run(silent, prompt).map(|()| ExitCode::SUCCESS)
+        }
         Some(Command::Setup { identity, dry_run }) => {
             setup::run(&Style::for_stdout(), dry_run, &identity).map(|()| ExitCode::SUCCESS)
         }
