@@ -43,3 +43,10 @@ Host fredrir-09
     User administrator
     IdentityFile ~/.ssh/id_ed25519
     IdentitiesOnly yes
+
+# Hetzner CX33
+Host fredrir-11
+    HostName fredrir-11
+    User root
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
