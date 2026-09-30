@@ -2,6 +2,31 @@
 # zcomp: the binary decides what to offer; this only hands its answer to the completion system.
 typeset -gA _zcomp_orig
 
+_zcomp_fzf() {
+  emulate -L zsh -o extended_glob
+  local -a rows selected
+  local -A originals
+  local row plain answer
+  local -i i
+  rows=("${(@f)$(command cat)}")
+  for row in "${rows[@]}"; do
+    plain=${row//$'\e'\[[0-9\;:]#m/}
+    originals[$plain]=$row
+  done
+  answer=$(print -rl -- "${rows[@]}" | command fzf "$@")
+  local ret=$?
+  [[ -n $answer ]] || return ret
+  selected=("${(@f)answer}")
+  # fzf --ansi strips SGR codes from its answer; fzf-tab looks up the original display.
+  # The first two lines are the query and expect key, not selected rows.
+  for ((i = 3; i <= ${#selected}; i++)); do
+    row=$selected[i]
+    selected[i]=${originals[$row]:-$row}
+  done
+  print -rl -- "${selected[@]}"
+  return ret
+}
+
 _zcomp_add() {
   (( ${#_zcomp_values} )) || return 1
   local -a group_flags compadd_flags expl # shucked: ignore=C001
@@ -76,6 +101,7 @@ _zcomp_register() {
   zstyle ":fzf-tab:complete:$command:*" prefix ''
   # The query is the typed word; a shared prefix of the colored display lines is only escape codes.
   zstyle ":fzf-tab:complete:$command:*" query-string input
+  zstyle ":fzf-tab:complete:$command:*" fzf-command _zcomp_fzf
 }
 
 () {
