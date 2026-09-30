@@ -55,16 +55,17 @@
 
 ## Colors
 
-| Part                              | Theme role |
-| --------------------------------- | ---------- |
-| Name                              | `accent`   |
-| Package scope (`@scope`)          | `info`     |
-| Scope separator (`/`)             | `muted`    |
-| Option, provider, source type     | `info`     |
-| Downloads, provider column        | `info`     |
-| Description, range, age           | `muted`    |
-| `default`, dist-tag               | `success`  |
-| Dependency kind (`dev`, `peer`)   | `warning`  |
+| Part                              | Theme role                       |
+| --------------------------------- | -------------------------------- |
+| Name                              | `accent`                         |
+| Package scope (`@scope`)          | `info`                           |
+| Scope marker (`@`)                | `ansi.bright.green`              |
+| Scope separator (`/`)             | `muted`                          |
+| Option, provider, source type     | `info`                           |
+| Downloads, provider column        | `info`                           |
+| Description, range, age           | `muted`                          |
+| `default`, dist-tag               | `success`                        |
+| Dependency kind (`dev`, `peer`)   | `warning`                        |
 | Enabled                           | fzf-tab loaded; `NO_COLOR` unset |
 
 ## Cache

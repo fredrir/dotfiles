@@ -111,11 +111,20 @@ fn colors_come_from_the_palette_roles() {
 fn scoped_names_color_the_scope_apart_from_the_name() {
     let style = Style::for_mode(ui_theme::ColorMode::Always, true);
     let paint = |tone: Tone, text: &str| style.paint(tone.role(), text);
+    let marker = style.code(
+        &style
+            .palette()
+            .named_color("colors", "bright_green")
+            .expect("palette bright_green")
+            .sgr(false),
+        "@",
+    );
     assert_eq!(
         paint_name(&style, Tone::Accent, "@anthropic-ai/claude-code"),
         [
             paint(Tone::Accent, ""),
-            paint(Tone::Info, "@anthropic-ai"),
+            marker.clone(),
+            paint(Tone::Info, "anthropic-ai"),
             paint(Tone::Muted, "/"),
             paint(Tone::Accent, "claude-code"),
         ]
@@ -123,7 +132,7 @@ fn scoped_names_color_the_scope_apart_from_the_name() {
     );
     assert!(
         paint_name(&style, Tone::Accent, "npm:@upstash/context7-pi")
-            .contains(&paint(Tone::Info, "@upstash"))
+            .contains(&format!("{marker}{}", paint(Tone::Info, "upstash")))
     );
     for plain in ["react", "@types", "@/x", "deepseek/", "a/@b/c"] {
         assert_eq!(

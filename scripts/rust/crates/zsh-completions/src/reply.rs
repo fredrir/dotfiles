@@ -309,11 +309,19 @@ fn paint_name(style: &Style, tone: Tone, value: &str) -> String {
     };
     [
         style.paint(tone.role(), &value[..at]),
-        style.paint(Tone::Info.role(), &value[at..slash]),
+        bright_green(style, &value[at..at + 1]),
+        style.paint(Tone::Info.role(), &value[at + 1..slash]),
         style.paint(Tone::Muted.role(), "/"),
         style.paint(tone.role(), &value[slash + 1..]),
     ]
     .concat()
+}
+
+fn bright_green(style: &Style, text: &str) -> String {
+    match style.palette().named_color("colors", "bright_green") {
+        Ok(color) => style.code(&color.sgr(false), text),
+        Err(_) => text.to_string(),
+    }
 }
 
 fn column_widths(group: &Group) -> Vec<usize> {
