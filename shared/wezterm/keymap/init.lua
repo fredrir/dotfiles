@@ -12,6 +12,7 @@ local mux = require "utils.mux.mux"
 local hwire_session = require "utils.hwire-session"
 local MOD = require "keymap.modifiers"
 local open_vscode = require "utils.keymap.open-vscode"
+local open_jetbrains = require "utils.keymap.open-jetbrains"
 local open_github = require "utils.keymap.open-github"
 local open_yazi = require "utils.keymap.open-yazi"
 local close_window = require "utils.close_window"
@@ -140,6 +141,9 @@ local keys = bind_keys {
     mods = MOD.SUPER_REV,
     action = open_vscode,
   },
+  { key = "p", mods = MOD.UNIQUE_REV, action = open_jetbrains.pycharm },
+  { key = "r", mods = MOD.UNIQUE_REV, action = open_jetbrains.rustrover },
+  { key = "i", mods = MOD.UNIQUE_REV, action = open_jetbrains.intellij },
 
   { key = "Space", mods = MOD.PRIMARY, action = act.ActivateCommandPalette },
   { key = "p", mods = MOD.SUPER_REV, action = act.ShowLauncherArgs { flags = "WORKSPACES" } },
