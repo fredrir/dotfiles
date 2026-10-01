@@ -44,6 +44,14 @@ Host fredrir-09
     IdentityFile ~/.ssh/id_ed25519
     IdentitiesOnly yes
 
+# NTNU
+Host fredrir-10
+    HostName 10.99.50.100
+    User ubuntu
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+    ProxyCommand uv run --frozen --quiet --project ~/ntnu-proxy ntnu-vpn proxy %h %p
+
 # Hetzner CX33
 Host fredrir-11
     HostName fredrir-11

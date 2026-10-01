@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[4]
 PROJECT = "/home/test/project with 'quotes' & # + 日本語"
 IDES = [
-    ("pycharm", "PyCharm", "pycharm", "PY"),
+    ("pycharm", "PyCharm", "pycharm", "PY-262.10968.92"),
     ("rustrover", "RustRover", "rustrover", "RR"),
     ("intellij", "IntelliJ IDEA", "idea", "IU"),
 ]

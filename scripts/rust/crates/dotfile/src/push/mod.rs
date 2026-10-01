@@ -1248,6 +1248,7 @@ fn protocol_script(
     };
     let probe = format!("dotfile sync --wire-probe {}", protocol::VERSION);
     let mut lines = vec![
+        "export PATH=\"$DOTFILES_COMPILED/:${CARGO_HOME:-$HOME/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"".to_string(),
         "json_string() {".to_string(),
         "  LC_ALL=C awk 'BEGIN { ORS=\"\" } { if (NR > 1) printf \"\\\\n\"; for (i = 1; i <= length($0); i++) { c = substr($0, i, 1); if (c == \"\\\\\") printf \"\\\\\\\\\"; else if (c == \"\\\"\") printf \"\\\\\\\"\"; else if (c == \"\\t\") printf \"\\\\t\"; else if (c == \"\\r\") printf \"\\\\r\"; else printf \"%s\", c } }'".to_string(),
         "}".to_string(),
@@ -1331,7 +1332,6 @@ fn protocol_script(
         "  fi".to_string(),
         "  emit_lines pull \"$(git log --format='%h %s' --reverse \"$current_head..HEAD\")\"".to_string(),
         "fi".to_string(),
-        "export PATH=\"$DOTFILES_COMPILED/:$PATH\"".to_string(),
         format!("if ! {probe} >/dev/null 2>&1; then"),
         "  printf '{\"message\":\"phase\",\"operation\":\"update\"}\\n'".to_string(),
         "  update=$(./setup.sh --commands-only 2>&1)".to_string(),

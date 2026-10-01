@@ -110,6 +110,23 @@ impl Machines {
         self.temporary.path().join(relative)
     }
 
+    fn minimal_ssh_environment(&self) {
+        executable(
+            &self.path("stubs/ssh"),
+            "#!/bin/sh\n\
+             while [ $# -gt 0 ]; do case \"$1\" in\n\
+               -o) shift 2 ;;\n\
+               --) shift; break ;;\n\
+               -*) shift ;;\n\
+               *) break ;;\n\
+             esac; done\n\
+             shift\n\
+             unset DOTFILE_ROOT\n\
+             cd \"$PEER_HOME\" && HOME=\"$PEER_HOME\" XDG_CONFIG_HOME=\"$PEER_HOME/.config\" \
+             PATH=/usr/bin:/bin:/usr/sbin:/sbin exec sh -c \"$*\"\n",
+        );
+    }
+
     fn local(&self) -> PathBuf {
         self.path("local/dotfiles")
     }
@@ -211,6 +228,87 @@ impl Machines {
 fn write(path: &Path, content: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, content).unwrap();
+}
+
+#[test]
+fn remote_sync_includes_homebrew_tools_in_a_minimal_ssh_environment() {
+    let machines = Machines::new();
+    machines.minimal_ssh_environment();
+    executable(
+        &machines.path("peer-bin/dotfile"),
+        &format!(
+            "#!/bin/sh\n\
+             printf '%s\\n' \"$PATH\" > \"$HOME/command-path\"\n\
+             [ \"$2\" = --wire-probe ] && exit 0\n\
+             DOTFILE_ROOT=\"$HOME/dotfiles\" exec '{}' \"$@\"\n",
+            env!("CARGO_BIN_EXE_dotfile")
+        ),
+    );
+
+    let ran = machines.sync_push(&[]);
+
+    assert!(ran.success(), "{ran:?}");
+    let path = fs::read_to_string(machines.path("peer/command-path")).unwrap();
+    let directories: Vec<_> = std::env::split_paths(path.trim()).collect();
+    assert_eq!(directories.first().unwrap(), &machines.path("peer-bin"));
+    for directory in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
+        assert!(
+            directories.contains(&PathBuf::from(directory)),
+            "remote commands cannot find tools in {directory}: {path}"
+        );
+    }
+}
+
+#[test]
+fn remote_setup_finds_cargo_in_default_and_custom_homes() {
+    for cargo_home in [None, Some("peer/custom-cargo")] {
+        let machines = Machines::new();
+        machines.minimal_ssh_environment();
+        let cargo_directory = machines.path(cargo_home.unwrap_or("peer/.cargo"));
+        fs::create_dir_all(cargo_directory.join("bin")).unwrap();
+        executable(
+            &cargo_directory.join("bin/cargo"),
+            "#!/bin/sh\n\
+             printf 'built\\n' > \"$HOME/cargo-ran\"\n\
+             mkdir -p \"$HOME/dotfiles/scripts/rust/target/commands\"\n\
+             cp \"$HOME/new-dotfile\" \"$HOME/dotfiles/scripts/rust/target/commands/dotfile\"\n",
+        );
+        executable(
+            &machines.path("peer/new-dotfile"),
+            &format!(
+                "#!/bin/sh\n\
+                 [ \"$2\" = --commands-only ] && exit 0\n\
+                 [ \"$2\" = --wire-probe ] && exit 0\n\
+                 DOTFILE_ROOT=\"$HOME/dotfiles\" exec '{}' \"$@\"\n",
+                env!("CARGO_BIN_EXE_dotfile")
+            ),
+        );
+        let compiled = machines.peer().join(".bin");
+        fs::create_dir_all(&compiled).unwrap();
+        executable(&compiled.join("dotfile"), "#!/bin/sh\nexit 1\n");
+        executable(
+            &machines.peer().join("setup.sh"),
+            include_str!("../../../../../setup.sh"),
+        );
+        let ran = machines
+            .dotfile(&machines.local(), &machines.path("local"))
+            .env("DOTFILES_COMPILED", &compiled)
+            .env(
+                "CARGO_HOME",
+                cargo_home
+                    .map(|_| cargo_directory.as_path())
+                    .unwrap_or(Path::new("")),
+            )
+            .args(["sync", "test", "--push", "--to", "archie"])
+            .run();
+
+        assert!(ran.success(), "CARGO_HOME={cargo_home:?}: {ran:?}");
+        assert_eq!(
+            fs::read_to_string(machines.path("peer/cargo-ran")).unwrap(),
+            "built\n"
+        );
+        assert!(machines.path("peer/.gitconfig").exists());
+    }
 }
 
 #[test]

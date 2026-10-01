@@ -65,7 +65,7 @@ local function action(app, command, product)
 end
 
 return {
-  pycharm = action("PyCharm", "pycharm", "PY"),
+  pycharm = action("PyCharm", "pycharm", "PY-262.10968.92"),
   rustrover = action("RustRover", "rustrover", "RR"),
   intellij = action("IntelliJ IDEA", "idea", "IU"),
 }
