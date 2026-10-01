@@ -3,7 +3,8 @@ autoload -Uz add-zsh-hook
 typeset -ga PYTHON_VENV_AUTO_ROOTS=(
   "$HOME/projects"
   "$HOME/sndbx"
-  "$HOME/llunde-new"
+  "$HOME/llunde/pyparser"
+  "$DOTFILES/scripts/python"
 )
 
 _find_python_project_venv() {
