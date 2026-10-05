@@ -30,7 +30,7 @@ for _, route in ipairs(host.target.ip) do
     pem_root_certs = { pem.ca },
     connect_automatically = false,
     local_pane_layout = wezterm.mux.supports_local_pane_layout or nil,
-    local_echo_threshold_ms = 20,
+    local_echo_threshold_ms = 10,
   })
 end
 

@@ -18,7 +18,7 @@ if ssh_mux.supported then
       proxy_command = { "ssh", "-T", name, remote.wezterm, "cli", "--prefer-mux", "proxy" },
       no_serve_automatically = true,
       local_pane_layout = true,
-      local_echo_threshold_ms = 20,
+      local_echo_threshold_ms = 10,
     })
   end
 end
