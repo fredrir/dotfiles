@@ -21,7 +21,7 @@ fn headings_have_one_blank_line_and_the_file_has_no_final_newline() {
         "## Title\nsome very.\nimportant text\n\n\n## Title 2\n\n\nsome more important text\n\n";
     assert_eq!(
         formatted(input, &Config::default()),
-        "## Title\n\nsome very. important text\n\n## Title 2\n\nsome more important text"
+        "## Title\n\nsome very.\nimportant text\n\n## Title 2\n\nsome more important text"
     );
     for level in 1..=6 {
         let heading = "#".repeat(level);
@@ -107,19 +107,19 @@ fn nested_tables_and_headings_keep_their_container_prefixes() {
 }
 
 #[test]
-fn normalizes_lists_emphasis_links_and_wraps_prose() {
-    let input = "* _one_ and __two__\n* [link][id]\n\n[id]: https://example.com 'Title'\n\nA paragraph with several words that should wrap at the configured width.";
+fn normalizes_lists_emphasis_and_links_without_wrapping_prose() {
+    let input = "* _one_ and __two__\n* [link][id]\n\n[id]: https://example.com 'Title'\n\nA paragraph with several words that must remain on the same line even beyond the configured table width.";
     let config = Config {
         width: 30,
         ..Config::default()
     };
     let output = formatted(input, &config);
     assert!(
-        output.starts_with("- *one* and **two**\n- [link](https://example.com \"Title\")"),
+        output.starts_with("- *one* and **two**\n- [link][id]"),
         "{output}"
     );
     assert!(
-        output.contains("A paragraph with several words\nthat should wrap"),
+        output.contains("A paragraph with several words that must remain on the same line even beyond the configured table width."),
         "{output}"
     );
 }
@@ -144,7 +144,7 @@ fn hard_breaks_tasks_footnotes_and_literal_markdown_keep_their_meaning() {
 }
 
 #[test]
-fn spacing_wrapping_and_final_newline_are_configurable() {
+fn heading_spacing_and_final_newline_are_configurable() {
     let config = Config {
         width: 0,
         heading_blank_lines: 2,
@@ -177,5 +177,80 @@ fn headings_and_tables_at_container_boundaries_settle() {
         "| a | b |\n| --- | --- |\n| [long label](https://example.com/a/really/long/path) | **a long value** |",
     ] {
         formatted(input, &Config::default());
+    }
+}
+
+const SHARED_LIST: &str = "## `shared`
+
+- `atuin`
+- `direnv`
+- `fastfetch`
+- `gh`
+- `git`
+- `hport` — Ignore rules for the ports hport forwards from the peer
+- `nvim`
+- `obsidian`
+- `op-bridge` — op that sends 1Password reads through the op-bridge daemon on macie; the rest goes to the real op
+- `rsync`
+- `ssh`
+- `starship`
+- `tools`
+- `transcript`
+- `ui`
+- `vscode`
+- `wez-vtabs` — wez-vtabs deploy targets
+- `wezterm`
+- `yazi`
+- `zsh`";
+
+#[test]
+fn shared_list_remains_unchanged_in_every_dialect_at_any_table_width() {
+    use mdfmt::dialect::Dialect;
+    for dialect in [Dialect::Commonmark, Dialect::Gfm, Dialect::Obsidian] {
+        for width in [0, 10, 80, 10000] {
+            let config = Config {
+                dialect,
+                width,
+                ..Config::default()
+            };
+            assert_eq!(formatted(SHARED_LIST, &config), SHARED_LIST);
+        }
+    }
+}
+
+#[test]
+fn one_blank_line_does_not_expand_the_whole_list() {
+    let input = SHARED_LIST.replace("- `starship`\n- `tools`", "- `starship`\n\n- `tools`");
+    assert_eq!(formatted(&input, &Config::default()), SHARED_LIST);
+    let wrapped = input.replace("daemon on macie", "daemon on\n  macie");
+    let expected = SHARED_LIST.replace("daemon on macie", "daemon on\n  macie");
+    assert_eq!(formatted(&wrapped, &Config::default()), expected);
+}
+
+#[test]
+fn prose_quotes_and_list_continuations_keep_existing_line_breaks() {
+    let config = Config {
+        width: 10,
+        ..Config::default()
+    };
+    let input = "A setting with a very long value must remain on this exact line.\nThe next line must remain separate.\n\n> A long quotation that must not wrap.\n> This line stays separate.\n\n- A long list item that must not wrap.\n  Existing continuation.";
+    assert_eq!(formatted(input, &config), input);
+}
+
+#[test]
+fn nested_ordered_and_task_lists_are_compact_but_multiple_paragraphs_stay_separate() {
+    for (input, expected) in [
+        ("1. first\n\n2. second", "1. first\n2. second"),
+        ("- [ ] first\n\n- [x] second", "- [ ] first\n- [x] second"),
+        (
+            "- outer\n  - first\n\n  - second\n\n- next",
+            "- outer\n  - first\n  - second\n- next",
+        ),
+        (
+            "- first paragraph\n\n  second paragraph\n\n- next item",
+            "- first paragraph\n\n  second paragraph\n\n- next item",
+        ),
+    ] {
+        assert_eq!(formatted(input, &Config::default()), expected);
     }
 }

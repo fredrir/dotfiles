@@ -1,10 +1,9 @@
 use std::ops::Range;
 
 use comrak::{Arena, Options, nodes::NodeValue, parse_document};
-use unicode_width::UnicodeWidthStr;
 
-// Keep syntax outside CommonMark opaque. Tokens approximate source width for
-// prose wrapping; table alignment measures the restored text exactly.
+// Keep syntax outside CommonMark opaque. Table alignment measures the restored
+// text, so token lengths cannot affect the layout.
 pub struct Protected {
     pub text: String,
     marker: char,
@@ -12,7 +11,7 @@ pub struct Protected {
 }
 
 impl Protected {
-    pub fn new(input: &str, options: &Options<'_>) -> Result<Self, String> {
+    pub fn new(input: &str, options: &Options<'_>, obsidian: bool) -> Result<Self, String> {
         let marker = (0xe000..=0xf8ff)
             .filter_map(char::from_u32)
             .chain((0xf0000..=0xffffd).filter_map(char::from_u32))
@@ -53,16 +52,18 @@ impl Protected {
                 // Obsidian callouts have arbitrary types, folding markers and
                 // titles. Preserve the entire container, including nested ones.
                 NodeValue::BlockQuote
-                    if input[range.clone()].lines().next().is_some_and(|line| {
-                        line.trim_start_matches(['>', ' ', '\t']).starts_with("[!")
-                    }) =>
+                    if obsidian
+                        && input[range.clone()].lines().next().is_some_and(|line| {
+                            line.trim_start_matches(['>', ' ', '\t']).starts_with("[!")
+                        }) =>
                 {
                     blocks.push(range)
                 }
                 NodeValue::Paragraph
-                    if input[range.clone()]
-                        .lines()
-                        .any(|line| block_id(line.trim())) =>
+                    if obsidian
+                        && input[range.clone()]
+                            .lines()
+                            .any(|line| block_id(line.trim())) =>
                 {
                     blocks.push(range)
                 }
@@ -98,11 +99,11 @@ impl Protected {
                 at += count;
                 continue;
             }
-            let length = if rest.starts_with("![[") {
+            let length = if obsidian && rest.starts_with("![[") {
                 delimited(rest, 3, "]]", false)
-            } else if rest.starts_with("[[") {
+            } else if obsidian && rest.starts_with("[[") {
                 delimited(rest, 2, "]]", false)
-            } else if rest.starts_with("%%") {
+            } else if obsidian && rest.starts_with("%%") {
                 Some(delimited(rest, 2, "%%", true).unwrap_or(rest.len()))
             } else if rest.starts_with("$$") {
                 delimited(rest, 2, "$$", true)
@@ -110,7 +111,9 @@ impl Protected {
                 && rest.chars().nth(1).is_some_and(|c| !c.is_whitespace())
             {
                 delimited(rest, 1, "$", false)
-            } else if rest.starts_with('#') || rest.starts_with('^') {
+            } else if obsidian && rest.starts_with("^[") {
+                delimited(rest, 2, "]", false)
+            } else if obsidian && (rest.starts_with('#') || rest.starts_with('^')) {
                 let end = rest
                     .char_indices()
                     .skip(1)
@@ -141,17 +144,8 @@ impl Protected {
 
     fn keep(&mut self, source: &str) {
         let index = self.originals.len().to_string();
-        let width = source
-            .lines()
-            .map(UnicodeWidthStr::width)
-            .max()
-            .unwrap_or(0);
         self.text.push(self.marker);
         self.text.push_str(&index);
-        self.text.extend(std::iter::repeat_n(
-            'x',
-            width.saturating_sub(index.len() + 2),
-        ));
         self.text.push(self.marker);
         self.originals.push(source.to_owned());
     }
@@ -166,7 +160,6 @@ impl Protected {
                 .find(self.marker)
                 .ok_or("could not preserve Obsidian syntax")?;
             let index: usize = remaining[..end]
-                .trim_end_matches('x')
                 .parse()
                 .map_err(|_| "could not preserve Obsidian syntax")?;
             restored.push_str(

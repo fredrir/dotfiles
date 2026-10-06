@@ -83,29 +83,29 @@ fn dialect_auto_detects_vaults_and_explicit_choices_override_config() {
         ("vault/.obsidian/app.json", "{}"),
         ("mdfmt.dotfile", "mdfmt {\ndialect = auto\n}"),
     ]);
-    let wiki = "[[My note]]";
+    let callout = "> [!custom]\n> # Heading\n> text";
     assert_eq!(
-        run(root.path(), &["--stdin", "vault/notes/note.md"], wiki).stdout,
-        wiki
+        run(root.path(), &["--stdin", "vault/notes/note.md"], callout).stdout,
+        callout
     );
     assert_ne!(
         run(
             root.path(),
             &["--dialect", "gfm", "--stdin", "vault/note.md"],
-            wiki
+            callout
         )
         .stdout,
-        wiki
+        callout
     );
     fs::write(
         root.path().join("mdfmt.dotfile"),
         "mdfmt {\ndialect = obsidian\n}",
     )
     .unwrap();
-    assert_eq!(run(root.path(), &["-"], wiki).stdout, wiki);
+    assert_eq!(run(root.path(), &["-"], callout).stdout, callout);
     assert_ne!(
-        run(root.path(), &["--dialect", "commonmark", "-"], wiki).stdout,
-        wiki
+        run(root.path(), &["--dialect", "commonmark", "-"], callout).stdout,
+        callout
     );
     assert_eq!(
         run(root.path(), &["--dialect", "unknown", "-"], "").code(),
@@ -132,18 +132,18 @@ fn dialect_auto_detects_vaults_and_explicit_choices_override_config() {
 fn a_mixed_tree_selects_the_dialect_per_file() {
     let root = tree_pairs(&[
         ("vault/.obsidian/app.json", "{}"),
-        ("vault/note.md", "[[Note]]\n"),
-        ("readme.md", "[[Note]]\n"),
+        ("vault/note.md", "> [!custom]\n> # Heading\n> text\n"),
+        ("readme.md", "> [!custom]\n> # Heading\n> text\n"),
     ]);
     let output = run(root.path(), &["."], "");
     assert_eq!(output.code(), Some(0), "{}", output.stderr);
     assert_eq!(
         fs::read_to_string(root.path().join("vault/note.md")).unwrap(),
-        "[[Note]]"
+        "> [!custom]\n> # Heading\n> text"
     );
     assert_ne!(
         fs::read_to_string(root.path().join("readme.md")).unwrap(),
-        "[[Note]]"
+        "> [!custom]\n> # Heading\n> text"
     );
 }
 

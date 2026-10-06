@@ -166,5 +166,5 @@ fn protected_syntax_does_not_change_code_frontmatter_or_urls() {
 
 #[test]
 fn reference_definition_without_a_body_does_not_panic() {
-    assert_eq!(obsidian("[foo]: /url\n"), "");
+    assert_eq!(obsidian("[foo]: /url\n"), "[foo]: /url");
 }

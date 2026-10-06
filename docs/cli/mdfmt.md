@@ -16,7 +16,7 @@ cat README.md | mdfmt
 | Name | Default | Values |
 | --- | --- | --- |
 | `dialect` | `auto` | `auto`, `commonmark`, `gfm` / `github`, `obsidian` |
-| `width` | `80` | `0`–`10000`; `0` preserves prose line breaks and allows unlimited table alignment |
+| `width` | `80` | Table alignment threshold only, `0`–`10000`; `0` allows unlimited alignment |
 | `table_style` | `auto` | `auto`, `aligned`, `compact` |
 | `heading_blank_lines` | `1` | `0`–`3` |
 | `list_marker` | `-` | `-`, `*`, `+` |
@@ -45,7 +45,7 @@ working directory.
 | --- | --- |
 | `auto` | Configured dialect, then Obsidian beneath a `.obsidian` directory, otherwise GFM |
 | `commonmark` | CommonMark syntax without Markdown extensions |
-| `gfm`, `github`, `github-flavored-markdown` | GFM tables, tasks, strikethrough and autolinks, plus GitHub alerts, footnotes and frontmatter |
+| `gfm`, `github`, `github-flavored-markdown` | GFM tables, tasks, strikethrough and autolinks, plus GitHub alerts, footnotes, math and frontmatter |
 | `obsidian`, `obsidian-markdown` | GFM formatting plus Obsidian wiki links, embeds, highlights, comments, tags, math and block references |
 
 An explicit `--dialect` overrides `mdfmt.dotfile`. Vault detection uses each
@@ -61,17 +61,17 @@ plugin-specific syntax is not interpreted.
 
 | Content | Behavior |
 | --- | --- |
-| Tables | Align if the complete table fits `width`; otherwise use one space around each cell |
+| Tables | Align if the complete table fits `width`; otherwise use one space around each cell; retain surplus cells |
 | Table width | Unicode display columns, including Markdown syntax and container indentation |
-| Long cells, URLs, code spans | Preserve content; `width` is a soft limit |
-| Headings | ATX headings with configured blank lines beneath; no trailing blank lines at EOF |
-| Paragraphs | Reflow at `width`; preserve explicit hard breaks |
-| Lists | Consistent bullet marker and ordered numbering; preserve tasks and nesting |
-| Emphasis | Normalize to `*italic*` and `**bold**`, with escaping as needed |
-| Links | Normalize destinations and titles; expand reference links inline |
-| Code | Fenced blocks; preserve code contents |
+| Long cells, URLs, code spans | Preserve content and existing line breaks; never wrap or join lines |
+| Headings | Preserve ATX / setext syntax; configured blank lines beneath; no trailing blank lines at EOF |
+| Paragraphs | Preserve existing line breaks; never wrap or join lines |
+| Lists | Compact simple items; normalize bullets unless that would merge lists; preserve numbering, continuation lines, tasks and nesting |
+| Emphasis | Normalize to `*italic*` and `**bold**` when parsing confirms the same structure |
+| Links | Normalize inline title quotes when safe; preserve reference links and all definitions, including unused ones |
+| Code | Preserve code and fence style; close unfinished fences when needed to retain code content at EOF |
 | Extensions | GFM tables, tasks, strikethrough, autolinks, and footnotes |
-| Frontmatter | Preserve YAML `---` and TOML `+++` blocks |
+| Frontmatter | Preserve YAML `---` / `...` and TOML `+++` blocks, including empty metadata |
 | Newlines | LF; no final newline by default |
 | Directory targets | `.md`, `.markdown`, `.mdown`, `.mkd`, case-insensitive |
 | Traversal | Shared build/cache exclusions; skip symlinks in directory walks |

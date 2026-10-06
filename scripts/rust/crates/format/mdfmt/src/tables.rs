@@ -6,22 +6,28 @@ use crate::obsidian::Protected;
 
 pub fn format(
     lines: &mut [String],
+    columns: &[usize],
     alignments: &[TableAlignment],
     config: &Config,
     protected: Option<&Protected>,
 ) -> Result<(), String> {
-    let rows: Vec<_> = lines
+    let mut rows: Vec<_> = lines
         .iter()
-        .map(|line| split_row(line))
+        .zip(columns)
+        .map(|(line, column)| split_row(line, *column))
         .collect::<Result<_, _>>()?;
-    if rows.len() < 2
-        || rows
-            .iter()
-            .any(|(_, cells)| cells.len() != alignments.len())
-    {
-        return Err("could not safely lay out a Markdown table".into());
+    if rows.len() < 2 || rows[0].1.len() != alignments.len() {
+        // Uncertain source positions must never cause a partial rewrite.
+        return Ok(());
     }
-    let mut widths: Vec<_> = alignments.iter().map(|a| separator(*a, 3).len()).collect();
+    let count = rows.iter().map(|(_, cells)| cells.len()).max().unwrap_or(0);
+    for (_, cells) in &mut rows {
+        cells.resize(cells.len().max(alignments.len()), "");
+    }
+    let mut widths = vec![3; count];
+    for (width, alignment) in widths.iter_mut().zip(alignments) {
+        *width = separator(*alignment, 3).len();
+    }
     let measured: Vec<Vec<usize>> = rows
         .iter()
         .map(|(_, cells)| {
@@ -63,9 +69,13 @@ pub fn format(
             for (column, cell) in cells.iter().enumerate() {
                 output.push(' ');
                 if row == 1 {
-                    let minimum = separator(alignments[column], 3).len();
+                    let alignment = alignments
+                        .get(column)
+                        .copied()
+                        .unwrap_or(TableAlignment::None);
+                    let minimum = separator(alignment, 3).len();
                     let width = if align { widths[column] } else { minimum };
-                    output.push_str(&separator(alignments[column], width));
+                    output.push_str(&separator(alignment, width));
                 } else {
                     output.push_str(cell);
                     if align {
@@ -100,20 +110,28 @@ fn separator(alignment: TableAlignment, width: usize) -> String {
     )
 }
 
-fn split_row(line: &str) -> Result<(&str, Vec<&str>), String> {
-    let start = line.find('|').ok_or("missing table row delimiter")?;
+fn split_row(line: &str, column: usize) -> Result<(&str, Vec<&str>), String> {
+    let prefix = line.get(..column).ok_or("invalid table source position")?;
+    let text = line
+        .get(column..)
+        .ok_or("invalid table source position")?
+        .trim();
     let mut cells = Vec::new();
-    let mut beginning = start + 1;
+    let mut beginning = usize::from(text.starts_with('|'));
     let mut escaped = false;
-    for (offset, byte) in line.bytes().enumerate().skip(beginning) {
-        if byte == b'|' && !escaped {
-            cells.push(line[beginning..offset].trim());
+    let mut final_pipe = false;
+    for (offset, byte) in text.bytes().enumerate().skip(beginning) {
+        final_pipe = byte == b'|' && !escaped;
+        if final_pipe {
+            cells.push(text[beginning..offset].trim());
             beginning = offset + 1;
         }
-        escaped = byte == b'\\' && !escaped;
+        // GFM's table scanner treats a pipe immediately following a
+        // backslash as cell content, including an even backslash run.
+        escaped = byte == b'\\';
     }
-    if !line[beginning..].trim().is_empty() {
-        return Err("missing closing table row delimiter".into());
+    if !final_pipe {
+        cells.push(text[beginning..].trim());
     }
-    Ok((&line[..start], cells))
+    Ok((prefix, cells))
 }
