@@ -11,6 +11,7 @@ use std::process::ExitCode;
 use clap::{Parser, ValueHint};
 use mdfmt::{
     config::{self, Config, Configs},
+    dialect::Dialect,
     format,
 };
 use rayon::prelude::*;
@@ -27,6 +28,12 @@ struct Cli {
     /// Files or directories to format; - reads standard input.
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]
     targets: Vec<PathBuf>,
+    /// Read stdin for an editor and emit only formatted Markdown or errors.
+    #[arg(short, long)]
+    editor: bool,
+    /// Markdown dialect (auto uses Obsidian in vaults, otherwise GFM).
+    #[arg(long, value_enum, default_value_t = Dialect::Auto)]
+    dialect: Dialect,
     /// Report formatting differences without writing files.
     #[arg(long)]
     check: bool,
@@ -51,59 +58,65 @@ impl Completable for Cli {
 
 fn main() -> ExitCode {
     workstation::run(PROGRAM, |cli: Cli| {
-        if let Some(name) = &cli.stdin {
-            return through(name, cli.check);
+        if cli.editor && cli.targets.iter().any(|target| target != Path::new("-")) {
+            return Err("--editor reads stdin; use --stdin FILENAME for per-file settings".into());
         }
-        if cli.targets.iter().any(|p| p == Path::new("-")) {
-            if cli.targets.len() != 1 {
-                return Err("standard input cannot be combined with file targets".into());
-            }
-            return through(Path::new("stdin.md"), cli.check);
-        }
-        if cli.targets.is_empty() && !cli.check {
-            if !io::stdin().is_terminal() {
-                return through(Path::new("stdin.md"), false);
-            }
+        if cli.stdin.is_none() && !cli.editor && cli.targets.is_empty() && io::stdin().is_terminal()
+        {
             workstation::cli::command::<Cli>()
                 .print_help()
                 .map_err(|e| e.to_string())?;
             return Ok(ExitCode::SUCCESS);
         }
-        Ok(run(&cli))
+        run(&cli)
     })
 }
 
-fn through(name: &Path, check: bool) -> Result<ExitCode, String> {
-    let config = Config::resolve(&config::beside(name))?;
+fn through(
+    name: &Path,
+    cli: &Cli,
+    report: &report::Report,
+    tally: &mut report::Tally,
+) -> Result<(), String> {
+    let mut config = Config::resolve(&config::beside(name))?;
+    config.dialect = cli.dialect.resolve(config.dialect, name);
+    report.settings(config.source.as_deref());
     let mut input = String::new();
     io::stdin()
         .read_to_string(&mut input)
         .map_err(|e| format!("stdin: {e}"))?;
     let output = format(&input, &config)?;
-    if check {
-        return Ok(if output == input {
-            ExitCode::SUCCESS
-        } else {
-            ExitCode::FAILURE
-        });
+    tally.total += 1;
+    tally.changed += usize::from(output != input);
+    if !cli.check {
+        io::stdout()
+            .write_all(output.as_bytes())
+            .map_err(|e| format!("stdout: {e}"))?;
     }
-    io::stdout()
-        .write_all(output.as_bytes())
-        .map_err(|e| format!("stdout: {e}"))?;
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }
 
-fn run(cli: &Cli) -> ExitCode {
-    let report = report::Report::new(cli.verbose, cli.quiet, cli.check);
+fn run(cli: &Cli) -> Result<ExitCode, String> {
+    let report = report::Report::new(cli.verbose, cli.quiet || cli.editor, cli.check);
     let mut tally = report::Tally::default();
     let configs = Configs::new();
-    let defaults = [PathBuf::from(".")];
+    let defaults = [PathBuf::from("-")];
     let targets = if cli.targets.is_empty() {
         &defaults[..]
     } else {
         &cli.targets
     };
+    let streamed = targets.iter().any(|target| target == Path::new("-"));
     for target in targets {
+        if target == Path::new("-") {
+            through(
+                cli.stdin.as_deref().unwrap_or(Path::new("stdin.md")),
+                cli,
+                &report,
+                &mut tally,
+            )?;
+            continue;
+        }
         let gathered = match walk::gather(target) {
             Ok(gathered) => gathered,
             Err(error) => {
@@ -120,7 +133,8 @@ fn run(cli: &Cli) -> ExitCode {
             .map(|path| {
                 let label = report::label(target, path);
                 let outcome = configs.for_file(path).and_then(|config| {
-                    native::apply(path, &config, !cli.check).map(|changed| (changed, config))
+                    native::apply(path, &config, cli.dialect, !cli.check)
+                        .map(|changed| (changed, config))
                 });
                 (label, outcome)
             })
@@ -146,10 +160,12 @@ fn run(cli: &Cli) -> ExitCode {
             }
         }
     }
-    report.summary(&tally);
+    if !streamed || cli.verbose {
+        report.summary(&tally);
+    }
     if tally.failed > 0 || (cli.check && tally.changed > 0) {
-        ExitCode::FAILURE
+        Ok(ExitCode::FAILURE)
     } else {
-        ExitCode::SUCCESS
+        Ok(ExitCode::SUCCESS)
     }
 }

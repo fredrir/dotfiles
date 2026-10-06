@@ -3,10 +3,13 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use crate::{config::Config, format};
+use mdfmt::dialect::Dialect;
 
-pub fn apply(path: &Path, config: &Config, write: bool) -> Result<bool, String> {
+pub fn apply(path: &Path, config: &Config, dialect: Dialect, write: bool) -> Result<bool, String> {
     let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let formatted = format(&text, config)?;
+    let mut config = config.clone();
+    config.dialect = dialect.resolve(config.dialect, path);
+    let formatted = format(&text, &config)?;
     if formatted == text {
         return Ok(false);
     }

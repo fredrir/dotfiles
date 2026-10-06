@@ -5,6 +5,9 @@ mdfmt README.md
 mdfmt .
 mdfmt --check .
 mdfmt --stdin README.md < README.md
+mdfmt -eq --stdin note.md < note.md
+mdfmt --dialect obsidian notes/
+mdfmt --dialect github README.md
 cat README.md | mdfmt
 ```
 
@@ -12,6 +15,7 @@ cat README.md | mdfmt
 
 | Name | Default | Values |
 | --- | --- | --- |
+| `dialect` | `auto` | `auto`, `commonmark`, `gfm` / `github`, `obsidian` |
 | `width` | `80` | `0`–`10000`; `0` preserves prose line breaks and allows unlimited table alignment |
 | `table_style` | `auto` | `auto`, `aligned`, `compact` |
 | `heading_blank_lines` | `1` | `0`–`3` |
@@ -20,6 +24,7 @@ cat README.md | mdfmt
 
 ```text
 mdfmt {
+  dialect              = auto
   width                = 80
   table_style          = auto
   heading_blank_lines  = 1
@@ -33,6 +38,24 @@ The nearest `mdfmt.dotfile` above each file wins, followed by
 built-in defaults. Configurations replace rather than merge with one another.
 `--stdin FILENAME` uses the filename for this lookup; bare stdin uses the
 working directory.
+
+## Dialects
+
+| Dialect | Behavior |
+| --- | --- |
+| `auto` | Configured dialect, then Obsidian beneath a `.obsidian` directory, otherwise GFM |
+| `commonmark` | CommonMark syntax without Markdown extensions |
+| `gfm`, `github`, `github-flavored-markdown` | GFM tables, tasks, strikethrough and autolinks, plus GitHub alerts, footnotes and frontmatter |
+| `obsidian`, `obsidian-markdown` | GFM formatting plus Obsidian wiki links, embeds, highlights, comments, tags, math and block references |
+
+An explicit `--dialect` overrides `mdfmt.dotfile`. Vault detection uses each
+file's location, including the filename supplied through `--stdin`.
+
+Obsidian wiki links, embeds, math and comments retain their literal contents.
+Callout containers and paragraphs containing a standalone block ID are preserved
+verbatim so folding markers, custom types and block references remain intact.
+Tables containing wiki links still receive the configured table layout. Obsidian
+plugin-specific syntax is not interpreted.
 
 ## Formatting
 
@@ -59,6 +82,8 @@ working directory.
 
 | Flag | Behavior |
 | --- | --- |
+| `-e`, `--editor` | Read stdin and suppress routine reports; combine with `--stdin FILENAME` for per-file settings |
+| `--dialect DIALECT` | Select Markdown syntax; defaults to `auto` |
 | `--check` | Exit `1` on formatting differences or failure; write nothing |
 | `--stdin FILENAME` | Read stdin, resolve settings beside filename, emit Markdown |
 | `-` | Read stdin using settings from the working directory |
@@ -67,6 +92,12 @@ working directory.
 | `--completions SHELL` | Print shell completions |
 | `-h`, `--help` | Show help |
 | `-V`, `--version` | Show version |
+
+`-eq` combines editor mode and quiet output. With no targets, piped input is
+formatted; a terminal shows help unless `--editor` or `--stdin` is given.
+`--check` alone checks stdin; use `--check .` to check a directory. As with
+`jqfmt`, explicit `-` can accompany file targets. Editor mode accepts stdin only
+and reports failures even when quiet.
 
 `dotfile format` uses `mdfmt` for Markdown. `dotfile format --add` offers
 `mdfmt.dotfile`; `dotfile sync` installs the binary and shared config.

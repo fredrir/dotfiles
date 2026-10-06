@@ -29,6 +29,125 @@ fn stdin_emits_only_markdown_and_check_does_not_emit_or_write() {
 }
 
 #[test]
+fn editor_mode_accepts_bundled_flags_and_keeps_reports_off_stdout_and_stderr() {
+    let root = tree_pairs(&[]);
+    for args in [
+        vec!["-eq"],
+        vec!["--editor"],
+        vec!["-ev"],
+        vec!["-eq", "--stdin", "note.md"],
+    ] {
+        let output = run(root.path(), &args, "## Title\nbody\n");
+        assert_eq!(output.code(), Some(0), "{}", output.stderr);
+        assert_eq!(output.stdout, "## Title\n\nbody");
+        assert_eq!(output.stderr, "");
+    }
+    assert_eq!(run(root.path(), &["-e", "note.md"], "").code(), Some(1));
+}
+
+#[test]
+fn implicit_stdin_check_matches_explicit_stdin_and_never_walks_the_directory() {
+    let root = tree_pairs(&[("unformatted.md", "# Heading\nbody\n")]);
+    let clean = run(root.path(), &["--check"], "already formatted");
+    assert_eq!(clean.code(), Some(0));
+    assert_eq!(clean.stdout, "");
+    assert_eq!(
+        run(root.path(), &["--check"], "# Title\nbody\n").code(),
+        Some(1)
+    );
+    assert_eq!(
+        run(root.path(), &["-eq", "--check"], "# Title\nbody\n").code(),
+        Some(1)
+    );
+    let verbose = run(root.path(), &["-v", "-"], "text");
+    assert_eq!(verbose.stdout, "text");
+    assert!(verbose.stderr.contains("config"));
+    assert!(verbose.stderr.contains("formatted 0 of 1 file"));
+}
+
+#[test]
+fn explicit_stdin_and_file_targets_can_be_combined_like_jqfmt() {
+    let root = tree_pairs(&[("a.md", "# File\nbody\n")]);
+    let output = run(root.path(), &["-", "a.md"], "# Stdin\nbody\n");
+    assert_eq!(output.code(), Some(0), "{}", output.stderr);
+    assert_eq!(output.stdout, "# Stdin\n\nbody");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.md")).unwrap(),
+        "# File\n\nbody"
+    );
+}
+
+#[test]
+fn dialect_auto_detects_vaults_and_explicit_choices_override_config() {
+    let root = tree_pairs(&[
+        ("vault/.obsidian/app.json", "{}"),
+        ("mdfmt.dotfile", "mdfmt {\ndialect = auto\n}"),
+    ]);
+    let wiki = "[[My note]]";
+    assert_eq!(
+        run(root.path(), &["--stdin", "vault/notes/note.md"], wiki).stdout,
+        wiki
+    );
+    assert_ne!(
+        run(
+            root.path(),
+            &["--dialect", "gfm", "--stdin", "vault/note.md"],
+            wiki
+        )
+        .stdout,
+        wiki
+    );
+    fs::write(
+        root.path().join("mdfmt.dotfile"),
+        "mdfmt {\ndialect = obsidian\n}",
+    )
+    .unwrap();
+    assert_eq!(run(root.path(), &["-"], wiki).stdout, wiki);
+    assert_ne!(
+        run(root.path(), &["--dialect", "commonmark", "-"], wiki).stdout,
+        wiki
+    );
+    assert_eq!(
+        run(root.path(), &["--dialect", "unknown", "-"], "").code(),
+        Some(2)
+    );
+    for dialect in [
+        "gfm",
+        "github",
+        "github-flavored-markdown",
+        "obsidian",
+        "obsidian-markdown",
+        "auto",
+        "commonmark",
+    ] {
+        assert_eq!(
+            run(root.path(), &["--dialect", dialect, "-"], "text").code(),
+            Some(0),
+            "{dialect}"
+        );
+    }
+}
+
+#[test]
+fn a_mixed_tree_selects_the_dialect_per_file() {
+    let root = tree_pairs(&[
+        ("vault/.obsidian/app.json", "{}"),
+        ("vault/note.md", "[[Note]]\n"),
+        ("readme.md", "[[Note]]\n"),
+    ]);
+    let output = run(root.path(), &["."], "");
+    assert_eq!(output.code(), Some(0), "{}", output.stderr);
+    assert_eq!(
+        fs::read_to_string(root.path().join("vault/note.md")).unwrap(),
+        "[[Note]]"
+    );
+    assert_ne!(
+        fs::read_to_string(root.path().join("readme.md")).unwrap(),
+        "[[Note]]"
+    );
+}
+
+#[test]
 fn directory_formatting_is_scoped_and_check_is_read_only() {
     let input = "# Title\ntext\n";
     let root = tree_pairs(&[
@@ -97,7 +216,7 @@ fn invalid_values_and_io_failures_are_reported() {
     ] {
         let text = format!("mdfmt {{\n{setting}\n}}");
         let root = tree_pairs(&[("mdfmt.dotfile", &text)]);
-        let output = run(root.path(), &["--stdin", "a.md"], "text");
+        let output = run(root.path(), &["--stdin", "a.md"], "");
         assert_eq!(output.code(), Some(1), "{setting}");
         assert!(
             output.stderr.contains("mdfmt.dotfile: line 2:"),

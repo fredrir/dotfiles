@@ -57,7 +57,7 @@
   },
   "[go]": {},
   "[markdown]": {
-    "editor.defaultFormatter": "yzhang.markdown-all-in-one"
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[nix]": {
     "editor.insertSpaces": true,
@@ -87,6 +87,12 @@
       "command": "dotfmt --stdin \"${file}\"",
       "languages": [
         "properties"
+      ]
+    },
+    {
+      "command": "mdfmt -eq --stdin \"${file}\"",
+      "languages": [
+        "markdown"
       ]
     }
   ],

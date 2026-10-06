@@ -1,4 +1,3 @@
-
 local tools = require "utils.tools"
 
 local function fallback(bufnr, markers, shared)
@@ -22,6 +21,7 @@ return {
         json = { "jqfmt" },
         jsonc = { "biome" },
         lua = { "stylua" },
+        markdown = { "mdfmt" },
         python = { "ruff_format" },
         sql = { "sqlfluff" },
         toml = { "taplo" },
@@ -33,7 +33,8 @@ return {
       },
       formatters = {
         dotfmt = { command = "dotfmt", args = { "--stdin", "$FILENAME" }, stdin = true },
-        jqfmt = { command = "jqfmt", args = { "--eq" }, stdin = true },
+        jqfmt = { command = "jqfmt", args = { "-eq" }, stdin = true },
+        mdfmt = { command = "mdfmt", args = { "-eq", "--stdin", "$FILENAME" }, stdin = true },
         sqlfluff = { args = { "format", "-" }, require_cwd = false },
         stylua = {
           args = function(_, ctx)

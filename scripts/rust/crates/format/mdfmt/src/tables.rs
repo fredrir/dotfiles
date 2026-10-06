@@ -2,11 +2,13 @@ use comrak::nodes::TableAlignment;
 use unicode_width::UnicodeWidthStr;
 
 use crate::config::{Config, TableStyle};
+use crate::obsidian::Protected;
 
 pub fn format(
     lines: &mut [String],
     alignments: &[TableAlignment],
     config: &Config,
+    protected: Option<&Protected>,
 ) -> Result<(), String> {
     let rows: Vec<_> = lines
         .iter()
@@ -20,12 +22,26 @@ pub fn format(
         return Err("could not safely lay out a Markdown table".into());
     }
     let mut widths: Vec<_> = alignments.iter().map(|a| separator(*a, 3).len()).collect();
-    for (row, (_, cells)) in rows.iter().enumerate() {
+    let measured: Vec<Vec<usize>> = rows
+        .iter()
+        .map(|(_, cells)| {
+            cells
+                .iter()
+                .map(|cell| match protected {
+                    Some(protected) => protected
+                        .restore(cell)
+                        .map(|text| UnicodeWidthStr::width(text.as_str())),
+                    None => Ok(UnicodeWidthStr::width(*cell)),
+                })
+                .collect()
+        })
+        .collect::<Result<_, String>>()?;
+    for (row, cells) in measured.iter().enumerate() {
         if row == 1 {
             continue;
         }
         for (width, cell) in widths.iter_mut().zip(cells) {
-            *width = (*width).max(UnicodeWidthStr::width(*cell));
+            *width = (*width).max(*cell);
         }
     }
     let prefix_width = rows
@@ -55,7 +71,7 @@ pub fn format(
                     if align {
                         output.extend(std::iter::repeat_n(
                             ' ',
-                            widths[column] - UnicodeWidthStr::width(*cell),
+                            widths[column] - measured[row][column],
                         ));
                     }
                 }

@@ -9,6 +9,7 @@ fn shipped_defaults_match_built_in_formatting() {
     let root = tree_pairs(&[("mdfmt.dotfile", shipped)]);
     let config = Config::read(&root.path().join("mdfmt.dotfile")).unwrap();
     let built_in = Config::default();
+    assert_eq!(config.dialect, built_in.dialect);
     assert_eq!(config.width, built_in.width);
     assert_eq!(config.table_style, built_in.table_style);
     assert_eq!(config.heading_blank_lines, built_in.heading_blank_lines);

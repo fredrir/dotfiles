@@ -5,6 +5,8 @@ use std::sync::{Arc, Mutex};
 
 use workstation::path::home_relative;
 
+use crate::dialect::Dialect;
+use clap::ValueEnum;
 use comrak::options::ListStyleType;
 
 pub const NAME: &str = "mdfmt.dotfile";
@@ -14,6 +16,7 @@ const HOME: &str = "mdfmt";
 
 #[derive(Clone, Debug)]
 pub struct Config {
+    pub dialect: Dialect,
     pub width: usize,
     pub table_style: TableStyle,
     pub heading_blank_lines: usize,
@@ -25,6 +28,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
+            dialect: Dialect::Auto,
             width: 80,
             table_style: TableStyle::Auto,
             heading_blank_lines: 1,
@@ -80,6 +84,11 @@ impl Config {
 
     fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
         match key {
+            "dialect" => {
+                self.dialect = Dialect::from_str(value, false).map_err(|_| {
+                    "dialect must be auto, commonmark, gfm, github, or obsidian".to_string()
+                })?
+            }
             "width" => self.width = number(key, value, 0, 10000)?,
             "heading_blank_lines" => self.heading_blank_lines = number(key, value, 0, 3)?,
             "final_newline" => self.final_newline = flag(key, value)?,

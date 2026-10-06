@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod dialect;
+mod obsidian;
 mod tables;
 
 use comrak::{
@@ -10,15 +12,23 @@ use comrak::{
 };
 
 use config::Config;
+use dialect::Dialect;
 
 pub fn options(config: &Config) -> Options<'static> {
     let mut options = Options::default();
-    options.extension.table = true;
-    options.extension.strikethrough = true;
-    options.extension.tasklist = true;
-    options.extension.autolink = true;
-    options.extension.footnotes = true;
-    options.extension.front_matter_delimiter = Some("---".into());
+    if config.dialect != Dialect::Commonmark {
+        options.extension.table = true;
+        options.extension.strikethrough = true;
+        options.extension.tasklist = true;
+        options.extension.autolink = true;
+        options.extension.footnotes = true;
+        options.extension.front_matter_delimiter = Some("---".into());
+        options.extension.alerts = config.dialect != Dialect::Obsidian;
+    }
+    if config.dialect == Dialect::Obsidian {
+        options.extension.highlight = true;
+        options.extension.inline_footnotes = true;
+    }
     options.render.width = config.width;
     options.render.list_style = config.list_marker;
     options.render.prefer_fenced = true;
@@ -26,8 +36,16 @@ pub fn options(config: &Config) -> Options<'static> {
 }
 
 pub fn format(input: &str, config: &Config) -> Result<String, String> {
+    let protected = (config.dialect == Dialect::Obsidian)
+        .then(|| obsidian::Protected::new(input, &options(config)))
+        .transpose()?;
+    let input = protected
+        .as_ref()
+        .map_or(input, |protected| protected.text.as_str());
     let mut options = options(config);
-    if input.starts_with("+++\n") || input.starts_with("+++\r\n") {
+    if config.dialect != Dialect::Commonmark
+        && (input.starts_with("+++\n") || input.starts_with("+++\r\n"))
+    {
         options.extension.front_matter_delimiter = Some("+++".into());
     }
     let arena = Arena::new();
@@ -82,7 +100,12 @@ pub fn format(input: &str, config: &Config) -> Result<String, String> {
             NodeValue::Table(table) => {
                 let start = data.sourcepos.start.line - 1;
                 let end = data.sourcepos.end.line;
-                tables::format(&mut lines[start..end], &table.alignments, config)?;
+                tables::format(
+                    &mut lines[start..end],
+                    &table.alignments,
+                    config,
+                    protected.as_ref(),
+                )?;
             }
             NodeValue::Heading(_) => {
                 let end = data.sourcepos.end.line - 1;
@@ -118,6 +141,10 @@ pub fn format(input: &str, config: &Config) -> Result<String, String> {
             index += 1;
         }
     }
+    let mut output = match protected {
+        Some(protected) => protected.restore(&output)?,
+        None => output,
+    };
     output.truncate(output.trim_end_matches(['\r', '\n']).len());
     if config.final_newline && !output.is_empty() {
         output.push('\n');
