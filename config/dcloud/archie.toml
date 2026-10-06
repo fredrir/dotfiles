@@ -44,24 +44,24 @@ encrypted   = true
 append_only = false
 
 [jobs.Documents]
-destinations         = ["drive"]
-required             = ["drive"]
-min_copies           = 1
-require_offsite      = false
-exclude              = []
-category             = "documents"
-labels               = ["personal"]
-bandwidth_kib        = 0
-read_concurrency     = 2
-spool_limit_bytes    = 107374182400
-min_free_bytes       = 1073741824
-retries              = 3
-retry_delay_seconds  = 5
-overdue_hours        = 192
-ac_only              = false
-before               = []
-after                = []
-alert                = []
+destinations        = ["drive"]
+required            = ["drive"]
+min_copies          = 1
+require_offsite     = false
+exclude             = []
+category            = "documents"
+labels              = ["personal"]
+bandwidth_kib       = 0
+read_concurrency    = 2
+spool_limit_bytes   = 107374182400
+min_free_bytes      = 1073741824
+retries             = 3
+retry_delay_seconds = 5
+overdue_hours       = 192
+ac_only             = false
+before              = []
+after               = []
+alert               = []
 
 [jobs.Documents.sources]
 archie = ["~/Documents"]
@@ -75,24 +75,24 @@ yearly  = 0
 auto    = true
 
 [jobs.Pictures]
-destinations         = ["drive", "vps"]
-required             = ["drive", "vps"]
-min_copies           = 2
-require_offsite      = true
-exclude              = []
-category             = "photos"
-labels               = []
-bandwidth_kib        = 0
-read_concurrency     = 2
-spool_limit_bytes    = 107374182400
-min_free_bytes       = 1073741824
-retries              = 3
-retry_delay_seconds  = 5
-overdue_hours        = 192
-ac_only              = false
-before               = []
-after                = []
-alert                = []
+destinations        = ["drive", "vps"]
+required            = ["drive", "vps"]
+min_copies          = 2
+require_offsite     = true
+exclude             = []
+category            = "photos"
+labels              = []
+bandwidth_kib       = 0
+read_concurrency    = 2
+spool_limit_bytes   = 107374182400
+min_free_bytes      = 1073741824
+retries             = 3
+retry_delay_seconds = 5
+overdue_hours       = 192
+ac_only             = false
+before              = []
+after               = []
+alert               = []
 
 [jobs.Pictures.sources]
 archie = ["~/Pictures"]

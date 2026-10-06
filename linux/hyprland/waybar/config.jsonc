@@ -13,6 +13,5 @@
     "network",
     "tray"
   ],
-
   "include": "~/.config/waybar/modules.jsonc"
 }

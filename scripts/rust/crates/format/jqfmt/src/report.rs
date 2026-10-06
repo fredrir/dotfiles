@@ -105,7 +105,10 @@ impl Report {
             if tally.changed == 0 {
                 format!("{} {files} already formatted", tally.total)
             } else {
-                format!("{} of {} {files} need formatting", tally.changed, tally.total)
+                format!(
+                    "{} of {} {files} need formatting",
+                    tally.changed, tally.total
+                )
             }
         } else {
             format!("formatted {} of {} {files}", tally.changed, tally.total)

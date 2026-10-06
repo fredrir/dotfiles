@@ -6,7 +6,6 @@ rpmPollingRate: 1s
 rpmRollingWindowSize: 5
 fanController:
   adjustmentTickRate: 200ms
-
 fans:
   - id: radiator
     hwmon:
@@ -19,7 +18,6 @@ fans:
     controlAlgorithm:
       direct:
         maxPwmChangePerCycle: 2
-
   - id: pump
     hwmon:
       platform: nct6799
@@ -36,7 +34,6 @@ fans:
     controlAlgorithm:
       direct:
         maxPwmChangePerCycle: 4
-
   - id: vrm
     hwmon:
       platform: nct6799
@@ -48,7 +45,6 @@ fans:
     controlAlgorithm:
       direct:
         maxPwmChangePerCycle: 2
-
   - id: case
     hwmon:
       platform: nct6799
@@ -60,23 +56,19 @@ fans:
     controlAlgorithm:
       direct:
         maxPwmChangePerCycle: 2
-
 sensors:
   - id: cpu
     hwmon:
       platform: k10temp
       index: 1
-
   - id: vrm
     hwmon:
       platform: nct6799
       index: 7
-
   - id: gpu
     nvidia:
       device: nvidia
       index: 1
-
 curves:
   - id: radiator
     linear:
@@ -88,7 +80,6 @@ curves:
         - 82: 38%
         - 88: 60%
         - 92: 100%
-
   - id: pump
     linear:
       sensor: cpu
@@ -98,7 +89,6 @@ curves:
         - 75: 45%
         - 85: 70%
         - 90: 100%
-
   - id: vrm
     linear:
       sensor: vrm
@@ -108,7 +98,6 @@ curves:
         - 70: 25%
         - 80: 45%
         - 90: 100%
-
   - id: case_cpu
     linear:
       sensor: cpu
@@ -117,7 +106,6 @@ curves:
         - 70: 18%
         - 80: 30%
         - 90: 55%
-
   - id: case_gpu
     linear:
       sensor: gpu
@@ -127,7 +115,6 @@ curves:
         - 70: 28%
         - 78: 45%
         - 85: 100%
-
   - id: case
     function:
       type: maximum

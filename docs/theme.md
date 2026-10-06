@@ -83,9 +83,9 @@ linux/kde {
 }
 ```
 
-| Group                                 | Owns                                                          |
-| ------------------------------------- | ------------------------------------------------------------- |
-| `shared`                              | WezTerm, Starship, Zsh, Obsidian, Neovim, Yazi, and Fastfetch |
-| `linux/common`                        | GTK colors and settings, Quicklaunch                          |
-| `linux/kde`                           | `kdeglobals`, desktop applet state, panel presets             |
-| `linux/arch`, `linux/ubuntu`, `macos` | Platform-specific Fastfetch config and logo                   |
+| Group | Owns |
+| --- | --- |
+| `shared` | WezTerm, Starship, Zsh, Obsidian, Neovim, Yazi, and Fastfetch |
+| `linux/common` | GTK colors and settings, Quicklaunch |
+| `linux/kde` | `kdeglobals`, desktop applet state, panel presets |
+| `linux/arch`, `linux/ubuntu`, `macos` | Platform-specific Fastfetch config and logo |

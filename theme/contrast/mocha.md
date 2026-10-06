@@ -5,7 +5,7 @@ Required text pairs target 4.5:1; graphical and inactive pairs target 3:1.
 Raw ANSI rows are reported but are not enforced.
 
 | Area | State | Foreground | Background | Ratio | Floor | Result |
-|---|---|---:|---:|---:|---:|---|
+| --- | --- | ---: | ---: | ---: | ---: | --- |
 | semantic | `text.canvas` | `#cdd6f4` | `#1e1e2e` | 11.34:1 | 4.5:1 | pass |
 | semantic | `text.panel` | `#cdd6f4` | `#171726` | 12.23:1 | 4.5:1 | pass |
 | semantic | `text.surface` | `#cdd6f4` | `#343648` | 8.22:1 | 4.5:1 | pass |

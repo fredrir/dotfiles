@@ -1,21 +1,26 @@
 ## Rules
+
 - Let me know first before implementation if anything is unclear or if you have any questions
 
 ## Conventions
+
 - **Shared UI / TUI Library:** [crates/ui](./scripts/rust/crates/ui/README.md)
 - **Rust Safety:** [SAFETY.md](./scripts/rust/SAFETY.md)
 
 ## Testing and Linting
+
 - Use `dotfile dev [test | lint | check] [COMMANDS]`
 - Prefer running tests scoped and relevant to the changes
 - Avoid running the full test-suite unless needed
 
 ### Options
+
 - test   Run tests
 - lint   Run linters
 - check  Run linters and tests
 
 ### Commands
+
   `-p, --pkg <TARGET>`             Select packages; repeat or comma-separate
   `-l, --lang <LANGUAGE>`       Select languages; repeat or comma-separate [E.g python]
   `-n, --dry-run`                       Dry run

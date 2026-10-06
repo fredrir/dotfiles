@@ -317,17 +317,28 @@ fn temperature_color(value: f64, colors: &Colors) -> &str {
     }
 }
 fn rule(width: usize, colors: &Colors) -> Line {
-    line("\u{2500}".repeat(width.clamp(1, 60)), &colors.overlay, false)
+    line(
+        "\u{2500}".repeat(width.clamp(1, 60)),
+        &colors.overlay,
+        false,
+    )
 }
 fn usage_bar(percent: f64, width: usize) -> String {
     let filled = ((percent.clamp(0.0, 100.0) / 100.0) * width as f64).round() as usize;
     let filled = filled.min(width);
-    format!("{}{}", "\u{2588}".repeat(filled), "\u{2591}".repeat(width - filled))
+    format!(
+        "{}{}",
+        "\u{2588}".repeat(filled),
+        "\u{2591}".repeat(width - filled)
+    )
 }
 fn usage_text(used: f64, total: f64) -> String {
     let used_text = format_bytes(used);
     let total_text = format_bytes(total);
-    let unit = total_text.rsplit_once(' ').map(|(_, unit)| unit).unwrap_or("");
+    let unit = total_text
+        .rsplit_once(' ')
+        .map(|(_, unit)| unit)
+        .unwrap_or("");
     let value = used_text
         .rsplit_once(' ')
         .map(|(value, _)| value)
@@ -463,7 +474,14 @@ fn gauge_lines(gauges: &[Gauge], available: usize, colors: &Colors) -> Vec<Line>
                 .temperature
                 .map(|value| temperature_color(value, colors))
                 .unwrap_or(&colors.text);
-            push_cell(&mut row, &temperatures[index], widths[4], color, false, true);
+            push_cell(
+                &mut row,
+                &temperatures[index],
+                widths[4],
+                color,
+                false,
+                true,
+            );
         }
         rows.push(row);
     }
@@ -633,7 +651,10 @@ fn health_lines(issues: &[HealthIssue], available: usize, colors: &Colors) -> Ve
             available,
         ));
         if !issue.detail.is_empty() {
-            lines.extend(wrap(&line(&issue.detail, &colors.subtext, false), available));
+            lines.extend(wrap(
+                &line(&issue.detail, &colors.subtext, false),
+                available,
+            ));
         }
         if !issue.action.is_empty() {
             lines.extend(wrap(
@@ -693,177 +714,177 @@ fn render_with_depth(
         }
         lines
     } else {
-    let platform = resolve_brand(
-        &view.platform.kind,
-        &[&view.platform.vendor, &view.platform.label],
-    );
-    let mut identity = vec![
-        vec![
-            span(username.to_uppercase(), &colors.text, true),
-            span("   ", &colors.overlay, false),
-            span(&view.machine_type, &colors.overlay, true),
-        ],
-        Vec::new(),
-    ];
-    let hostname_art = block_text(hostname);
-    identity.extend(hostname_art.iter().map(|s| line(s, &platform.accent, true)));
-    identity.push(Vec::new());
-    let prefix = if platform.mark.is_empty() {
-        String::new()
-    } else {
-        format!("{}  ", platform.mark)
-    };
-    identity.push(line(
-        format!(
-            "{prefix}{}",
-            compact_label(&view.platform.label).to_uppercase()
-        ),
-        &platform.accent,
-        true,
-    ));
-    let mut environment = Vec::new();
-    for badge in view
-        .software
-        .iter()
-        .filter(|b| matches!(b.kind.as_str(), "hyprland" | "wm" | "session"))
-    {
-        if !environment.is_empty() {
-            environment.push(span("   ", &colors.overlay, false));
-        }
-        let brand = resolve_brand(&badge.kind, &[&badge.vendor, &badge.label]);
-        environment.push(span(
-            compact_label(&badge.label).to_uppercase(),
-            &brand.accent,
-            true,
-        ));
-    }
-    if !environment.is_empty() {
-        identity.push(environment);
-    }
-    let summary = health_summary(issues);
-    if !summary.is_empty() {
+        let platform = resolve_brand(
+            &view.platform.kind,
+            &[&view.platform.vendor, &view.platform.label],
+        );
+        let mut identity = vec![
+            vec![
+                span(username.to_uppercase(), &colors.text, true),
+                span("   ", &colors.overlay, false),
+                span(&view.machine_type, &colors.overlay, true),
+            ],
+            Vec::new(),
+        ];
+        let hostname_art = block_text(hostname);
+        identity.extend(hostname_art.iter().map(|s| line(s, &platform.accent, true)));
+        identity.push(Vec::new());
+        let prefix = if platform.mark.is_empty() {
+            String::new()
+        } else {
+            format!("{}  ", platform.mark)
+        };
         identity.push(line(
-            summary,
-            if issues.iter().any(|i| i.severity == Severity::Error) {
-                &colors.red
-            } else {
-                &colors.yellow
-            },
+            format!(
+                "{prefix}{}",
+                compact_label(&view.platform.label).to_uppercase()
+            ),
+            &platform.accent,
             true,
         ));
-    }
-    let art = header_illustration(platform);
-    let art_width = art
-        .iter()
-        .map(|s| UnicodeWidthStr::width(s.as_str()))
-        .max()
-        .unwrap_or(0);
-    let identity_width = hostname_art
-        .iter()
-        .map(|s| UnicodeWidthStr::width(s.as_str()))
-        .max()
-        .unwrap_or(0);
-    let mut lines = if available >= 76 && art_width + identity_width + 4 <= available {
-        let identity = identity_lines(identity, available - art_width - 4);
-        columns(
-            &art.iter()
-                .map(|s| line(s, &platform.accent, true))
-                .collect::<Vec<_>>(),
-            &identity,
-            art_width,
-            4,
-        )
-    } else {
-        identity_lines(identity, available)
-    };
-    lines.push(Vec::new());
-    lines.extend(wrap(&line("HARDWARE", &colors.hardware, true), available));
-    lines.push(Vec::new());
-    let gutter = art_gutter(&view.components);
-    if available >= 94 {
-        let card_width = (available - 4) / 2;
-        for pair in view.components.chunks(2) {
-            let left = component_card(&pair[0], card_width, gutter, colors);
-            let right = pair
-                .get(1)
-                .map(|c| component_card(c, card_width, gutter, colors))
-                .unwrap_or_default();
-            lines.extend(columns(&left, &right, card_width, 4));
-            lines.push(Vec::new());
+        let mut environment = Vec::new();
+        for badge in view
+            .software
+            .iter()
+            .filter(|b| matches!(b.kind.as_str(), "hyprland" | "wm" | "session"))
+        {
+            if !environment.is_empty() {
+                environment.push(span("   ", &colors.overlay, false));
+            }
+            let brand = resolve_brand(&badge.kind, &[&badge.vendor, &badge.label]);
+            environment.push(span(
+                compact_label(&badge.label).to_uppercase(),
+                &brand.accent,
+                true,
+            ));
         }
-    } else {
-        for component in &view.components {
-            lines.extend(component_card(component, available, gutter, colors));
-            lines.push(Vec::new());
+        if !environment.is_empty() {
+            identity.push(environment);
         }
-    }
-    if options.full {
-        if !view.software.is_empty() {
-            lines.extend(wrap(&line("SOFTWARE", &colors.desktop, true), available));
-            let mut strip = Vec::new();
-            for badge in &view.software {
-                let brand = resolve_brand(&badge.kind, &[&badge.vendor, &badge.label]);
-                let badge_line = vec![
-                    span(format!("{} ", brand.mark), &brand.accent, true),
-                    span(&badge.label, &colors.subtext, false),
-                ];
-                if available < 70 {
-                    lines.extend(wrap(&badge_line, available));
+        let summary = health_summary(issues);
+        if !summary.is_empty() {
+            identity.push(line(
+                summary,
+                if issues.iter().any(|i| i.severity == Severity::Error) {
+                    &colors.red
                 } else {
-                    if !strip.is_empty() {
-                        strip.push(span("    ", "", false));
+                    &colors.yellow
+                },
+                true,
+            ));
+        }
+        let art = header_illustration(platform);
+        let art_width = art
+            .iter()
+            .map(|s| UnicodeWidthStr::width(s.as_str()))
+            .max()
+            .unwrap_or(0);
+        let identity_width = hostname_art
+            .iter()
+            .map(|s| UnicodeWidthStr::width(s.as_str()))
+            .max()
+            .unwrap_or(0);
+        let mut lines = if available >= 76 && art_width + identity_width + 4 <= available {
+            let identity = identity_lines(identity, available - art_width - 4);
+            columns(
+                &art.iter()
+                    .map(|s| line(s, &platform.accent, true))
+                    .collect::<Vec<_>>(),
+                &identity,
+                art_width,
+                4,
+            )
+        } else {
+            identity_lines(identity, available)
+        };
+        lines.push(Vec::new());
+        lines.extend(wrap(&line("HARDWARE", &colors.hardware, true), available));
+        lines.push(Vec::new());
+        let gutter = art_gutter(&view.components);
+        if available >= 94 {
+            let card_width = (available - 4) / 2;
+            for pair in view.components.chunks(2) {
+                let left = component_card(&pair[0], card_width, gutter, colors);
+                let right = pair
+                    .get(1)
+                    .map(|c| component_card(c, card_width, gutter, colors))
+                    .unwrap_or_default();
+                lines.extend(columns(&left, &right, card_width, 4));
+                lines.push(Vec::new());
+            }
+        } else {
+            for component in &view.components {
+                lines.extend(component_card(component, available, gutter, colors));
+                lines.push(Vec::new());
+            }
+        }
+        if options.full {
+            if !view.software.is_empty() {
+                lines.extend(wrap(&line("SOFTWARE", &colors.desktop, true), available));
+                let mut strip = Vec::new();
+                for badge in &view.software {
+                    let brand = resolve_brand(&badge.kind, &[&badge.vendor, &badge.label]);
+                    let badge_line = vec![
+                        span(format!("{} ", brand.mark), &brand.accent, true),
+                        span(&badge.label, &colors.subtext, false),
+                    ];
+                    if available < 70 {
+                        lines.extend(wrap(&badge_line, available));
+                    } else {
+                        if !strip.is_empty() {
+                            strip.push(span("    ", "", false));
+                        }
+                        strip.extend(badge_line);
                     }
-                    strip.extend(badge_line);
+                }
+                if !strip.is_empty() {
+                    lines.extend(wrap(&strip, available));
                 }
             }
-            if !strip.is_empty() {
-                lines.extend(wrap(&strip, available));
+            if !view.system_facts.is_empty() {
+                lines.push(Vec::new());
+                lines.extend(wrap(&line("SYSTEM", &colors.system, true), available));
+                lines.push(Vec::new());
+                for fact in &view.system_facts {
+                    lines.extend(fact_lines(&fact.label, &fact.value, 20, available, colors));
+                }
             }
         }
-        if !view.system_facts.is_empty() {
+        if options.health && !issues.is_empty() {
             lines.push(Vec::new());
-            lines.extend(wrap(&line("SYSTEM", &colors.system, true), available));
+            lines.extend(wrap(&line("HEALTH", &colors.yellow, true), available));
             lines.push(Vec::new());
-            for fact in &view.system_facts {
-                lines.extend(fact_lines(&fact.label, &fact.value, 20, available, colors));
-            }
-        }
-    }
-    if options.health && !issues.is_empty() {
-        lines.push(Vec::new());
-        lines.extend(wrap(&line("HEALTH", &colors.yellow, true), available));
-        lines.push(Vec::new());
-        for issue in issues {
-            let color = if issue.severity == Severity::Error {
-                &colors.red
-            } else {
-                &colors.yellow
-            };
-            lines.extend(wrap(
-                &vec![
-                    span(issue.severity.as_str().to_uppercase(), color, true),
-                    span(format!("  {}", issue.title), &colors.text, true),
-                ],
-                available,
-            ));
-            if !issue.detail.is_empty() {
-                lines.extend(wrap(
-                    &line(&issue.detail, &colors.subtext, false),
-                    available,
-                ));
-            }
-            if !issue.action.is_empty() {
+            for issue in issues {
+                let color = if issue.severity == Severity::Error {
+                    &colors.red
+                } else {
+                    &colors.yellow
+                };
                 lines.extend(wrap(
                     &vec![
-                        span("Action  ", &colors.desktop, true),
-                        span(&issue.action, &colors.text, false),
+                        span(issue.severity.as_str().to_uppercase(), color, true),
+                        span(format!("  {}", issue.title), &colors.text, true),
                     ],
                     available,
                 ));
+                if !issue.detail.is_empty() {
+                    lines.extend(wrap(
+                        &line(&issue.detail, &colors.subtext, false),
+                        available,
+                    ));
+                }
+                if !issue.action.is_empty() {
+                    lines.extend(wrap(
+                        &vec![
+                            span("Action  ", &colors.desktop, true),
+                            span(&issue.action, &colors.text, false),
+                        ],
+                        available,
+                    ));
+                }
+                lines.push(Vec::new());
             }
-            lines.push(Vec::new());
         }
-    }
         lines
     };
     // One blank line of breathing room above and below the presentation.

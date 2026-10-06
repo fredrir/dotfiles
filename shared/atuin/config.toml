@@ -5,9 +5,9 @@ inline_height = 40
 style = "compact" # auto | full | compact
 
 history_filter = [
- "^ls",
- "^cd ",
- "--password", # exclude anything with a password flag
+  "^ls",
+  "^cd ",
+  "--password", # exclude anything with a password flag
 ]
 
 ## Base directory for Atuin data files (databases, keys, session, etc.)

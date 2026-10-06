@@ -65,7 +65,12 @@ pub struct Run<'a> {
 }
 
 impl<'a> Run<'a> {
-    pub fn new(program: &'a str, targets: &'a [String], style: &'a Style, options: Options) -> Self {
+    pub fn new(
+        program: &'a str,
+        targets: &'a [String],
+        style: &'a Style,
+        options: Options,
+    ) -> Self {
         Self {
             program,
             targets,
@@ -98,7 +103,11 @@ impl<'a> Run<'a> {
         if rows.is_empty() {
             return;
         }
-        let limit = if self.options.every_row { usize::MAX } else { ROWS };
+        let limit = if self.options.every_row {
+            usize::MAX
+        } else {
+            ROWS
+        };
         let shown = rows.len().min(limit);
         let detail = rows[..shown]
             .iter()
@@ -111,7 +120,11 @@ impl<'a> Run<'a> {
             .iter()
             .map(|row| text::truncate_front(&row.label, room))
             .collect();
-        let left = labels.iter().map(|label| text::width(label)).max().unwrap_or(0);
+        let left = labels
+            .iter()
+            .map(|label| text::width(label))
+            .max()
+            .unwrap_or(0);
         for (row, label) in rows[..shown].iter().zip(&labels) {
             if row.detail.is_empty() {
                 println!("    {label}");

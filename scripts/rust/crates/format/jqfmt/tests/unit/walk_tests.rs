@@ -42,10 +42,7 @@ fn a_directory_is_walked_for_json_and_nothing_else() {
         "package.json.bak",
     ]);
 
-    assert_eq!(
-        names(root.path()),
-        ["a.json", "deep/b.json", "deep/c.JSON"]
-    );
+    assert_eq!(names(root.path()), ["a.json", "deep/b.json", "deep/c.JSON"]);
 }
 
 #[test]

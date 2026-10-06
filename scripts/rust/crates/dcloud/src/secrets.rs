@@ -1014,11 +1014,13 @@ fn key_command() -> Result<String> {
         .filter(|sibling| sibling.is_file())
         .unwrap_or_else(|| PathBuf::from("dotfile"));
     let mut command = Command::new(&dotfile);
-    command
-        .args(["secret", "key-command"])
-        .stdin(Stdio::null());
-    let output = process::output(&mut command, CaptureLimits::default(), Duration::from_secs(30))
-        .with_context(|| format!("{} could not run", dotfile.display()))?;
+    command.args(["secret", "key-command"]).stdin(Stdio::null());
+    let output = process::output(
+        &mut command,
+        CaptureLimits::default(),
+        Duration::from_secs(30),
+    )
+    .with_context(|| format!("{} could not run", dotfile.display()))?;
     ensure!(
         output.status.success() && !output.stdout_truncated,
         "dotfile secret key-command failed; run dotfile secret doctor: {}",
@@ -1027,7 +1029,10 @@ fn key_command() -> Result<String> {
     let line = String::from_utf8(output.stdout)
         .context("dotfile secret key-command printed invalid text")?;
     let line = line.trim();
-    ensure!(!line.is_empty(), "dotfile secret key-command printed nothing");
+    ensure!(
+        !line.is_empty(),
+        "dotfile secret key-command printed nothing"
+    );
     Ok(line.to_string())
 }
 

@@ -10,54 +10,54 @@ reached through `socat`.
 
 ## Host switching
 
-| Name                                    | Value                                                                                |
-| --------------------------------------- | ------------------------------------------------------------------------------------ |
-| `attach_mux archie`, `attach_mux macie` | Fresh shell replaces the invoking split; sibling panes and existing sessions remain  |
-| `attach_mux`                            | Fresh shell on the GUI computer's peer                                               |
-| `attach_mux <ssh-host>`                 | SSH session replaces the invoking split; see [SSH domains](#ssh-domains)             |
-| `attach_mux --adopt [host]`             | Selector: `__detached` tabs and the host's unowned panes; picked one opens as a tab  |
-| `CMD+SHIFT+a` / `CTRL+SHIFT+a`          | `attach_mux --adopt` for the peer                                                    |
-| Request                                 | Shell emits `ATTACH_MUX`; GUI resolves its localmux pane ID, replies via pane input  |
-| TLS layouts                             | `local_pane_layout=true`; localmux owns tabs/splits, remote tabs are adopted only    |
-| Backing tabs                            | Remote workspace `__backing:<origin>`; hidden from the remote's GUI                  |
-| Orphans                                 | First attach after a localmux restart moves them into `__detached`                   |
-| `attach_mux <GUI computer>`             | Fresh shell in localmux's `local` domain                                             |
-| Failure                                 | Source pane stays open; shell prints the error (exit 1); picker/keybind: WezTerm log |
-| Timeout                                 | 15s per `wezterm cli` call; shell waits 60s for the GUI's reply                      |
-| Prerequisite                            | Updated vertical-tabs WezTerm GUI, CLI and localmux server; reload shell definitions |
-| Restart                                 | Terminates localmux's local sessions; remote shells return as orphans                |
-| macOS Local Network                     | Allow `wezterm-mux-server` per WezTerm update; else cable/LAN: `No route to host`    |
+| Name | Value |
+| --- | --- |
+| `attach_mux archie`, `attach_mux macie` | Fresh shell replaces the invoking split; sibling panes and existing sessions remain |
+| `attach_mux` | Fresh shell on the GUI computer's peer |
+| `attach_mux <ssh-host>` | SSH session replaces the invoking split; see [SSH domains](#ssh-domains) |
+| `attach_mux --adopt [host]` | Selector: `__detached` tabs and the host's unowned panes; picked one opens as a tab |
+| `CMD+SHIFT+a` / `CTRL+SHIFT+a` | `attach_mux --adopt` for the peer |
+| Request | Shell emits `ATTACH_MUX`; GUI resolves its localmux pane ID, replies via pane input |
+| TLS layouts | `local_pane_layout=true`; localmux owns tabs/splits, remote tabs are adopted only |
+| Backing tabs | Remote workspace `__backing:<origin>`; hidden from the remote's GUI |
+| Orphans | First attach after a localmux restart moves them into `__detached` |
+| `attach_mux <GUI computer>` | Fresh shell in localmux's `local` domain |
+| Failure | Source pane stays open; shell prints the error (exit 1); picker/keybind: WezTerm log |
+| Timeout | 15s per `wezterm cli` call; shell waits 60s for the GUI's reply |
+| Prerequisite | Updated vertical-tabs WezTerm GUI, CLI and localmux server; reload shell definitions |
+| Restart | Terminates localmux's local sessions; remote shells return as orphans |
+| macOS Local Network | Allow `wezterm-mux-server` per WezTerm update; else cable/LAN: `No route to host` |
 
 
-| Route     | macie `tls_servers` | macie peer-facing  | archie `tls_servers` | archie peer-facing   |
-| --------- | ------------------- | ------------------ | -------------------- | -------------------- |
-| cable     | 127.0.0.1:8443      | 10.77.77.1:8443    | 10.77.77.2:8443      | 10.77.77.2:8443      |
-| wifi      | 127.0.0.1:8444      | 10.77.78.1:8443    | 10.77.78.2:8443      | 10.77.78.2:8443      |
-| lan       | 127.0.0.1:8446      | `<macie-lan>`:8443 | 127.0.0.1:8446       | `<archie-lan>`:8443  |
-| tailscale | 127.0.0.1:8445      | 100.75.71.79:8443  | 100.124.205.100:8443 | 100.124.205.100:8443 |
+| Route | macie `tls_servers` | macie peer-facing | archie `tls_servers` | archie peer-facing |
+| --- | --- | --- | --- | --- |
+| cable | 127.0.0.1:8443 | 10.77.77.1:8443 | 10.77.77.2:8443 | 10.77.77.2:8443 |
+| wifi | 127.0.0.1:8444 | 10.77.78.1:8443 | 10.77.78.2:8443 | 10.77.78.2:8443 |
+| lan | 127.0.0.1:8446 | `<macie-lan>`:8443 | 127.0.0.1:8446 | `<archie-lan>`:8443 |
+| tailscale | 127.0.0.1:8445 | 100.75.71.79:8443 | 100.124.205.100:8443 | 100.124.205.100:8443 |
 
-| Route     | `tls_clients` name | macie `remote_address` | archie `remote_address` |
-| --------- | ------------------ | ---------------------- | ----------------------- |
-| cable     | `<peer>-cable`     | 10.77.77.2:8443        | 10.77.77.1:8443         |
-| wifi      | `<peer>-wifi`      | 10.77.78.2:8443        | 10.77.78.1:8443         |
-| lan       | `<peer>-lan`       | 127.0.0.1:8447         | 127.0.0.1:8447          |
-| tailscale | `<peer>-tailscale` | 100.124.205.100:8443   | 100.75.71.79:8443       |
+| Route | `tls_clients` name | macie `remote_address` | archie `remote_address` |
+| --- | --- | --- | --- |
+| cable | `<peer>-cable` | 10.77.77.2:8443 | 10.77.77.1:8443 |
+| wifi | `<peer>-wifi` | 10.77.78.2:8443 | 10.77.78.1:8443 |
+| lan | `<peer>-lan` | 127.0.0.1:8447 | 127.0.0.1:8447 |
+| tailscale | `<peer>-tailscale` | 100.124.205.100:8443 | 100.75.71.79:8443 |
 
 ## SSH domains
 
-| Name         | Value                                                                     |
-| ------------ | ------------------------------------------------------------------------- |
-| WezTerm mux  | `ssh-mux.lua` hosts; unix domain via `ssh -T <host> wezterm cli proxy`    |
-| Transport    | OpenSSH: `~/.ssh/config`, ControlMaster, ProxyCommand                     |
-| Remote       | WezTerm at the host's `wezterm` path; its mux server starts on demand     |
-| Requires     | `wezterm.mux.local_pane_layout_domains` containing `unix` (vertical-tabs) |
-| Disconnect   | ssh drop closes the local panes; shells keep running in the remote mux    |
-| Plain SSH    | every other literal `Host` in `~/.ssh/config`; `multiplexing = "None"`    |
-| Excluded     | `macie`, `archie`; they attach over TLS                                   |
-| Resolution   | WezTerm's SSH client at connect time; `Match exec` is unsupported there   |
-| `Include`    | relative to `~/.ssh`; WezTerm does not expand `~`                         |
+| Name | Value |
+| --- | --- |
+| WezTerm mux | `ssh-mux.lua` hosts; unix domain via `ssh -T <host> wezterm cli proxy` |
+| Transport | OpenSSH: `~/.ssh/config`, ControlMaster, ProxyCommand |
+| Remote | WezTerm at the host's `wezterm` path; its mux server starts on demand |
+| Requires | `wezterm.mux.local_pane_layout_domains` containing `unix` (vertical-tabs) |
+| Disconnect | ssh drop closes the local panes; shells keep running in the remote mux |
+| Plain SSH | every other literal `Host` in `~/.ssh/config`; `multiplexing = "None"` |
+| Excluded | `macie`, `archie`; they attach over TLS |
+| Resolution | WezTerm's SSH client at connect time; `Match exec` is unsupported there |
+| `Include` | relative to `~/.ssh`; WezTerm does not expand `~` |
 | ProxyCommand | runs with localmux's `PATH`; the launchd job prepends `/opt/homebrew/bin` |
-| New host     | restart localmux; reloading the config does not register new domains      |
+| New host | restart localmux; reloading the config does not register new domains |
 
 ```console
 $ attach_mux ntnu
@@ -69,16 +69,16 @@ $ attach_mux fredrir-04
 Both LAN addresses are DHCP, so neither is a literal in `hosts.lua`, and
 `tls_clients` accepts no proxy command. Both ends are relayed instead.
 
-| Name         | Value                                                                 |
-| ------------ | --------------------------------------------------------------------- |
-| Resolver     | `~/dotfiles/scripts/shell/home-lan-connect --resolve <peer>.local`    |
-| Cache        | `~/.local/state/home-lan-connect/<peer>.local`; fresh for 1 minute    |
-| Refresh      | both relays run `--refresh` every poll; stale or missing → mDNS       |
-| Accepted     | both ends inside 192.168.50.0/24                                      |
-| mDNS scope   | avahi denies `macie0`, `macie1` and `archie0`; see [ssh.md](ssh.md)   |
-| Server relay | `<own-lan>:8443` → `127.0.0.1:8446`, `range=<peer-lan>/32`            |
-| Client relay | `127.0.0.1:8447` → `<peer-lan>:8443`, sourced from `<own-lan>`        |
-| Restart      | relay exits when the resolved pair moves; launchd or systemd restarts |
+| Name | Value |
+| --- | --- |
+| Resolver | `~/dotfiles/scripts/shell/home-lan-connect --resolve <peer>.local` |
+| Cache | `~/.local/state/home-lan-connect/<peer>.local`; fresh for 1 minute |
+| Refresh | both relays run `--refresh` every poll; stale or missing → mDNS |
+| Accepted | both ends inside 192.168.50.0/24 |
+| mDNS scope | avahi denies `macie0`, `macie1` and `archie0`; see [ssh.md](ssh.md) |
+| Server relay | `<own-lan>:8443` → `127.0.0.1:8446`, `range=<peer-lan>/32` |
+| Client relay | `127.0.0.1:8447` → `<peer-lan>:8443`, sourced from `<own-lan>` |
+| Restart | relay exits when the resolved pair moves; launchd or systemd restarts |
 
 The subnet filter is what stops `archie.local` advertised on `archie-direct`
 from masquerading as the regular LAN. `range=` is defence in depth. Mutual TLS
@@ -122,21 +122,20 @@ one of them fails, so fixed entries would mean the server refuses to start
 whenever an interface is down — which is most of the time, since the cable comes
 and goes and `archie-direct` is only up on demand.
 
-| Host   | How the binds survive an absent address                                    |
-| ------ | -------------------------------------------------------------------------- |
+| Host | How the binds survive an absent address |
+| --- | --- |
 | archie | `net.ipv4.ip_nonlocal_bind=1` — binds the real cable/wifi/tailscale anyway |
-| macie  | binds loopback **ports**; one `socat` per route exposes the address        |
+| macie | binds loopback **ports**; one `socat` per route exposes the address |
 
 The LAN route is loopback on both halves: its address is DHCP, so there is no
 literal to bind even with `ip_nonlocal_bind`.
 
-
 ## Certificates
 
-| Check                       | Reads                  | Needs                  |
-| --------------------------- | ---------------------- | ---------------------- |
-| server verifying its peer   | client cert Subject CN | `CN=fredrir` (`$USER`) |
-| client verifying the server | server cert SAN        | `DNS:<hostname>`       |
+| Check | Reads | Needs |
+| --- | --- | --- |
+| server verifying its peer | client cert Subject CN | `CN=fredrir` (`$USER`) |
+| client verifying the server | server cert SAN | `DNS:<hostname>` |
 
 
 ```
@@ -150,14 +149,14 @@ mtls doctor --probe 10.77.77.2:8443 --peer-name archie
 lsof -nP -iTCP -sTCP:LISTEN | grep 844          # exactly the intended addresses
 ```
 
-| Name          | Value                                                             |
-| ------------- | ----------------------------------------------------------------- |
-| Live          | `~/.local/share/wezterm/mtls/{ca,cert,private_key}.pem`           |
-| Encrypted     | `linux/arch/wezterm-mtls/`, `macos/wezterm-mtls/`                 |
-| Restored by   | `./setup.sh` / `dotfile sync`, through `op`                       |
-| Age identity  | 1Password; `identities` in `config/keys.dotfile`                  |
-| CA key        | offline; needed only to re-issue                                  |
-| Leaves expire | 2036-09-19                                                        |
+| Name          | Value                                                   |
+| ------------- | ------------------------------------------------------- |
+| Live          | `~/.local/share/wezterm/mtls/{ca,cert,private_key}.pem` |
+| Encrypted     | `linux/arch/wezterm-mtls/`, `macos/wezterm-mtls/`       |
+| Restored by   | `./setup.sh` / `dotfile sync`, through `op`             |
+| Age identity  | 1Password; `identities` in `config/keys.dotfile`        |
+| CA key        | offline; needed only to re-issue                        |
+| Leaves expire | 2036-09-19                                              |
 
 After a re-issue, replace the encrypted copy on that host:
 
@@ -170,13 +169,12 @@ done
 
 ## Reinstall
 
-| Step                           | Command                                        |
-| ------------------------------ | ---------------------------------------------- |
-| fresh install                  | `./setup.sh`; reads the age identity via `op`  |
-| mux certificates               | restored by the same sync                      |
-| restart the mux on archie      | `systemctl --user restart wezterm-mux`         |
-| check                          | `dotfile secret doctor`, `wezterm-mtls doctor` |
-
+| Step                      | Command                                        |
+| ------------------------- | ---------------------------------------------- |
+| fresh install             | `./setup.sh`; reads the age identity via `op`  |
+| mux certificates          | restored by the same sync                      |
+| restart the mux on archie | `systemctl --user restart wezterm-mux`         |
+| check                     | `dotfile secret doctor`, `wezterm-mtls doctor` |
 
 ## Relevant files
 

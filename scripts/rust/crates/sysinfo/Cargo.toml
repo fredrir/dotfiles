@@ -26,21 +26,21 @@ name = "contracts"
 path = "tests/contracts.rs"
 
 [dependencies]
-ui-theme.workspace = true
-ui-terminal.workspace = true
-clap.workspace = true
+ui-theme.workspace      = true
+ui-terminal.workspace   = true
+clap.workspace          = true
 clap_complete.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-hostkit.workspace = true
-nix = { workspace = true, features = ["user"] }
-workstation.workspace = true
-tempfile.workspace = true
+serde.workspace         = true
+serde_json.workspace    = true
+hostkit.workspace       = true
+nix                     = { workspace = true, features = ["user"] }
+workstation.workspace   = true
+tempfile.workspace      = true
 unicode-width.workspace = true
-rustix = { workspace = true, features = ["system"] }
-sysinfo_backend = { workspace = true, features = ["system", "disk"] }
-regex = "1"
-csv = "1"
+rustix                  = { workspace = true, features = ["system"] }
+sysinfo_backend         = { workspace = true, features = ["system", "disk"] }
+regex                   = "1"
+csv                     = "1"
 
 [dev-dependencies]
 testkit.workspace = true

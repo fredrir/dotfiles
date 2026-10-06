@@ -132,22 +132,22 @@
 | inspect profile changes | `git diff -- config/hwtune/<host>.json` |
 | restore a profile revision | `git restore --source=<commit> -- config/hwtune/<host>.json` then `hwtune tune apply` |
 
-| Data | Path |
-| --- | --- |
-| Desired OS settings | `config/hwtune/<host>.json` |
-| Bench settings | `config/hwtune/<host>.bench.dotfile` |
-| Per-core throughput samples | `benchmarks/hosts/<host>/curve/<id>.json` |
-| Store schema | `benchmarks/store.json` |
-| Benchmark runs | `benchmarks/hosts/<host>/runs/<id>.json` |
-| Baselines | `benchmarks/hosts/<host>/baselines.json` |
-| Stability sessions | `benchmarks/hosts/<host>/stability/<id>.json` |
-| Tuning sessions | `benchmarks/hosts/<host>/tuning/<id>.json` |
+| Data                        | Path                                          |
+| --------------------------- | --------------------------------------------- |
+| Desired OS settings         | `config/hwtune/<host>.json`                   |
+| Bench settings              | `config/hwtune/<host>.bench.dotfile`          |
+| Per-core throughput samples | `benchmarks/hosts/<host>/curve/<id>.json`     |
+| Store schema                | `benchmarks/store.json`                       |
+| Benchmark runs              | `benchmarks/hosts/<host>/runs/<id>.json`      |
+| Baselines                   | `benchmarks/hosts/<host>/baselines.json`      |
+| Stability sessions          | `benchmarks/hosts/<host>/stability/<id>.json` |
+| Tuning sessions             | `benchmarks/hosts/<host>/tuning/<id>.json`    |
 
-| Env | Default |
-| --- | --- |
-| `HWTUNE_BENCHMARKS` | `<repository>/benchmarks` |
-| `HWTUNE_HOST` | Saved host, inventory alias, or local hostname |
-| `HWTUNE_LACT_CONFIG` | `/etc/lact/config.yaml` |
-| `HWTUNE_MEASUREMENT_LOCK` | `/tmp/hwtune-measurement.lock` |
+| Env                       | Default                                        |
+| ------------------------- | ---------------------------------------------- |
+| `HWTUNE_BENCHMARKS`       | `<repository>/benchmarks`                      |
+| `HWTUNE_HOST`             | Saved host, inventory alias, or local hostname |
+| `HWTUNE_LACT_CONFIG`      | `/etc/lact/config.yaml`                        |
+| `HWTUNE_MEASUREMENT_LOCK` | `/tmp/hwtune-measurement.lock`                 |
 
 Git records desired settings. Applying a reverted profile requires `hwtune tune apply` to change the live OS controls. Automatic tuning changes OS controls; firmware settings remain managed through BIOS exports and checks.

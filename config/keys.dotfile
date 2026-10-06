@@ -1,9 +1,9 @@
 recipients {
-  archie = age1mxszcn7gs8gnvhpq8ku748szqe8u6raferefg986slu83r3zkcmswe29zs
-  macie  = age1wflp6cynwm97wndq5zxmpaxwz59h62a7dku8qdyue5zm9g4djfnqwj9n0m
+  archie  = age1mxszcn7gs8gnvhpq8ku748szqe8u6raferefg986slu83r3zkcmswe29zs
+  macie   = age1wflp6cynwm97wndq5zxmpaxwz59h62a7dku8qdyue5zm9g4djfnqwj9n0m
 }
 
 identities {
-  archie = op://Secure/ARCHIE_SOPS_AGE_KEY_FILE
-  macie  = op://Secure/MACIE_SOPS_AGE_KEY_FILE
+  archie  = op://Secure/ARCHIE_SOPS_AGE_KEY_FILE
+  macie   = op://Secure/MACIE_SOPS_AGE_KEY_FILE
 }

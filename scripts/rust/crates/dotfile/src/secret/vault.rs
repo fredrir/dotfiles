@@ -550,7 +550,13 @@ pub fn plain_name(name: &str) -> String {
 }
 
 pub fn decrypt(context: &Context, source: &Path) -> Result<Vec<u8>, String> {
-    super::sops::decrypt(context, source, &super::identity::Identity::OnePassword, false).map(|data| data.to_vec())
+    super::sops::decrypt(
+        context,
+        source,
+        &super::identity::Identity::OnePassword,
+        false,
+    )
+    .map(|data| data.to_vec())
 }
 
 pub fn secure_package_directories(

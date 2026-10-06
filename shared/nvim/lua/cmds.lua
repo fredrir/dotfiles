@@ -31,20 +31,20 @@ command("TerminalSearch", search.terminal, { desc = "Search files from the termi
 local lazygit
 command("Lazygit", function()
   lazygit = lazygit
-      or require("toggleterm.terminal").Terminal:new {
-        cmd = "lazygit",
-        hidden = true,
-        direction = "float",
-        float_opts = {
-          border = "curved",
-          width = function()
-            return math.floor(vim.o.columns * 0.95)
-          end,
-          height = function()
-            return math.floor(vim.o.lines * 0.9)
-          end,
-        },
-      }
+    or require("toggleterm.terminal").Terminal:new {
+      cmd = "lazygit",
+      hidden = true,
+      direction = "float",
+      float_opts = {
+        border = "curved",
+        width = function()
+          return math.floor(vim.o.columns * 0.95)
+        end,
+        height = function()
+          return math.floor(vim.o.lines * 0.9)
+        end,
+      },
+    }
   lazygit:toggle()
 end, { desc = "Toggle lazygit in a floating terminal" })
 

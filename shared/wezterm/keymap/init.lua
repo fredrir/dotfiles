@@ -18,7 +18,7 @@ local open_yazi = require "utils.keymap.open-yazi"
 local close_window = require "utils.close_window"
 local copy_selection = require "utils.copy-selection"
 local clear_screen = require "utils.keymap.clear_screen"
-local adopt_pane  = require "utils.mux.adopt_pane"
+local adopt_pane = require "utils.mux.adopt_pane"
 
 local act = wezterm.action
 

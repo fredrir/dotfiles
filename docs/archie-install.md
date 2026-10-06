@@ -13,10 +13,10 @@ Clean install on the Crucial T710 4 TB. Windows and the Kingston KC3000 leave th
 
 ## Partitions
 
-| Partition | Size | Type | Mount |
-| --- | --- | --- | --- |
-| 1 | 1 GiB | `ef00` EFI System | `/efi` |
-| 2 | rest | `8304` Linux root (x86-64) | `/` |
+| Partition | Size  | Type                       | Mount  |
+| --------- | ----- | -------------------------- | ------ |
+| 1         | 1 GiB | `ef00` EFI System          | `/efi` |
+| 2         | rest  | `8304` Linux root (x86-64) | `/`    |
 
 ```
 sgdisk --zap-all /dev/nvme0n1
@@ -63,10 +63,10 @@ mount --mkdir /dev/nvme0n1p1 /mnt/efi
 | UKI booted | `/proc/cmdline` has `zswap.enabled=0` and no `root=`; `swapon --show` lists `/dev/zram0` |
 | baseline | `hwtune bench run --baseline` (the disk change moves the hardware epoch) |
 
-| Kernel command line | Why |
-| --- | --- |
-| `zswap.enabled=0` | swap is zram; zswap in front of it compresses twice |
-| `cpuidle.governor=teo` | shorter idle exit latency than `menu` on Zen 5 |
+| Kernel command line    | Why                                                 |
+| ---------------------- | --------------------------------------------------- |
+| `zswap.enabled=0`      | swap is zram; zswap in front of it compresses twice |
+| `cpuidle.governor=teo` | shorter idle exit latency than `menu` on Zen 5      |
 
 | Tuning package | Path |
 | --- | --- |
@@ -107,10 +107,10 @@ One change per reboot; every step is `hwtune stress mem --tool y-cruncher --minu
 | 7 | FCLK Frequency | Auto | 2100 | `mem.latency` improves; WHEA-free journal |
 | 8 | Power Down Enable | Enabled | Disabled | idle package power in `hwtune bench run --only idle` |
 
-| Voltage | Ceiling |
-| --- | --- |
-| CPU SOC Voltage | 1.30 V |
-| DRAM VDD / VDDQ | 1.40 V as set by EXPO; 1.45 V only for step 7 |
+| Voltage                | Ceiling                                          |
+| ---------------------- | ------------------------------------------------ |
+| CPU SOC Voltage        | 1.30 V                                           |
+| DRAM VDD / VDDQ        | 1.40 V as set by EXPO; 1.45 V only for step 7    |
 | Memory Context Restore | Enabled; Disabled if training fails after a step |
 
 ## Curve Optimizer ladder

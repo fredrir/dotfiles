@@ -117,7 +117,11 @@ fn editor_still_writes_nothing_when_the_body_cannot_be_read_at_all() {
 
     assert_eq!(code(&output), 1);
     assert_eq!(output.stdout, "");
-    assert!(output.stderr.contains("expected : after a key"), "{}", output.stderr);
+    assert!(
+        output.stderr.contains("expected : after a key"),
+        "{}",
+        output.stderr
+    );
 }
 
 #[test]
@@ -134,7 +138,11 @@ fn editor_leaves_the_body_alone_when_there_is_nothing_to_fix() {
 
 #[test]
 fn a_directory_is_walked_and_its_files_are_written_in_place() {
-    let root = tree_pairs(&[("a.json", RAGGED), ("deep/b.json", "[1,2]"), ("c.txt", "{}")]);
+    let root = tree_pairs(&[
+        ("a.json", RAGGED),
+        ("deep/b.json", "[1,2]"),
+        ("c.txt", "{}"),
+    ]);
     let output = jqfmt(root.path(), &["."], "");
 
     assert_eq!(code(&output), 0);
@@ -142,7 +150,11 @@ fn a_directory_is_walked_and_its_files_are_written_in_place() {
     assert_eq!(read(root.path(), "deep/b.json"), "[\n  1,\n  2\n]\n");
     assert_eq!(read(root.path(), "c.txt"), "{}");
     assert_eq!(output.stdout, "");
-    assert!(output.stderr.contains("formatted 2 of 2 files"), "{}", output.stderr);
+    assert!(
+        output.stderr.contains("formatted 2 of 2 files"),
+        "{}",
+        output.stderr
+    );
 }
 
 #[test]
@@ -152,8 +164,16 @@ fn check_reports_what_is_unformatted_and_writes_nothing() {
 
     assert_eq!(code(&output), 1);
     assert_eq!(read(root.path(), "a.json"), RAGGED);
-    assert!(output.stderr.contains("needs format a.json"), "{}", output.stderr);
-    assert!(output.stderr.contains("1 of 2 files need formatting"), "{}", output.stderr);
+    assert!(
+        output.stderr.contains("needs format a.json"),
+        "{}",
+        output.stderr
+    );
+    assert!(
+        output.stderr.contains("1 of 2 files need formatting"),
+        "{}",
+        output.stderr
+    );
 }
 
 #[test]
@@ -162,7 +182,11 @@ fn check_succeeds_quietly_when_everything_is_already_formatted() {
     let output = jqfmt(root.path(), &["--check", "."], "");
 
     assert_eq!(code(&output), 0);
-    assert!(output.stderr.contains("1 file already formatted"), "{}", output.stderr);
+    assert!(
+        output.stderr.contains("1 file already formatted"),
+        "{}",
+        output.stderr
+    );
 }
 
 #[test]
@@ -174,7 +198,11 @@ fn check_with_editor_fails_on_a_file_that_had_to_be_repaired() {
 
     assert_eq!(code(&output), 1);
     assert_eq!(read(root.path(), "a.json"), "{\n  \"a\": 1,\n}\n");
-    assert!(output.stderr.contains("would fix 1 stray comma"), "{}", output.stderr);
+    assert!(
+        output.stderr.contains("would fix 1 stray comma"),
+        "{}",
+        output.stderr
+    );
 }
 
 #[test]
@@ -201,7 +229,10 @@ fn a_file_named_on_the_command_line_needs_no_extension() {
 #[test]
 fn a_config_beside_the_files_governs_them() {
     let root = tree_pairs(&[
-        ("jqfmt.dotfile", "jqfmt {\n  indent = 4\n  final_newline = false\n}\n"),
+        (
+            "jqfmt.dotfile",
+            "jqfmt {\n  indent = 4\n  final_newline = false\n}\n",
+        ),
         ("a.json", RAGGED),
     ]);
     let output = jqfmt(root.path(), &["a.json"], "");
@@ -236,7 +267,9 @@ fn a_mistake_in_the_config_is_reported_at_its_line() {
 
     assert_eq!(code(&output), 1);
     assert!(
-        output.stderr.contains("indent must be -1 for a tab, or between 0 and 7"),
+        output
+            .stderr
+            .contains("indent must be -1 for a tab, or between 0 and 7"),
         "{}",
         output.stderr
     );
@@ -253,7 +286,10 @@ fn a_target_that_is_not_there_is_a_failure() {
 
 #[test]
 fn verbose_names_the_config_that_was_read() {
-    let root = tree_pairs(&[("jqfmt.dotfile", "jqfmt {\n  indent = 2\n}\n"), ("a.json", RAGGED)]);
+    let root = tree_pairs(&[
+        ("jqfmt.dotfile", "jqfmt {\n  indent = 2\n}\n"),
+        ("a.json", RAGGED),
+    ]);
     let output = jqfmt(root.path(), &["--verbose", "a.json"], "");
 
     assert_eq!(code(&output), 0);
@@ -318,15 +354,17 @@ fn every_json_file_this_repository_holds_is_laid_out_exactly_as_jq_lays_it_out()
             // A body jq cannot read is one of the JSONC files this repository
             // holds, and `--editor` is the flag that is about those.
             let (status, _, _) = run(&binary, &["-"], &raw, roomy.path());
-            assert_ne!(
-                status, 0,
-                "{} reads for jq but not here",
-                path.display()
-            );
+            assert_ne!(status, 0, "{} reads for jq but not here", path.display());
             continue;
         };
         let (status, ours, erred) = run(&binary, &["-"], &raw, roomy.path());
-        assert_eq!(status, 0, "{}: {}", path.display(), String::from_utf8_lossy(&erred));
+        assert_eq!(
+            status,
+            0,
+            "{}: {}",
+            path.display(),
+            String::from_utf8_lossy(&erred)
+        );
         assert_eq!(ours, theirs, "{} differs from jq", path.display());
         compared += 1;
     }
@@ -349,7 +387,13 @@ fn one_line_reads_the_way_jq_compact_reads() {
             continue;
         };
         let (status, ours, erred) = run(&binary, &["-"], &raw, compact.path());
-        assert_eq!(status, 0, "{}: {}", path.display(), String::from_utf8_lossy(&erred));
+        assert_eq!(
+            status,
+            0,
+            "{}: {}",
+            path.display(),
+            String::from_utf8_lossy(&erred)
+        );
         assert_eq!(ours, theirs, "{} differs from jq -c", path.display());
         compared += 1;
     }
@@ -472,7 +516,13 @@ fn dialects_and_aliases_preserve_comments_on_stdin() {
 fn mixed_tree_detects_dialects_and_check_is_read_only() {
     let body = "{\"a\":1,/* why */}";
     let expected = "{\n  \"a\": 1, /* why */\n}\n";
-    let root = tree_pairs(&[("a.json", RAGGED), ("b.jsonc", body), ("c.HUJSON", body), ("d.jwcc", body), ("ignored.json5", body)]);
+    let root = tree_pairs(&[
+        ("a.json", RAGGED),
+        ("b.jsonc", body),
+        ("c.HUJSON", body),
+        ("d.jwcc", body),
+        ("ignored.json5", body),
+    ]);
     let check = jqfmt(root.path(), &["--check", "."], "");
     assert_eq!(code(&check), 1);
     assert_eq!(read(root.path(), "b.jsonc"), body);
@@ -491,9 +541,23 @@ fn explicit_dialect_overrides_extensions() {
     let body = "{\"a\":1,// why\n}";
     let root = tree_pairs(&[("settings.json", body), ("settings.jsonc", body)]);
     assert_eq!(code(&jqfmt(root.path(), &["settings.json"], "")), 1);
-    assert_eq!(code(&jqfmt(root.path(), &["--dialect", "jsonc", "settings.json"], "")), 0);
+    assert_eq!(
+        code(&jqfmt(
+            root.path(),
+            &["--dialect", "jsonc", "settings.json"],
+            ""
+        )),
+        0
+    );
     assert!(read(root.path(), "settings.json").contains("// why"));
-    assert_eq!(code(&jqfmt(root.path(), &["--dialect", "json", "settings.jsonc"], "")), 1);
+    assert_eq!(
+        code(&jqfmt(
+            root.path(),
+            &["--dialect", "json", "settings.jsonc"],
+            ""
+        )),
+        1
+    );
     assert_eq!(read(root.path(), "settings.jsonc"), body);
 }
 
@@ -513,5 +577,9 @@ fn editor_explicitly_converts_dialect_files_to_json() {
     let output = jqfmt(root.path(), &["--editor", "a.jsonc"], "");
     assert_eq!(code(&output), 0, "{}", output.stderr);
     assert_eq!(read(root.path(), "a.jsonc"), LAID_OUT);
-    assert!(output.stderr.contains("1 stray comma, 1 comment"), "{}", output.stderr);
+    assert!(
+        output.stderr.contains("1 stray comma, 1 comment"),
+        "{}",
+        output.stderr
+    );
 }

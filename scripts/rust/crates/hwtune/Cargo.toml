@@ -22,26 +22,26 @@ name = "store_tests"
 path = "tests/store_tests.rs"
 
 [dependencies]
-sysinfo = { package = "workstation-sysinfo", path = "../sysinfo" }
-blake2 = "0.10"
-fs2 = "0.4"
-rustix = { workspace = true, features = ["fs", "process"] }
-regex = "1"
-sysinfo_backend = { workspace = true, features = ["system"] }
-tempfile.workspace = true
-ui-picker.workspace = true
-chrono                  = { version = "0.4", default-features = false, features = ["clock", "std"] }
-clap.workspace          = true
-hostkit.workspace       = true
-serde.workspace         = true
-serde_json.workspace    = true
-serde_yaml_ng = "0.10"
-sha2.workspace          = true
-similar.workspace       = true
-ui-progress.workspace   = true
-ui-terminal.workspace   = true
-ui-theme.workspace      = true
-workstation.workspace   = true
+sysinfo               = { package = "workstation-sysinfo", path = "../sysinfo" }
+blake2                = "0.10"
+fs2                   = "0.4"
+rustix                = { workspace = true, features = ["fs", "process"] }
+regex                 = "1"
+sysinfo_backend       = { workspace = true, features = ["system"] }
+tempfile.workspace    = true
+ui-picker.workspace   = true
+chrono                = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap.workspace        = true
+hostkit.workspace     = true
+serde.workspace       = true
+serde_json.workspace  = true
+serde_yaml_ng         = "0.10"
+sha2.workspace        = true
+similar.workspace     = true
+ui-progress.workspace = true
+ui-terminal.workspace = true
+ui-theme.workspace    = true
+workstation.workspace = true
 
 [dev-dependencies]
-testkit.workspace  = true
+testkit.workspace = true

@@ -9,10 +9,10 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-clap.workspace  = true
-rayon.workspace = true
+clap.workspace     = true
+rayon.workspace    = true
 ui-batch.workspace = true
-workstation     = { workspace = true, features = ["walk"] }
+workstation        = { workspace = true, features = ["walk"] }
 
 [dev-dependencies]
 testkit.workspace = true

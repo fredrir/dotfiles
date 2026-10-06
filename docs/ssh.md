@@ -8,7 +8,6 @@ ssh archie
    └── Tailscale    100.75.71.79 → 100.124.205.100
 ```
 
-
 ## Behavior
 
 ```
@@ -28,12 +27,12 @@ new session uses USB
 ```
 
 
-| Event                              | Existing SSH                  | Next `ssh archie` |
-| ---------------------------------- | ----------------------------- | ----------------- |
-| Home Wi-Fi, no cable/direct AP     | Current connection continues  | **LAN**           |
-| Join `archie-direct`, cable absent | Current connection continues  | **direct Wi-Fi**  |
-| Plug cable in                      | Existing connection unchanged | **USB**           |
-| Leave home and direct AP           | Dead session stays dead       | **Tailscale**     |
+| Event | Existing SSH | Next `ssh archie` |
+| --- | --- | --- |
+| Home Wi-Fi, no cable/direct AP | Current connection continues | **LAN** |
+| Join `archie-direct`, cable absent | Current connection continues | **direct Wi-Fi** |
+| Plug cable in | Existing connection unchanged | **USB** |
+| Leave home and direct AP | Dead session stays dead | **Tailscale** |
 
 ## mDNS scope
 
@@ -88,7 +87,6 @@ sudo systemctl daemon-reload
 sudo systemctl reload NetworkManager
 ```
 
-
 ## Connections
 
 ```
@@ -96,8 +94,6 @@ Macie <---USB C Cable (USB SuperSpeed Plus Gen 2x1, ~10Gbps , CDC-NCM Ethernet) 
 
 Archie <---Display Port Cable---> Monitor (Samsung LU28R55 4K IPS 60 Hz)
 ```
-
-
 
 ## Addressing the routes
 

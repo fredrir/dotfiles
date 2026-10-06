@@ -1,13 +1,13 @@
 # CLI performance
 
-| Measurement | Value |
-| --- | --- |
-| Date | 2026-09-11 |
-| Platform | macOS 26.6.2, Apple Silicon |
-| Build | Cargo release profile |
-| Samples | First invocation, then five warm invocations |
-| Wall time | Includes `/usr/bin/time` wrapper |
-| Peak RSS | Maximum across warm invocations |
+| Measurement | Value                                        |
+| ----------- | -------------------------------------------- |
+| Date        | 2026-09-11                                   |
+| Platform    | macOS 26.6.2, Apple Silicon                  |
+| Build       | Cargo release profile                        |
+| Samples     | First invocation, then five warm invocations |
+| Wall time   | Includes `/usr/bin/time` wrapper             |
+| Peak RSS    | Maximum across warm invocations              |
 
 | Operation | Python median ms | Rust median ms | Speedup | Python RSS MiB | Rust RSS MiB |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -18,10 +18,10 @@
 | Benchmark-history listing, before extraction | 59.5 | 4.7 | 12.7× | 32.8 | 7.3 |
 | Benchmark-run completion, before extraction | 58.6 | 4.6 | 12.9× | 32.0 | 7.2 |
 
-| Documentation preview | Rust median ms |
-| --- | ---: |
-| `dotfile docs --dry-run` | 170.7 |
-| `dotfile docs --only keybinds --dry-run` | 158.4 |
+| Documentation preview                    | Rust median ms |
+| ---------------------------------------- | -------------: |
+| `dotfile docs --dry-run`                 | 170.7          |
+| `dotfile docs --only keybinds --dry-run` | 158.4          |
 
 Machine-specific measurements; the first invocation is not a cold-cache benchmark. Full/pretty views retain optional fastfetch enrichment. Benchmark-history measurements predate extraction into hwtune and do not measure the current hwtune binary.
 
@@ -44,17 +44,17 @@ Machine-specific measurements; the first invocation is not a cold-cache benchmar
 
 CPU ms is Hyperfine user plus system time. Subprocess probes for `-p`: 5 → 0.
 
-| `-p` wall time before | ms |
-| --- | ---: |
-| `fastfetch`, whose `CPUUsage` module slept 200 ms | 250 |
-| Collectors in series; they now overlap | 40 |
-| `scutil --get LocalHostName` and `ComputerName` | 20 |
-| Collection, render, and process start | 80 |
+| `-p` wall time before                             | ms   |
+| ------------------------------------------------- | ---: |
+| `fastfetch`, whose `CPUUsage` module slept 200 ms | 250  |
+| Collectors in series; they now overlap            | 40   |
+| `scutil --get LocalHostName` and `ComputerName`   | 20   |
+| Collection, render, and process start             | 80   |
 
-| Probes `-p` no longer runs | ms |
-| --- | ---: |
-| `ps -ax` plus terminal `--version` | 48 |
-| `$SHELL -c` version probe | 12 |
+| Probes `-p` no longer runs         | ms   |
+| ---------------------------------- | ---: |
+| `ps -ax` plus terminal `--version` | 48   |
+| `$SHELL -c` version probe          | 12   |
 
 Those two already overlapped collection, so they cost wall time only in the
 summary and detail scopes that still run them. CPU load is two
@@ -71,10 +71,10 @@ hyperfine --shell=none --warmup 2 --runs 15 -i \
   'scripts/rust/target/release/sysinfo --full'
 ```
 
-| Report | Path |
-| --- | --- |
+| Report          | Path                                                  |
+| --------------- | ----------------------------------------------------- |
 | Python baseline | [macos-before.json](benchmarks/cli-macos-before.json) |
-| Rust release | [macos-after.json](benchmarks/cli-macos-after.json) |
+| Rust release    | [macos-after.json](benchmarks/cli-macos-after.json)   |
 
 The reports include observed subprocess probes: Python counts `Popen` calls; Rust counts bounded collector probes. These are not total descendant-process counts.
 
@@ -102,21 +102,21 @@ hyperfine --shell=none --warmup 1 --runs 5 \
 | Harness | Hyperfine, `-N --warmup 2 --runs 15` |
 | Window | 200 ms; this session's timer coalescing stretched `sleep 0.2` to 320 ms |
 
-| Operation | Mean ms | User + system CPU ms |
-| --- | ---: | ---: |
-| `sleep 0.2` | 320.5 | 2.3 |
-| `sysinfo -s` | 364.7 | 74.6 |
-| `sysinfo -sc` | 343.9 | 72.5 |
-| `sysinfo -s --split` | 367.2 | 74.6 |
-| `sysinfo -st archie` | 297.3 | 48.2 |
-| `ps aux` | 32.3 | 24.9 |
+| Operation            | Mean ms | User + system CPU ms |
+| -------------------- | ------: | -------------------: |
+| `sleep 0.2`          | 320.5   | 2.3                  |
+| `sysinfo -s`         | 364.7   | 74.6                 |
+| `sysinfo -sc`        | 343.9   | 72.5                 |
+| `sysinfo -s --split` | 367.2   | 74.6                 |
+| `sysinfo -st archie` | 297.3   | 48.2                 |
+| `ps aux`             | 32.3    | 24.9                 |
 
-| `-s` cost on macOS | ms |
-| --- | ---: |
-| Process pass, first then second | 10–18 |
-| `ps -p` over other users' processes, twice inside the window | 12 |
-| IOKit GPU client readings | 1 |
-| Grouping, ranking, and user names | 3 |
+| `-s` cost on macOS                                           | ms    |
+| ------------------------------------------------------------ | ----: |
+| Process pass, first then second                              | 10–18 |
+| `ps -p` over other users' processes, twice inside the window | 12    |
+| IOKit GPU client readings                                    | 1     |
+| Grouping, ranking, and user names                            | 3     |
 
 ```sh
 cargo build --release --locked --manifest-path scripts/rust/Cargo.toml -p workstation-sysinfo

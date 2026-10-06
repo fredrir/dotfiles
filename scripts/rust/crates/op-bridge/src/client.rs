@@ -76,7 +76,10 @@ pub fn reload() -> Result<ExitCode, String> {
     let stream = match UnixStream::connect(&socket) {
         Ok(stream) => stream,
         Err(error) => {
-            eprintln!("op-bridge: daemon unreachable at {}: {error}", socket.display());
+            eprintln!(
+                "op-bridge: daemon unreachable at {}: {error}",
+                socket.display()
+            );
             return Ok(ExitCode::from(UNREACHABLE));
         }
     };

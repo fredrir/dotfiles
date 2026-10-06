@@ -32,9 +32,7 @@ fn target_argument_is_read_in_both_directions() {
     assert_eq!(push.path.as_deref(), Some("folder_1"));
     assert_eq!(push.target.as_deref(), Some("12.3456.34"));
 
-    let push_dot: Request = Push::try_parse_from(["hpush", ".", "ntnu"])
-        .unwrap()
-        .into();
+    let push_dot: Request = Push::try_parse_from(["hpush", ".", "ntnu"]).unwrap().into();
     assert_eq!(push_dot.path.as_deref(), Some("."));
     assert_eq!(push_dot.target.as_deref(), Some("ntnu"));
 
@@ -45,9 +43,7 @@ fn target_argument_is_read_in_both_directions() {
     assert_eq!(pull.path.as_deref(), Some("notes.md"));
     assert_eq!(pull.target.as_deref(), Some("ntnu"));
 
-    let pull_dot: Request = Pull::try_parse_from(["hpull", ".", "ntnu"])
-        .unwrap()
-        .into();
+    let pull_dot: Request = Pull::try_parse_from(["hpull", ".", "ntnu"]).unwrap().into();
     assert_eq!(pull_dot.path.as_deref(), Some("."));
     assert_eq!(pull_dot.target.as_deref(), Some("ntnu"));
 }

@@ -24,7 +24,12 @@ pub fn load_variables(context: &Context) -> Variables {
             note: "vars.enc.yaml needs this machine's 1Password identity to read".to_string(),
         };
     }
-    let output = match super::sops::decrypt(context, &source, &super::identity::Identity::OnePassword, true) {
+    let output = match super::sops::decrypt(
+        context,
+        &source,
+        &super::identity::Identity::OnePassword,
+        true,
+    ) {
         Ok(output) => output,
         Err(note) => {
             return Variables {

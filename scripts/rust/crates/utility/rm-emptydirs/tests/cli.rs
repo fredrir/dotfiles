@@ -43,17 +43,16 @@ fn answering_no_changes_nothing() {
     let output = bin().arg(at(&root, "pack")).stdin("n\n").output();
     assert!(output.status.success());
     assert!(stdout(&output).contains("cancelled"));
-    assert_eq!(names(&root.path().join("pack")), ["also_empty", "empty", "file"]);
+    assert_eq!(
+        names(&root.path().join("pack")),
+        ["also_empty", "empty", "file"]
+    );
 }
 
 #[test]
 fn the_yes_flag_skips_the_prompt() {
     let root = sample();
-    let output = bin()
-        .arg(at(&root, "pack"))
-        .arg("-y")
-        .stdin("")
-        .output();
+    let output = bin().arg(at(&root, "pack")).arg("-y").stdin("").output();
     assert!(output.status.success());
     assert!(!stdout(&output).contains("Continue?"));
     assert_eq!(names(&root.path().join("pack")), ["file"]);
@@ -64,17 +63,16 @@ fn a_closed_stdin_removes_nothing() {
     let root = sample();
     let output = bin().arg(at(&root, "pack")).stdin("").output();
     assert_eq!(output.status.code(), Some(1));
-    assert_eq!(names(&root.path().join("pack")), ["also_empty", "empty", "file"]);
+    assert_eq!(
+        names(&root.path().join("pack")),
+        ["also_empty", "empty", "file"]
+    );
 }
 
 #[test]
 fn a_folder_emptied_by_removal_goes_too() {
     let root = tree(&["pack/inner/deep/"]);
-    let output = bin()
-        .arg(at(&root, "pack"))
-        .arg("-y")
-        .stdin("")
-        .output();
+    let output = bin().arg(at(&root, "pack")).arg("-y").stdin("").output();
     assert!(output.status.success());
     // The target itself stays even though it ends up empty.
     assert!(root.path().join("pack").exists());
@@ -84,11 +82,7 @@ fn a_folder_emptied_by_removal_goes_too() {
 #[test]
 fn the_usual_skip_list_is_left_alone() {
     let root = tree(&["pack/node_modules/", "pack/empty/"]);
-    let output = bin()
-        .arg(at(&root, "pack"))
-        .arg("-y")
-        .stdin("")
-        .output();
+    let output = bin().arg(at(&root, "pack")).arg("-y").stdin("").output();
     assert!(output.status.success());
     assert_eq!(names(&root.path().join("pack")), ["node_modules"]);
 }
@@ -108,11 +102,7 @@ fn the_all_flag_removes_skipped_folders_too() {
 #[test]
 fn hidden_folders_are_left_alone() {
     let root = tree(&["pack/.config/", "pack/empty/"]);
-    let output = bin()
-        .arg(at(&root, "pack"))
-        .arg("-y")
-        .stdin("")
-        .output();
+    let output = bin().arg(at(&root, "pack")).arg("-y").stdin("").output();
     assert!(output.status.success());
     assert_eq!(names(&root.path().join("pack")), [".config"]);
 }
@@ -151,7 +141,9 @@ fn a_tree_with_nothing_to_remove_says_so() {
 
 #[test]
 fn verbose_lists_every_row() {
-    let mut lines: Vec<String> = (0..14).map(|index| format!("pack/empty_{index}/")).collect();
+    let mut lines: Vec<String> = (0..14)
+        .map(|index| format!("pack/empty_{index}/"))
+        .collect();
     let borrowed: Vec<&str> = lines.iter().map(String::as_str).collect();
     let root = tree(&borrowed);
 
@@ -159,11 +151,7 @@ fn verbose_lists_every_row() {
     assert!(stdout(&terse).contains("and 2 more"), "{}", stdout(&terse));
 
     lines.clear();
-    let full = bin()
-        .arg(at(&root, "pack"))
-        .arg("-v")
-        .stdin("n\n")
-        .output();
+    let full = bin().arg(at(&root, "pack")).arg("-v").stdin("n\n").output();
     let shown = stdout(&full);
     assert!(!shown.contains("more"), "{shown}");
     assert!(shown.contains("empty_13"), "{shown}");

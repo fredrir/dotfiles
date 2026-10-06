@@ -1,4 +1,3 @@
-
 # zcomp: the binary decides what to offer; this only hands its answer to the completion system.
 typeset -gA _zcomp_orig
 
@@ -28,7 +27,7 @@ _zcomp_fzf() {
 }
 
 _zcomp_add() {
-  (( ${#_zcomp_values} )) || return 1
+  ((${#_zcomp_values})) || return 1
   local -a group_flags compadd_flags expl # shucked: ignore=C001
   local option
   for option in "${_zcomp_options[@]}"; do
@@ -69,9 +68,18 @@ _zcomp_complete() {
       _zcomp_values+=("$fields[2]")
       _zcomp_displays+=("${fields[3]:-$fields[2]}")
       ;;
-    files) _zcomp_add && ret=0; _files && ret=0 ;;
-    dirs) _zcomp_add && ret=0; _files -/ && ret=0 ;;
-    message) _zcomp_add && ret=0; _message -r "$fields[2]" ;;
+    files)
+      _zcomp_add && ret=0
+      _files && ret=0
+      ;;
+    dirs)
+      _zcomp_add && ret=0
+      _files -/ && ret=0
+      ;;
+    message)
+      _zcomp_add && ret=0
+      _message -r "$fields[2]"
+      ;;
     delegate)
       _zcomp_add && ret=0
       if [[ -n $orig ]]; then
@@ -87,7 +95,7 @@ _zcomp_complete() {
 
 _zcomp_register() {
   local command=$1 fn
-  (( $+commands[$command] )) || return 0
+  (($+commands[$command])) || return 0
   fn=${_comps[$command]:-}
   # Loading an autoloaded completer first lets it claim its command before zcomp takes over.
   if [[ -n $fn && $fn != _zcomp_complete && ${functions[$fn]:-} == *autoload* ]]; then
@@ -103,7 +111,6 @@ _zcomp_register() {
   zstyle ":fzf-tab:complete:$command:*" query-string input
   zstyle ":fzf-tab:complete:$command:*" fzf-command _zcomp_fzf
 }
-
 () {
   local command
   for command in {{COMMANDS}}; do
@@ -111,7 +118,7 @@ _zcomp_register() {
   done
 }
 
-if (( $+functions[defer] )); then
+if (($+functions[defer])); then
   defer command zcomp warm
 else
   command zcomp warm &!

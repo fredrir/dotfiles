@@ -104,7 +104,11 @@ fn run(cli: &Cli) -> Result<bool, String> {
         );
     }
     let style = Style::for_stdout();
-    let labels: Vec<String> = cli.targets.iter().map(|target| path::shorten(target)).collect();
+    let labels: Vec<String> = cli
+        .targets
+        .iter()
+        .map(|target| path::shorten(target))
+        .collect();
     let run = Run::new(
         PROGRAM,
         &labels,

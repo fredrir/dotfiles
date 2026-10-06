@@ -51,7 +51,9 @@ enum Command {
         prompt: Vec<String>,
     },
 
-    #[command(about = "Clear the daemon's memory and refetch its references, e.g. after a rotation")]
+    #[command(
+        about = "Clear the daemon's memory and refetch its references, e.g. after a rotation"
+    )]
     Reload,
 
     #[command(about = "Install the signed app on macie and (re)start its launchd agent")]

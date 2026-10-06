@@ -25,12 +25,12 @@
 
 ## Dialects
 
-| Input | Default dialect |
-| --- | --- |
-| `.json` | JSON; existing jq-compatible formatting |
-| `.jsonc` | JSONC |
-| `.hujson`, `.jwcc` | HuJSON / JWCC |
-| stdin, other extensions | JSON; override with `--dialect` |
+| Input                   | Default dialect                         |
+| ----------------------- | --------------------------------------- |
+| `.json`                 | JSON; existing jq-compatible formatting |
+| `.jsonc`                | JSONC                                   |
+| `.hujson`, `.jwcc`      | HuJSON / JWCC                           |
+| stdin, other extensions | JSON; override with `--dialect`         |
 
 | Behavior | JSONC / HuJSON |
 | --- | --- |

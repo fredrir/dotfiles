@@ -1,7 +1,7 @@
 [package]
-name = "mdfmt"
+name              = "mdfmt"
 version.workspace = true
-description = "Format Markdown with compact tables and consistent spacing"
+description       = "Format Markdown with compact tables and consistent spacing"
 edition.workspace = true
 license.workspace = true
 
@@ -9,12 +9,12 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-clap.workspace = true
-comrak = { version = "0.48", default-features = false }
-rayon.workspace = true
+clap.workspace          = true
+comrak                  = { version = "0.48", default-features = false }
+rayon.workspace         = true
 unicode-width.workspace = true
-workstation = { workspace = true, features = ["walk"] }
+workstation             = { workspace = true, features = ["walk"] }
 
 [dev-dependencies]
 tempfile.workspace = true
-testkit.workspace = true
+testkit.workspace  = true

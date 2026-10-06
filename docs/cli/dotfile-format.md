@@ -25,13 +25,13 @@
 
 ## Shell formatting
 
-| Files                                                           | Formatter | Check mode                |
-| --------------------------------------------------------------- | --------- | ------------------------- |
-| `.sh`, `.bash`, Bash startup files, `.profile`                  | Shucked   | Formatting check and lint |
-| `.zsh`, `.zshrc`, `.zshenv`, `.zprofile`, `.zlogin`, `.zlogout` | Shucked   | Formatting check and lint |
+| Files | Formatter | Check mode |
+| --- | --- | --- |
+| `.sh`, `.bash`, Bash startup files, `.profile` | Shucked | Formatting check and lint |
+| `.zsh`, `.zshrc`, `.zshenv`, `.zprofile`, `.zlogin`, `.zlogout` | Shucked | Formatting check and lint |
 
 ## Markdown formatting
 
-| Files | Formatter | Check mode |
-| --- | --- | --- |
+| Files                                | Formatter         | Check mode       |
+| ------------------------------------ | ----------------- | ---------------- |
 | `.md`, `.markdown`, `.mdown`, `.mkd` | [mdfmt](mdfmt.md) | Formatting check |

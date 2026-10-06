@@ -5,11 +5,16 @@
       "label": "Copy active filename",
       "type": "shell",
       "command": "copy-file-pretty",
-      "args": ["-n", "${file}"],
+      "args": [
+        "-n",
+        "${file}"
+      ],
       "options": {
         "shell": {
           "executable": "/bin/zsh",
-          "args": ["-ic"]
+          "args": [
+            "-ic"
+          ]
         }
       },
       "problemMatcher": [],
@@ -22,11 +27,16 @@
       "label": "Copy active file content",
       "type": "shell",
       "command": "copy-file-pretty",
-      "args": ["-f", "${file}"],
+      "args": [
+        "-f",
+        "${file}"
+      ],
       "options": {
         "shell": {
           "executable": "/bin/zsh",
-          "args": ["-ic"]
+          "args": [
+            "-ic"
+          ]
         }
       },
       "problemMatcher": [],
@@ -39,11 +49,16 @@
       "label": "Purge slop comments",
       "type": "shell",
       "command": "doc-purge",
-      "args": ["--yes", "${file}"],
+      "args": [
+        "--yes",
+        "${file}"
+      ],
       "options": {
         "shell": {
           "executable": "/bin/zsh",
-          "args": ["-ic"]
+          "args": [
+            "-ic"
+          ]
         }
       },
       "problemMatcher": [],

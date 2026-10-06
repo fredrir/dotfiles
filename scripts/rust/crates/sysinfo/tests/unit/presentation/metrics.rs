@@ -4,7 +4,10 @@ use serde_json::{Value, json};
 
 fn snapshot(modules: impl IntoIterator<Item = (&'static str, Value)>) -> Snapshot {
     Snapshot {
-        modules: modules.into_iter().map(|(kind, value)| (kind.into(), value)).collect(),
+        modules: modules
+            .into_iter()
+            .map(|(kind, value)| (kind.into(), value))
+            .collect(),
         ..Snapshot::default()
     }
 }
@@ -32,7 +35,9 @@ fn gauges_report_cpu_gpu_and_memory_loads() {
     ]);
     let rows = gauges(&snapshot);
     assert_eq!(
-        rows.iter().map(|row| row.label.as_str()).collect::<Vec<_>>(),
+        rows.iter()
+            .map(|row| row.label.as_str())
+            .collect::<Vec<_>>(),
         ["CPU", "GPU", "RAM"]
     );
     assert_eq!(rows[0].load, Some(20.0));

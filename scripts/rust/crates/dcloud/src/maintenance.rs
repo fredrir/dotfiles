@@ -76,11 +76,7 @@ pub fn pending_cleanup(config: &Config, state: &State) -> Result<Vec<Value>> {
         .collect())
 }
 
-fn cleanup_inner(
-    config: &Config,
-    state: &mut State,
-    apply: bool,
-) -> Result<Value> {
+fn cleanup_inner(config: &Config, state: &mut State, apply: bool) -> Result<Value> {
     let _lock = state.lock("quarantine-cleanup")?;
     let source_cleanup = if apply {
         let mut result = backups::retry_cleanup(config, state)?;

@@ -51,7 +51,10 @@ pub fn run(style: &Style, dry_run: bool, identity: &str) -> Result<(), String> {
     })?;
 
     if !paths.plist.exists() {
-        return Err(format!("{} not found; run dotfile sync", paths.plist.display()));
+        return Err(format!(
+            "{} not found; run dotfile sync",
+            paths.plist.display()
+        ));
     }
     let domain = format!("gui/{}", nix::unistd::getuid());
     let service = format!("{domain}/{LABEL}");
@@ -148,7 +151,11 @@ fn stamp(app: &Path) -> Option<String> {
 }
 
 fn verified(app: &Path) -> bool {
-    quiet(Command::new("codesign").args(["--verify", "--strict"]).arg(app))
+    quiet(
+        Command::new("codesign")
+            .args(["--verify", "--strict"])
+            .arg(app),
+    )
 }
 
 fn sha256(path: &Path) -> Result<String, String> {

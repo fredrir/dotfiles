@@ -44,7 +44,11 @@ pub fn run(silent: Vec<String>, prompt: Vec<String>) -> Result<(), String> {
         thread::spawn(move || tunnel::supervise(peer, &socket, &tunnel));
     }
 
-    let broker = Arc::new(Mutex::new(Broker::new(policy, GRANT, load_known(&known_path))));
+    let broker = Arc::new(Mutex::new(Broker::new(
+        policy,
+        GRANT,
+        load_known(&known_path),
+    )));
     {
         let broker = Arc::clone(&broker);
         thread::spawn(move || watch(&broker));
@@ -119,7 +123,10 @@ fn watch(broker: &Mutex<Broker>) {
 fn refill(broker: &Mutex<Broker>) -> Result<(usize, usize), String> {
     let mut broker = broker.lock().map_err(|_| POISONED)?;
     let missing = broker.missing();
-    let Some(vault) = missing.first().and_then(|reference| protocol::vault(reference)) else {
+    let Some(vault) = missing
+        .first()
+        .and_then(|reference| protocol::vault(reference))
+    else {
         return Ok((0, 0));
     };
     onepassword::authorize(vault).map_err(|reason| format!("refill skipped: {reason}"))?;

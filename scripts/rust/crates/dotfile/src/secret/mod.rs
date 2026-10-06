@@ -68,7 +68,10 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
         }
         Command::Redact => canaries::stream(context)?,
         Command::Init => {
-            crate::tooling::requirements::ensure(context, &crate::tooling::requirements::SECRET_TOOLS)?;
+            crate::tooling::requirements::ensure(
+                context,
+                &crate::tooling::requirements::SECRET_TOOLS,
+            )?;
             let (host, reference) = identity::this(context)?;
             if identity::exists(context, &reference)? {
                 return Err(format!("{reference} already exists; roll it instead"));
@@ -234,7 +237,9 @@ fn roll_this_machine(
     }
     let current = identity::secret(context, &reference)?;
     if identity::public_key(&current)? != old {
-        return Err(format!("{reference} does not hold the key enrolled as '{label}'"));
+        return Err(format!(
+            "{reference} does not hold the key enrolled as '{label}'"
+        ));
     }
     let staging = tempfile::tempdir().map_err(|e| e.to_string())?;
     let previous = staging.path().join("previous.txt");
@@ -256,15 +261,17 @@ fn roll_this_machine(
         true,
         Some(&Identity::File(fresh)),
     ) {
-        return Err(match identity::store(context, &reference, &host, &current, old) {
-            Ok(()) => {
-                identity::reload(context);
-                format!("{error}; restored the old key in {reference}")
-            }
-            Err(restore) => format!(
-                "{error}; restoring the old key in {reference} failed too ({restore}); recover it from the item's history"
-            ),
-        });
+        return Err(
+            match identity::store(context, &reference, &host, &current, old) {
+                Ok(()) => {
+                    identity::reload(context);
+                    format!("{error}; restored the old key in {reference}")
+                }
+                Err(restore) => format!(
+                    "{error}; restoring the old key in {reference} failed too ({restore}); recover it from the item's history"
+                ),
+            },
+        );
     }
     let shared = identity::append(context, &secret)?;
     println!(

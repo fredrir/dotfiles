@@ -1,5 +1,5 @@
 use crate::formatting::{
-    gpu_memory, is_actionable_filesystem, is_virtual_disk, list, nvidia_for, number, percentage,
+    gpu_memory, is_actionable_filesystem, is_virtual_disk, list, number, nvidia_for, percentage,
     string,
 };
 use crate::model::{DiskGauge, Gauge, Snapshot};
@@ -8,10 +8,14 @@ use std::collections::HashSet;
 
 /// Compact CPU/GPU/RAM metrics for the default `-p` dashboard.
 pub fn gauges(snapshot: &Snapshot) -> Vec<Gauge> {
-    [cpu_gauge(snapshot), gpu_gauge(snapshot), memory_gauge(snapshot)]
-        .into_iter()
-        .flatten()
-        .collect()
+    [
+        cpu_gauge(snapshot),
+        gpu_gauge(snapshot),
+        memory_gauge(snapshot),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn cpu_gauge(snapshot: &Snapshot) -> Option<Gauge> {
@@ -25,7 +29,9 @@ fn cpu_gauge(snapshot: &Snapshot) -> Option<Gauge> {
         .filter(|value| value.is_finite())
         .collect::<Vec<_>>();
     let load = (!loads.is_empty()).then(|| loads.iter().sum::<f64>() / loads.len() as f64);
-    let temperature = cpu["temperature"].as_f64().filter(|value| value.is_finite());
+    let temperature = cpu["temperature"]
+        .as_f64()
+        .filter(|value| value.is_finite());
     Some(Gauge {
         kind: "cpu".into(),
         label: "CPU".into(),

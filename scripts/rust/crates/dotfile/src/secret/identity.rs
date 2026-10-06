@@ -306,7 +306,14 @@ pub fn store(
             .get("id")
             .and_then(Value::as_str)
             .ok_or("1Password item has no id")?;
-        command.args(["item", "edit", id, "--vault", &reference.vault, "--template"]);
+        command.args([
+            "item",
+            "edit",
+            id,
+            "--vault",
+            &reference.vault,
+            "--template",
+        ]);
     }
     command.arg(&path);
     sops::capture(&mut command, MAX_ITEM_BYTES, "op item").map(drop)

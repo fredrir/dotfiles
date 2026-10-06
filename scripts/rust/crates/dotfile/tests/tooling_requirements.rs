@@ -141,7 +141,8 @@ fn a_batch_run_names_the_install_command_without_asking() {
         .env("CI", "1")
         .run();
     assert!(
-        ran.stderr.contains("install with brew install sops 1password-cli"),
+        ran.stderr
+            .contains("install with brew install sops 1password-cli"),
         "{}",
         ran.stderr
     );

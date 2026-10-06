@@ -36,7 +36,8 @@ local function mux(...)
     return stdout
   end
   local message = str.trim(stderr)
-  return nil, message ~= "" and message or ("localmux: unreachable; in %ds; run \nwez-restart"):format(MUX_TIMEOUT_SECONDS)
+  return nil,
+    message ~= "" and message or ("localmux: unreachable; in %ds; run \nwez-restart"):format(MUX_TIMEOUT_SECONDS)
 end
 
 ---@return table?, string?

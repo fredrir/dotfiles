@@ -51,17 +51,17 @@ http://localhost:5173  → 127.0.0.1, [::1]:5173 ┴─ ssh master ─→ localh
 
 ## Config
 
-| Name | Value |
-| --- | --- |
+| Name      | Value                         |
+| --------- | ----------------------------- |
 | Installed | `~/.config/hport/config.toml` |
-| Source | `shared/hport/config.toml` |
-| Reload | restart the daemon |
+| Source    | `shared/hport/config.toml`    |
+| Reload    | restart the daemon            |
 
-| Key | Default |
-| --- | --- |
-| `max_port` | `32767` |
-| `ignore_ports` | `[]` |
-| `ignore_processes` | `[]` |
+| Key                | Default |
+| ------------------ | ------- |
+| `max_port`         | `32767` |
+| `ignore_ports`     | `[]`    |
+| `ignore_processes` | `[]`    |
 
 | Env | Default |
 | --- | --- |
@@ -94,12 +94,12 @@ PORT  PROCESS  ARCHIE              LOCALHOST
 8080  java     http://archie:8080  busy (idea)
 ```
 
-| Cell | Meaning |
-| --- | --- |
-| URL | forwarded |
-| `busy (<process>)` | port held on this machine |
-| `pending` | not attempted yet |
-| `failed` | refused by ssh; retried every 10 s |
+| Cell               | Meaning                            |
+| ------------------ | ---------------------------------- |
+| URL                | forwarded                          |
+| `busy (<process>)` | port held on this machine          |
+| `pending`          | not attempted yet                  |
+| `failed`           | refused by ssh; retried every 10 s |
 
 ## Operations
 

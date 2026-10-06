@@ -1,7 +1,7 @@
 # Rust safety
 
 | Policy | Enforcement |
-|---|---|
+| --- | --- |
 | Workspace default | `unsafe_code = "deny"` |
 | Safe binary, library, and test targets | `#![forbid(unsafe_code)]` |
 | Unsafe operations inside unsafe functions | `unsafe_op_in_unsafe_fn = "deny"` |
@@ -10,7 +10,7 @@
 | Dependency internals | Outside the first-party unsafe count |
 
 | Boundary | Required invariants |
-|---|---|
+| --- | --- |
 | `size/src/bulk.rs` | Owned directory descriptor; exclusive writable batch buffer; borrowed names consumed before reuse |
 | `size/src/bulk_decode.rs` | Safe slices; checked record lengths and offsets; names bounded to their record |
 | `workstation/src/screen.rs` | Static atomic cancellation flags; signal-safe handler; restore dispositions and terminal before reraising |
@@ -29,7 +29,7 @@ SIZE_FUZZ_CASES=1000000 SIZE_FUZZ_SEED=12345 cargo test -p size --test bulk_deco
 ```
 
 | Validation | Scope |
-|---|---|
+| --- | --- |
 | macOS and Linux | Filesystem, process, terminal, environment, and decoder tests |
 | Decoder fuzzing | Seeded mutations of valid records, random bytes, and truncations; portable to Linux |
 | `size` performance | Interleave baseline and changed release binaries against the same tree; compare output and median time |

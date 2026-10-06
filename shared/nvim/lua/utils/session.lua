@@ -204,10 +204,10 @@ function M.restore(payload)
     restore_neo_tree(state.neo_tree, editor_window)
 
     if
-        editor_window
-        and vim.api.nvim_win_is_valid(editor_window)
-        and type(state.editor) == "table"
-        and type(state.editor.view) == "table"
+      editor_window
+      and vim.api.nvim_win_is_valid(editor_window)
+      and type(state.editor) == "table"
+      and type(state.editor.view) == "table"
     then
       vim.api.nvim_win_call(editor_window, function()
         vim.fn.winrestview(state.editor.view)

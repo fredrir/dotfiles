@@ -63,12 +63,12 @@ op read op://Dev/… (macie) ─────────────────
 
 `~/.local/bin/op` on both hosts, ahead of the real `op` in `PATH`.
 
-| Call | Goes to |
-| --- | --- |
-| `op read [-n] op://Dev/…`, bridge up | the daemon |
-| `Secure` declined or failed | error, exit 1 |
+| Call                                   | Goes to                         |
+| -------------------------------------- | ------------------------------- |
+| `op read [-n] op://Dev/…`, bridge up   | the daemon                      |
+| `Secure` declined or failed            | error, exit 1                   |
 | `op` failed on macie, vault not served | the real `op`, reason on stderr |
-| bridge down, any other command | the real `op` |
+| bridge down, any other command         | the real `op`                   |
 
 | Env | Default |
 | --- | --- |
@@ -119,8 +119,8 @@ $ op-bridge setup
 
 ## Operations
 
-| Name | Value |
-| --- | --- |
-| Restart | `launchctl kickstart -k gui/$(id -u)/com.fredrir.op-bridge` |
-| Log | `~/Library/Logs/op-bridge.log` |
-| Bridge up | `test -S "$XDG_RUNTIME_DIR/op-bridge.sock"` on archie |
+| Name      | Value                                                       |
+| --------- | ----------------------------------------------------------- |
+| Restart   | `launchctl kickstart -k gui/$(id -u)/com.fredrir.op-bridge` |
+| Log       | `~/Library/Logs/op-bridge.log`                              |
+| Bridge up | `test -S "$XDG_RUNTIME_DIR/op-bridge.sock"` on archie       |

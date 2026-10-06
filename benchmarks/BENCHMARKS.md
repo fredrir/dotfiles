@@ -70,7 +70,6 @@ Baseline: `2026-08-13T11-34-32Z-10db7d1f`
 | `workload.nvim_startup` | ms     | 23.0    | 1    | 23.0    |
 | `workload.tar_repo`     | ms     | 0.77    | 1    | 0.77    |
 
-
 ## `macie`
 
 3 clean runs  |  macos
@@ -98,4 +97,3 @@ Apple M5 Pro, 24 GB
 | `workload.git_status`   | ms     | 24.6    | 1    | 24.6    |
 | `workload.nvim_startup` | ms     | 42.8    | 1    | 42.8    |
 | `workload.tar_repo`     | ms     | 77.9    | 1    | 77.9    |
-

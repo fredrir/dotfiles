@@ -535,10 +535,18 @@ fn key_command_replaces_every_other_age_identity_source() {
     command
         .env("SOPS_AGE_KEY", "AGE-SECRET-KEY-1FIXTURE")
         .env("SOPS_AGE_KEY_FILE", "/tmp/keys.txt");
-    with_key_command(&mut command, "env -u XDG_CONFIG_HOME op read op://Secure/X/password");
+    with_key_command(
+        &mut command,
+        "env -u XDG_CONFIG_HOME op read op://Secure/X/password",
+    );
     let envs: std::collections::BTreeMap<_, _> = command
         .get_envs()
-        .map(|(name, value)| (name.to_string_lossy().into_owned(), value.map(|v| v.to_string_lossy().into_owned())))
+        .map(|(name, value)| {
+            (
+                name.to_string_lossy().into_owned(),
+                value.map(|v| v.to_string_lossy().into_owned()),
+            )
+        })
         .collect();
     assert_eq!(
         envs["SOPS_AGE_KEY_CMD"].as_deref(),

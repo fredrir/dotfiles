@@ -1,7 +1,7 @@
 # Shared terminal UI
 
 | Directory | Package | Owns |
-|---|---|---|
+| --- | --- | --- |
 | [theme](theme/) | `ui-theme` | Semantic palette, color policy, runtime loading, live reload |
 | [terminal](terminal/) | `ui-terminal` | Inline/alternate sessions, signals, resize, safe text, capability policy |
 | [widgets](widgets/) | `ui-widgets` | Styled lines, hints, choices, viewport, prompt editing, cached search |
@@ -13,15 +13,15 @@
 | [diff-view](diff-view/) | `ui-diff-view` | Bounded text comparison, line/hunk navigation, unified/split views |
 | [gallery](gallery/) | `ui-gallery` | Interactive component gallery and rendered theme previews |
 
-| Boundary | Owner |
-|---|---|
-| Terminal lifecycle | `ui-terminal` |
-| Batch listing and confirmation | `ui-batch` |
-| Theme generation and contrast resolution | `dotfile::theme` |
-| Runtime palette contract | `ui-theme` |
-| Git operations and merge decisions | Consumer |
-| File/remote identity and transport | Consumer/source adapter |
-| CLI convenience imports | `workstation` reexports |
+| Boundary                                 | Owner                   |
+| ---------------------------------------- | ----------------------- |
+| Terminal lifecycle                       | `ui-terminal`           |
+| Batch listing and confirmation           | `ui-batch`              |
+| Theme generation and contrast resolution | `dotfile::theme`        |
+| Runtime palette contract                 | `ui-theme`              |
+| Git operations and merge decisions       | Consumer                |
+| File/remote identity and transport       | Consumer/source adapter |
+| CLI convenience imports                  | `workstation` reexports |
 
 ## Commands
 
@@ -35,7 +35,7 @@ dotfile dev check -p ui-theme,ui-terminal,ui-widgets,ui-picker,ui-file-explorer,
 ```
 
 | Theme input | Priority |
-|---|---|
+| --- | --- |
 | `DOTFILE_UI_THEME` | Explicit palette file; authoritative |
 | `DOTFILE_ROOT/shared/ui/theme.json` | Explicit repository root |
 | `${XDG_CONFIG_HOME:-$HOME/.config}/dotfile/ui/theme.json` | Installed palette |
@@ -45,7 +45,7 @@ dotfile dev check -p ui-theme,ui-terminal,ui-widgets,ui-picker,ui-file-explorer,
 Explicit palette paths do not fall through to another file. Live sessions keep the last valid palette if reload fails. `ThemeHandle::source()` and `error()` expose resolution. Reload checks run at most once per second; renderers receive immutable palettes.
 
 | Policy | Behavior |
-|---|---|
+| --- | --- |
 | `NO_COLOR`, `CLICOLOR=0`, `TERM=dumb` | Plain presentation in automatic mode |
 | `PREFERS_REDUCED_MOTION`, `REDUCE_MOTION`, `REDUCED_MOTION`, consumer-specific flag | Static activity presentation |
 | Redirected output / CI | Plain command output; explicit terminal adapters retain their own stream policy |
@@ -75,15 +75,15 @@ match result {
 }
 ```
 
-| Picker key | Action |
-|---|---|
-| `↑` / `↓`, `j` / `k` | Move focus |
-| `/` or typing | Search |
-| `Space` / `Tab` | Toggle focused item in multiple mode |
-| `*` | Toggle all matching enabled items |
-| `Enter` | Accept |
-| `Esc` | Leave search or cancel |
-| `?` | Contextual help |
+| Picker key           | Action                               |
+| -------------------- | ------------------------------------ |
+| `↑` / `↓`, `j` / `k` | Move focus                           |
+| `/` or typing        | Search                               |
+| `Space` / `Tab`      | Toggle focused item in multiple mode |
+| `*`                  | Toggle all matching enabled items    |
+| `Enter`              | Accept                               |
+| `Esc`                | Leave search or cancel               |
+| `?`                  | Contextual help                      |
 
 Native pickers and explorers use `ui_terminal::Surface` and `ScriptedSurface`.
 
@@ -91,19 +91,19 @@ Selections survive filtering; disabled items remain inspectable. Search input ha
 
 ## Comparison
 
-| Key | Action |
-|---|---|
-| `j` / `k`, Page Up / Down | Scroll |
-| `[` / `]` | Previous/next changed block |
-| `h` / `l` | Horizontal scroll in the standalone viewer |
-| `v` | Unified / side-by-side |
+| Key                       | Action                                     |
+| ------------------------- | ------------------------------------------ |
+| `j` / `k`, Page Up / Down | Scroll                                     |
+| `[` / `]`                 | Previous/next changed block                |
+| `h` / `l`                 | Horizontal scroll in the standalone viewer |
+| `v`                       | Unified / side-by-side                     |
 
 Dotfile merge prompts retain their decision shortcuts; diff navigation uses `j/k`, paging, brackets, and `v`. Narrow layouts display unified text. Binary inputs and bounded previews are labeled; the source values and merge operations stay with the caller.
 
 ## Verification
 
 | Coverage | Cases |
-|---|---|
+| --- | --- |
 | State | Filtered selection, disabled rows, empty results, cascade backtracking |
 | Rendering | Unicode cell widths, controls, narrow/empty viewports, theme roles |
 | Terminal | Resize, cancellation, signals, raw mode and cursor restoration |
@@ -112,7 +112,7 @@ Dotfile merge prompts retain their decision shortcuts; diff navigation uses `j/k
 | Consumers | Existing CLI output, completions, remote paths, merge choice protocol |
 
 | Performance boundary | Mechanism |
-|---|---|
+| --- | --- |
 | Filtering | Normalize once per source update; reuse indexed search text |
 | Selection count | Incremental checked-item count |
 | Remote browsing | Bounded worker queues; generation checks; cooperative cancellation |

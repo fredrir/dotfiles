@@ -25,7 +25,11 @@ fn control_characters_and_oversized_references_are_refused() {
 #[test]
 fn a_value_survives_a_round_trip_over_a_socket_pair() {
     let (left, right) = UnixStream::pair().unwrap();
-    send(&left, &Response::Value(Zeroizing::new("s3cret".to_string()))).unwrap();
+    send(
+        &left,
+        &Response::Value(Zeroizing::new("s3cret".to_string())),
+    )
+    .unwrap();
     match receive::<Response>(&right).unwrap() {
         Response::Value(value) => assert_eq!(value.as_str(), "s3cret"),
         other => panic!("{other:?}"),
@@ -50,5 +54,8 @@ fn a_connection_closed_mid_message_is_an_error() {
 fn a_read_keeps_the_wire_format_older_clients_send() {
     let text = serde_json::to_string(&Request::Read("op://Dev/pi/credential".to_string())).unwrap();
     assert_eq!(text, r#"{"read":"op://Dev/pi/credential"}"#);
-    assert_eq!(serde_json::to_string(&Request::Reload).unwrap(), r#""reload""#);
+    assert_eq!(
+        serde_json::to_string(&Request::Reload).unwrap(),
+        r#""reload""#
+    );
 }

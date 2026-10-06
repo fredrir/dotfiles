@@ -127,7 +127,10 @@ fn a_prompted_reference_is_sent_without_asking_again_within_the_grant() {
     broker.resolve(SECURE, start, sign_out, |_| secret());
     let later = start + GRANT - Duration::from_secs(1);
     let refetch = |_: &str| Err("should not fetch".to_string());
-    assert_eq!(value(broker.resolve(SECURE, later, sign_out, refetch)), "s3cret");
+    assert_eq!(
+        value(broker.resolve(SECURE, later, sign_out, refetch)),
+        "s3cret"
+    );
     broker.resolve(SECURE, start + GRANT, sign_out, |_| secret());
     assert_eq!(prompts.get(), 2);
 }
@@ -145,7 +148,10 @@ fn a_sleep_ends_a_grant_early() {
     broker.forget();
     broker.resolve(SECURE, now, sign_out, |_| secret());
     assert_eq!(prompts.get(), 2);
-    assert!(broker.missing().is_empty(), "prompted vaults are never refilled");
+    assert!(
+        broker.missing().is_empty(),
+        "prompted vaults are never refilled"
+    );
 }
 
 #[test]
@@ -184,11 +190,8 @@ fn a_failed_fetch_is_refused_so_the_caller_falls_back_and_nothing_is_kept() {
 #[test]
 fn an_unlisted_vault_is_refused_before_any_prompt_or_fetch() {
     let mut broker = broker();
-    let response = broker.resolve(
-        "op://Personal/bank/password",
-        Instant::now(),
-        never,
-        |_| panic!("fetched an unlisted vault"),
-    );
+    let response = broker.resolve("op://Personal/bank/password", Instant::now(), never, |_| {
+        panic!("fetched an unlisted vault")
+    });
     assert!(matches!(response, Response::Refused(_)), "{response:?}");
 }

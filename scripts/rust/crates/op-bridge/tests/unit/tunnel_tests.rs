@@ -42,7 +42,10 @@ fn the_tunnel_never_rides_a_shared_control_master() {
 #[test]
 fn the_prepare_script_prints_the_runtime_socket() {
     let script = prepare_script();
-    assert!(script.contains("${XDG_RUNTIME_DIR:?}/op-bridge.sock"), "{script}");
+    assert!(
+        script.contains("${XDG_RUNTIME_DIR:?}/op-bridge.sock"),
+        "{script}"
+    );
     assert!(script.contains("rm -f --"), "{script}");
 }
 

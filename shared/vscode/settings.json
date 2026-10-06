@@ -309,11 +309,30 @@
   "chat.planAgent.defaultModel": "DeepSeek V4.1 Flash (deepseek)",
   "editor.formatOnSave": true,
   "chat.viewSessions.orientation": "stacked",
+  "litellm-vscode-chat.servers": [
+    {
+      "label": "fredrir",
+      "baseUrl": "https://llm.fredrir.com"
+    }
+  ],
   "[shellscript]": {
     "editor.defaultFormatter": "fredrir.shucked"
   },
   "shucked.unsafeFixes.enable": true,
   "shucked.environment.policy": "login-shell",
   "shucked.server.completion.maxItems": 1000,
-  "markdown.extension.tableFormatter.enabled": false
+  "markdown.extension.tableFormatter.enabled": false,
+  "litellm-vscode-chat.inlineCompletions.enabled": false,
+  "litellm-vscode-chat.inlineCompletions.model": {
+    "server": "fredrir",
+    "model": "ntnu/zai-org/GLM-5.3-Flash"
+  },
+  "litellm-vscode-chat.inlineCompletions.languageFilter": {
+    "mode": "block",
+    "languages": [
+      "markdown",
+      "json"
+    ]
+  },
+  "litellm-vscode-chat.commitGeneration.enabled": false
 }

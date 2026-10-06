@@ -40,7 +40,11 @@ fn connect(peer: Host, local: &Path, pid: &AtomicU32) -> Result<(), String> {
         .spawn()
         .map_err(hostkit::ssh::command_error)?;
     pid.store(child.id(), Ordering::SeqCst);
-    eprintln!("op-bridge: {}: forwarding {}", peer.name(), remote.display());
+    eprintln!(
+        "op-bridge: {}: forwarding {}",
+        peer.name(),
+        remote.display()
+    );
     let status = child.wait();
     pid.store(0, Ordering::SeqCst);
     match status {
@@ -81,10 +85,14 @@ pub fn remote_socket(stdout: &[u8]) -> Result<PathBuf, String> {
 pub fn tunnel_args(peer: Host, remote: &Path, local: &Path) -> Vec<OsString> {
     let mut args = ["-N", "-T"].map(OsString::from).to_vec();
     // Our own connection, so the broker can tell tunnel traffic by its pid
-    for option in ["ExitOnForwardFailure=yes", "ControlMaster=no", "ControlPath=none"]
-        .into_iter()
-        .chain(hostkit::ssh::BATCH_OPTIONS)
-        .chain(hostkit::ssh::OPTIONS)
+    for option in [
+        "ExitOnForwardFailure=yes",
+        "ControlMaster=no",
+        "ControlPath=none",
+    ]
+    .into_iter()
+    .chain(hostkit::ssh::BATCH_OPTIONS)
+    .chain(hostkit::ssh::OPTIONS)
     {
         args.extend([OsString::from("-o"), OsString::from(option)]);
     }

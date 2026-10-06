@@ -54,17 +54,17 @@ Without `--to`, `--from`, or `--yes`, the remote filesystem opens in an inline b
 
 ### Navigation Keys
 
-| Key                  | Action                                                                    |
-| -------------------- | ------------------------------------------------------------------------- |
-| Arrow keys, `j`, `k` | Move                                                                      |
-| Right, Tab, `l`      | Open a directory                                                          |
-| Left, `h`            | Return to parent directory                                                |
-| Page Up, Page Down   | Move through listings                                                     |
-| Home, End            | Jump to start/end of listings                                             |
-| `g`, `G`             | Move through longer listings                                              |
-| `/`                  | Start case-insensitive filtering or accept path beginning with `/` or `~` |
-| `r`                  | Refresh the open directory                                                |
-| `?`                  | Show complete key guide                                                   |
-| Enter                | Accept the selection                                                      |
-| Escape, `q`          | Cancel                                                                    |
-| Ctrl-C               | Interrupt                                                                 |
+| Key | Action |
+| --- | --- |
+| Arrow keys, `j`, `k` | Move |
+| Right, Tab, `l` | Open a directory |
+| Left, `h` | Return to parent directory |
+| Page Up, Page Down | Move through listings |
+| Home, End | Jump to start/end of listings |
+| `g`, `G` | Move through longer listings |
+| `/` | Start case-insensitive filtering or accept path beginning with `/` or `~` |
+| `r` | Refresh the open directory |
+| `?` | Show complete key guide |
+| Enter | Accept the selection |
+| Escape, `q` | Cancel |
+| Ctrl-C | Interrupt |

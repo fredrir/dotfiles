@@ -122,10 +122,7 @@ fn install(context: &Context, manager: &Manager, packages: &[&str]) -> Result<()
     Ok(())
 }
 
-fn packages_for<'a>(
-    manager: &Manager,
-    missing: &[&'a str],
-) -> (Vec<&'static str>, Vec<&'a str>) {
+fn packages_for<'a>(manager: &Manager, missing: &[&'a str]) -> (Vec<&'static str>, Vec<&'a str>) {
     let mut packages = Vec::new();
     let mut unavailable = Vec::new();
     for tool in missing {
