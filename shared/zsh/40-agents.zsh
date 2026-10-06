@@ -1,3 +1,8 @@
+if [ -n "$ARCHLINUX" ]; then
+  export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+  export CHROMIUM_PATH=/usr/bin/chromium
+fi
+
 # Wrapper for coding agents
 _run_agent() {
   command env \
