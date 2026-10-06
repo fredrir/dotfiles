@@ -430,7 +430,7 @@ fn a_file_named_outright_is_the_only_file_the_run_touches() {
 
 #[test]
 fn a_tree_holding_nothing_any_provider_owns_succeeds_and_runs_nothing() {
-    let root = tree(&["README.md=hello\n", "LICENSE=text\n"]);
+    let root = tree(&["notes.txt=hello\n", "LICENSE=text\n"]);
     let bin = only(&["ruff"]);
     let logged = root.path().join("log");
     let output = format(
@@ -444,6 +444,40 @@ fn a_tree_holding_nothing_any_provider_owns_succeeds_and_runs_nothing() {
     assert!(output.status.success());
     assert!(stderr(&output).contains("nothing to format"));
     assert!(log(&logged).is_empty());
+}
+
+#[test]
+fn markdown_is_handed_to_mdfmt_for_writing_and_checking() {
+    let root = tree(&["README.md=# Title\nbody\n", "sub/notes.markdown=text\n"]);
+    let bin = only(&["mdfmt"]);
+    let logged = root.path().join("log");
+    for checking in [false, true] {
+        let target = at(&root, "");
+        let args = if checking {
+            vec!["--check", target.as_str()]
+        } else {
+            vec![target.as_str()]
+        };
+        let output = format(
+            &args,
+            "",
+            &[
+                ("PATH", &bin.path().display().to_string()),
+                ("DFF_LOG", &logged.display().to_string()),
+            ],
+        );
+        assert!(output.status.success(), "{}", stderr(&output));
+    }
+    let lines = log(&logged);
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(
+        lines[0].ends_with("|README.md sub/notes.markdown"),
+        "{lines:?}"
+    );
+    assert!(
+        lines[1].ends_with("|--check README.md sub/notes.markdown"),
+        "{lines:?}"
+    );
 }
 
 #[test]

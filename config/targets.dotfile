@@ -26,6 +26,7 @@ shared/tools/.taplo.toml = ~/.config/taplo/taplo.toml
 shared/tools/.yamllint.yaml = ~/.config/yamllint/config
 shared/tools/biome.global.json = ~/biome.json
 shared/tools/dotfmt.dotfile = ~/.config/dotfmt/dotfmt.dotfile
+shared/tools/mdfmt.dotfile = ~/.config/mdfmt/mdfmt.dotfile
 shared/tools/ruff.toml = ~/.config/ruff/ruff.toml
 shared/tools/rustfmt.toml = ~/.config/rustfmt/rustfmt.toml
 shared/tools/shucked.toml = ~/.config/shucked/shucked.toml

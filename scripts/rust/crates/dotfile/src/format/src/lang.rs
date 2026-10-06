@@ -13,9 +13,10 @@ pub enum Lang {
     Shell,
     Go,
     Json,
+    Markdown,
 }
 
-pub const LANGS: [Lang; 11] = [
+pub const LANGS: [Lang; 12] = [
     Lang::Dotfmt,
     Lang::Python,
     Lang::Web,
@@ -27,6 +28,7 @@ pub const LANGS: [Lang; 11] = [
     Lang::Shell,
     Lang::Go,
     Lang::Json,
+    Lang::Markdown,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -109,6 +111,7 @@ impl Lang {
             Lang::Shell => "shell",
             Lang::Go => "go",
             Lang::Json => "json",
+            Lang::Markdown => "markdown",
         }
     }
 
@@ -127,6 +130,7 @@ impl Lang {
             Lang::Shell => &["sh", "bash", "zsh"],
             Lang::Go => &["go"],
             Lang::Json => &["json"],
+            Lang::Markdown => &["md", "markdown", "mdown", "mkd"],
         }
     }
 
@@ -161,6 +165,9 @@ impl Lang {
             (Lang::Web, Mode::Check) => {
                 vec![on_files("biome", &["format"]), on_files("biome", &["lint"])]
             }
+
+            (Lang::Markdown, Mode::Write) => vec![on_files("mdfmt", &[])],
+            (Lang::Markdown, Mode::Check) => vec![on_files("mdfmt", &["--check"])],
 
             (Lang::Json, Mode::Write) => vec![on_files("jqfmt", &[])],
             // `jqfmt --check` reads the file and writes nothing, which is what
@@ -218,6 +225,7 @@ impl Lang {
     pub fn config(self) -> Option<(&'static str, &'static str)> {
         match self {
             Lang::Dotfmt => Some(("dotfmt.dotfile", "dotfmt.dotfile")),
+            Lang::Markdown => Some(("mdfmt.dotfile", "mdfmt.dotfile")),
             Lang::Json => Some(("jqfmt.dotfile", "jqfmt.dotfile")),
             Lang::Python => Some(("ruff.toml", "ruff.toml")),
             Lang::Web => Some(("biome.global.json", "biome.json")),
@@ -287,6 +295,7 @@ pub fn configured(program: &str) -> Option<Configured> {
         // that made this crate ask `--owns` rather than guess — so naming one
         // config for a whole run would override it everywhere.
         "dotfmt" => Configured::Found("resolves per file and owns that rule"),
+        "mdfmt" => Configured::Found("resolves per file, from mdfmt.dotfile upward"),
         "jqfmt" => {
             Configured::Found("resolves per file and owns that rule, from jqfmt.dotfile upward")
         }

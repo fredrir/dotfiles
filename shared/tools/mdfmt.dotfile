@@ -1,0 +1,7 @@
+mdfmt {
+  width                = 80
+  table_style          = auto
+  heading_blank_lines  = 1
+  list_marker          = -
+  final_newline        = false
+}

@@ -60,7 +60,7 @@ fn every_extension_belongs_to_exactly_one_language() {
         Lang::of(Path::new("config/targets.dotfile")),
         Some(Lang::Dotfmt)
     );
-    assert_eq!(Lang::of(Path::new("README.md")), None);
+    assert_eq!(Lang::of(Path::new("README.md")), Some(Lang::Markdown));
     assert_eq!(Lang::of(Path::new(".editorconfig")), None);
 }
 
@@ -466,8 +466,9 @@ fn sorting_never_builds_the_dotfmt_row() {
         "c.py".into(),
         "notes.md".into(),
     ]);
-    assert_eq!(work.len(), 1);
+    assert_eq!(work.len(), 2);
     assert_eq!(work[0].0, Lang::Python);
+    assert_eq!(work[1].0, Lang::Markdown);
 }
 
 #[test]
@@ -727,7 +728,7 @@ fn every_config_the_table_names_has_a_copy_compiled_in() {
         let text = configs::read(&Source::Embedded, from).unwrap();
         assert!(!text.is_empty(), "{from} is compiled in empty");
     }
-    assert_eq!(configs::EMBEDDED.len(), 10);
+    assert_eq!(configs::EMBEDDED.len(), 11);
 }
 
 #[test]
@@ -1042,7 +1043,7 @@ fn every_injection_is_for_a_program_the_table_runs() {
             injection.program
         );
     }
-    assert_eq!(programs.len(), 13);
+    assert_eq!(programs.len(), 14);
 }
 
 // ---------------------------------------------------------------- the report
