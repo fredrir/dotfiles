@@ -10,43 +10,43 @@ use crate::lang::{LANGS, Lang};
 pub const EMBEDDED: [(&str, &str); 10] = [
     (
         "dotfmt.dotfile",
-        include_str!("../../../../../shared/tools/dotfmt.dotfile"),
+        include_str!("../../../../../../../shared/tools/dotfmt.dotfile"),
     ),
     (
         "jqfmt.dotfile",
-        include_str!("../../../../../shared/tools/jqfmt.dotfile"),
+        include_str!("../../../../../../../shared/tools/jqfmt.dotfile"),
     ),
     (
         "ruff.toml",
-        include_str!("../../../../../shared/tools/ruff.toml"),
+        include_str!("../../../../../../../shared/tools/ruff.toml"),
     ),
     (
         "biome.global.json",
-        include_str!("../../../../../shared/tools/biome.global.json"),
+        include_str!("../../../../../../../shared/tools/biome.global.json"),
     ),
     (
         "stylua.toml",
-        include_str!("../../../../../shared/tools/stylua.toml"),
+        include_str!("../../../../../../../shared/tools/stylua.toml"),
     ),
     (
         "rustfmt.toml",
-        include_str!("../../../../../shared/tools/rustfmt.toml"),
+        include_str!("../../../../../../../shared/tools/rustfmt.toml"),
     ),
     (
         ".taplo.toml",
-        include_str!("../../../../../shared/tools/.taplo.toml"),
+        include_str!("../../../../../../../shared/tools/.taplo.toml"),
     ),
     (
         ".yamllint.yaml",
-        include_str!("../../../../../shared/tools/.yamllint.yaml"),
+        include_str!("../../../../../../../shared/tools/.yamllint.yaml"),
     ),
     (
         ".sqlfluff",
-        include_str!("../../../../../shared/tools/.sqlfluff"),
+        include_str!("../../../../../../../shared/tools/.sqlfluff"),
     ),
     (
         "shucked.toml",
-        include_str!("../../../../../shared/tools/shucked.toml"),
+        include_str!("../../../../../../../shared/tools/shucked.toml"),
     ),
 ];
 

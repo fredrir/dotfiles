@@ -17,8 +17,7 @@
 | `hostkit/src/process.rs` | Child-only, signal-safe `setsid` before exec |
 | `testkit/src/pty.rs` | Child-only session and controlling-terminal setup before exec |
 | `sysinfo/src/collect/macos.rs` | Native handle ownership and typed FFI contracts; matching release for owned references |
-| `agent-hop/src/handoff/mod.rs` | Lease stays locked until every inherited descriptor closes |
-| `flatten/src/dir.rs`, `agent-hop/src/handoff/snapshot.rs` | Descriptor-relative operations; retain no-follow and directory checks |
+| `flatten/src/dir.rs` | Descriptor-relative operations; retain no-follow and directory checks |
 
 Run from `scripts/rust`:
 

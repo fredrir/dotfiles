@@ -160,7 +160,7 @@ fn malformed_managed_blocks_preserve_authored_content_and_other_outputs() {
 #[test]
 fn missing_native_metadata_fails_check_without_launching_interpreters() {
     let repo = Repository::new();
-    fs::create_dir_all(repo.root.join("scripts/rust/crates/count")).unwrap();
+    fs::create_dir_all(repo.root.join("scripts/rust/crates/utility/count")).unwrap();
     repo.put("docs/cli/count.md", "retained\n");
     let result = repo.run(&["docs", "--only", "cli", "--check"]);
     assert_eq!(result.status.code(), Some(1));

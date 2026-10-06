@@ -1180,7 +1180,7 @@ fn with_no_checkout_to_be_found_the_copies_in_the_binary_are_the_source() {
         stderr(&output)
     );
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../shared/tools/ruff.toml")
+        .join("../../../../../../shared/tools/ruff.toml")
         .canonicalize()
         .unwrap();
     assert_eq!(

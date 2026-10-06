@@ -153,7 +153,7 @@ fn a_session_without_a_script_is_a_plain_connection() {
 
 #[test]
 fn a_batch_session_cannot_prompt_and_gives_up_on_a_dead_link() {
-    let arguments = strings(&Session::new("archie").batch().script("exec agent-hop"));
+    let arguments = strings(&Session::new("archie").batch().script("exec true"));
     assert_eq!(arguments[0], "-T");
     for option in [
         "ConnectTimeout=8",
@@ -167,7 +167,7 @@ fn a_batch_session_cannot_prompt_and_gives_up_on_a_dead_link() {
     }
     assert_eq!(
         arguments[arguments.len() - 3..],
-        ["--", "archie", "exec agent-hop"]
+        ["--", "archie", "exec true"]
     );
 }
 

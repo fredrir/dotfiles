@@ -1,20 +1,12 @@
 {
   "pages": [
     {
-      "name": "agent-hop",
-      "title": "agent-hop",
-      "programs": [
-        "agent-hop"
-      ],
-      "source": "scripts/rust/crates/agent-hop/"
-    },
-    {
       "name": "count",
       "title": "count",
       "programs": [
         "count"
       ],
-      "source": "scripts/rust/crates/count/"
+      "source": "scripts/rust/crates/utility/count/"
     },
     {
       "name": "doc-purge",
@@ -22,7 +14,7 @@
       "programs": [
         "doc-purge"
       ],
-      "source": "scripts/rust/crates/utils/doc-purge/"
+      "source": "scripts/rust/crates/utility/doc-purge/"
     },
     {
       "name": "dotfile",
@@ -38,7 +30,7 @@
       "programs": [
         "dotfile-format"
       ],
-      "source": "scripts/rust/crates/dotfile-format/"
+      "source": "scripts/rust/crates/dotfile/src/format/"
     },
     {
       "name": "dotfmt",
@@ -46,7 +38,7 @@
       "programs": [
         "dotfmt"
       ],
-      "source": "scripts/rust/crates/dotfmt/"
+      "source": "scripts/rust/crates/format/dotfmt/"
     },
     {
       "name": "flatten",
@@ -54,7 +46,7 @@
       "programs": [
         "flatten"
       ],
-      "source": "scripts/rust/crates/flatten/"
+      "source": "scripts/rust/crates/utility/flatten/"
     },
     {
       "name": "git",
@@ -129,7 +121,7 @@
       "programs": [
         "path"
       ],
-      "source": "scripts/rust/crates/path/"
+      "source": "scripts/rust/crates/utility/path/"
     },
     {
       "name": "rm-emptydirs",
@@ -137,7 +129,7 @@
       "programs": [
         "rm-emptydirs"
       ],
-      "source": "scripts/rust/crates/utils/rm-emptydirs/"
+      "source": "scripts/rust/crates/utility/rm-emptydirs/"
     },
     {
       "name": "size",
@@ -145,7 +137,7 @@
       "programs": [
         "size"
       ],
-      "source": "scripts/rust/crates/size/"
+      "source": "scripts/rust/crates/utility/size/"
     },
     {
       "name": "sysinfo",
@@ -173,7 +165,6 @@
     }
   ],
   "native": [
-    "agent-hop",
     "count",
     "doc-purge",
     "dotfile-format",
@@ -203,7 +194,6 @@
     "--version": "Prints the version and exits."
   },
   "commands": {
-    "agent-hop": "Moves a Codex or Claude Code CLI session between the two workstations.",
     "count": "Counts items inside a directory.",
     "doc-purge": "Purges comments, doc strings and typographic glyphs from source files.",
     "dotfile": "Manages this repository's symlinks, packages, themes, secrets, and system files.",
@@ -321,12 +311,6 @@
     "zcomp warm": "Starts background rebuilds for missing or stale caches; run at shell start."
   },
   "flags": {
-    "agent-hop": {
-      "--dry-run": "Reports what would be copied and started without changing either machine.",
-      "--no-connect": "Copies the session without opening it on the other workstation.",
-      "--color": "Chooses `auto`, `always`, or `never` color output.",
-      "--list": "Prints the local and remote sessions as tab-separated rows instead of opening the picker."
-    },
     "count": {
       "--recursive": "Counts every entry below the directory instead of only its direct children.",
       "--no-hidden": "Excludes hidden entries and everything inside hidden directories."
