@@ -2,15 +2,15 @@ local M = {}
 
 M.taps = {}
 
----@param mod string
+---@param mods string[]
 ---@param key string
 ---@param action fun()
 ---@return hs.eventtap
-function M.createKeybind(mod, key, action)
+function M.createKeybind(mods, key, action)
     local tap = hs.eventtap.new(
         { hs.eventtap.event.types.keyDown },
         function(event)
-            if event:getFlags():containExactly({ mod })
+            if event:getFlags():containExactly(mods)
                 and event:getKeyCode() == hs.keycodes.map[key] then
                 action()
                 return true
@@ -26,12 +26,12 @@ function M.createKeybind(mod, key, action)
     return tap
 end
 
----@param mod string
+---@param mods string[]
 ---@param key string
 ---@param application string
 ---@return hs.eventtap
-function M.openApp(mod, key, application)
-    return M.createKeybind(mod, key, function()
+function M.openApp(mods, key, application)
+    return M.createKeybind(mods, key, function()
         hs.application.launchOrFocus("/Applications/" .. application .. ".app")
     end)
 end
