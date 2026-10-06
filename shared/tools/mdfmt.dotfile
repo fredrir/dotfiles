@@ -13,5 +13,6 @@ whitelist {
 }
 
 blacklist {
-  # Example: generated/
+  AGENTS.md
+  CLAUDE.md
 }
