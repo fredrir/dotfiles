@@ -33,6 +33,69 @@ fn headings_have_one_blank_line_and_the_file_has_no_final_newline() {
 }
 
 #[test]
+fn trailing_blank_lines_are_trimmed_without_stripping_content_line_spaces() {
+    for final_newline in [false, true] {
+        let config = Config {
+            final_newline,
+            ..Config::default()
+        };
+        for body in ["1. abc\n2. efghij some text", "# Heading", "text  "] {
+            let expected = format!("{body}{}", if final_newline { "\n" } else { "" });
+            for suffix in ["\n\n\n", "\n \n\t\n", "\n\t  ", "\r\n \r\n\t\r\n"] {
+                assert_eq!(formatted(&format!("{body}{suffix}"), &config), expected);
+            }
+        }
+        for input in ["", "\n\n", " \n\t\n", "  \t"] {
+            assert_eq!(formatted(input, &config), "");
+        }
+    }
+}
+
+#[test]
+fn trailing_blank_lines_can_be_preserved_across_repeated_formatting() {
+    for final_newline in [false, true] {
+        let config = Config {
+            trim_trailing_blank_lines: false,
+            final_newline,
+            ..Config::default()
+        };
+        for body in ["1. abc\n2. efghij some text", "# Heading", "text  ", ""] {
+            for suffix in ["\n\n", "\n \n\t\n", "\n\t  "] {
+                let input = format!("{body}{suffix}");
+                let mut expected = input.clone();
+                if final_newline && !expected.ends_with('\n') {
+                    expected.push('\n');
+                }
+                assert_eq!(formatted(&input, &config), expected);
+            }
+        }
+        assert_eq!(formatted("", &config), "");
+        assert_eq!(
+            formatted("text\n", &config),
+            if final_newline { "text\n" } else { "text" }
+        );
+    }
+}
+
+#[test]
+fn trailing_blank_line_trimming_preserves_blank_lines_inside_code() {
+    for trim_trailing_blank_lines in [false, true] {
+        let config = Config {
+            trim_trailing_blank_lines,
+            ..Config::default()
+        };
+        for input in ["```\ncode\n \n\t\n```", "```\ncode\n \n\t\n"] {
+            let output = formatted(input, &config);
+            assert_eq!(
+                comrak::markdown_to_html(input, &options(&config)),
+                comrak::markdown_to_html(&output, &options(&config))
+            );
+            assert!(output.contains("code\n \n\t\n```"), "{output}");
+        }
+    }
+}
+
+#[test]
 fn short_tables_align_and_wide_tables_drop_padding_without_losing_content() {
     let input = "| Name | Value |\n| --- | --- |\n| long name | x |\n| a | long value |";
     assert_eq!(

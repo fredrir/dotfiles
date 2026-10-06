@@ -20,16 +20,18 @@ cat README.md | mdfmt
 | `table_style` | `auto` | `auto`, `aligned`, `compact` |
 | `heading_blank_lines` | `1` | `0`–`3` |
 | `list_marker` | `-` | `-`, `*`, `+` |
+| `trim_trailing_blank_lines` | `true` | `true`, `false`; remove empty or space/tab-only lines at EOF |
 | `final_newline` | `false` | `true`, `false` |
 
 ```text
 mdfmt {
-  dialect              = auto
-  width                = 80
-  table_style          = auto
-  heading_blank_lines  = 1
-  list_marker          = -
-  final_newline        = false
+  dialect                   = auto
+  width                     = 80
+  table_style               = auto
+  heading_blank_lines       = 1
+  list_marker               = -
+  trim_trailing_blank_lines = true
+  final_newline             = false
 }
 ```
 
@@ -38,6 +40,9 @@ The nearest `mdfmt.dotfile` above each file wins, followed by
 built-in defaults. Configurations replace rather than merge with one another.
 `--stdin FILENAME` uses the filename for this lookup; bare stdin uses the
 working directory.
+
+With `trim_trailing_blank_lines = false`, trailing blank lines are retained even
+when `final_newline = false`. `final_newline = true` ensures a terminating newline.
 
 ## Dialects
 
@@ -64,7 +69,7 @@ plugin-specific syntax is not interpreted.
 | Tables | Align if the complete table fits `width`; otherwise use one space around each cell; retain surplus cells |
 | Table width | Unicode display columns, including Markdown syntax and container indentation |
 | Long cells, URLs, code spans | Preserve content and existing line breaks; never wrap or join lines |
-| Headings | Preserve ATX / setext syntax; configured blank lines beneath; no trailing blank lines at EOF |
+| Headings | Preserve ATX / setext syntax; configured blank lines beneath; trailing blank lines follow `trim_trailing_blank_lines` |
 | Paragraphs | Preserve existing line breaks; never wrap or join lines |
 | Lists | Compact simple items; normalize bullets unless that would merge lists; preserve numbering, continuation lines, tasks and nesting |
 | Emphasis | Normalize to `*italic*` and `**bold**` when parsing confirms the same structure |
@@ -72,7 +77,7 @@ plugin-specific syntax is not interpreted.
 | Code | Preserve code and fence style; close unfinished fences when needed to retain code content at EOF |
 | Extensions | GFM tables, tasks, strikethrough, autolinks, and footnotes |
 | Frontmatter | Preserve YAML `---` / `...` and TOML `+++` blocks, including empty metadata |
-| Newlines | LF; no final newline by default |
+| Newlines | LF; trim trailing blank lines and omit final newline by default |
 | Directory targets | `.md`, `.markdown`, `.mdown`, `.mkd`, case-insensitive |
 | Traversal | Shared build/cache exclusions; skip symlinks in directory walks |
 | Explicit files | Format regardless of extension; follow explicit symlinks |

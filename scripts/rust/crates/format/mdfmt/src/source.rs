@@ -127,12 +127,18 @@ pub fn format(
         }
         if let Some(prefix) = &spacing[index] {
             index += 1;
+            let blank_start = index;
             while index < lines.len() && blank(&lines[index], prefix) {
                 index += 1;
             }
             if index < lines.len() {
                 for _ in 0..config.heading_blank_lines {
                     output.push_str(prefix);
+                    output.push('\n');
+                }
+            } else if !config.trim_trailing_blank_lines {
+                for line in &lines[blank_start..] {
+                    output.push_str(line);
                     output.push('\n');
                 }
             }

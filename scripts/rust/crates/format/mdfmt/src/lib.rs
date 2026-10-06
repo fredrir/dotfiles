@@ -51,8 +51,26 @@ pub fn format(input: &str, config: &Config) -> Result<String, String> {
         Some(protected) => protected.restore(&formatted)?,
         None => formatted,
     });
-    output.truncate(output.trim_end_matches('\n').len());
-    if config.final_newline && !output.is_empty() {
+    // The source formatter terminates every emitted line. Remove its added
+    // terminator before deciding whether the original blank lines should stay.
+    if !input.ends_with('\n') && output.ends_with('\n') {
+        output.pop();
+    }
+    let trailing_blank_bytes: usize = output
+        .split_inclusive('\n')
+        .rev()
+        .take_while(|line| line.trim_matches([' ', '\t', '\n']).is_empty())
+        .map(str::len)
+        .sum();
+    if config.trim_trailing_blank_lines {
+        output.truncate(output.len() - trailing_blank_bytes);
+    }
+    // Retained blank lines take precedence over removing the final newline;
+    // otherwise each formatting pass would remove another empty line.
+    if config.trim_trailing_blank_lines || trailing_blank_bytes == 0 {
+        output.truncate(output.trim_end_matches('\n').len());
+    }
+    if config.final_newline && !output.is_empty() && !output.ends_with('\n') {
         output.push('\n');
     }
     Ok(output)

@@ -13,6 +13,11 @@ fn shipped_defaults_match_built_in_formatting() {
     assert_eq!(config.width, built_in.width);
     assert_eq!(config.table_style, built_in.table_style);
     assert_eq!(config.heading_blank_lines, built_in.heading_blank_lines);
+    assert!(config.trim_trailing_blank_lines);
+    assert_eq!(
+        config.trim_trailing_blank_lines,
+        built_in.trim_trailing_blank_lines
+    );
     assert_eq!(
         format("* item", &config).unwrap(),
         format("* item", &built_in).unwrap()

@@ -21,6 +21,7 @@ pub struct Config {
     pub table_style: TableStyle,
     pub heading_blank_lines: usize,
     pub list_marker: ListStyleType,
+    pub trim_trailing_blank_lines: bool,
     pub final_newline: bool,
     pub source: Option<PathBuf>,
 }
@@ -33,6 +34,7 @@ impl Default for Config {
             table_style: TableStyle::Auto,
             heading_blank_lines: 1,
             list_marker: ListStyleType::Dash,
+            trim_trailing_blank_lines: true,
             final_newline: false,
             source: None,
         }
@@ -91,6 +93,7 @@ impl Config {
             }
             "width" => self.width = number(key, value, 0, 10000)?,
             "heading_blank_lines" => self.heading_blank_lines = number(key, value, 0, 3)?,
+            "trim_trailing_blank_lines" => self.trim_trailing_blank_lines = flag(key, value)?,
             "final_newline" => self.final_newline = flag(key, value)?,
             "table_style" => {
                 self.table_style = match value {

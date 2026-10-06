@@ -206,6 +206,33 @@ fn nearest_config_overrides_global_and_invalid_config_never_writes() {
 }
 
 #[test]
+fn trailing_blank_lines_follow_the_nearest_config_for_files_and_stdin() {
+    let input = "1. abc\n2. efghij some text\n \n\t\n";
+    let root = tree_pairs(&[
+        ("a.md", input),
+        ("keep/a.md", input),
+        (
+            "keep/mdfmt.dotfile",
+            "mdfmt {\ntrim_trailing_blank_lines = false\n}",
+        ),
+    ]);
+    let output = run(root.path(), &["--stdin", "keep/a.md"], input);
+    assert_eq!(output.code(), Some(0), "{}", output.stderr);
+    assert_eq!(output.stdout, input);
+    let output = run(root.path(), &["."], "");
+    assert_eq!(output.code(), Some(0), "{}", output.stderr);
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.md")).unwrap(),
+        "1. abc\n2. efghij some text"
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("keep/a.md")).unwrap(),
+        input
+    );
+    assert_eq!(run(root.path(), &["--check", "."], "").code(), Some(0));
+}
+
+#[test]
 fn invalid_values_and_io_failures_are_reported() {
     for setting in [
         "width = -1",
@@ -213,6 +240,7 @@ fn invalid_values_and_io_failures_are_reported() {
         "table_style = wrap",
         "list_marker = x",
         "final_newline = yes",
+        "trim_trailing_blank_lines = yes",
     ] {
         let text = format!("mdfmt {{\n{setting}\n}}");
         let root = tree_pairs(&[("mdfmt.dotfile", &text)]);

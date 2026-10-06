@@ -1,8 +1,9 @@
 mdfmt {
-  dialect              = auto
-  width                = 80
-  table_style          = auto
-  heading_blank_lines  = 1
-  list_marker          = -
-  final_newline        = false
+  dialect                   = auto
+  width                     = 80
+  table_style               = auto
+  heading_blank_lines       = 1
+  list_marker               = -
+  trim_trailing_blank_lines = true
+  final_newline             = false
 }
