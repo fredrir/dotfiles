@@ -33,7 +33,7 @@ archie                                      macie
 op read op://Dev/…                          ~/Applications/op-bridge.app (launchd)
   └─ ~/.local/bin/op                          ├─ tier by vault
       └─ $XDG_RUNTIME_DIR/op-bridge.sock ═ssh -R═ ~/.local/state/op-bridge/broker.sock
-                                              ├─ Secure: Touch ID "send op://Secure/… to archie"
+                                              ├─ Secure: op signout, then 1Password's Touch ID
 op read op://Dev/… (macie) ───────────────────┤
                                               └─ op read (1Password app)
 ```
@@ -42,17 +42,18 @@ op read op://Dev/… (macie) ─────────────────
 
 | Name | `Dev` (`--vault`) | `Secure` (`--prompt-vault`) |
 | --- | --- | --- |
-| op-bridge Touch ID | never | per reference |
+| 1Password Touch ID | first fetch after startup or wake | per reference |
 | Held in memory | until macie sleeps | 30 min, or until macie sleeps |
 | Callers | archie and macie | archie and macie |
-| Refill | after startup or wake, once the screen is unlocked | never |
+| Refill | with the first fetch after startup or wake | never |
 
 | Name | Value |
 | --- | --- |
 | Configured | `macos/launchd/com.fredrir.op-bridge.plist` |
 | Sleep | wall clock more than 30 s ahead of the monotonic clock |
 | Refill list | `~/.local/state/op-bridge/known.json`; references only, never values |
-| Refill prompt | 1Password's own, if its CLI session lapsed; one per wake |
+| Refill prompt | none; rides the session the first fetch unlocked |
+| `Secure` prompt | `op signout --all` before each fetch; signout failed, nothing fetched |
 | Rotated key | `op-bridge reload` on either host |
 | Reload, daemon unreachable | exit 3; nothing cached |
 | Tunnel | `ssh archie`, its own connection; retried every 10 s |
@@ -65,7 +66,7 @@ op read op://Dev/… (macie) ─────────────────
 | Call | Goes to |
 | --- | --- |
 | `op read [-n] op://Dev/…`, bridge up | the daemon |
-| Touch ID declined | error, exit 1 |
+| `Secure` declined or failed | error, exit 1 |
 | `op` failed on macie, vault not served | the real `op`, reason on stderr |
 | bridge down, any other command | the real `op` |
 

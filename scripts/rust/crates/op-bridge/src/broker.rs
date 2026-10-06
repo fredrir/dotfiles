@@ -11,7 +11,7 @@ pub const GRANT: Duration = Duration::from_secs(30 * 60);
 pub enum Tier {
     // Served from memory until macie sleeps
     Silent,
-    // Touch ID per reference, then a grant
+    // 1Password's prompt per reference, then a grant
     Prompt,
 }
 
@@ -81,6 +81,7 @@ pub struct Broker {
     cached: HashMap<String, Cached>,
     known: BTreeSet<String>,
     known_changed: bool,
+    stale: bool,
 }
 
 struct Cached {
@@ -96,6 +97,7 @@ impl Broker {
             cached: HashMap::new(),
             known,
             known_changed: false,
+            stale: true,
         }
     }
 
@@ -108,9 +110,8 @@ impl Broker {
     pub fn resolve(
         &mut self,
         reference: &str,
-        origin: Origin,
         now: Instant,
-        approve: impl FnOnce(&str) -> Result<(), String>,
+        sign_out: impl FnOnce() -> Result<(), String>,
         fetch: impl FnOnce(&str) -> Result<Zeroizing<String>, String>,
     ) -> Response {
         let tier = match self.policy.tier(reference) {
@@ -122,7 +123,7 @@ impl Broker {
             return Response::Value(self.cached[reference].value.clone());
         }
         if tier == Tier::Prompt
-            && let Err(reason) = approve(&prompt(origin, reference))
+            && let Err(reason) = sign_out()
         {
             return Response::Denied(reason);
         }
@@ -144,12 +145,19 @@ impl Broker {
                 );
                 Response::Value(value)
             }
+            Err(reason) if tier == Tier::Prompt => Response::Denied(reason),
             Err(reason) => Response::Refused(reason),
         }
     }
 
     pub fn forget(&mut self) {
         self.cached.clear();
+        self.stale = true;
+    }
+
+    // True once after startup or a sleep, so the first fetch refills the rest
+    pub fn take_stale(&mut self) -> bool {
+        std::mem::take(&mut self.stale)
     }
 
     // Silent references used before but not in memory, e.g. after a sleep
@@ -172,11 +180,6 @@ impl Broker {
     pub fn take_known(&mut self) -> Option<Vec<String>> {
         std::mem::take(&mut self.known_changed).then(|| self.known.iter().cloned().collect())
     }
-}
-
-// macOS shows this as "op-bridge is trying to <prompt>."
-pub fn prompt(origin: Origin, reference: &str) -> String {
-    format!("send {reference} to {}", origin.name())
 }
 
 #[cfg(test)]

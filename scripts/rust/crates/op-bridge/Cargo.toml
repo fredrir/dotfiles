@@ -20,9 +20,6 @@ workstation.workspace = true
 signal-hook = "0.4.4"
 zeroize     = { version = "1.9.0", features = ["serde"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-robius-authentication = "0.3.1"
-
 [dev-dependencies]
 tempfile.workspace = true
 testkit.workspace  = true

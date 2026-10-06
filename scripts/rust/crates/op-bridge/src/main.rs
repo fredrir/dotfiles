@@ -8,7 +8,6 @@ mod paths;
 mod presence;
 mod protocol;
 mod setup;
-mod touchid;
 mod tunnel;
 
 use std::ffi::OsString;

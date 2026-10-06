@@ -1,5 +1,5 @@
 use super::*;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 const DEV: &str = "op://Dev/pi/credential";
 const SECURE: &str = "op://Secure/bank/password";
@@ -23,8 +23,12 @@ fn value(response: Response) -> String {
     }
 }
 
-fn never(_: &str) -> Result<(), String> {
-    panic!("prompted")
+fn never() -> Result<(), String> {
+    panic!("signed out")
+}
+
+fn signed_out() -> Result<(), String> {
+    Ok(())
 }
 
 #[test]
@@ -42,7 +46,7 @@ fn a_vault_cannot_be_both_silent_and_prompted() {
 }
 
 #[test]
-fn a_silent_vault_never_prompts_and_is_fetched_once() {
+fn a_silent_vault_keeps_the_session_and_is_fetched_once() {
     let fetches = Cell::new(0);
     let fetch = |_: &str| {
         fetches.set(fetches.get() + 1);
@@ -50,18 +54,18 @@ fn a_silent_vault_never_prompts_and_is_fetched_once() {
     };
     let mut broker = broker();
     let start = Instant::now();
-    for origin in [Origin::Peer, Origin::Local, Origin::Peer] {
-        assert_eq!(value(broker.resolve(DEV, origin, start, never, fetch)), "s3cret");
+    for _ in 0..3 {
+        assert_eq!(value(broker.resolve(DEV, start, never, fetch)), "s3cret");
     }
     let tomorrow = start + Duration::from_secs(24 * 60 * 60);
-    assert_eq!(value(broker.resolve(DEV, Origin::Peer, tomorrow, never, fetch)), "s3cret");
+    assert_eq!(value(broker.resolve(DEV, tomorrow, never, fetch)), "s3cret");
     assert_eq!(fetches.get(), 1);
 }
 
 #[test]
 fn forgetting_empties_memory_but_keeps_the_references_to_refill() {
     let mut broker = broker();
-    broker.resolve(DEV, Origin::Peer, Instant::now(), never, |_| secret());
+    broker.resolve(DEV, Instant::now(), never, |_| secret());
     broker.forget();
     assert!(!broker.cached(DEV, Instant::now()));
     assert_eq!(broker.missing(), [DEV]);
@@ -73,103 +77,105 @@ fn forgetting_empties_memory_but_keeps_the_references_to_refill() {
 fn only_newly_used_silent_references_are_reported_for_saving() {
     let mut broker = broker();
     let now = Instant::now();
-    broker.resolve(DEV, Origin::Peer, now, never, |_| secret());
+    broker.resolve(DEV, now, never, |_| secret());
     assert_eq!(broker.take_known(), Some(vec![DEV.to_string()]));
     broker.forget();
-    broker.resolve(DEV, Origin::Peer, now, never, |_| secret());
+    broker.resolve(DEV, now, never, |_| secret());
     assert_eq!(broker.take_known(), None);
-    broker.resolve(SECURE, Origin::Peer, now, |_| Ok(()), |_| secret());
+    broker.resolve(SECURE, now, signed_out, |_| secret());
     assert_eq!(broker.take_known(), None);
 }
 
 #[test]
-fn the_prompt_names_the_reference_and_the_destination() {
-    let prompted = Cell::new(String::new());
+fn a_refill_is_due_once_after_startup_and_after_each_sleep() {
+    let mut broker = broker();
+    assert!(broker.take_stale());
+    assert!(!broker.take_stale());
+    broker.forget();
+    assert!(broker.take_stale());
+    assert!(!broker.take_stale());
+}
+
+#[test]
+fn a_prompted_reference_signs_out_first_so_1password_prompts() {
+    let steps = RefCell::new(Vec::new());
     let mut broker = broker();
     broker.resolve(
         SECURE,
-        Origin::Peer,
         Instant::now(),
-        |reason| {
-            prompted.set(reason.to_string());
+        || {
+            steps.borrow_mut().push("sign out");
             Ok(())
         },
-        |_| secret(),
+        |_| {
+            steps.borrow_mut().push("fetch");
+            secret()
+        },
     );
-    assert_eq!(prompted.take(), "send op://Secure/bank/password to archie");
+    assert_eq!(steps.take(), ["sign out", "fetch"]);
 }
 
 #[test]
 fn a_prompted_reference_is_sent_without_asking_again_within_the_grant() {
     let prompts = Cell::new(0);
-    let approve = |_: &str| {
+    let sign_out = || {
         prompts.set(prompts.get() + 1);
         Ok(())
     };
     let mut broker = broker();
     let start = Instant::now();
-    broker.resolve(SECURE, Origin::Peer, start, approve, |_| secret());
+    broker.resolve(SECURE, start, sign_out, |_| secret());
     let later = start + GRANT - Duration::from_secs(1);
     let refetch = |_: &str| Err("should not fetch".to_string());
-    assert_eq!(value(broker.resolve(SECURE, Origin::Peer, later, approve, refetch)), "s3cret");
-    broker.resolve(SECURE, Origin::Peer, start + GRANT, approve, |_| secret());
+    assert_eq!(value(broker.resolve(SECURE, later, sign_out, refetch)), "s3cret");
+    broker.resolve(SECURE, start + GRANT, sign_out, |_| secret());
     assert_eq!(prompts.get(), 2);
 }
 
 #[test]
 fn a_sleep_ends_a_grant_early() {
     let prompts = Cell::new(0);
-    let approve = |_: &str| {
+    let sign_out = || {
         prompts.set(prompts.get() + 1);
         Ok(())
     };
     let mut broker = broker();
     let now = Instant::now();
-    broker.resolve(SECURE, Origin::Peer, now, approve, |_| secret());
+    broker.resolve(SECURE, now, sign_out, |_| secret());
     broker.forget();
-    broker.resolve(SECURE, Origin::Peer, now, approve, |_| secret());
+    broker.resolve(SECURE, now, sign_out, |_| secret());
     assert_eq!(prompts.get(), 2);
     assert!(broker.missing().is_empty(), "prompted vaults are never refilled");
 }
 
 #[test]
-fn local_callers_need_touch_id_for_prompted_vaults() {
+fn a_failed_sign_out_is_denied_and_never_fetches() {
     let mut broker = broker();
-    let mut asked = false;
     let response = broker.resolve(
         SECURE,
-        Origin::Local,
         Instant::now(),
-        |_| {
-            asked = true;
-            Ok(())
-        },
-        |_| Ok(Zeroizing::new("value".to_string())),
+        || Err("op signout exited with 1".to_string()),
+        |_| panic!("fetched without a fresh 1Password prompt"),
     );
-    assert!(asked);
-    assert!(matches!(response, Response::Value(_)), "{response:?}");
+    assert!(matches!(response, Response::Denied(_)), "{response:?}");
 }
 
 #[test]
-fn a_declined_prompt_is_denied_and_never_fetches() {
+fn a_declined_prompt_is_denied_so_the_caller_does_not_ask_again() {
     let mut broker = broker();
-    let response = broker.resolve(
-        SECURE,
-        Origin::Peer,
-        Instant::now(),
-        |_| Err("Touch ID: UserCanceled".to_string()),
-        |_| panic!("fetched after a declined prompt"),
-    );
+    let now = Instant::now();
+    let response = broker.resolve(SECURE, now, signed_out, |_| {
+        Err("authorization prompt dismissed".to_string())
+    });
     assert!(matches!(response, Response::Denied(_)), "{response:?}");
+    assert!(!broker.cached(SECURE, now));
 }
 
 #[test]
 fn a_failed_fetch_is_refused_so_the_caller_falls_back_and_nothing_is_kept() {
     let mut broker = broker();
     let now = Instant::now();
-    let response = broker.resolve(DEV, Origin::Peer, now, never, |_| {
-        Err("item not found".to_string())
-    });
+    let response = broker.resolve(DEV, now, never, |_| Err("item not found".to_string()));
     assert!(matches!(response, Response::Refused(_)), "{response:?}");
     assert!(!broker.cached(DEV, now));
     assert!(broker.missing().is_empty());
@@ -180,7 +186,6 @@ fn an_unlisted_vault_is_refused_before_any_prompt_or_fetch() {
     let mut broker = broker();
     let response = broker.resolve(
         "op://Personal/bank/password",
-        Origin::Peer,
         Instant::now(),
         never,
         |_| panic!("fetched an unlisted vault"),

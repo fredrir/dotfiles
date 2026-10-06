@@ -17,6 +17,11 @@ pub fn authorize(vault: &str) -> Result<(), String> {
     op(&["vault", "get", vault, "--format", "json"]).map(drop)
 }
 
+// Ends the daemon's session, so 1Password prompts for the next read
+pub fn sign_out() -> Result<(), String> {
+    op(&["signout", "--all"]).map(drop)
+}
+
 fn op(args: &[&str]) -> Result<Zeroizing<Vec<u8>>, String> {
     let mut command = Command::new("op");
     command.args(args).stdin(Stdio::null());

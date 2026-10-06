@@ -16,7 +16,7 @@ use signal_hook::iterator::Signals;
 
 use crate::broker::{Broker, GRANT, Origin, Policy};
 use crate::protocol::{self, Request, Response};
-use crate::{onepassword, paths, presence, touchid, tunnel};
+use crate::{onepassword, paths, presence, tunnel};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const POISONED: &str = "broker state poisoned";
@@ -101,16 +101,8 @@ fn stop_on_signal(tunnel: Arc<AtomicU32>, socket: PathBuf) -> Result<(), String>
     Ok(())
 }
 
-// Refill waits for an unlocked screen, so 1Password's prompt meets someone at macie
 fn watch(broker: &Mutex<Broker>) {
-    let mut pending = true;
     loop {
-        if pending && !presence::locked() {
-            if let Err(reason) = refill(broker) {
-                eprintln!("op-bridge: {reason}");
-            }
-            pending = false;
-        }
         let (wall, monotonic) = (SystemTime::now(), Instant::now());
         thread::sleep(presence::TICK);
         let wall = wall.elapsed().unwrap_or_default();
@@ -119,13 +111,14 @@ fn watch(broker: &Mutex<Broker>) {
                 broker.forget();
             }
             eprintln!("op-bridge: macie slept; cache cleared");
-            pending = true;
         }
     }
 }
 
+// Holds the broker so no prompted fetch signs out mid-refill
 fn refill(broker: &Mutex<Broker>) -> Result<(usize, usize), String> {
-    let missing = broker.lock().map_err(|_| POISONED)?.missing();
+    let mut broker = broker.lock().map_err(|_| POISONED)?;
+    let missing = broker.missing();
     let Some(vault) = missing.first().and_then(|reference| protocol::vault(reference)) else {
         return Ok((0, 0));
     };
@@ -134,7 +127,7 @@ fn refill(broker: &Mutex<Broker>) -> Result<(usize, usize), String> {
     for reference in &missing {
         match onepassword::read(reference) {
             Ok(value) => {
-                broker.lock().map_err(|_| POISONED)?.store(reference, value);
+                broker.store(reference, value);
                 filled += 1;
             }
             Err(reason) => eprintln!("op-bridge: refill {reference}: {reason}"),
@@ -159,11 +152,16 @@ fn serve(
     stream
         .set_read_timeout(Some(REQUEST_TIMEOUT))
         .map_err(|error| error.to_string())?;
-    let response = match protocol::receive(stream)? {
+    let (response, refill_due) = match protocol::receive(stream)? {
         Request::Read(reference) => read(&reference, origin, broker, known_path)?,
-        Request::Reload => reload(origin, broker),
+        Request::Reload => (reload(origin, broker), false),
     };
-    protocol::send(stream, &response)
+    protocol::send(stream, &response)?;
+    // Rides the 1Password session the fetch just unlocked, so it costs no prompt
+    if refill_due {
+        refill(broker)?;
+    }
+    Ok(())
 }
 
 fn read(
@@ -171,17 +169,12 @@ fn read(
     origin: Origin,
     broker: &Mutex<Broker>,
     known_path: &Path,
-) -> Result<Response, String> {
+) -> Result<(Response, bool), String> {
     let now = Instant::now();
     let mut broker = broker.lock().map_err(|_| POISONED)?;
     let cached = broker.cached(reference, now);
-    let response = broker.resolve(
-        reference,
-        origin,
-        now,
-        touchid::approve,
-        onepassword::read,
-    );
+    let response = broker.resolve(reference, now, onepassword::sign_out, onepassword::read);
+    let refill_due = !cached && matches!(response, Response::Value(_)) && broker.take_stale();
     let known = broker.take_known();
     drop(broker);
     if let Some(known) = known {
@@ -192,7 +185,7 @@ fn read(
         origin.name(),
         outcome(&response, cached)
     );
-    Ok(response)
+    Ok((response, refill_due))
 }
 
 fn reload(origin: Origin, broker: &Mutex<Broker>) -> Response {

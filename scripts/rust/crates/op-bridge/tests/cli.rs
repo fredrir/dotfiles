@@ -75,10 +75,10 @@ fn no_newline_prints_the_bare_value() {
 #[test]
 fn a_denied_read_fails_without_falling_back() {
     let fixture = Fixture::new();
-    let _server = fixture.serve_once("{\"denied\":\"Touch ID: UserCanceled\"}\n");
-    let output = fixture.op(&["read", "op://Dev/pi/credential"]);
+    let _server = fixture.serve_once("{\"denied\":\"authorization prompt dismissed\"}\n");
+    let output = fixture.op(&["read", "op://Secure/bank/password"]);
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert!(stderr(&output).contains("UserCanceled"), "{output:?}");
+    assert!(stderr(&output).contains("dismissed"), "{output:?}");
     assert!(!stdout(&output).contains("real op"), "{output:?}");
 }
 

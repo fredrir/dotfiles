@@ -20,7 +20,7 @@ pub enum Request {
 #[serde(rename_all = "snake_case")]
 pub enum Response {
     Value(Zeroizing<String>),
-    // Touch ID was declined; the caller must not retry elsewhere
+    // A prompted vault was declined or failed; the caller must not retry elsewhere
     Denied(String),
     // Outside the allowlist or op failed on macie; the caller falls back to the real op
     Refused(String),
