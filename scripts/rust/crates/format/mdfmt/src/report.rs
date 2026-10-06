@@ -63,6 +63,12 @@ impl Report {
         eprintln!("  {} {}", self.style.dim("config"), self.style.dim(&from));
     }
 
+    pub fn skipped(&self, label: &str) {
+        if self.verbose && !self.quiet {
+            eprintln!("  {} {}", self.style.dim("skip"), self.style.dim(label));
+        }
+    }
+
     pub fn failed(&self, message: &str) {
         eprintln!("{PROGRAM}: {message}");
     }

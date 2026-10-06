@@ -8,6 +8,9 @@ use workstation::path::home_relative;
 use crate::dialect::Dialect;
 use clap::ValueEnum;
 use comrak::options::ListStyleType;
+use ignore::gitignore::GitignoreBuilder;
+
+use crate::files::Files;
 
 pub const NAME: &str = "mdfmt.dotfile";
 
@@ -24,6 +27,7 @@ pub struct Config {
     pub trim_trailing_blank_lines: bool,
     pub final_newline: bool,
     pub source: Option<PathBuf>,
+    pub files: Files,
 }
 
 impl Default for Config {
@@ -37,6 +41,7 @@ impl Default for Config {
             trim_trailing_blank_lines: true,
             final_newline: false,
             source: None,
+            files: Files::default(),
         }
     }
 }
@@ -55,31 +60,77 @@ impl Config {
         }
         for candidate in [config_home().join(HOME).join(NAME), home().join(NAME)] {
             if candidate.is_file() {
-                return Config::read(&candidate);
+                return Config::read_from(&candidate, &absolute(Path::new(".")));
             }
         }
         Ok(Config::default())
     }
 
     pub fn read(path: &Path) -> Result<Config, String> {
+        Self::read_from(path, &absolute(&beside(path)))
+    }
+
+    fn read_from(path: &Path, root: &Path) -> Result<Config, String> {
         let text = fs::read_to_string(path).map_err(|error| complain(path, error))?;
         let mut config = Config::default();
-        let entries = workstation::blocks::parse(&text).map_err(|problem| at(path, &problem))?;
-        for entry in &entries {
-            if entry.opens {
-                if entry.block != BLOCK {
-                    return Err(at(
-                        path,
-                        &format!("line {}: unknown block: {}", entry.number, entry.block),
-                    ));
+        let mut whitelist = GitignoreBuilder::new(root);
+        let mut blacklist = GitignoreBuilder::new(root);
+        let mut block = None;
+        for (offset, raw) in text.lines().enumerate() {
+            let error = |message: &str| at(path, &format!("line {}: {message}", offset + 1));
+            // Settings retain inline comments; pattern blocks preserve literal #,
+            // =, braces, and escaped trailing spaces for the gitignore parser.
+            let line = if block == Some("whitelist") || block == Some("blacklist") {
+                raw.trim_start()
+            } else {
+                raw.split('#').next().unwrap_or_default().trim()
+            };
+            if line.trim().is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if line.trim() == "}" {
+                if block.take().is_none() {
+                    return Err(error("unexpected }"));
                 }
                 continue;
             }
-            let (key, value) = entry.split();
-            config
-                .set(key, value)
-                .map_err(|message| at(path, &format!("line {}: {message}", entry.number)))?;
+            match block {
+                Some("whitelist" | "blacklist") => {
+                    let builder = if block == Some("whitelist") {
+                        &mut whitelist
+                    } else {
+                        &mut blacklist
+                    };
+                    builder
+                        .add_line(Some(path.to_path_buf()), line)
+                        .map_err(|problem| error(&problem.to_string()))?;
+                }
+                Some(_) => {
+                    if line.ends_with('{') {
+                        return Err(error("nested block"));
+                    }
+                    let (key, value) = line.split_once('=').unwrap_or((line, ""));
+                    config
+                        .set(key.trim(), value.trim())
+                        .map_err(|message| error(&message))?;
+                }
+                None => {
+                    let name = line
+                        .strip_suffix('{')
+                        .ok_or_else(|| error("entry outside a block"))?
+                        .trim();
+                    if ![BLOCK, "whitelist", "blacklist"].contains(&name) {
+                        return Err(error(&format!("unknown block: {name}")));
+                    }
+                    block = Some(name);
+                }
+            }
         }
+        if let Some(block) = block {
+            return Err(at(path, &format!("missing }} for {block}")));
+        }
+        config.files =
+            Files::build(root, &whitelist, &blacklist).map_err(|message| at(path, &message))?;
         config.source = Some(path.to_path_buf());
         Ok(config)
     }

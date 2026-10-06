@@ -44,6 +44,42 @@ working directory.
 With `trim_trailing_blank_lines = false`, trailing blank lines are retained even
 when `final_newline = false`. `final_newline = true` ensures a terminating newline.
 
+## File selection
+
+Add optional blocks beside `mdfmt { ... }`:
+
+```text
+whitelist {
+  /README.md
+  docs/
+  !docs/private/
+}
+
+blacklist {
+  docs/generated/*
+  !docs/generated/handwritten.md
+}
+```
+
+| Rule | Behavior |
+| --- | --- |
+| Empty / omitted whitelist | Allow all eligible files |
+| Nonempty whitelist | Format only matching files or descendants of matching directories; `!` removes matches |
+| Blacklist | Exclude matching files and directories; takes precedence over the whitelist |
+| Patterns | Gitignore syntax: `*`, `?`, `[]`, `**`, leading `/`, trailing `/`, and `!`; last matching pattern in each block wins |
+| Comments and escapes | Whole-line `#` comments; `\#` and `\!` match literal prefixes; inline `#` is literal in patterns |
+| Whitespace | Block indentation is ignored; escape literal leading or trailing spaces with `\` |
+| Local config | Patterns relative to the directory containing `mdfmt.dotfile` |
+| Global fallback config | Patterns relative to the working directory |
+| Config precedence | Nearest config replaces all parent/global settings and lists |
+| Directory exclusions | As in gitignore, a blacklisted parent must be re-included before a child can be re-included; use `dir/*` to allow exceptions directly inside it |
+| Scope | Directory walks, explicit files, and `--stdin FILENAME`; bare stdin uses `stdin.md` in the working directory |
+| Excluded input | Files are untouched; stdin passes through unchanged; `--check` succeeds without output |
+| Reporting | Excluded files are omitted from totals; `--verbose` lists skipped files |
+
+The existing Markdown extension and build/cache traversal rules still apply.
+These blocks do not load `.gitignore` files.
+
 ## Dialects
 
 | Dialect | Behavior |

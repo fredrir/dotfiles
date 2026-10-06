@@ -174,6 +174,117 @@ fn directory_formatting_is_scoped_and_check_is_read_only() {
 }
 
 #[test]
+fn file_filters_apply_to_walks_explicit_files_checks_and_editor_input() {
+    let input = "# Title\r\ntext\r\n";
+    let root = tree_pairs(&[
+        (
+            "mdfmt.dotfile",
+            "whitelist {\n/docs/\n}\nblacklist {\ndrafts/\n}\n",
+        ),
+        ("docs/note.md", input),
+        ("docs/drafts/note.md", input),
+        ("other.md", input),
+    ]);
+    for name in ["docs/drafts/note.md", "other.md"] {
+        let output = run(root.path(), &["-v", name], "");
+        assert_eq!(output.code(), Some(0), "{}", output.stderr);
+        assert!(output.stderr.contains("skip"), "{}", output.stderr);
+        assert!(
+            output.stderr.contains("formatted 0 of 0 files"),
+            "{}",
+            output.stderr
+        );
+        assert_eq!(run(root.path(), &["--check", name], "").code(), Some(0));
+        let output = run(root.path(), &["-eq", "--stdin", name], input);
+        assert_eq!(output.code(), Some(0), "{}", output.stderr);
+        assert_eq!(output.stdout, input);
+        let check = run(root.path(), &["--check", "--stdin", name], input);
+        assert_eq!(check.code(), Some(0));
+        assert_eq!(check.stdout, "");
+    }
+    assert_eq!(run(root.path(), &["--check", "."], "").code(), Some(1));
+    assert_eq!(
+        fs::read_to_string(root.path().join("docs/note.md")).unwrap(),
+        input
+    );
+    let output = run(root.path(), &["."], "");
+    assert_eq!(output.code(), Some(0), "{}", output.stderr);
+    assert!(
+        output.stderr.contains("formatted 1 of 1 file"),
+        "{}",
+        output.stderr
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("docs/note.md")).unwrap(),
+        "# Title\n\ntext"
+    );
+    for name in ["docs/drafts/note.md", "other.md"] {
+        assert_eq!(fs::read_to_string(root.path().join(name)).unwrap(), input);
+    }
+    assert_eq!(run(root.path(), &["--check", "."], "").code(), Some(0));
+}
+
+#[test]
+fn filters_use_the_nearest_config_and_its_directory_even_from_a_subdirectory() {
+    let input = "# Title\ntext\n";
+    let root = tree_pairs(&[
+        ("mdfmt.dotfile", "blacklist {\n/sub/\n}\n"),
+        ("sub/mdfmt.dotfile", "blacklist {\n/skip.md\n}\n"),
+        ("sub/skip.md", input),
+        ("sub/deep/skip.md", input),
+    ]);
+    let output = run(&root.path().join("sub"), &["."], "");
+    assert_eq!(output.code(), Some(0), "{}", output.stderr);
+    assert_eq!(
+        fs::read_to_string(root.path().join("sub/skip.md")).unwrap(),
+        input
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("sub/deep/skip.md")).unwrap(),
+        "# Title\n\ntext"
+    );
+}
+
+#[test]
+fn global_filters_are_relative_to_the_working_directory() {
+    let input = "# Title\ntext\n";
+    let root = tree_pairs(&[
+        ("config/mdfmt/mdfmt.dotfile", "blacklist {\n/docs/\n}\n"),
+        ("docs/note.md", input),
+        ("other.md", input),
+    ]);
+    let output = run(root.path(), &["."], "");
+    assert_eq!(output.code(), Some(0), "{}", output.stderr);
+    assert_eq!(
+        fs::read_to_string(root.path().join("docs/note.md")).unwrap(),
+        input
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("other.md")).unwrap(),
+        "# Title\n\ntext"
+    );
+}
+
+#[test]
+fn excluded_files_are_not_read_and_invalid_patterns_never_write() {
+    let root = tree_pairs(&[("mdfmt.dotfile", "blacklist {\nbinary.md\n}\n")]);
+    fs::write(root.path().join("binary.md"), [0xff, 0xfe]).unwrap();
+    assert_eq!(run(root.path(), &["binary.md"], "").code(), Some(0));
+    fs::write(root.path().join("mdfmt.dotfile"), "blacklist {\n[z-a]\n}\n").unwrap();
+    let output = run(root.path(), &["binary.md"], "");
+    assert_eq!(output.code(), Some(1));
+    assert!(
+        output.stderr.contains("mdfmt.dotfile: line 2:"),
+        "{}",
+        output.stderr
+    );
+    assert_eq!(
+        fs::read(root.path().join("binary.md")).unwrap(),
+        [0xff, 0xfe]
+    );
+}
+
+#[test]
 fn nearest_config_overrides_global_and_invalid_config_never_writes() {
     let root = tree_pairs(&[
         (

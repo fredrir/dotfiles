@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod dialect;
+pub mod files;
 mod obsidian;
 mod source;
 mod tables;

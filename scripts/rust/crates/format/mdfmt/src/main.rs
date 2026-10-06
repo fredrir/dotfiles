@@ -85,8 +85,13 @@ fn through(
     io::stdin()
         .read_to_string(&mut input)
         .map_err(|e| format!("stdin: {e}"))?;
-    let output = format(&input, &config)?;
-    tally.total += 1;
+    let allowed = config.files.allows(name);
+    let output = if allowed {
+        format(&input, &config)?
+    } else {
+        input.clone()
+    };
+    tally.total += usize::from(allowed);
     tally.changed += usize::from(output != input);
     if !cli.check {
         io::stdout()
@@ -133,16 +138,20 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
             .map(|path| {
                 let label = report::label(target, path);
                 let outcome = configs.for_file(path).and_then(|config| {
+                    if !config.files.allows(path) {
+                        return Ok(None);
+                    }
                     native::apply(path, &config, cli.dialect, !cli.check)
-                        .map(|changed| (changed, config))
+                        .map(|changed| Some((changed, config)))
                 });
                 (label, outcome)
             })
             .collect();
-        tally.total += outcomes.len();
         for (label, outcome) in outcomes {
             match outcome {
-                Ok((changed, config)) => {
+                Ok(None) => report.skipped(&label),
+                Ok(Some((changed, config))) => {
+                    tally.total += 1;
                     if cli.verbose {
                         report.settings(config.source.as_deref());
                     }
@@ -154,6 +163,7 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
                     }
                 }
                 Err(error) => {
+                    tally.total += 1;
                     tally.failed += 1;
                     report.failed(&format!("{label}: {error}"));
                 }
