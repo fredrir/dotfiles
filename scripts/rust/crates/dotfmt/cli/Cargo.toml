@@ -1,7 +1,7 @@
 [package]
 name              = "dotfmt"
 version.workspace = true
-description       = "Format a tree with the tool that owns each language"
+description       = "Command-line shell and visuals for dotfmt"
 edition.workspace = true
 license.workspace = true
 
@@ -9,10 +9,8 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-clap.workspace  = true
-rayon.workspace = true
-workstation     = { workspace = true, features = ["walk"] }
+clap.workspace = true
+workstation.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
 testkit.workspace  = true

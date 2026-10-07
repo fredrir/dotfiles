@@ -4,9 +4,34 @@ use workstation::Style;
 use workstation::path::home_relative;
 use workstation::text::{self, plural};
 
-use crate::configs::{Placement, Source};
-use crate::lang::Mode;
-use crate::run::Ran;
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mode {
+    Write,
+    Check,
+}
+
+#[derive(Default)]
+pub struct Row {
+    pub name: &'static str,
+    pub files: usize,
+    pub missing: Vec<&'static str>,
+    pub findings: bool,
+    pub failed: bool,
+    pub ran: usize,
+    pub note: Option<String>,
+    pub output: String,
+    pub blamed: Vec<String>,
+}
+
+pub struct Placement {
+    pub name: &'static str,
+    pub exists: bool,
+}
+
+pub enum Source {
+    Repo,
+    Embedded,
+}
 
 pub fn heading(program: &str, root: &Path, what: &str, style: &Style) -> Vec<String> {
     let mut line = format!(
@@ -24,21 +49,21 @@ const NAMED: usize = 5;
 
 const CLIP: usize = 96;
 
-pub fn summary(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
-    let counted: Vec<&Ran> = done
+pub fn summary(done: &[Row], mode: Mode, style: &Style) -> Vec<String> {
+    let counted: Vec<&Row> = done
         .iter()
         .filter(|ran| ran.ran > 0 || ran.failed)
         .collect();
     if counted.is_empty() {
         return absent(done, style).into_iter().collect();
     }
-    let reported: Vec<&&Ran> = counted
+    let reported: Vec<&&Row> = counted
         .iter()
         .filter(|ran| ran.failed || ran.findings)
         .collect();
     let name = reported
         .iter()
-        .map(|ran| ran.lang.name().chars().count())
+        .map(|ran| ran.name.chars().count())
         .max()
         .unwrap_or(0);
     let count = reported
@@ -51,7 +76,7 @@ pub fn summary(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
     for ran in &reported {
         lines.push(format!(
             "{:name$}  {:>count$} {}  {}",
-            ran.lang.name(),
+            ran.name,
             ran.files,
             plural(ran.files, "file", "files"),
             if ran.failed {
@@ -80,7 +105,7 @@ pub fn summary(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
     lines
 }
 
-fn culprits(ran: &Ran, style: &Style) -> Vec<String> {
+fn culprits(ran: &Row, style: &Style) -> Vec<String> {
     if ran.blamed.is_empty() {
         // Nothing in the output looked like one of the files this row was
         // given — a tool that failed before it opened one, or that names them
@@ -109,7 +134,7 @@ fn culprits(ran: &Ran, style: &Style) -> Vec<String> {
     lines
 }
 
-fn absent(done: &[Ran], style: &Style) -> Option<String> {
+fn absent(done: &[Row], style: &Style) -> Option<String> {
     let mut named: Vec<&str> = Vec::new();
     for program in done.iter().flat_map(|ran| &ran.missing) {
         if !named.contains(program) {
@@ -119,10 +144,10 @@ fn absent(done: &[Ran], style: &Style) -> Option<String> {
     (!named.is_empty()).then(|| style.dim(&format!("{} not installed", named.join(", "))))
 }
 
-pub fn report(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
+pub fn report(done: &[Row], mode: Mode, style: &Style) -> Vec<String> {
     let name = done
         .iter()
-        .map(|ran| ran.lang.name().chars().count())
+        .map(|ran| ran.name.chars().count())
         .max()
         .unwrap_or(0);
     let count = done
@@ -136,7 +161,7 @@ pub fn report(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
         .map(|ran| {
             format!(
                 "  {:name$}  {:>count$} {:<5}  {}",
-                ran.lang.name(),
+                ran.name,
                 ran.files,
                 plural(ran.files, "file", "files"),
                 status(ran, mode, style),
@@ -145,13 +170,13 @@ pub fn report(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
         .collect();
     for ran in done.iter().filter(|ran| !ran.output.is_empty()) {
         lines.push(String::new());
-        lines.push(format!("  {}", style.bold(ran.lang.name())));
+        lines.push(format!("  {}", style.bold(ran.name)));
         lines.extend(ran.output.trim_end().lines().map(str::to_string));
     }
     lines
 }
 
-fn status(ran: &Ran, mode: Mode, style: &Style) -> String {
+fn status(ran: &Row, mode: Mode, style: &Style) -> String {
     let missing = ran
         .missing
         .iter()
@@ -186,7 +211,7 @@ fn with(word: &str, missing: &str, style: &Style) -> String {
     format!("{word}  {}", style.dim(missing))
 }
 
-pub fn tally(done: &[Ran], mode: Mode) -> String {
+pub fn tally(done: &[Row], mode: Mode) -> String {
     let total: usize = done.iter().map(|ran| ran.files).sum();
     let verb = match mode {
         Mode::Write => "formatted",
@@ -228,7 +253,7 @@ pub fn placed(done: &[&Placement], style: &Style) -> Vec<String> {
 
 pub fn provenance(source: &Source, style: &Style) -> Option<String> {
     match source {
-        Source::Repo(_) => None,
+        Source::Repo => None,
         Source::Embedded => Some(format!(
             "  {}",
             style.dim("from the copies built into this binary; no checkout was found")

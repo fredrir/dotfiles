@@ -5,33 +5,29 @@
 <!-- cli:commands:start -->
 | Command  | Description                                                       |
 | -------- | ----------------------------------------------------------------- |
-| `dotfmt` | Formats a tree by handing each language to the tool that owns it. |
+| `dotfmt` | CLI shell; formatting and configuration actions are placeholders. |
 <!-- cli:commands:end -->
 
 ## Flags
 
 <!-- cli:flags:start -->
-| Flag                    | Description                                                                      |
-| ----------------------- | -------------------------------------------------------------------------------- |
-| `--check`               | Verifies formatting and runs each language's linter instead of writing anything. |
-| `-a`, `--add`           | Offers this repository's tool configuration to the target, asking per file.      |
-| `-s`, `--sync`          | Replaces the tool configuration the target already has, without asking.          |
-| `-v`, `--verbose`       | Names every file as it is formatted.                                             |
-| `-q`, `--quiet`         | Reports nothing but failures.                                                    |
-| `-h`, `--help`          | Shows help for the selected command and exits.                                   |
-| `--completions <SHELL>` | Prints a shell completion script for the named shell and exits.                  |
-| `-V`, `--version`       | Prints the version and exits.                                                    |
+| Flag                    | Description                                                     |
+| ----------------------- | --------------------------------------------------------------- |
+| `--check`               | Check formatting without writing (placeholder).                 |
+| `-a`, `--add`           | Offer formatter configuration to the target (placeholder).      |
+| `-s`, `--sync`          | Refresh the target's formatter configuration (placeholder).     |
+| `--dialect <DIALECT>`   | Select a formatter dialect (placeholder).                       |
+| `-e`, `--editor`        | Format standard input for an editor (placeholder).              |
+| `--stdin <FILENAME>`    | Treat standard input as the named file (placeholder).           |
+| `--owns`                | Report owned files from standard input (placeholder).           |
+| `-v`, `--verbose`       | Show detailed output.                                           |
+| `-q`, `--quiet`         | Report only failures.                                           |
+| `-h`, `--help`          | Shows help for the selected command and exits.                  |
+| `--completions <SHELL>` | Prints a shell completion script for the named shell and exits. |
+| `-V`, `--version`       | Prints the version and exits.                                   |
 <!-- cli:flags:end -->
 
-## Shell formatting
-
-| Files | Formatter | Check mode |
-| --- | --- | --- |
-| `.sh`, `.bash`, Bash startup files, `.profile` | Shucked | Formatting check and lint |
-| `.zsh`, `.zshrc`, `.zshenv`, `.zprofile`, `.zlogin`, `.zlogout` | Shucked | Formatting check and lint |
-
-## Markdown formatting
-
-| Files                                | Formatter         | Check mode       |
-| ------------------------------------ | ----------------- | ---------------- |
-| `.md`, `.markdown`, `.mdown`, `.mkd` | [mdfmt](mdfmt.md) | Formatting check |
+| Invocation | Result |
+| --- | --- |
+| No arguments, help, version, completions | Available |
+| Formatting, check, editor, ownership, add, sync | Exit 1 with a not-implemented message; no work performed |

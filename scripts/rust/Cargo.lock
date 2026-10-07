@@ -1289,8 +1289,6 @@ name = "dotfmt"
 version = "0.1.0"
 dependencies = [
  "clap 4.6.6",
- "rayon",
- "tempfile",
  "testkit",
  "workstation",
 ]

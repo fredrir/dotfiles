@@ -140,5 +140,5 @@ formatted; a terminal shows help unless `--editor` or `--stdin` is given.
 `jqfmt`, explicit `-` can accompany file targets. Editor mode accepts stdin only
 and reports failures even when quiet.
 
-`dotfile format` uses `mdfmt` for Markdown. `dotfile format --add` offers
-`mdfmt.dotfile`; `dotfile sync` installs the binary and shared config.
+`dotfile sync` installs the binary and shared config. The `dotfile format`
+wrapper is currently a CLI shell; use `mdfmt` directly.
