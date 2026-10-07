@@ -31,11 +31,11 @@ fn recorder(bin: &Path, name: &str) {
 fn owner(bin: &Path, pattern: &str) {
     stub(
         bin,
-        "dotfmt",
+        "confmt",
         &format!(
             r#"PATH=/usr/bin:/bin
 if [ "$1" = "--owns" ]; then tr '\0' '\n' | grep -E '{pattern}' | tr '\n' '\0'; exit 0; fi
-printf '%s|%s|%s\n' "dotfmt" "$PWD" "$*" >> "$DFF_LOG""#
+printf '%s|%s|%s\n' "confmt" "$PWD" "$*" >> "$DFF_LOG""#
         ),
     );
 }
@@ -72,7 +72,7 @@ fn checkout() -> TempDir {
     let root = tree(&["environment/", "config/targets.dotfile", "shared/tools/"]);
     let tools = root.path().join("shared/tools");
     for name in [
-        "dotfmt.dotfile",
+        "confmt.dotfile",
         "ruff.toml",
         "biome.global.json",
         "stylua.toml",
@@ -528,10 +528,10 @@ fn files_git_ignores_are_left_out() {
     assert!(lines[0].ends_with("|format kept.py"), "{}", lines[0]);
 }
 
-// ------------------------------------------------------------ dotfmt's row
+// ------------------------------------------------------------ confmt's row
 
 #[test]
-fn the_dotfmt_row_is_whatever_dotfmt_says_it_owns() {
+fn the_confmt_row_is_whatever_confmt_says_it_owns() {
     let root = tree(&["a.conf=x\n", "b.dotfile=x\n", "c.py=x\n"]);
     let bin = only(&["ruff"]);
     owner(bin.path(), r"\.conf$");
@@ -551,14 +551,14 @@ fn the_dotfmt_row_is_whatever_dotfmt_says_it_owns() {
     assert_eq!(
         lines,
         [
-            format!("dotfmt|{real}|a.conf"),
+            format!("confmt|{real}|a.conf"),
             format!("ruff|{real}|format c.py")
         ]
     );
 }
 
 #[test]
-fn a_file_with_no_extension_reaches_dotfmt_when_dotfmt_claims_it() {
+fn a_file_with_no_extension_reaches_confmt_when_confmt_claims_it() {
     let root = tree(&["ssh/config.d/10-work=x\n", "notes.md=x\n"]);
     let bin = only(&[]);
     owner(bin.path(), r"^ssh/");
@@ -582,7 +582,7 @@ fn a_file_with_no_extension_reaches_dotfmt_when_dotfmt_claims_it() {
 }
 
 #[test]
-fn a_file_dotfmt_claims_is_given_to_nobody_else() {
+fn a_file_confmt_claims_is_given_to_nobody_else() {
     let root = tree(&["app.json=x\n"]);
     let bin = only(&["biome"]);
     owner(bin.path(), r"\.json$");
@@ -600,12 +600,12 @@ fn a_file_dotfmt_claims_is_given_to_nobody_else() {
             .iter()
             .map(|line| line.split('|').next().unwrap().to_string())
             .collect::<Vec<_>>(),
-        ["dotfmt"]
+        ["confmt"]
     );
 }
 
 #[test]
-fn dotfmt_missing_is_never_an_error_and_is_named_only_under_verbose() {
+fn confmt_missing_is_never_an_error_and_is_named_only_under_verbose() {
     let root = tree(&["a.conf=x\n", "b.py=x\n"]);
     let bin = only(&["ruff"]);
     let environment = [
@@ -625,18 +625,18 @@ fn dotfmt_missing_is_never_an_error_and_is_named_only_under_verbose() {
     // exactly the way a missing sqlfluff reads.
     let loud = stderr(&format(&["-v", &at(&root, "")], "", &environment));
     assert!(
-        loud.contains("dotfmt  1 file   dotfmt not installed"),
+        loud.contains("confmt  1 file   confmt not installed"),
         "{loud}"
     );
 }
 
 #[test]
-fn a_dotfmt_that_cannot_answer_owns_fails_the_run() {
+fn a_confmt_that_cannot_answer_owns_fails_the_run() {
     let root = tree(&["a.conf=x\n"]);
     let bin = only(&[]);
     stub(
         bin.path(),
-        "dotfmt",
+        "confmt",
         "echo 'unexpected argument --owns' >&2; exit 2",
     );
     let output = format(
@@ -647,20 +647,20 @@ fn a_dotfmt_that_cannot_answer_owns_fails_the_run() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stderr(&output).trim_end(),
-        "dotfmt  1 file  failed\n  unexpected argument --owns\n0 / 1 file formatted"
+        "confmt  1 file  failed\n  unexpected argument --owns\n0 / 1 file formatted"
     );
 }
 
 #[test]
-fn a_dotfmt_that_cannot_answer_owns_still_formats_by_extension() {
+fn a_confmt_that_cannot_answer_owns_still_formats_by_extension() {
     let root = tree(&["a.conf=x\n", "b.config=x\n", "c.dotfile=x\n", "d.md=x\n"]);
     let bin = only(&[]);
     stub(
         bin.path(),
-        "dotfmt",
+        "confmt",
         r#"PATH=/usr/bin:/bin
 if [ "$1" = "--owns" ]; then echo "error: unexpected argument '--owns'" >&2; exit 2; fi
-printf '%s|%s|%s\n' "dotfmt" "$PWD" "$*" >> "$DFF_LOG""#,
+printf '%s|%s|%s\n' "confmt" "$PWD" "$*" >> "$DFF_LOG""#,
     );
     let logged = root.path().join("log");
     let output = format(
@@ -683,7 +683,7 @@ printf '%s|%s|%s\n' "dotfmt" "$PWD" "$*" >> "$DFF_LOG""#,
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stderr(&output).trim_end(),
-        "dotfmt  3 files  failed\n  error: unexpected argument '--owns'\n0 / 3 files formatted"
+        "confmt  3 files  failed\n  error: unexpected argument '--owns'\n0 / 3 files formatted"
     );
 }
 
@@ -827,7 +827,7 @@ fn taplo_and_biome_are_pointed_at_this_repositorys_config() {
         )),
         "{said:?}"
     );
-    // jqfmt resolves its own config per file, the way dotfmt does, so its row
+    // jqfmt resolves its own config per file, the way confmt does, so its row
     // is pointed at nothing: naming one file would override that everywhere.
     let jqfmt: Vec<&String> = said
         .iter()

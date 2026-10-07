@@ -7,7 +7,7 @@
 | doc-purge      | [doc-purge.md](./doc-purge.md)           | [scripts/rust/crates/utility/doc-purge/]    |
 | dotfile        | [dotfile.md](./dotfile.md)               | [scripts/rust/crates/dotfile/]              |
 | dotfile-format | [dotfile-format.md](./dotfile-format.md) | [scripts/rust/crates/dotfile/src/format/]   |
-| dotfmt         | [dotfmt.md](./dotfmt.md)                 | [scripts/rust/crates/format/dotfmt/]        |
+| confmt         | [confmt.md](./confmt.md)                 | [scripts/rust/crates/format/confmt/]        |
 | flatten        | [flatten.md](./flatten.md)               | [scripts/rust/crates/utility/flatten/]      |
 | git            | [git.md](./git.md)                       | [scripts/rust/crates/git/]                  |
 | home-copy      | [home-copy.md](./home-copy.md)           | [scripts/rust/crates/hcopy/]                |

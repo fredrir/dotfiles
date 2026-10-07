@@ -253,7 +253,7 @@ fn formatted(context: &Context, text: &str) -> Result<String> {
         let mut input = tempfile::tempfile()?;
         input.write_all(text.as_bytes())?;
         input.seek(SeekFrom::Start(0))?;
-        let mut command = context.command("dotfmt");
+        let mut command = context.command("confmt");
         command
             .args(["--stdin", "config/profiles.dotfile"])
             .current_dir(&context.root)

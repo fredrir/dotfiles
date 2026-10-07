@@ -92,7 +92,7 @@ pub fn sort(files: Vec<PathBuf>) -> Vec<(Lang, Vec<PathBuf>)> {
         LANGS.into_iter().map(|lang| (lang, Vec::new())).collect();
     for file in files {
         match Lang::of(&file) {
-            Some(Lang::Dotfmt) | None => continue,
+            Some(Lang::Confmt) | None => continue,
             Some(lang) => {
                 let slot = work
                     .iter_mut()
@@ -109,17 +109,17 @@ pub fn sort(files: Vec<PathBuf>) -> Vec<(Lang, Vec<PathBuf>)> {
 pub fn by_extension(files: &[PathBuf]) -> Vec<PathBuf> {
     files
         .iter()
-        .filter(|file| Lang::of(file) == Some(Lang::Dotfmt))
+        .filter(|file| Lang::of(file) == Some(Lang::Confmt))
         .cloned()
         .collect()
 }
 
-pub fn with_dotfmt(
+pub fn with_confmt(
     mut work: Vec<(Lang, Vec<PathBuf>)>,
     owned: Vec<PathBuf>,
 ) -> Vec<(Lang, Vec<PathBuf>)> {
     if !owned.is_empty() {
-        work.insert(0, (Lang::Dotfmt, owned));
+        work.insert(0, (Lang::Confmt, owned));
     }
     work
 }

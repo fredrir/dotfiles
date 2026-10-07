@@ -84,7 +84,7 @@
       ]
     },
     {
-      "command": "dotfmt --stdin \"${file}\"",
+      "command": "confmt --stdin \"${file}\"",
       "languages": [
         "properties"
       ]

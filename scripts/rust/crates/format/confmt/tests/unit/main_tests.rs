@@ -122,11 +122,11 @@ fn a_block_left_open_is_named_in_the_diagnostic() {
 
 #[test]
 fn the_equals_sits_two_columns_past_the_widest_key() {
-    let out = laid_out("dotfmt {\nindent = 2\nalign = true\nfinal_newline = true\n}\n");
+    let out = laid_out("confmt {\nindent = 2\nalign = true\nfinal_newline = true\n}\n");
 
     assert_eq!(
         out,
-        "dotfmt {\n  indent         = 2\n  align          = true\n  final_newline  = true\n}"
+        "confmt {\n  indent         = 2\n  align          = true\n  final_newline  = true\n}"
     );
 }
 
@@ -610,7 +610,7 @@ fn settings(body: &str) -> Result<Config, String> {
 
 #[test]
 fn a_config_file_overrides_only_what_it_names() {
-    let config = settings("dotfmt {\n  indent = 4\n}\n").unwrap();
+    let config = settings("confmt {\n  indent = 4\n}\n").unwrap();
 
     assert_eq!(config.indent, 4);
     assert_eq!(config.align_max, 24);
@@ -620,19 +620,19 @@ fn a_config_file_overrides_only_what_it_names() {
 #[test]
 fn a_mistake_in_the_config_is_reported_at_its_line() {
     let faults = [
-        ("dotfmt {\n  indnet = 4\n}\n", "2: unknown setting: indnet"),
+        ("confmt {\n  indnet = 4\n}\n", "2: unknown setting: indnet"),
         (
-            "dotfmt {\n  indent = wide\n}\n",
+            "confmt {\n  indent = wide\n}\n",
             "2: indent must be a whole number, not wide",
         ),
         (
-            "dotfmt {\n  align = maybe\n}\n",
+            "confmt {\n  align = maybe\n}\n",
             "2: align must be true or false, not maybe",
         ),
         ("other {\n  a = 1\n}\n", "2: unknown block: other"),
         ("indent = 4\n", "1: setting outside a block"),
-        ("dotfmt {\n  indent\n}\n", "2: expected key = value"),
-        ("dotfmt {\n", "1: missing } for dotfmt"),
+        ("confmt {\n  indent\n}\n", "2: expected key = value"),
+        ("confmt {\n", "1: missing } for confmt"),
         (
             "include {\n  a = b\n}\n",
             "2: expected a pattern; a pattern cannot hold an =",
@@ -661,7 +661,7 @@ fn the_nearest_config_above_the_target_is_the_one_that_governs() {
     std::fs::create_dir_all(&deep).unwrap();
     std::fs::write(
         root.path().join(config::NAME),
-        "dotfmt {\n  indent = 6\n}\n",
+        "confmt {\n  indent = 6\n}\n",
     )
     .unwrap();
 
@@ -671,7 +671,7 @@ fn the_nearest_config_above_the_target_is_the_one_that_governs() {
 
 #[test]
 fn a_config_in_a_subdirectory_beats_the_one_above_it_for_the_files_below() {
-    // Resolution is per file rather than per target, so `dotfmt .` at the top
+    // Resolution is per file rather than per target, so `confmt .` at the top
     // still reads the deeper config for the deeper files — the rule rustfmt,
     // stylua and ruff all use, and the one people expect from a config file
     // sitting next to the thing it configures.
@@ -680,10 +680,10 @@ fn a_config_in_a_subdirectory_beats_the_one_above_it_for_the_files_below() {
     std::fs::create_dir_all(&deep).unwrap();
     std::fs::write(
         root.path().join(config::NAME),
-        "dotfmt {\n  indent = 6\n}\n",
+        "confmt {\n  indent = 6\n}\n",
     )
     .unwrap();
-    std::fs::write(deep.join(config::NAME), "dotfmt {\n  indent = 3\n}\n").unwrap();
+    std::fs::write(deep.join(config::NAME), "confmt {\n  indent = 3\n}\n").unwrap();
     let configs = config::Configs::new();
 
     let above = configs.for_file(&root.path().join("top.dotfile")).unwrap();
@@ -701,7 +701,7 @@ fn the_chain_is_walked_once_per_directory_and_then_remembered() {
     // again.
     let root = tempfile::tempdir().unwrap();
     let at = root.path().join(config::NAME);
-    std::fs::write(&at, "dotfmt {\n  indent = 6\n}\n").unwrap();
+    std::fs::write(&at, "confmt {\n  indent = 6\n}\n").unwrap();
     let configs = config::Configs::new();
 
     let first = configs.for_file(&root.path().join("a.dotfile")).unwrap();
@@ -714,9 +714,9 @@ fn the_chain_is_walked_once_per_directory_and_then_remembered() {
 
 #[test]
 fn the_shipped_config_lays_out_the_way_the_built_in_defaults_do() {
-    // The compiled-in table and `shared/tools/dotfmt.dotfile` are two copies
+    // The compiled-in table and `shared/tools/confmt.dotfile` are two copies
     // of one decision, and the file is the one people read.
-    let shipped = include_str!("../../../../../../../shared/tools/dotfmt.dotfile");
+    let shipped = include_str!("../../../../../../../shared/tools/confmt.dotfile");
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join(config::NAME);
     std::fs::write(&path, shipped).unwrap();
@@ -738,8 +738,8 @@ fn the_shipped_config_picks_up_this_repository_and_leaves_its_scripts_alone() {
     // off: a bash hook, a licence and a KDE settings dump, none of them
     // anything a formatter should touch. The four below it are what the
     // scoped `_empty_` entry exists for. If this test fails, look at
-    // `shared/tools/dotfmt.dotfile` before looking here.
-    let shipped = include_str!("../../../../../../../shared/tools/dotfmt.dotfile");
+    // `shared/tools/confmt.dotfile` before looking here.
+    let shipped = include_str!("../../../../../../../shared/tools/confmt.dotfile");
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join(config::NAME);
     std::fs::write(&path, shipped).unwrap();
@@ -823,7 +823,7 @@ fn check_works_out_the_answer_without_touching_the_file() {
 }
 
 #[test]
-fn a_file_dotfmt_does_not_own_comes_back_untouched() {
+fn a_file_confmt_does_not_own_comes_back_untouched() {
     let text = "x  =  1\n\n\n";
     let out = native::format(Path::new("a.py"), "a.py", text, &config()).unwrap();
 
@@ -944,8 +944,8 @@ fn a_walk_reads_the_config_of_each_directory_it_looks_in() {
     // the temp directory and finding the one on the machine running the test.
     let root = tempfile::tempdir().unwrap();
     for (path, body) in [
-        ("dotfmt.dotfile", ""),
-        ("one/dotfmt.dotfile", "include {\n  .conf\n}\n"),
+        ("confmt.dotfile", ""),
+        ("one/confmt.dotfile", "include {\n  .conf\n}\n"),
         ("one/a.conf", ""),
         ("two/a.conf", ""),
     ] {
@@ -961,7 +961,7 @@ fn a_walk_reads_the_config_of_each_directory_it_looks_in() {
         .iter()
         .map(|found| render::label(root.path(), &found.path))
         .collect();
-    assert_eq!(named, [config::NAME, "one/a.conf", "one/dotfmt.dotfile"]);
+    assert_eq!(named, [config::NAME, "one/a.conf", "one/confmt.dotfile"]);
 }
 
 #[test]
@@ -979,7 +979,7 @@ fn a_named_file_is_used_as_given_unless_the_config_leaves_it_alone() {
     assert_eq!(found.files.len(), 1);
     assert_eq!(found.files[0].path, owned);
 
-    // A file dotfmt has no formatter for at all, and one it has a formatter
+    // A file confmt has no formatter for at all, and one it has a formatter
     // for and was told not to use: two situations, two answers.
     let unknown = walk::gather(&root.path().join("a.py"), &configs).unwrap_err();
     assert!(
@@ -999,7 +999,7 @@ fn a_config_that_will_not_parse_fails_its_own_directory_and_no_other() {
     std::fs::create_dir_all(root.path().join("bad")).unwrap();
     std::fs::write(root.path().join(config::NAME), "").unwrap();
     std::fs::write(root.path().join("good.dotfile"), "").unwrap();
-    std::fs::write(root.path().join("bad").join(config::NAME), "dotfmt {\n").unwrap();
+    std::fs::write(root.path().join("bad").join(config::NAME), "confmt {\n").unwrap();
     std::fs::write(root.path().join("bad/a.dotfile"), "").unwrap();
 
     let found = walk::gather(root.path(), &config::Configs::new()).unwrap();
@@ -1012,7 +1012,7 @@ fn a_config_that_will_not_parse_fails_its_own_directory_and_no_other() {
     assert_eq!(named, [config::NAME, "good.dotfile"]);
     assert_eq!(found.problems.len(), 1);
     assert!(
-        found.problems[0].ends_with("1: missing } for dotfmt"),
+        found.problems[0].ends_with("1: missing } for confmt"),
         "{}",
         found.problems[0]
     );

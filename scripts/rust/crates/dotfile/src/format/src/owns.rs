@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-pub const PROGRAM: &str = "dotfmt";
+pub const PROGRAM: &str = "confmt";
 
 pub enum Owned {
     Claimed(Vec<PathBuf>),
@@ -43,7 +43,7 @@ pub fn ask(root: &Path, files: &[PathBuf]) -> Owned {
         Ok(output) => output,
         Err(error) => return Owned::Failed(format!("{PROGRAM}: {error}\n")),
     };
-    // A short write means dotfmt stopped reading, so the answer is about some
+    // A short write means confmt stopped reading, so the answer is about some
     // prefix of the question rather than about the question.
     if !matches!(fed, Ok(Ok(()))) {
         return Owned::Failed(format!("{PROGRAM} --owns: the file list was not read\n"));
@@ -83,7 +83,7 @@ fn split(answer: &[u8], asked: &[PathBuf]) -> Vec<PathBuf> {
         .map(<[u8]>::to_vec)
         .collect();
     // Back into the order the candidates were offered in, so two runs over one
-    // tree hand dotfmt the same command line.
+    // tree hand confmt the same command line.
     asked
         .iter()
         .filter(|path| claimed.remove(path.as_os_str().as_encoded_bytes()))

@@ -154,7 +154,7 @@ fn sibling(path: &Path) -> io::Result<(File, PathBuf)> {
     let name = path.file_name().unwrap_or_default().display().to_string();
     let mut attempt = 0;
     loop {
-        let temporary = parent.join(format!(".{name}.dotfmt-{}-{attempt}", std::process::id()));
+        let temporary = parent.join(format!(".{name}.confmt-{}-{attempt}", std::process::id()));
         match OpenOptions::new()
             .write(true)
             .create_new(true)

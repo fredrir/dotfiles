@@ -1,9 +1,9 @@
 # Formats: `.conf`, `.config` and `.dotfile`.
-#   dotfmt    the .dotfile block formatter
-#   include   which files dotfmt owns, in .gitignore syntax
+#   confmt    the .dotfile block formatter
+#   include   which files confmt owns, in .gitignore syntax
 #   exclude   applied after include; a file must match one and not the other
 
-dotfmt {
+confmt {
   indent         = 2
   align          = true
   align_max      = 24

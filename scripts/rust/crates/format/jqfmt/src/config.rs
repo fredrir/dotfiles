@@ -1,4 +1,4 @@
-//! The same shape as `dotfmt`'s: a config found by walking up from the file
+//! The same shape as `confmt`'s: a config found by walking up from the file
 //! being formatted, then the two settled places, then the compiled-in defaults
 //! — which `shared/tools/jqfmt.dotfile` repeats, and a test holds the two to
 //! each other.
@@ -90,7 +90,7 @@ impl Config {
         match key {
             "indent" => self.indent = indent(value)?,
             "final_newline" => self.final_newline = flag(key, value)?,
-            // The keys `dotfmt.dotfile` carries. A jq formatter has no column
+            // The keys `confmt.dotfile` carries. A jq formatter has no column
             // to align and no blank lines to place, and saying so beats
             // ignoring a line somebody wrote on purpose.
             "align" | "align_max" | "blank_lines" => self.warnings.push(format!(

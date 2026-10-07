@@ -2,7 +2,7 @@ use std::path::Path;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Lang {
-    Dotfmt,
+    Confmt,
     Python,
     Web,
     Lua,
@@ -17,7 +17,7 @@ pub enum Lang {
 }
 
 pub const LANGS: [Lang; 12] = [
-    Lang::Dotfmt,
+    Lang::Confmt,
     Lang::Python,
     Lang::Web,
     Lang::Lua,
@@ -100,7 +100,7 @@ fn by_listing(program: &'static str, args: &'static [&'static str]) -> Step {
 impl Lang {
     pub fn name(self) -> &'static str {
         match self {
-            Lang::Dotfmt => "dotfmt",
+            Lang::Confmt => "confmt",
             Lang::Python => "python",
             Lang::Web => "web",
             Lang::Lua => "lua",
@@ -117,7 +117,7 @@ impl Lang {
 
     pub fn extensions(self) -> &'static [&'static str] {
         match self {
-            Lang::Dotfmt => &["conf", "config", "dotfile"],
+            Lang::Confmt => &["conf", "config", "dotfile"],
             Lang::Python => &["py", "pyi"],
             Lang::Web => &[
                 "js", "jsx", "ts", "tsx", "mjs", "cjs", "css", "html", "jsonc",
@@ -151,8 +151,8 @@ impl Lang {
 
     pub fn steps(self, mode: Mode) -> Vec<Step> {
         match (self, mode) {
-            (Lang::Dotfmt, Mode::Write) => vec![on_files("dotfmt", &[])],
-            (Lang::Dotfmt, Mode::Check) => vec![on_files("dotfmt", &["--check"])],
+            (Lang::Confmt, Mode::Write) => vec![on_files("confmt", &[])],
+            (Lang::Confmt, Mode::Check) => vec![on_files("confmt", &["--check"])],
 
             (Lang::Python, Mode::Write) => vec![on_files("ruff", &["format"])],
             (Lang::Python, Mode::Check) => vec![
@@ -224,7 +224,7 @@ impl Lang {
 
     pub fn config(self) -> Option<(&'static str, &'static str)> {
         match self {
-            Lang::Dotfmt => Some(("dotfmt.dotfile", "dotfmt.dotfile")),
+            Lang::Confmt => Some(("confmt.dotfile", "confmt.dotfile")),
             Lang::Markdown => Some(("mdfmt.dotfile", "mdfmt.dotfile")),
             Lang::Json => Some(("jqfmt.dotfile", "jqfmt.dotfile")),
             Lang::Python => Some(("ruff.toml", "ruff.toml")),
@@ -290,11 +290,11 @@ pub fn configured(program: &str) -> Option<Configured> {
     Some(match program {
         "taplo" | "biome" | "stylua" | "yamllint" => Configured::Named,
 
-        // dotfmt resolves per file and falls back to `~/.config/dotfmt/`.
-        // That rule is the thing dotfmt exists to own — the same reasoning
+        // confmt resolves per file and falls back to `~/.config/confmt/`.
+        // That rule is the thing confmt exists to own — the same reasoning
         // that made this crate ask `--owns` rather than guess — so naming one
         // config for a whole run would override it everywhere.
-        "dotfmt" => Configured::Found("resolves per file and owns that rule"),
+        "confmt" => Configured::Found("resolves per file and owns that rule"),
         "mdfmt" => Configured::Found("resolves per file, from mdfmt.dotfile upward"),
         "jqfmt" => {
             Configured::Found("resolves per file and owns that rule, from jqfmt.dotfile upward")

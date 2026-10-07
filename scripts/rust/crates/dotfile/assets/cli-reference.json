@@ -33,12 +33,12 @@
       "source": "scripts/rust/crates/dotfile/src/format/"
     },
     {
-      "name": "dotfmt",
-      "title": "dotfmt",
+      "name": "confmt",
+      "title": "confmt",
       "programs": [
-        "dotfmt"
+        "confmt"
       ],
-      "source": "scripts/rust/crates/format/dotfmt/"
+      "source": "scripts/rust/crates/format/confmt/"
     },
     {
       "name": "flatten",
@@ -168,7 +168,7 @@
     "count",
     "doc-purge",
     "dotfile-format",
-    "dotfmt",
+    "confmt",
     "flatten",
     "gdd",
     "gget",
@@ -237,7 +237,7 @@
     "dotfile theme contrast": "Prints one or every profile's resolved contrast matrix.",
     "dotfile theme outputs": "Prints the files owned by the theme generator.",
     "dotfile-format": "Formats a tree by handing each language to the tool that owns it.",
-    "dotfmt": "Formats the `.conf`, `.config`, and `.dotfile` files in a tree.",
+    "confmt": "Formats the `.conf`, `.config`, and `.dotfile` files in a tree.",
     "jqfmt": "Formats the JSON in a tree the way jq does.",
     "flatten": "Lifts a directory's contents out of the directories holding them.",
     "gdd": "Discards tracked and untracked working-tree changes while preserving ignored files and nested repositories.",
@@ -375,7 +375,7 @@
       "--verbose": "Names every file as it is formatted.",
       "--quiet": "Reports nothing but failures."
     },
-    "dotfmt": {
+    "confmt": {
       "--check": "Reports files that are not formatted instead of rewriting them.",
       "--stdin": "Formats standard input as the named file and writes the result to standard output.",
       "--owns": "Reads NUL-separated paths from standard input and answers with the ones it formats.",

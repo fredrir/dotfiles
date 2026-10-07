@@ -7,7 +7,7 @@ members = [
   "crates/dcloud",
   "crates/dotfile",
   "crates/dotfile/src/format",
-  "crates/format/dotfmt",
+  "crates/format/confmt",
   "crates/format/jqfmt",
   "crates/format/luafmt",
   "crates/format/mdfmt",

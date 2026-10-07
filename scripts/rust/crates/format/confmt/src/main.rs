@@ -22,7 +22,7 @@ use walk::Found;
 use workstation::path::home_relative;
 use workstation::{Completable, Completions};
 
-const PROGRAM: &str = "dotfmt";
+const PROGRAM: &str = "confmt";
 
 #[derive(Parser)]
 #[command(
@@ -30,10 +30,10 @@ const PROGRAM: &str = "dotfmt";
     about = "Format .conf, .config and .dotfile files",
     long_about = "Format .conf, .config and .dotfile files",
     after_long_help = "Examples:
-  dotfmt .                       Format every file it owns below here
-  dotfmt --check .               Report what is not formatted, and change nothing
-  dotfmt --stdin hosts.dotfile   Format a body read on stdin, onto stdout
-  dotfmt --owns < paths          Answer with the paths it would format"
+  confmt .                       Format every file it owns below here
+  confmt --check .               Report what is not formatted, and change nothing
+  confmt --stdin hosts.dotfile   Format a body read on stdin, onto stdout
+  confmt --owns < paths          Answer with the paths it would format"
 )]
 struct Cli {
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]
@@ -116,7 +116,7 @@ fn owned() -> Result<ExitCode, String> {
         match configs.for_file(Path::new(candidate)) {
             // Answered from the path alone, so a candidate that is not there
             // is simply not owned rather than an error: the caller is asking
-            // which paths dotfmt would take, not which it can read.
+            // which paths confmt would take, not which it can read.
             Ok(config) => {
                 if config.owns(Path::new(candidate)).is_some() {
                     answer.push_str(candidate);

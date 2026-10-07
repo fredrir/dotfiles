@@ -92,7 +92,7 @@ fn a_mistake_in_the_config_is_reported_at_its_line() {
 
 #[test]
 fn the_keys_a_dotfile_formatter_takes_are_named_and_ignored() {
-    // `dotfmt.dotfile` carries these, so a config copied from it would otherwise
+    // `confmt.dotfile` carries these, so a config copied from it would otherwise
     // fail with a setting nobody meant to write.
     let config = configured("jqfmt {\n  align = true\n  align_max = 24\n  blank_lines = 1\n}\n");
 

@@ -58,7 +58,7 @@ fn every_extension_belongs_to_exactly_one_language() {
     assert_eq!(Lang::of(Path::new("a/b.rs")), Some(Lang::Rust));
     assert_eq!(
         Lang::of(Path::new("config/targets.dotfile")),
-        Some(Lang::Dotfmt)
+        Some(Lang::Confmt)
     );
     assert_eq!(Lang::of(Path::new("README.md")), Some(Lang::Markdown));
     assert_eq!(Lang::of(Path::new(".editorconfig")), None);
@@ -459,7 +459,7 @@ fn an_encrypted_file_is_taken_out_of_whatever_row_it_was_in() {
 // -------------------------------------------------------------- the driver
 
 #[test]
-fn sorting_never_builds_the_dotfmt_row() {
+fn sorting_never_builds_the_confmt_row() {
     let work = run::sort(vec![
         "a.conf".into(),
         "b.dotfile".into(),
@@ -472,7 +472,7 @@ fn sorting_never_builds_the_dotfmt_row() {
 }
 
 #[test]
-fn the_fallback_row_is_the_three_extensions_dotfmt_has_always_had() {
+fn the_fallback_row_is_the_three_extensions_confmt_has_always_had() {
     let files: Vec<std::path::PathBuf> = ["a.conf", "b.config", "c.dotfile", "d.py", "LICENSE"]
         .iter()
         .map(Into::into)
@@ -481,17 +481,17 @@ fn the_fallback_row_is_the_three_extensions_dotfmt_has_always_had() {
         shown(&run::by_extension(&files)),
         ["a.conf", "b.config", "c.dotfile"]
     );
-    assert_eq!(Lang::Dotfmt.extensions(), ["conf", "config", "dotfile"]);
+    assert_eq!(Lang::Confmt.extensions(), ["conf", "config", "dotfile"]);
 }
 
 #[test]
-fn dotfmts_answer_becomes_the_first_row_and_an_empty_answer_becomes_none() {
-    let work = run::with_dotfmt(run::sort(vec!["c.py".into()]), vec!["a.conf".into()]);
-    assert_eq!(work[0].0, Lang::Dotfmt);
+fn confmts_answer_becomes_the_first_row_and_an_empty_answer_becomes_none() {
+    let work = run::with_confmt(run::sort(vec!["c.py".into()]), vec!["a.conf".into()]);
+    assert_eq!(work[0].0, Lang::Confmt);
     assert_eq!(shown(&work[0].1), ["a.conf"]);
     assert_eq!(work[1].0, Lang::Python);
 
-    let none = run::with_dotfmt(run::sort(vec!["c.py".into()]), Vec::new());
+    let none = run::with_confmt(run::sort(vec!["c.py".into()]), Vec::new());
     assert_eq!(none.len(), 1);
     assert_eq!(none[0].0, Lang::Python);
 }
@@ -512,14 +512,14 @@ fn a_tool_that_names_a_file_inside_a_field_is_read_the_same_way() {
 
 #[test]
 fn a_tool_that_answers_in_absolute_paths_is_read_the_same_way() {
-    let files: Vec<std::path::PathBuf> = vec!["crates/dotfmt/src/select.rs".into()];
+    let files: Vec<std::path::PathBuf> = vec!["crates/confmt/src/select.rs".into()];
     assert_eq!(
         run::blamed(
-            "Diff in /home/x/repo/crates/dotfmt/src/select.rs:161:\n",
+            "Diff in /home/x/repo/crates/confmt/src/select.rs:161:\n",
             Path::new("/home/x/repo"),
             &files
         ),
-        ["crates/dotfmt/src/select.rs"]
+        ["crates/confmt/src/select.rs"]
     );
 }
 
@@ -1172,14 +1172,14 @@ fn the_files_named_under_a_provider_are_capped() {
 fn a_failure_that_names_no_file_shows_what_the_tool_said() {
     let done = vec![Ran {
         failed: true,
-        output: "\ndotfmt --owns: unexpected argument\n".to_string(),
-        ..row(Lang::Dotfmt, 0)
+        output: "\nconfmt --owns: unexpected argument\n".to_string(),
+        ..row(Lang::Confmt, 0)
     }];
     assert_eq!(
         summary(&done, Mode::Write),
         [
-            "dotfmt  0 files  failed",
-            "  dotfmt --owns: unexpected argument",
+            "confmt  0 files  failed",
+            "  confmt --owns: unexpected argument",
             "0 / 0 files formatted",
         ]
     );

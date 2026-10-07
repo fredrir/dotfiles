@@ -676,6 +676,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "031ad3d167622974ed636505ae4556267ed4aa2aea0464122fa6bc9698a32825"
 
 [[package]]
+name = "confmt"
+version = "0.1.0"
+dependencies = [
+ "bstr",
+ "clap 4.6.6",
+ "gix-glob",
+ "rayon",
+ "serde_json",
+ "tempfile",
+ "testkit",
+ "workstation",
+]
+
+[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1275,20 +1289,6 @@ version = "0.1.0"
 dependencies = [
  "clap 4.6.6",
  "rayon",
- "tempfile",
- "testkit",
- "workstation",
-]
-
-[[package]]
-name = "dotfmt"
-version = "0.1.0"
-dependencies = [
- "bstr",
- "clap 4.6.6",
- "gix-glob",
- "rayon",
- "serde_json",
  "tempfile",
  "testkit",
  "workstation",

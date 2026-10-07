@@ -13,8 +13,8 @@ pub const EMBEDDED: [(&str, &str); 11] = [
         include_str!("../../../../../../../shared/tools/mdfmt.dotfile"),
     ),
     (
-        "dotfmt.dotfile",
-        include_str!("../../../../../../../shared/tools/dotfmt.dotfile"),
+        "confmt.dotfile",
+        include_str!("../../../../../../../shared/tools/confmt.dotfile"),
     ),
     (
         "jqfmt.dotfile",

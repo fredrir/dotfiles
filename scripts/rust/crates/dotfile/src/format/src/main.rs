@@ -111,7 +111,7 @@ fn go(cli: &Cli) -> Result<ExitCode, String> {
     let source = configs::source()?;
     let injected = configs::injections(&source, &root);
 
-    // dotfmt's row is dotfmt's answer, not a guess from an extension list —
+    // confmt's row is confmt's answer, not a guess from an extension list —
     // when there is an answer to be had. When there is not, the three
     // extensions this crate has always used are the row, because an empty one
     // would quietly stop formatting every `.conf` in the tree while the run
@@ -122,7 +122,7 @@ fn go(cli: &Cli) -> Result<ExitCode, String> {
         // provider's: the files it would have had, and the tool that was not
         // there to take them.
         owns::Owned::Missing => (run::by_extension(&found.files), None),
-        // Installed and unable to answer is a failure, because a dotfmt too
+        // Installed and unable to answer is a failure, because a confmt too
         // old to know `--owns` still formats — so the row would otherwise run
         // to completion under the wrong selection rule and say nothing.
         owns::Owned::Failed(said) => (run::by_extension(&found.files), Some(said)),
@@ -134,7 +134,7 @@ fn go(cli: &Cli) -> Result<ExitCode, String> {
         .filter(|path| !claimed.contains(path.as_os_str()))
         .cloned()
         .collect();
-    let mut work = run::with_dotfmt(run::sort(rest), owned);
+    let mut work = run::with_confmt(run::sort(rest), owned);
 
     // No row is handed a file that is encrypted at rest, whatever its name is
     // and whichever provider would have taken it. Reformatting one is a diff
@@ -163,12 +163,12 @@ fn go(cli: &Cli) -> Result<ExitCode, String> {
     };
     let mut done = run::run(&root, work, &plan);
     if let Some(said) = unasked {
-        match done.iter_mut().find(|ran| ran.lang == Lang::Dotfmt) {
+        match done.iter_mut().find(|ran| ran.lang == Lang::Confmt) {
             Some(ran) => ran.unasked(&said),
-            // Nothing in the tree looked like dotfmt's even by extension, so
+            // Nothing in the tree looked like confmt's even by extension, so
             // there is no row to mark and the failure is the row.
             None => {
-                done.push(run::Ran::broken(Lang::Dotfmt, said));
+                done.push(run::Ran::broken(Lang::Confmt, said));
                 run::order(&mut done);
             }
         }

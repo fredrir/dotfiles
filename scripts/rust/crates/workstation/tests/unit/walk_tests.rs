@@ -48,7 +48,7 @@ fn every_entry(root: &Path, policy: &Policy) -> Walked<()> {
 }
 
 #[test]
-fn the_skip_list_is_the_one_dotfile_format_and_dotfmt_agree_on() {
+fn the_skip_list_is_the_one_dotfile_format_and_confmt_agree_on() {
     assert_eq!(SKIP.len(), 22);
     for name in [
         ".git",

@@ -1,11 +1,11 @@
-# dotfmt
+# confmt
 
 ## Commands
 
 <!-- cli:commands:start -->
 | Command  | Description                                                     |
 | -------- | --------------------------------------------------------------- |
-| `dotfmt` | Formats the `.conf`, `.config`, and `.dotfile` files in a tree. |
+| `confmt` | Formats the `.conf`, `.config`, and `.dotfile` files in a tree. |
 <!-- cli:commands:end -->
 
 ## Flags

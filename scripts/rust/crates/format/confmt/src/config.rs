@@ -8,9 +8,9 @@ use workstation::path::home_relative;
 use crate::block::{self, Class};
 use crate::select::{Selection, Token};
 
-pub const NAME: &str = "dotfmt.dotfile";
+pub const NAME: &str = "confmt.dotfile";
 
-const HOME: &str = "dotfmt";
+const HOME: &str = "confmt";
 
 #[derive(Debug)]
 pub struct Config {
@@ -80,14 +80,14 @@ impl Config {
                 Class::Blank | Class::Comment | Class::Open | Class::Close => None,
                 _ if line.depth == 0 => Some("setting outside a block".to_string()),
                 _ => match line.block {
-                    "dotfmt" if line.class != Class::Entry => {
+                    "confmt" if line.class != Class::Entry => {
                         Some("expected key = value".to_string())
                     }
-                    "dotfmt" => config.set(line.key, line.value).err(),
+                    "confmt" => config.set(line.key, line.value).err(),
                     // A pattern holding an `=` is read as `key = value` by the
                     // grammar, and laying this very file out would then rewrite
                     // it as `key  = value`. Turning it away here is what keeps
-                    // dotfmt from silently editing its own config.
+                    // confmt from silently editing its own config.
                     "include" | "exclude" if line.class != Class::Bare => {
                         Some("expected a pattern; a pattern cannot hold an =".to_string())
                     }

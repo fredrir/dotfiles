@@ -1,5 +1,5 @@
 [package]
-name              = "dotfmt"
+name              = "confmt"
 version.workspace = true
 description       = "Format .conf, .config and .dotfile files"
 edition.workspace = true
