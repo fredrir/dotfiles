@@ -1,6 +1,7 @@
 local wezterm = require "wezterm" ---@type Wezterm
 local platform = require "utils.platform"
 local bind_keys = require "utils.keymap.bind-keys"
+local keybind = require "utils.keymap.keybind"
 local physical_keys = require "keymap.physical-keys"
 local motion_keys = require "keymap.motion-keys"
 local extend = require "utils.extend"
@@ -22,156 +23,110 @@ local adopt_pane = require "utils.mux.adopt_pane"
 
 local act = wezterm.action
 
----@type Key[]
-local keys = bind_keys {
-  { key = "c", mods = platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", action = copy_selection },
-  { key = "v", mods = platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", action = act.PasteFrom "Clipboard" },
-  { key = "n", mods = MOD.PRIMARY, action = act.SpawnWindow },
-  { key = "y", mods = MOD.PRIMARY, action = open_yazi },
+---@type BindKey[]
+local bindings = {
+  keybind(copy_selection, platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", "c"),
+  keybind(act.PasteFrom "Clipboard", platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", "v"),
+  keybind(act.SpawnWindow, MOD.PRIMARY, "n"),
+  keybind(open_yazi, MOD.PRIMARY, "y"),
 
-  -- Window Management --
-  { -- New Tab --
-    key = "t",
-    mods = MOD.PRIMARY,
-    action = hwire_session.new_tab,
-  },
-  { -- New tab on peer --
-    key = "t",
-    mods = MOD.SUPER_REV,
-    action = adopt_pane.new_peer_tab,
-  },
-  { -- Quit Application --
-    key = "q",
-    mods = MOD.PRIMARY,
-    action = act.QuitApplication,
-  },
-  { -- Quit Tab --
-    key = "w",
-    mods = MOD.PRIMARY,
-    action = close_tab,
-  },
-  {
-    -- Close Window
-    key = "w",
-    mods = MOD.SUPER_REV,
-    action = close_window,
-  },
-  { -- Go to last tab --
-    key = "0",
-    mods = MOD.PRIMARY,
-    action = act.ActivateTab(-1),
-  },
-  { -- Go to next tab --
-    key = "Tab",
-    mods = "CTRL",
-    action = act.ActivateTabRelative(1),
-  },
-  {
-    key = "Tab",
-    mods = "CTRL|SHIFT",
-    action = act.ActivateTabRelative(-1),
-  },
+  ------ Window Management ------
 
-  { -- Pane Controls --
-    key = "d",
-    mods = MOD.PRIMARY,
-    action = act.SplitHorizontal { domain = "CurrentPaneDomain" },
-  },
-  { -- Cycle panes forward --
-    key = "Tab",
-    mods = MOD.UNIQUE,
-    action = act.ActivatePaneDirection "Next",
-  },
-  { -- Cycle panes backward --
-    key = "Tab",
-    mods = MOD.UNIQUE,
-    action = act.ActivatePaneDirection "Prev",
-  },
-  {
-    key = "q",
-    mods = MOD.UNIQUE,
-    action = close_pane,
-  },
-  {
-    key = MOD.SPLITBELOW,
-    mods = platform.is_mac and { "CTRL", MOD.PRIMARY } or MOD.PRIMARY,
-    action = act.SplitVertical { domain = "CurrentPaneDomain" },
-  },
-  {
-    key = "m",
-    mods = MOD.PRIMARY,
-    action = act.PaneSelect {
-      mode = "MoveToNewTab",
-    },
-  },
-  {
-    key = "m",
-    mods = MOD.SUPER_REV,
-    action = wezterm.action_callback(function(_, pane)
+  ---- Application ----
+  -- Quit Application --
+  keybind(act.QuitApplication, MOD.PRIMARY, { "q", "å" }),
+
+
+  ---- Window ----
+  -- Close Window
+  keybind(close_window, MOD.SUPER_REV, "w"),
+
+
+  ---- Tab ----
+  -- Quit Tab --
+  keybind(close_tab, MOD.PRIMARY, "w"),
+
+  -- New Tab --
+  keybind(hwire_session.new_tab, MOD.PRIMARY, "t"),
+
+  -- New tab in archie/macie --
+  keybind(adopt_pane.new_peer_tab, MOD.SUPER_REV, "t"),
+
+  -- Go to last tab --
+  keybind(act.ActivateTab(-1), MOD.PRIMARY, "0"),
+
+  -- Go to next/prev tab --
+  keybind(act.ActivateTabRelative(1), "CTRL", "Tab"),
+  keybind(act.ActivateTabRelative(-1), "CTRL|SHIFT", "Tab"),
+
+  keybind(act.PaneSelect { mode = "MoveToNewTab" }, MOD.PRIMARY, "m"),
+
+  keybind(
+    wezterm.action_callback(function(_, pane)
       local tab = pane:move_to_new_tab()
       tab:activate()
-    end),
-  },
-  {
-    key = "l",
-    mods = platform.is_mac and { MOD.PRIMARY, MOD.SECONDARY, MOD.UNIQUE } or { MOD.PRIMARY, MOD.UNIQUE },
-    action = clear_screen,
-  },
-  { key = "LeftArrow", mods = MOD.SUPER_REV_2, action = act.AdjustPaneSize { "Left", 3 } },
-  { key = "RightArrow", mods = MOD.SUPER_REV_2, action = act.AdjustPaneSize { "Right", 3 } },
-  { key = "UpArrow", mods = MOD.SUPER_REV_2, action = act.AdjustPaneSize { "Up", 3 } },
-  { key = "DownArrow", mods = MOD.SUPER_REV_2, action = act.AdjustPaneSize { "Down", 3 } },
+    end), MOD.SUPER_REV, "m" ),
 
-  -- Wezterm ---
-  { key = "r", mods = MOD.SUPER_REV, action = "ReloadConfiguration" },
+  ---- Pane ----
+  keybind(close_pane, MOD.UNIQUE, "q"),
+  -- Split --
+  keybind(act.SplitHorizontal { domain = "CurrentPaneDomain" }, MOD.PRIMARY, "d"),
+  keybind(
+    act.SplitVertical { domain = "CurrentPaneDomain" },
+    platform.is_mac and { "CTRL", MOD.PRIMARY } or MOD.PRIMARY,
+    MOD.SPLITBELOW
+  ),
+  -- Cycle  --
+  keybind(act.ActivatePaneDirection "Next", MOD.UNIQUE, "Tab"), -- Forward
+  keybind(act.ActivatePaneDirection "Prev", MOD.UNIQUE, "Tab"), -- Backward
+  
+  keybind(
+    clear_screen,
+    platform.is_mac and { MOD.PRIMARY, MOD.SECONDARY, MOD.UNIQUE } or { MOD.PRIMARY, MOD.UNIQUE },
+    "l"
+  ),
+
+  keybind(adopt_pane.adopt, MOD.SUPER_REV, "a"),
+  keybind(act.TogglePaneZoomState, MOD.SUPER_REV, "z"),
+
+  keybind(act.AdjustPaneSize { "Left", 3 }, MOD.SUPER_REV_2, "LeftArrow"),
+  keybind(act.AdjustPaneSize { "Right", 3 }, MOD.SUPER_REV_2, "RightArrow"),
+  keybind(act.AdjustPaneSize { "Up", 3 }, MOD.SUPER_REV_2, "UpArrow"),
+  keybind(act.AdjustPaneSize { "Down", 3 }, MOD.SUPER_REV_2, "DownArrow"),
+
+
+  ------ Wezterm ------
+
+  keybind("ReloadConfiguration", MOD.SUPER_REV, "r"),
 
   -- Mux --
-  {
-    key = "s",
-    mods = MOD.SUPER_REV,
-    action = mux.detach_pane,
-  },
-  {
-    key = ".",
-    mods = MOD.PRIMARY,
-    action = adopt_pane.attach_peer,
-  },
-  { -- Domain and workspace launcher --
-    key = "d",
-    mods = MOD.SUPER_REV,
-    action = act.ShowLauncherArgs { flags = "DOMAINS|WORKSPACES" },
-  },
-  { -- Open Vscode --
-    key = "o",
-    mods = MOD.SUPER_REV,
-    action = open_vscode,
-  },
-  { key = "p", mods = MOD.UNIQUE_REV, action = open_jetbrains.pycharm },
-  { key = "r", mods = MOD.UNIQUE_REV, action = open_jetbrains.rustrover },
-  { key = "i", mods = MOD.UNIQUE_REV, action = open_jetbrains.intellij },
+  keybind(mux.detach_pane, MOD.SUPER_REV, "s"),
+  keybind(adopt_pane.attach_peer, MOD.PRIMARY, "."),
 
-  { key = "Space", mods = MOD.PRIMARY, action = act.ActivateCommandPalette },
-  { key = "p", mods = MOD.SUPER_REV, action = act.ShowLauncherArgs { flags = "WORKSPACES" } },
-  { key = "x", mods = MOD.SUPER_REV, action = act.ActivateCopyMode },
-  { key = "Space", mods = MOD.SUPER_REV, action = act.QuickSelect },
-  { key = ";", mods = MOD.PRIMARY, action = act.SplitVertical { domain = "CurrentPaneDomain" } },
-  {
-    key = "g",
-    mods = MOD.SUPER_REV,
-    action = open_github,
-  },
-  { key = "a", mods = MOD.SUPER_REV, action = adopt_pane.adopt },
-  { key = "z", mods = MOD.SUPER_REV, action = act.TogglePaneZoomState },
+  -- Domain and workspace launcher --
+  keybind(act.ShowLauncherArgs { flags = "DOMAINS|WORKSPACES" }, MOD.SUPER_REV, "d"),
+
+  -- Open Vscode --
+  keybind(open_vscode, MOD.SUPER_REV, "o"),
+  keybind(open_jetbrains.pycharm, MOD.UNIQUE_REV, "p"),
+  keybind(open_jetbrains.rustrover, MOD.UNIQUE_REV, "r"),
+  keybind(open_jetbrains.intellij, MOD.UNIQUE_REV, "i"),
+
+  keybind(act.ActivateCommandPalette, MOD.PRIMARY, "Space"),
+  keybind(act.ShowLauncherArgs { flags = "WORKSPACES" }, MOD.SUPER_REV, "p"),
+  keybind(act.ActivateCopyMode, MOD.SUPER_REV, "x"),
+  keybind(act.QuickSelect, MOD.SUPER_REV, "Space"),
+  keybind(act.SplitVertical { domain = "CurrentPaneDomain" }, MOD.PRIMARY, ";"),
+  keybind(open_github, MOD.SUPER_REV, "g"),
+  
 }
 
 -- Go to tab 1..9
 for i = 1, 9 do
-  table.insert(keys, {
-    key = tostring(i),
-    mods = MOD.PRIMARY,
-    action = act.ActivateTab(i - 1),
-  })
+  table.insert(bindings, keybind(act.ActivateTab(i - 1), MOD.PRIMARY, tostring(i)))
 end
+
+local keys = bind_keys(bindings)
 
 -- Extenders—
 extend(keys, bind_keys(motion_keys))
@@ -185,10 +140,6 @@ local keymap_config = {
   keys = keys,
   mouse_bindings = mouse_bindings,
   skip_close_confirmation_for_processes_named = skip_close_confirmation,
-
-  -- disable_default_mouse_bindings = true,
-  -- leader = {},
-  -- key_tables = key_tables,
 }
 
 return keymap_config

@@ -1,5 +1,5 @@
 ---@class BindKey
----@field key string
+---@field key string|string[]
 ---@field mods string|string[]
 ---@field action Action
 
@@ -10,18 +10,25 @@ local function bind_keys(bindings)
   local keys = {}
 
   for _, binding in ipairs(bindings) do
+    local binds = binding.key
     local mods = binding.mods
+
+    if type(binds) == "string" then
+      binds = { binds }
+    end
 
     if type(mods) == "string" then
       mods = { mods }
     end
 
-    for _, mod in ipairs(mods) do
-      table.insert(keys, {
-        key = binding.key,
-        mods = mod,
-        action = binding.action,
-      })
+    for _, key in ipairs(binds) do
+      for _, mod in ipairs(mods) do
+        table.insert(keys, {
+          key = key,
+          mods = mod,
+          action = binding.action,
+        })
+      end
     end
   end
 
