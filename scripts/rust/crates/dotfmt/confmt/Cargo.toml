@@ -9,6 +9,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+dotfmt-core.workspace = true
 clap.workspace  = true
 rayon.workspace = true
 workstation     = { workspace = true, features = ["walk"] }

@@ -102,7 +102,13 @@ fn through(
 }
 
 fn run(cli: &Cli) -> Result<ExitCode, String> {
-    let report = report::Report::new(cli.verbose, cli.quiet || cli.editor, cli.check);
+    let report = report::Report::new(
+        PROGRAM,
+        cli.verbose,
+        cli.quiet || cli.editor,
+        cli.check,
+        report::Unreadable::UnlessQuiet,
+    );
     let mut tally = report::Tally::default();
     let configs = Configs::new();
     let defaults = [PathBuf::from("-")];

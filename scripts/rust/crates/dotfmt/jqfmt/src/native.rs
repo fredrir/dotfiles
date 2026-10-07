@@ -1,6 +1,8 @@
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::Path;
+
+pub use dotfmt_core::file::Done;
+use dotfmt_core::file::replace;
 
 use crate::commented;
 use crate::config::Config;
@@ -8,12 +10,6 @@ use crate::dialect::Dialect;
 use crate::parse::{self, Options};
 use crate::render;
 use crate::repair::Repairs;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Done {
-    Unchanged,
-    Changed,
-}
 
 pub struct Formatted {
     pub text: String,
@@ -102,7 +98,7 @@ pub fn apply(
         });
     }
     if write {
-        replace(path, &formatted.text).map_err(|error| format!("{label}: {error}"))?;
+        replace(path, formatted.text.as_bytes()).map_err(|error| format!("{label}: {error}"))?;
     }
     Ok(Outcome {
         done: Done::Changed,
@@ -112,43 +108,4 @@ pub fn apply(
 
 fn broken(label: &str, why: &str) -> String {
     format!("{label}: internal error: {why}, so nothing was written")
-}
-
-/// Written beside the target and moved over it, so an interrupted run leaves
-/// the file it was writing either as it was or as it should be. A rename swaps
-/// the inode, so the mode travels with the contents.
-fn replace(path: &Path, text: &str) -> io::Result<()> {
-    let path = &fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let permissions = fs::metadata(path)?.permissions();
-    let (mut file, temporary) = sibling(path)?;
-    let written = file
-        .write_all(text.as_bytes())
-        .and_then(|()| file.sync_all())
-        .and_then(|()| fs::set_permissions(&temporary, permissions))
-        .and_then(|()| fs::rename(&temporary, path));
-    if written.is_err() {
-        fs::remove_file(&temporary).ok();
-    }
-    written
-}
-
-fn sibling(path: &Path) -> io::Result<(File, PathBuf)> {
-    let parent = path.parent().filter(|at| !at.as_os_str().is_empty());
-    let parent = parent.unwrap_or(Path::new("."));
-    let name = path.file_name().unwrap_or_default().display().to_string();
-    let mut attempt = 0;
-    loop {
-        let temporary = parent.join(format!(".{name}.jqfmt-{}-{attempt}", std::process::id()));
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-        {
-            Ok(file) => return Ok((file, temporary)),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists && attempt < 100 => {
-                attempt += 1;
-            }
-            Err(error) => return Err(error),
-        }
-    }
 }

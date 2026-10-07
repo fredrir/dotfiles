@@ -8,6 +8,7 @@ members = [
   "crates/dotfile",
   "crates/dotfmt/cli",
   "crates/dotfmt/confmt",
+  "crates/dotfmt/core",
   "crates/dotfmt/jqfmt",
   "crates/dotfmt/luafmt",
   "crates/dotfmt/mdfmt",
@@ -79,6 +80,7 @@ sha2 = "0.10"
 tachyonfx = { version = "0.25.1", default-features = false, features = ["std"] }
 tempfile = "3"
 workstation = { path = "crates/workstation" }
+dotfmt-core = { path = "crates/dotfmt/core" }
 gitkit = { path = "crates/git/gitkit" }
 hostkit = { path = "crates/hostkit" }
 testkit = { path = "crates/testkit" }

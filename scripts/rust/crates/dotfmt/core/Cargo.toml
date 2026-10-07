@@ -1,0 +1,14 @@
+[package]
+name              = "dotfmt-core"
+version.workspace = true
+description       = "Shared file handling and reporting for dotfmt formatters"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ignore = "0.4"
+tempfile.workspace = true
+workstation = { workspace = true, features = ["walk"] }
