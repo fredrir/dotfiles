@@ -9,6 +9,7 @@ members = [
   "crates/dotfile/src/format",
   "crates/format/dotfmt",
   "crates/format/jqfmt",
+  "crates/format/luafmt",
   "crates/format/mdfmt",
   "crates/git/gdd",
   "crates/git/gget",

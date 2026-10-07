@@ -1,0 +1,21 @@
+[package]
+name              = "luafmt"
+version.workspace = true
+description       = "Format Lua with configurable, syntax-aware formatting"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace  = true
+full_moon       = "2.2"
+ignore          = "0.4"
+rayon.workspace = true
+stylua          = { version = "2.5.2", default-features = false, features = ["lua54", "luajit", "luau"] }
+tempfile.workspace = true
+workstation     = { workspace = true, features = ["walk"] }
+
+[dev-dependencies]
+testkit.workspace  = true
