@@ -38,7 +38,7 @@
       "programs": [
         "confmt"
       ],
-      "source": "scripts/rust/crates/format/confmt/"
+      "source": "scripts/rust/crates/dotfmt/confmt/"
     },
     {
       "name": "flatten",
@@ -97,7 +97,7 @@
       "programs": [
         "jqfmt"
       ],
-      "source": "scripts/rust/crates/format/jqfmt/"
+      "source": "scripts/rust/crates/dotfmt/jqfmt/"
     },
     {
       "name": "mux-route",
