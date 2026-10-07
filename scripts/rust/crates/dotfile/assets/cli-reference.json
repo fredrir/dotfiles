@@ -33,14 +33,6 @@
       "source": "scripts/rust/crates/dotfmt/cli/"
     },
     {
-      "name": "confmt",
-      "title": "confmt",
-      "programs": [
-        "confmt"
-      ],
-      "source": "scripts/rust/crates/dotfmt/confmt/"
-    },
-    {
       "name": "flatten",
       "title": "flatten",
       "programs": [
@@ -90,14 +82,6 @@
         "hwtune"
       ],
       "source": "scripts/rust/crates/hwtune/"
-    },
-    {
-      "name": "jqfmt",
-      "title": "jqfmt",
-      "programs": [
-        "jqfmt"
-      ],
-      "source": "scripts/rust/crates/dotfmt/jqfmt/"
     },
     {
       "name": "mux-route",
@@ -168,7 +152,6 @@
     "count",
     "doc-purge",
     "dotfmt",
-    "confmt",
     "flatten",
     "gdd",
     "gget",
@@ -178,7 +161,6 @@
     "hwire",
     "hport",
     "hwtune",
-    "jqfmt",
     "mux-route",
     "op-bridge",
     "path",
@@ -236,9 +218,7 @@
     "dotfile theme check": "Validates every profile and resolved application color pair.",
     "dotfile theme contrast": "Prints one or every profile's resolved contrast matrix.",
     "dotfile theme outputs": "Prints the files owned by the theme generator.",
-    "dotfmt": "CLI shell; formatting and configuration actions are placeholders.",
-    "confmt": "Formats the `.conf`, `.config`, and `.dotfile` files in a tree.",
-    "jqfmt": "Formats the JSON in a tree the way jq does.",
+    "dotfmt": "Formats configured conf, JSON, Lua and Markdown files with one layered configuration.",
     "flatten": "Lifts a directory's contents out of the directories holding them.",
     "gdd": "Discards tracked and untracked working-tree changes while preserving ignored files and nested repositories.",
     "gget": "Downloads a file or directory from a GitHub repository into the current directory.",
@@ -363,28 +343,16 @@
       "--verbose": "Lists every row instead of truncating sections after 12 rows."
     },
     "dotfmt": {
-      "--check": "Check formatting without writing (placeholder).",
-      "--add": "Offer formatter configuration to the target (placeholder).",
-      "--sync": "Refresh the target's formatter configuration (placeholder).",
-      "--dialect": "Select a formatter dialect (placeholder).",
-      "--editor": "Format standard input for an editor (placeholder).",
-      "--stdin": "Treat standard input as the named file (placeholder).",
-      "--owns": "Report owned files from standard input (placeholder).",
-      "--verbose": "Show detailed output.",
+      "--lang": "Select configured languages; repeat or comma-separate conf, json, lua, markdown (md).",
+      "--check": "Report formatting differences without writing files.",
+      "--add": "Offer dotfmt.dotfile to the target, asking before writing.",
+      "--sync": "Replace an existing target dotfmt.dotfile with the shared configuration.",
+      "--dialect": "Override the dialect for one selected language.",
+      "--editor": "Read standard input for an editor; JSON mode enables repairs.",
+      "--stdin": "Read standard input as the named file, using its configuration and dialect.",
+      "--owns": "Read NUL-separated filenames and emit those selected by the effective configuration.",
+      "--verbose": "Show detailed formatting results.",
       "--quiet": "Report only failures."
-    },
-    "jqfmt": {
-      "--editor": "Reads what jq refuses: comments, trailing commas, single quotes, unquoted keys, Python names, missing commas.",
-      "--check": "Reports what is not laid out instead of writing it; with --editor, a repair is a finding too.",
-      "--verbose": "Names every file as it is formatted.",
-      "--quiet": "Reports nothing but failures."
-    },
-    "confmt": {
-      "--check": "Reports files that are not formatted instead of rewriting them.",
-      "--stdin": "Formats standard input as the named file and writes the result to standard output.",
-      "--owns": "Reads NUL-separated paths from standard input and answers with the ones it formats.",
-      "--verbose": "Names every file as it is formatted.",
-      "--quiet": "Reports nothing but failures."
     },
     "flatten": {
       "--deep": "Brings every nested entry to the top instead of removing only wrappers.",

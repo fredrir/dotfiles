@@ -253,9 +253,9 @@ fn formatted(context: &Context, text: &str) -> Result<String> {
         let mut input = tempfile::tempfile()?;
         input.write_all(text.as_bytes())?;
         input.seek(SeekFrom::Start(0))?;
-        let mut command = context.command("confmt");
+        let mut command = context.command("dotfmt");
         command
-            .args(["--stdin", "config/profiles.dotfile"])
+            .args(["-l", "conf", "--stdin", "config/profiles.dotfile"])
             .current_dir(&context.root)
             .stdin(Stdio::from(input));
         crate::process::output(

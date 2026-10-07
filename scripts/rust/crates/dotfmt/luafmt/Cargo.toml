@@ -10,13 +10,6 @@ workspace = true
 
 [dependencies]
 dotfmt-core.workspace = true
-clap.workspace  = true
-full_moon       = "2.2"
-ignore          = "0.4"
-rayon.workspace = true
-stylua          = { version = "2.5.2", default-features = false, features = ["lua54", "luajit", "luau"] }
-workstation     = { workspace = true, features = ["walk"] }
-
-[dev-dependencies]
-tempfile.workspace = true
-testkit.workspace  = true
+clap.workspace = true
+full_moon = "2.2"
+stylua = { version = "2.5.2", default-features = false, features = ["lua54", "luajit", "luau"] }

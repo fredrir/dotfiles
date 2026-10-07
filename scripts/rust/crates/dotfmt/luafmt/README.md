@@ -1,30 +1,24 @@
-# luafmt
+# Lua engine
+
+Internal library used by `dotfmt -l lua`. See [dotfmt](../../../../../docs/cli/dotfmt.md) for configuration, selection and CLI behavior.
 
 ```sh
-luafmt file.lua directory/
-luafmt --check directory/
-luafmt -eq --stdin path/to/file.lua < file.lua
-luafmt --dialect lua54 file.lua
-luafmt --completions zsh
+dotfmt -l lua file.lua directory/
+dotfmt -l lua --check directory/
+dotfmt -l lua -eq --stdin path/to/file.lua < file.lua
+dotfmt -l lua --dialect lua54 file.lua
 dotfile dev check -p luafmt
 ```
 
 | Behavior | Value |
 | --- | --- |
-| CLI | Shared formatter flags, theme, reports and completions; `--help` lists flags |
-| Directory inputs | `.lua` and `.luau`, case insensitive; shared walker skips build/vendor trees and symlinks |
-| Explicit files | Any extension; symlinks retain their target relationship |
-| Config priority | Nearest ancestor `luafmt.dotfile`, then `$XDG_CONFIG_HOME/luafmt/luafmt.dotfile` (default `~/.config`), then `~/luafmt.dotfile`, then built-in defaults |
-| Config inheritance | Nearest file replaces parent settings; unspecified settings use built-in defaults |
-| Filters | `whitelist` and `blacklist` blocks use gitignore patterns; blacklist wins; paths relative to config directory, or working directory for global config |
-| Writes | Atomic replacement, permissions retained, unchanged files untouched |
 | Engine | Embedded [StyLua](https://github.com/JohnnyMorganz/StyLua); no subprocess |
-| Performance | Parallel files, shared parsed configs and compiled globs, one resolution per directory; `RAYON_NUM_THREADS` limits workers |
 | Ignore comments | `-- stylua: ignore`, `-- stylua: ignore start`, `-- stylua: ignore end` |
 | Encoding | UTF-8; an existing UTF-8 BOM is preserved |
-| LuaJIT parser limitations | Valid hexadecimal floats such as `0x1p-1026` and identifiers named `goto` currently produce parse errors; affected files remain unchanged |
+| LuaJIT parser limitations | Hexadecimal floats such as `0x1p-1026` and identifiers named `goto` produce parse errors; affected files remain unchanged |
+| Configuration | `lua { ... }` in `dotfmt.dotfile`; global values and local overrides inherit |
 
-Settings live in a `luafmt { ... }` block. See [shipped defaults](../../../../../shared/tools/luafmt.dotfile).
+Engine defaults below apply before configuration; see [shipped configuration](../../../../../shared/tools/dotfmt.dotfile).
 
 | Setting | Default | Values |
 | --- | --- | --- |
@@ -33,7 +27,7 @@ Settings live in a `luafmt { ... }` block. See [shipped defaults](../../../../..
 | `indent` | `2` | 1–16; spaces per level or visual tab width |
 | `indent_type` | `spaces` | `spaces`, `tabs` |
 | `line_endings` | `unix` | `unix`, `windows` |
-| `quote_style` | `auto-prefer-double` | `auto-prefer-double`, `auto-prefer-single`, `force-double`, `force-single` |
+| `quote_style` | `auto-prefer-double` | `auto`, `auto-prefer-double`, `auto-prefer-single`, `double` (`force-double`), `single` (`force-single`) |
 | `call_parentheses` | `none` | `always`, `no-single-string`, `no-single-table`, `none`, `input` |
 | `collapse_simple_statement` | `never` | `never`, `function-only`, `conditional-only`, `always` |
 | `space_after_function_names` | `never` | `never`, `definitions`, `calls`, `always` |

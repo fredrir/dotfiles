@@ -2,8 +2,7 @@ use super::*;
 
 use block::Class;
 use conf::Mode;
-use native::Kind;
-use select::{Selection, Token};
+use config::Config;
 
 fn config() -> Config {
     Config::default()
@@ -84,28 +83,13 @@ fn an_entry_at_top_level_is_legal() {
 }
 
 #[test]
-fn a_missing_target_is_a_failure_rather_than_an_empty_file() {
-    // Inverted from `test_reading_a_missing_file_returns_nothing`. `[]` is the
-    // right answer for a reader and the wrong one for a formatter: a typo in a
-    // path would report a clean run over nothing at all.
-    let absent = tempfile::tempdir().unwrap();
-    let error = walk::gather(
-        &absent.path().join("absent.dotfile"),
-        &config::Configs::new(),
-    )
-    .unwrap_err();
-
-    assert!(error.contains("absent.dotfile"), "{error}");
-}
-
-#[test]
 fn a_close_with_nothing_open_is_reported_at_its_line() {
     assert_eq!(refused("}\n"), "1: unexpected }");
 }
 
 #[test]
-fn a_block_inside_a_block_is_reported_at_its_line() {
-    assert_eq!(refused("a {\nb {\n"), "2: nested block");
+fn a_nested_block_left_open_is_named_in_the_diagnostic() {
+    assert_eq!(refused("a {\nb {\n"), "2: missing } for b");
 }
 
 #[test]
@@ -368,687 +352,97 @@ fn final_newline_off_ends_a_conf_file_at_its_last_line() {
     assert_eq!(out, "general{\n    gaps_in = 5\n}");
 }
 
-// --------------------------------------------------------------- selection
-
-fn picks(include: &[&str], exclude: &[&str]) -> Selection {
-    let mut selection = Selection::default();
-    for entry in include {
-        selection
-            .include(entry)
-            .unwrap_or_else(|why| panic!("{why}"));
-    }
-    for entry in exclude {
-        selection
-            .exclude(entry)
-            .unwrap_or_else(|why| panic!("{why}"));
-    }
-    selection
-}
-
-fn taken(selection: &Selection, paths: &[&str]) -> Vec<String> {
-    paths
-        .iter()
-        .filter(|path| selection.owns(Path::new(path)).is_some())
-        .map(|path| (*path).to_string())
-        .collect()
+#[test]
+fn nested_and_inline_empty_configuration_blocks_settle_and_keep_their_entries() {
+    let input = "{\nwidth=80\n}\nconf {\nindent=2\ninclude {\n*.ssh\n}\n}\nmarkdown {}\nlua {\nwidth=120\nexcluded_files {\ninit.lua\n}\n}";
+    let output = laid_out(input);
+    assert_eq!(entries(input), entries(&output));
+    assert_eq!(laid_out(&output), output);
+    assert!(output.starts_with("{\n  width  = 80\n}"), "{output}");
+    assert!(output.contains("  include {\n    *.ssh\n  }"), "{output}");
 }
 
 #[test]
-fn only_dotfile_is_included_until_a_config_asks_for_more() {
-    // The three that default off are the reason this rework happened: 49
-    // tracked files here carry no extension, and picking them up because
-    // somebody pointed a formatter at the tree would be a surprise.
-    let selection = picks(&[], &[]);
-
-    assert_eq!(
-        taken(
-            &selection,
-            &[
-                "a.dotfile",
-                "deep/b.dotfile",
-                "c.conf",
-                "d.config",
-                "LICENSE"
-            ]
-        ),
-        ["a.dotfile", "deep/b.dotfile"]
-    );
-}
-
-#[test]
-fn a_bare_token_picks_that_extension_up_everywhere() {
-    let selection = picks(&[".conf"], &[]);
-
-    assert_eq!(
-        taken(&selection, &["a.conf", "one/two/b.conf", "c.config"]),
-        ["a.conf", "one/two/b.conf"]
-    );
-}
-
-#[test]
-fn the_empty_token_keeps_the_licence_and_the_hooks_out_until_it_is_asked_for() {
-    // The exact files this repository holds, because these are the ones that
-    // would be laid out by mistake.
-    let names = [
-        "LICENSE",
-        ".githooks/pre-commit",
-        "linux/kde/plasma/kdeglobals",
-        "linux/arch/ssh/config.d/40-cabled",
-    ];
-
-    assert_eq!(taken(&picks(&[], &[]), &names), Vec::<String>::new());
-    assert_eq!(taken(&picks(&["_empty_"], &[]), &names), names);
-}
-
-#[test]
-fn a_scoped_empty_token_picks_up_the_ssh_directory_and_nothing_else() {
-    // The intended usage: `**ssh` names the ssh directory, and a directory
-    // holds everything below it, so the `config.d` files two levels down are
-    // picked up and `LICENSE` is not.
-    let selection = picks(&["**ssh/_empty_"], &[]);
-
-    assert_eq!(
-        taken(
-            &selection,
-            &[
-                "linux/arch/ssh/config.d/40-cabled",
-                "macos/ssh/config.d/42-lan",
-                "shared/ssh/config",
-                "LICENSE",
-                ".githooks/pre-commit",
-                "linux/kde/plasma/kdeglobals",
-            ]
-        ),
-        [
-            "linux/arch/ssh/config.d/40-cabled",
-            "macos/ssh/config.d/42-lan",
-            "shared/ssh/config"
-        ]
-    );
-}
-
-#[test]
-fn a_bang_can_take_the_built_in_dotfile_entry_away() {
-    let selection = picks(&["!.dotfile"], &[]);
-
-    assert_eq!(taken(&selection, &["a.dotfile"]), Vec::<String>::new());
-}
-
-#[test]
-fn an_excluded_directory_takes_everything_below_it() {
-    // git's rule, and the reason a `!` cannot bring one file back out of an
-    // excluded directory.
-    let selection = picks(&[".dotfile"], &["vendor", "!vendor/keep.dotfile"]);
-
-    assert_eq!(
-        taken(
-            &selection,
-            &["a.dotfile", "vendor/deep/b.dotfile", "vendor/keep.dotfile"]
-        ),
-        ["a.dotfile"]
-    );
-}
-
-#[test]
-fn a_leading_slash_anchors_to_the_directory_the_config_sits_in() {
-    let anchored = picks(&["/.conf"], &[]);
-    let scoped = picks(&["/deep/.conf"], &[]);
-
-    assert_eq!(taken(&anchored, &["a.conf", "deep/b.conf"]), ["a.conf"]);
-    assert_eq!(taken(&scoped, &["a.conf", "deep/b.conf"]), ["deep/b.conf"]);
-}
-
-#[test]
-fn a_trailing_slash_in_an_exclude_entry_only_matches_a_directory() {
-    let selection = picks(&["_empty_", ".dotfile"], &["build/"]);
-
-    // `build/a.dotfile` goes because the directory matched; a *file* called
-    // `build` stays, because the pattern asked for a directory.
-    assert_eq!(
-        taken(&selection, &["build/a.dotfile", "build", "b.dotfile"]),
-        ["build", "b.dotfile"]
-    );
-}
-
-#[test]
-fn a_double_star_spans_directories_the_way_git_reads_one() {
-    let selection = picks(&["one/**/.conf"], &[]);
-
-    assert_eq!(
-        taken(
-            &selection,
-            &["one/two/three/a.conf", "one/b.conf", "other/c.conf"]
-        ),
-        ["one/two/three/a.conf", "one/b.conf"]
-    );
-}
-
-#[test]
-fn a_double_star_spans_directories_only_when_it_stands_between_slashes() {
-    // git's rule, and so gix's. `**ssh` is not "any path ending in ssh", it is
-    // `*ssh`: one component ending in those three letters, which takes `.ssh`
-    // and `openssh` with it. `ssh` is the spelling that means what it says.
-    let loose = picks(&["**ssh/_empty_"], &[]);
-    let exact = picks(&["ssh/_empty_"], &[]);
-    let paths = ["a/ssh/config", "a/.ssh/config", "a/openssh/config"];
-
-    assert_eq!(taken(&loose, &paths), paths);
-    assert_eq!(taken(&exact, &paths), ["a/ssh/config"]);
-}
-
-#[test]
-fn an_include_entry_that_does_not_end_in_a_token_is_refused() {
-    for entry in ["*.conf", "**ssh/", "!"] {
-        let error = Selection::default().include(entry).expect_err(entry);
-        assert!(error.contains("is not an include entry"), "{error}");
-        assert!(error.contains("_empty_"), "{error}");
-    }
-}
-
-#[test]
-fn a_pattern_that_would_quietly_match_nothing_is_refused() {
-    // A trailing `\` escapes a trailing space in a `.gitignore`. `block.rs`
-    // has already taken the trailing whitespace off the line, so there is
-    // nothing left to escape and gix answers "no match" to everything — a
-    // pattern that silently does nothing at all.
-    for entry in ["build\\", "one/two\\"] {
-        let error = Selection::default().exclude(entry).expect_err(entry);
-        assert!(error.contains("cannot end in \\"), "{error}");
-    }
-    let error = Selection::default()
-        .include("one/two\\/.conf")
-        .expect_err("one/two\\/.conf");
-    assert!(error.contains("cannot end in \\"), "{error}");
-}
-
-#[test]
-fn an_exclude_entry_holding_a_token_is_refused_rather_than_taken_literally() {
-    // `exclude { .conf }` reads as "no .conf files" and means "no file named
-    // `.conf`", which is only ever noticed by the diff it failed to prevent.
-    let error = Selection::default().exclude(".conf").expect_err(".conf");
-
-    assert_eq!(
-        error,
-        ".conf is an include token; an exclude entry is a plain pattern"
-    );
-}
-
-#[test]
-fn a_token_reads_a_name_the_way_the_formatters_do() {
-    assert_eq!(Token::of(Path::new("a/b.conf")), Some(Token::Conf));
-    assert_eq!(Token::of(Path::new("a/b.config")), Some(Token::Config));
-    assert_eq!(Token::of(Path::new("a/b.dotfile")), Some(Token::Dotfile));
-    assert_eq!(Token::of(Path::new("a/LICENSE")), Some(Token::Empty));
-    // A leading dot is part of the name rather than an extension, which is
-    // what `native::kind` says about it too.
-    assert_eq!(Token::of(Path::new("a/.conf")), Some(Token::Empty));
-    assert_eq!(Token::of(Path::new("a/b.toml")), None);
-}
-
-#[test]
-fn a_config_reads_its_include_and_exclude_blocks() {
-    let config = settings(
-        "include {\n  .conf\n  # a comment is not a pattern\n}\n\nexclude {\n  build\n}\n",
-    )
-    .unwrap();
-    let beside = |name: &str| config.root.join(name);
-
-    assert_eq!(config.owns(&beside("a.conf")), Some(Token::Conf));
-    assert_eq!(config.owns(&beside("build/a.conf")), None);
-    assert_eq!(config.owns(&beside("a.dotfile")), Some(Token::Dotfile));
-    assert_eq!(config.owns(&beside("a.toml")), None);
-}
-
-// ------------------------------------------------------------------ config
-
-fn settings(body: &str) -> Result<Config, String> {
-    let root = tempfile::tempdir().unwrap();
-    let path = root.path().join(config::NAME);
-    std::fs::write(&path, body).unwrap();
-    Config::read(&path)
-}
-
-#[test]
-fn a_config_file_overrides_only_what_it_names() {
-    let config = settings("confmt {\n  indent = 4\n}\n").unwrap();
-
-    assert_eq!(config.indent, 4);
-    assert_eq!(config.align_max, 24);
-    assert_eq!(config.blank_lines, 1);
-}
-
-#[test]
-fn a_mistake_in_the_config_is_reported_at_its_line() {
-    let faults = [
-        ("confmt {\n  indnet = 4\n}\n", "2: unknown setting: indnet"),
-        (
-            "confmt {\n  indent = wide\n}\n",
-            "2: indent must be a whole number, not wide",
-        ),
-        (
-            "confmt {\n  align = maybe\n}\n",
-            "2: align must be true or false, not maybe",
-        ),
-        ("other {\n  a = 1\n}\n", "2: unknown block: other"),
-        ("indent = 4\n", "1: setting outside a block"),
-        ("confmt {\n  indent\n}\n", "2: expected key = value"),
-        ("confmt {\n", "1: missing } for confmt"),
-        (
-            "include {\n  a = b\n}\n",
-            "2: expected a pattern; a pattern cannot hold an =",
-        ),
-        (
-            "exclude {\n  a=b\n}\n",
-            "2: expected a pattern; a pattern cannot hold an =",
-        ),
-        (
-            "exclude {\n  build\\\n}\n",
-            "2: a pattern cannot end in \\, which would escape a trailing space \
-             this file no longer has: build\\",
-        ),
-    ];
-    for (body, expected) in faults {
-        let error = settings(body).expect_err(body);
-        assert!(error.ends_with(expected), "{error} should end {expected}");
-        assert!(error.contains(config::NAME), "{error} should name the file");
-    }
-}
-
-#[test]
-fn the_nearest_config_above_the_target_is_the_one_that_governs() {
-    let root = tempfile::tempdir().unwrap();
-    let deep = root.path().join("a/b");
-    std::fs::create_dir_all(&deep).unwrap();
-    std::fs::write(
-        root.path().join(config::NAME),
-        "confmt {\n  indent = 6\n}\n",
-    )
-    .unwrap();
-
-    assert_eq!(Config::resolve(&deep).unwrap().indent, 6);
-    assert_eq!(Config::resolve(root.path()).unwrap().indent, 6);
-}
-
-#[test]
-fn a_config_in_a_subdirectory_beats_the_one_above_it_for_the_files_below() {
-    // Resolution is per file rather than per target, so `confmt .` at the top
-    // still reads the deeper config for the deeper files — the rule rustfmt,
-    // stylua and ruff all use, and the one people expect from a config file
-    // sitting next to the thing it configures.
-    let root = tempfile::tempdir().unwrap();
-    let deep = root.path().join("a/b");
-    std::fs::create_dir_all(&deep).unwrap();
-    std::fs::write(
-        root.path().join(config::NAME),
-        "confmt {\n  indent = 6\n}\n",
-    )
-    .unwrap();
-    std::fs::write(deep.join(config::NAME), "confmt {\n  indent = 3\n}\n").unwrap();
-    let configs = config::Configs::new();
-
-    let above = configs.for_file(&root.path().join("top.dotfile")).unwrap();
-    let below = configs.for_file(&deep.join("under.dotfile")).unwrap();
-
-    assert_eq!(above.indent, 6);
-    assert_eq!(below.indent, 3);
-}
-
-#[test]
-fn the_chain_is_walked_once_per_directory_and_then_remembered() {
-    // Walking up from every one of a few thousand files would read the same
-    // three directories a few thousand times. Deleting the file the answer
-    // came from is the only way to see from out here that it was not read
-    // again.
-    let root = tempfile::tempdir().unwrap();
-    let at = root.path().join(config::NAME);
-    std::fs::write(&at, "confmt {\n  indent = 6\n}\n").unwrap();
-    let configs = config::Configs::new();
-
-    let first = configs.for_file(&root.path().join("a.dotfile")).unwrap();
-    std::fs::remove_file(&at).unwrap();
-    let again = configs.for_file(&root.path().join("b.dotfile")).unwrap();
-
-    assert_eq!(first.indent, 6);
-    assert_eq!(again.indent, 6);
-}
-
-#[test]
-fn the_shipped_config_lays_out_the_way_the_built_in_defaults_do() {
-    // The compiled-in table and `shared/tools/confmt.dotfile` are two copies
-    // of one decision, and the file is the one people read.
-    let shipped = include_str!("../../../../../../../shared/tools/confmt.dotfile");
-    let root = tempfile::tempdir().unwrap();
-    let path = root.path().join(config::NAME);
-    std::fs::write(&path, shipped).unwrap();
-    let config = Config::read(&path).unwrap();
-    let built_in = Config::default();
-
-    assert_eq!(config.indent, built_in.indent);
-    assert_eq!(config.align, built_in.align);
-    assert_eq!(config.align_max, built_in.align_max);
-    assert_eq!(config.blank_lines, built_in.blank_lines);
-    assert_eq!(config.final_newline, built_in.final_newline);
-    // And it is itself laid out the way it asks for.
-    assert_eq!(laid_out(shipped), shipped);
-}
-
-#[test]
-fn the_shipped_config_picks_up_this_repository_and_leaves_its_scripts_alone() {
-    // The three files at the top of the list are the reason `_empty_` defaults
-    // off: a bash hook, a licence and a KDE settings dump, none of them
-    // anything a formatter should touch. The four below it are what the
-    // scoped `_empty_` entry exists for. If this test fails, look at
-    // `shared/tools/confmt.dotfile` before looking here.
-    let shipped = include_str!("../../../../../../../shared/tools/confmt.dotfile");
-    let root = tempfile::tempdir().unwrap();
-    let path = root.path().join(config::NAME);
-    std::fs::write(&path, shipped).unwrap();
-    let config = Config::read(&path).unwrap();
-    let owns = |name: &str| config.owns(&root.path().join(name)).is_some();
-
-    for left_alone in [
-        "LICENSE",
-        ".githooks/pre-commit",
-        "linux/kde/plasma/kdeglobals",
-        "macos/Brewfile",
-        "environment/macos/manifest",
-        "shared/ssh/bin/home-lan-connect",
+fn gitignore_pattern_blocks_preserve_literal_punctuation_and_escaped_spaces() {
+    let input = "lua {\nexcluded_files {\nfile=name.lua\nfile#name.lua\n\\#hash.lua\nfile{brace}.lua\ntrailing{\n\\}\nspace\\ \n}\n}\n";
+    let output = laid_out(input);
+    for pattern in [
+        "file=name.lua",
+        "file#name.lua",
+        "\\#hash.lua",
+        "file{brace}.lua",
+        "trailing{",
+        "\\}",
+        "space\\ ",
     ] {
-        assert!(!owns(left_alone), "{left_alone} should be left alone");
+        assert!(
+            output.lines().any(|line| line.trim_start() == pattern),
+            "{pattern:?}: {output:?}"
+        );
     }
-    for picked_up in [
-        "linux/arch/ssh/config.d/40-cabled",
-        "shared/ssh/config",
-        "linux/common/fontconfig/fonts.conf",
-        "config/hosts.dotfile",
-    ] {
-        assert!(owns(picked_up), "{picked_up} should be picked up");
-    }
-}
-
-// ------------------------------------------------------------------ native
-
-#[test]
-fn a_write_leaves_the_file_it_replaced_with_the_mode_it_had() {
-    let root = tempfile::tempdir().unwrap();
-    let path = root.path().join("hosts.dotfile");
-    std::fs::write(&path, "host {\n  a = 1\n  longer = 2\n}\n").unwrap();
-    let before = std::fs::metadata(&path).unwrap().permissions();
-
-    let outcome = native::apply(&path, "hosts.dotfile", Kind::Block, &config(), true).unwrap();
-
-    assert_eq!(outcome.done, native::Done::Changed);
-    assert_eq!(
-        std::fs::read_to_string(&path).unwrap(),
-        "host {\n  a       = 1\n  longer  = 2\n}"
-    );
-    assert_eq!(std::fs::metadata(&path).unwrap().permissions(), before);
-    // The temp file is a sibling, and it does not survive the rename.
-    let left: Vec<String> = std::fs::read_dir(root.path())
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().display().to_string())
-        .collect();
-    assert_eq!(left, ["hosts.dotfile"]);
+    assert_eq!(entries(input), entries(&output));
+    assert_eq!(laid_out(&output), output);
 }
 
 #[test]
-fn a_file_already_formatted_is_not_written_again() {
-    let root = tempfile::tempdir().unwrap();
-    let path = root.path().join("a.dotfile");
-    std::fs::write(&path, "host {\n  a  = 1\n}").unwrap();
-    let before = std::fs::metadata(&path).unwrap().modified().unwrap();
-
-    let outcome = native::apply(&path, "a.dotfile", Kind::Block, &config(), true).unwrap();
-
-    assert_eq!(outcome.done, native::Done::Unchanged);
-    assert_eq!(
-        std::fs::metadata(&path).unwrap().modified().unwrap(),
-        before
-    );
-}
-
-#[test]
-fn check_works_out_the_answer_without_touching_the_file() {
-    let root = tempfile::tempdir().unwrap();
-    let path = root.path().join("a.dotfile");
-    std::fs::write(&path, "host {\n  a = 1\n  longer = 2\n}\n").unwrap();
-
-    let outcome = native::apply(&path, "a.dotfile", Kind::Block, &config(), false).unwrap();
-
-    assert_eq!(outcome.done, native::Done::Changed);
-    assert_eq!(
-        std::fs::read_to_string(&path).unwrap(),
-        "host {\n  a = 1\n  longer = 2\n}\n"
-    );
-}
-
-#[test]
-fn a_file_confmt_does_not_own_comes_back_untouched() {
-    let text = "x  =  1\n\n\n";
-    let out = native::format(Path::new("a.py"), "a.py", text, &config()).unwrap();
-
-    assert_eq!(out, text);
-}
-
-#[test]
-fn a_structural_failure_names_the_file_and_the_line() {
-    let error = native::format(
-        Path::new("config/hosts.dotfile"),
-        "config/hosts.dotfile",
-        "a {\nb {\n}\n",
+fn custom_conf_extensions_preserve_ssh_assignment_syntax() {
+    let output = crate::format(
+        std::path::Path::new("host.ssh"),
+        b"SetEnv FOO=bar  \n",
         &config(),
     )
-    .unwrap_err();
-
-    assert_eq!(error, "config/hosts.dotfile:2: nested block");
+    .unwrap();
+    assert_eq!(output, "SetEnv FOO=bar");
 }
 
 #[test]
-fn the_extension_decides_which_formatter_owns_a_file() {
-    assert_eq!(
-        native::kind(Path::new("a/b.conf")),
-        Some(native::Kind::Conf)
-    );
-    assert_eq!(
-        native::kind(Path::new("a/b.config")),
-        Some(native::Kind::Conf)
-    );
-    assert_eq!(
-        native::kind(Path::new("a/b.dotfile")),
-        Some(native::Kind::Block)
-    );
-    assert_eq!(native::kind(Path::new("a/b.toml")), None);
-    assert_eq!(native::kind(Path::new("a/b")), None);
+fn empty_braces_in_comments_and_values_are_preserved_as_data() {
+    let input = "# comment {}\nsettings {\nkey = {}\n}\n";
+    let output = laid_out(input);
+    assert_eq!(output, "# comment {}\nsettings {\n  key  = {}\n}");
+    assert_eq!(entries(input), entries(&output));
 }
 
 #[test]
-fn a_selected_file_with_no_extension_is_laid_out_as_a_conf_file() {
-    // An ssh `config.d` entry holds lines like `SetEnv FOO=bar`, which the
-    // `.dotfile` formatter would read as a key and a value and write back out
-    // as `SetEnv FOO = bar`. ssh does not accept that.
-    assert_eq!(native::formatter(Token::Empty), Kind::Conf);
-    assert_eq!(native::formatter(Token::Conf), Kind::Conf);
-    assert_eq!(native::formatter(Token::Config), Kind::Conf);
-    assert_eq!(native::formatter(Token::Dotfile), Kind::Block);
-}
-
-// -------------------------------------------------------------------- walk
-
-fn walked(files: &[&str]) -> (tempfile::TempDir, Vec<String>) {
-    let root = tempfile::tempdir().unwrap();
-    for path in files {
-        let at = root.path().join(path);
-        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
-        std::fs::write(&at, "").unwrap();
-    }
-    let found = walk::gather(root.path(), &config::Configs::new()).unwrap();
-    assert_eq!(found.problems, Vec::<String>::new());
-    let named = found
-        .files
-        .iter()
-        .map(|found| render::label(root.path(), &found.path))
-        .collect();
-    (root, named)
-}
-
-#[test]
-fn a_walk_takes_what_the_config_includes_and_skips_the_places_nobody_formats() {
-    let (_root, found) = walked(&[
-        (config::NAME),
-        "a.conf",
-        "b.config",
-        "c.dotfile",
-        "d.toml",
-        "deep/e.conf",
-        "target/f.conf",
-        "node_modules/g.conf",
-        ".git/h.conf",
-    ]);
-
-    // An empty config is still a config: `.dotfile` is on, the rest are not.
-    assert_eq!(found, ["c.dotfile", config::NAME]);
-}
-
-#[cfg(unix)]
-#[test]
-fn a_directory_that_cannot_be_read_is_counted_rather_than_passed_over() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let root = tempfile::tempdir().unwrap();
-    for name in [config::NAME, "a.dotfile"] {
-        std::fs::write(root.path().join(name), "").unwrap();
-    }
-    let shut = root.path().join("shut");
-    std::fs::create_dir(&shut).unwrap();
-    std::fs::write(shut.join("b.dotfile"), "").unwrap();
-    std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
-
-    let found = walk::gather(root.path(), &config::Configs::new()).unwrap();
-    std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-    let named: Vec<String> = found
-        .files
-        .iter()
-        .map(|found| render::label(root.path(), &found.path))
-        .collect();
-    assert_eq!(named, ["a.dotfile", config::NAME]);
-    assert_eq!(found.unreadable, 1);
-    assert_eq!(found.problems, Vec::<String>::new());
-}
-
-#[test]
-fn a_walk_reads_the_config_of_each_directory_it_looks_in() {
-    // Two subtrees, two configs, two answers. A single config resolved from
-    // the target once could only ever give one of them.
-    // The empty config at the top is what stops the resolution walking out of
-    // the temp directory and finding the one on the machine running the test.
-    let root = tempfile::tempdir().unwrap();
-    for (path, body) in [
-        ("confmt.dotfile", ""),
-        ("one/confmt.dotfile", "include {\n  .conf\n}\n"),
-        ("one/a.conf", ""),
-        ("two/a.conf", ""),
+fn inline_blocks_and_structural_comments_preserve_settings_and_comments() {
+    for input in [
+        "{ # global\nwidth = 80\n} # end global\nlua {} # enabled",
+        "conf { include { *.ssh } }",
+        "lua { width = 120 }\nmarkdown {}",
+        "lua {\nquote_style = \"double\" }",
     ] {
-        let at = root.path().join(path);
-        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
-        std::fs::write(&at, body).unwrap();
+        let output = laid_out(input);
+        assert_eq!(entries(input), entries(&output), "{input}");
+        assert_eq!(laid_out(&output), output, "{input}");
     }
-
-    let found = walk::gather(root.path(), &config::Configs::new()).unwrap();
-
-    let named: Vec<String> = found
-        .files
-        .iter()
-        .map(|found| render::label(root.path(), &found.path))
-        .collect();
-    assert_eq!(named, [config::NAME, "one/a.conf", "one/confmt.dotfile"]);
 }
 
 #[test]
-fn a_named_file_is_used_as_given_unless_the_config_leaves_it_alone() {
-    // An empty config at the top, so the one on the machine running the test
-    // cannot reach in and opt `.conf` back in.
-    let root = tempfile::tempdir().unwrap();
-    for name in [config::NAME, "a.dotfile", "a.conf", "a.py"] {
-        std::fs::write(root.path().join(name), "").unwrap();
+fn an_escaped_space_before_a_brace_is_part_of_a_gitignore_pattern() {
+    let input = "excluded_files {\nname\\ }\n}\n";
+    let output = laid_out(input);
+    assert_eq!(output, "excluded_files {\n  name\\ }\n}");
+    assert_eq!(entries(input), entries(&output));
+}
+
+#[test]
+fn upper_case_dotfile_extensions_use_block_formatting() {
+    let output = crate::format(
+        std::path::Path::new("config.DOTFILE"),
+        b"host {\na=1\n}",
+        &config(),
+    )
+    .unwrap();
+    assert_eq!(output, "host {\n  a  = 1\n}");
+}
+
+#[test]
+fn hyphenated_file_pattern_blocks_preserve_literal_equals() {
+    for name in ["included-files", "excluded-files"] {
+        let input = format!("conf {{\n{name} {{\nfile=name\n}}\n}}");
+        let output = laid_out(&input);
+        assert!(output.contains("    file=name\n"), "{output}");
+        assert_eq!(entries(&input), entries(&output));
+        assert_eq!(laid_out(&output), output);
     }
-    let configs = config::Configs::new();
-    let owned = root.path().join("a.dotfile");
-
-    let found = walk::gather(&owned, &configs).unwrap();
-    assert_eq!(found.files.len(), 1);
-    assert_eq!(found.files[0].path, owned);
-
-    // A file confmt has no formatter for at all, and one it has a formatter
-    // for and was told not to use: two situations, two answers.
-    let unknown = walk::gather(&root.path().join("a.py"), &configs).unwrap_err();
-    assert!(
-        unknown.starts_with("not a .conf, .config or .dotfile file:"),
-        "{unknown}"
-    );
-    let refused = walk::gather(&root.path().join("a.conf"), &configs).unwrap_err();
-    assert!(
-        refused.starts_with("not selected by this config:"),
-        "{refused}"
-    );
-}
-
-#[test]
-fn a_config_that_will_not_parse_fails_its_own_directory_and_no_other() {
-    let root = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(root.path().join("bad")).unwrap();
-    std::fs::write(root.path().join(config::NAME), "").unwrap();
-    std::fs::write(root.path().join("good.dotfile"), "").unwrap();
-    std::fs::write(root.path().join("bad").join(config::NAME), "confmt {\n").unwrap();
-    std::fs::write(root.path().join("bad/a.dotfile"), "").unwrap();
-
-    let found = walk::gather(root.path(), &config::Configs::new()).unwrap();
-
-    let named: Vec<String> = found
-        .files
-        .iter()
-        .map(|found| render::label(root.path(), &found.path))
-        .collect();
-    assert_eq!(named, [config::NAME, "good.dotfile"]);
-    assert_eq!(found.problems.len(), 1);
-    assert!(
-        found.problems[0].ends_with("1: missing } for confmt"),
-        "{}",
-        found.problems[0]
-    );
-}
-
-// ------------------------------------------------------------------ labels
-
-#[test]
-fn a_label_is_relative_to_the_root_the_run_was_pointed_at() {
-    assert_eq!(
-        render::label(Path::new("."), Path::new("./config/hosts.dotfile")),
-        "config/hosts.dotfile"
-    );
-    assert_eq!(
-        render::label(Path::new("/a/b"), Path::new("/a/b/c/d.conf")),
-        "c/d.conf"
-    );
-}
-
-#[test]
-fn a_file_reached_through_a_symlink_is_written_through_it() {
-    // Half the configs this repository owns are reached as a link in
-    // `~/.config`. Renaming over the link would replace it with a regular file
-    // and leave the copy under version control unformatted.
-    let root = tempfile::tempdir().unwrap();
-    let real = root.path().join("repo/hosts.dotfile");
-    let link = root.path().join("link.dotfile");
-    std::fs::create_dir_all(real.parent().unwrap()).unwrap();
-    std::fs::write(&real, "host {\n  a = 1\n  longer = 2\n}\n").unwrap();
-    std::os::unix::fs::symlink(&real, &link).unwrap();
-
-    native::apply(&link, "link.dotfile", Kind::Block, &config(), true).unwrap();
-
-    assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
-    assert_eq!(
-        std::fs::read_to_string(&real).unwrap(),
-        "host {\n  a       = 1\n  longer  = 2\n}"
-    );
 }

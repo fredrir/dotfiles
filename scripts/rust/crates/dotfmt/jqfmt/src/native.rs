@@ -1,9 +1,3 @@
-use std::fs;
-use std::path::Path;
-
-pub use dotfmt_core::file::Done;
-use dotfmt_core::file::replace;
-
 use crate::commented;
 use crate::config::Config;
 use crate::dialect::Dialect;
@@ -13,11 +7,6 @@ use crate::repair::Repairs;
 
 pub struct Formatted {
     pub text: String,
-    pub repairs: Repairs,
-}
-
-pub struct Outcome {
-    pub done: Done,
     pub repairs: Repairs,
 }
 
@@ -79,31 +68,6 @@ fn guard(label: &str, text: &str, config: &Config, dialect: Dialect) -> Result<(
         return Err(broken(label, "laying it out again does not settle"));
     }
     Ok(())
-}
-
-pub fn apply(
-    path: &Path,
-    label: &str,
-    config: &Config,
-    editor: bool,
-    write: bool,
-    dialect: Dialect,
-) -> Result<Outcome, String> {
-    let raw = fs::read(path).map_err(|error| format!("{label}: {error}"))?;
-    let formatted = format(label, &raw, config, editor, dialect)?;
-    if formatted.text.as_bytes() == raw {
-        return Ok(Outcome {
-            done: Done::Unchanged,
-            repairs: formatted.repairs,
-        });
-    }
-    if write {
-        replace(path, formatted.text.as_bytes()).map_err(|error| format!("{label}: {error}"))?;
-    }
-    Ok(Outcome {
-        done: Done::Changed,
-        repairs: formatted.repairs,
-    })
 }
 
 fn broken(label: &str, why: &str) -> String {

@@ -430,7 +430,7 @@ fn install(
 }
 
 /// Binaries and entry points this repository used to install.
-const RETIRED: [&str; 11] = [
+const RETIRED: [&str; 15] = [
     "doc-keybinds",
     "sysinfo-collect",
     "tardirs",
@@ -442,6 +442,10 @@ const RETIRED: [&str; 11] = [
     "power-menu",
     "confirm-exit",
     "clean-copy",
+    "jqfmt",
+    "confmt",
+    "luafmt",
+    "mdfmt",
 ];
 
 fn prune(context: &Context) -> Result<usize, String> {
@@ -456,6 +460,7 @@ fn prune(context: &Context) -> Result<usize, String> {
         for path in [
             bin.join(name),
             completions.join(format!("{name}-completion.zsh")),
+            completions.join(format!("_{name}")),
         ] {
             match fs::remove_file(&path) {
                 Ok(()) => removed += 1,

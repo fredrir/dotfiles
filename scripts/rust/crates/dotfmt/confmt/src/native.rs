@@ -1,13 +1,8 @@
-use std::fs;
 use std::path::Path;
 
-pub use dotfmt_core::file::Done;
-use dotfmt_core::file::replace;
-
 use crate::block;
-use crate::conf::{self, Mode};
+use crate::conf;
 use crate::config::Config;
-use crate::select::Token;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
@@ -15,31 +10,18 @@ pub enum Kind {
     Block,
 }
 
-pub struct Outcome {
-    pub done: Done,
-    pub mode: Option<Mode>,
-}
-
-pub fn kind(path: &Path) -> Option<Kind> {
-    match path.extension()?.to_str()? {
-        "conf" | "config" => Some(Kind::Conf),
-        "dotfile" => Some(Kind::Block),
-        _ => None,
-    }
-}
-
-pub fn formatter(token: Token) -> Kind {
-    match token {
-        Token::Conf | Token::Config | Token::Empty => Kind::Conf,
-        Token::Dotfile => Kind::Block,
-    }
-}
-
-pub fn format(path: &Path, label: &str, text: &str, config: &Config) -> Result<String, String> {
-    let Some(kind) = kind(path) else {
-        return Ok(text.to_string());
+pub fn format(path: &Path, input: &[u8], config: &Config) -> Result<String, String> {
+    let label = path.display().to_string();
+    let text = std::str::from_utf8(input).map_err(|_| format!("{label}: not UTF-8"))?;
+    let kind = if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("dotfile"))
+    {
+        Kind::Block
+    } else {
+        Kind::Conf
     };
-    format_as(path, label, text, kind, config)
+    format_as(path, &label, text, kind, config)
 }
 
 pub fn format_as(
@@ -52,32 +34,6 @@ pub fn format_as(
     let formatted = shape(path, label, text, kind, config)?;
     guard(path, label, text, &formatted, kind, config)?;
     Ok(formatted)
-}
-
-pub fn apply(
-    path: &Path,
-    label: &str,
-    kind: Kind,
-    config: &Config,
-    write: bool,
-) -> Result<Outcome, String> {
-    let raw = fs::read(path).map_err(|error| format!("{label}: {error}"))?;
-    let text = String::from_utf8(raw).map_err(|_| format!("{label}: not UTF-8"))?;
-    let formatted = format_as(path, label, &text, kind, config)?;
-    let mode = (kind == Kind::Conf).then(|| conf::mode(&shown(path)));
-    if formatted == text {
-        return Ok(Outcome {
-            done: Done::Unchanged,
-            mode,
-        });
-    }
-    if write {
-        replace(path, formatted.as_bytes()).map_err(|error| format!("{label}: {error}"))?;
-    }
-    Ok(Outcome {
-        done: Done::Changed,
-        mode,
-    })
 }
 
 fn shape(

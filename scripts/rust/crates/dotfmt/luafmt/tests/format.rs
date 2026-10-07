@@ -1,12 +1,25 @@
 #![forbid(unsafe_code)]
 
 use luafmt::{config::Config, dialect::Dialect, format};
-use testkit::tree_pairs;
 
 fn configured(settings: &str) -> Config {
-    let text = format!("luafmt {{\n{settings}\n}}\n");
-    let root = tree_pairs(&[("luafmt.dotfile", &text)]);
-    Config::read(&root.path().join("luafmt.dotfile")).unwrap()
+    let settings = settings
+        .lines()
+        .enumerate()
+        .map(|(line, text)| {
+            let (key, value) = text.split_once('=').unwrap();
+            (
+                key.trim().to_owned(),
+                dotfmt_core::config::Setting {
+                    value: value.trim().to_owned(),
+                    source: "dotfmt.dotfile".into(),
+                    line: line + 1,
+                    global: false,
+                },
+            )
+        })
+        .collect();
+    Config::from_settings(&settings).unwrap()
 }
 
 #[test]

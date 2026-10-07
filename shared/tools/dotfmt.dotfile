@@ -1,0 +1,54 @@
+{
+  width          = 100
+  indent         = 2
+  final_newline  = false
+  quote_style    = double
+}
+
+conf {
+  align        = true
+  align_max    = 24
+  blank_lines  = 1
+  included_files {
+    **/ssh/config
+    **/ssh/config.d/*
+  }
+  excluded_files {
+    **/ssh/bin/
+  }
+}
+
+markdown {
+  dialect                   = auto
+  table_style               = auto
+  heading_blank_lines       = 1
+  list_marker               = -
+  trim_trailing_blank_lines = true
+  excluded_files {
+    AGENTS.md
+    CLAUDE.md
+  }
+}
+
+json {
+  final_newline  = true
+}
+
+lua {
+  dialect                   = auto
+  width                     = 120
+  indent_type               = spaces
+  line_endings              = unix
+  call_parentheses          = none
+  collapse_simple_statement = never
+  space_after_function_names = never
+  block_newline_gaps        = never
+  sort_requires             = false
+  verify                    = false
+}
+
+included_files {
+}
+
+excluded_files {
+}

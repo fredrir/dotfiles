@@ -10,13 +10,6 @@ workspace = true
 
 [dependencies]
 dotfmt-core.workspace = true
-clap.workspace          = true
-comrak                  = { version = "0.48", default-features = false }
-ignore                  = "0.4"
-rayon.workspace         = true
+clap.workspace = true
+comrak = { version = "0.48", default-features = false }
 unicode-width.workspace = true
-workstation             = { workspace = true, features = ["walk"] }
-
-[dev-dependencies]
-tempfile.workspace = true
-testkit.workspace  = true

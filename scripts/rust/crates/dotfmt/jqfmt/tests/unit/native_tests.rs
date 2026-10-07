@@ -1,9 +1,6 @@
-use std::fs;
-use std::path::Path;
-
 use crate::config::Config;
 use crate::dialect::Dialect;
-use crate::native::{Done, apply, format};
+use crate::native::format;
 use crate::repair::Repair;
 
 fn written(body: &str) -> String {
@@ -42,18 +39,6 @@ fn refused_even_for_an_editor(body: &str) -> String {
         Ok(formatted) => panic!("expected a refusal, got {:?}", formatted.text),
         Err(message) => message,
     }
-}
-
-fn tree(entries: &[(&str, &str)]) -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
-    for (name, body) in entries {
-        let path = root.path().join(name);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(&path, body).unwrap();
-    }
-    root
 }
 
 #[test]
@@ -126,142 +111,4 @@ fn the_repairs_are_counted_for_the_caller_to_report() {
     assert_eq!(formatted.text, "{\n  \"a\": 1\n}\n");
     assert_eq!(formatted.repairs.of(Repair::Quote), 1);
     assert_eq!(formatted.repairs.of(Repair::Comment), 1);
-}
-
-#[test]
-fn a_body_is_written_beside_itself_and_the_old_one_is_gone() {
-    let root = tree(&[("a.json", "{\"a\":1}")]);
-    let path = root.path().join("a.json");
-
-    let outcome = apply(
-        &path,
-        "a.json",
-        &Config::default(),
-        false,
-        true,
-        Dialect::Json,
-    )
-    .unwrap();
-
-    assert_eq!(outcome.done, Done::Changed);
-    assert_eq!(fs::read_to_string(&path).unwrap(), "{\n  \"a\": 1\n}\n");
-    assert_eq!(leftovers(root.path()), Vec::<String>::new());
-}
-
-#[test]
-fn check_writes_nothing_and_still_says_what_would_change() {
-    let root = tree(&[("a.json", "{\"a\":1}")]);
-    let path = root.path().join("a.json");
-
-    let outcome = apply(
-        &path,
-        "a.json",
-        &Config::default(),
-        false,
-        false,
-        Dialect::Json,
-    )
-    .unwrap();
-
-    assert_eq!(outcome.done, Done::Changed);
-    assert_eq!(fs::read_to_string(&path).unwrap(), "{\"a\":1}");
-}
-
-#[test]
-fn check_counts_the_repairs_it_would_have_made() {
-    let root = tree(&[("a.json", "{\n  \"a\": 1,\n}\n")]);
-    let path = root.path().join("a.json");
-
-    let outcome = apply(
-        &path,
-        "a.json",
-        &Config::default(),
-        true,
-        false,
-        Dialect::Json,
-    )
-    .unwrap();
-
-    assert_eq!(outcome.done, Done::Changed);
-    assert_eq!(outcome.repairs.of(Repair::Comma), 1);
-    assert_eq!(fs::read_to_string(&path).unwrap(), "{\n  \"a\": 1,\n}\n");
-}
-
-#[test]
-fn a_body_that_needs_nothing_is_left_alone() {
-    let body = "{\n  \"a\": 1\n}\n";
-    let root = tree(&[("a.json", body)]);
-    let path = root.path().join("a.json");
-
-    let outcome = apply(
-        &path,
-        "a.json",
-        &Config::default(),
-        false,
-        true,
-        Dialect::Json,
-    )
-    .unwrap();
-
-    assert_eq!(outcome.done, Done::Unchanged);
-    assert_eq!(fs::read_to_string(&path).unwrap(), body);
-}
-
-#[test]
-fn the_mode_of_the_file_travels_with_its_contents() {
-    // A rename swaps the inode, so a file that was executable has to be made
-    // executable again or formatting it breaks it.
-    use std::os::unix::fs::PermissionsExt;
-
-    let root = tree(&[("hook.json", "{\"a\":1}")]);
-    let path = root.path().join("hook.json");
-    let mut permissions = fs::metadata(&path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions).unwrap();
-
-    apply(
-        &path,
-        "hook.json",
-        &Config::default(),
-        false,
-        true,
-        Dialect::Json,
-    )
-    .unwrap();
-
-    let mode = fs::metadata(&path).unwrap().permissions().mode();
-    assert_eq!(mode & 0o777, 0o755);
-}
-
-#[test]
-fn a_symlink_is_formatted_where_it_points_rather_than_replaced() {
-    let root = tree(&[("real/target.json", "{\"a\":1}")]);
-    let link = root.path().join("link.json");
-    std::os::unix::fs::symlink(root.path().join("real/target.json"), &link).unwrap();
-
-    apply(
-        &link,
-        "link.json",
-        &Config::default(),
-        false,
-        true,
-        Dialect::Json,
-    )
-    .unwrap();
-
-    assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
-    assert_eq!(
-        fs::read_to_string(root.path().join("real/target.json")).unwrap(),
-        "{\n  \"a\": 1\n}\n"
-    );
-}
-
-fn leftovers(directory: &Path) -> Vec<String> {
-    let mut names: Vec<String> = fs::read_dir(directory)
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|name| name.starts_with('.'))
-        .collect();
-    names.sort();
-    names
 }

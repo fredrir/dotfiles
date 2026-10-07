@@ -364,12 +364,31 @@ fn retired_commands_are_removed_and_completions_written() {
     fs::write(&completion, "old").unwrap();
     fs::write(&entry_point, "old").unwrap();
 
+    for name in ["jqfmt", "confmt", "luafmt", "mdfmt"] {
+        fs::write(root.path().join(".bin").join(name), "old formatter").unwrap();
+        fs::write(
+            root.path().join(".cache/zsh").join(format!("_{name}")),
+            "old completion",
+        )
+        .unwrap();
+    }
+
     let report = ensure(&context, &install::Options::everything()).unwrap();
 
-    assert_eq!(report.pruned, 3);
+    assert_eq!(report.pruned, 11);
     assert!(!retired.exists());
     assert!(!completion.exists());
     assert!(!entry_point.exists());
+    for name in ["jqfmt", "confmt", "luafmt", "mdfmt"] {
+        assert!(!root.path().join(".bin").join(name).exists());
+        assert!(
+            !root
+                .path()
+                .join(".cache/zsh")
+                .join(format!("_{name}"))
+                .exists()
+        );
+    }
     assert!(
         root.path()
             .join(".cache/zsh/tools-completion.zsh")

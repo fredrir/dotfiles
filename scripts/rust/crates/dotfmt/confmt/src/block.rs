@@ -13,6 +13,7 @@ pub enum Class {
 
 pub struct Line<'a> {
     pub class: Class,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub number: usize,
     pub body: &'a str,
     pub block: &'a str,
@@ -35,45 +36,143 @@ pub struct Problem {
 
 pub fn parse(text: &str) -> Result<Vec<Line<'_>>, Problem> {
     let mut found = Vec::new();
-    let mut open: Option<&str> = None;
+    let mut open: Vec<&str> = Vec::new();
     let mut number = 0;
     for raw in lines(text) {
         number += 1;
-        let body = trim(raw);
-        let (class, key, value) = classify(body);
-        // The block name is tracked separately from whether a block is open,
-        // so `{` on a line of its own nests and closes like any other block
-        // rather than being read as top level for having an empty name.
-        let (block, depth) = match class {
-            Class::Open => {
-                if open.is_some() {
-                    return Err(Problem::at(number, "nested block"));
-                }
-                open = Some(key);
-                (key, 0)
-            }
-            Class::Close => {
-                let Some(name) = open.take() else {
-                    return Err(Problem::at(number, "unexpected }"));
+        let mut rest = raw;
+        loop {
+            let patterns = open.last().is_some_and(|name| {
+                matches!(
+                    *name,
+                    "include"
+                        | "exclude"
+                        | "included_files"
+                        | "included-files"
+                        | "excluded_files"
+                        | "excluded-files"
+                        | "whitelist"
+                        | "blacklist"
+                )
+            });
+            let body = rest.trim_start_matches([' ', '\t']);
+            let body = if patterns { body } else { trim(body) };
+            let structural = body.split_once('#').map_or(body, |(head, _)| trim(head));
+            let (class, key, value, tail) = if body.starts_with('#') || body.is_empty() {
+                let (class, key, value) = classify(body);
+                (class, key, value, "")
+            } else if structural.starts_with('}') {
+                let tail = &body[1..];
+                let (comment, tail) = trailing_comment(tail);
+                (Class::Close, "", comment, tail)
+            } else if !patterns
+                && let Some(at) = structural.find('{')
+                && !structural[..at].contains(['=', '\'', '"'])
+            {
+                let name = trim(&structural[..at]);
+                let (comment, tail) = trailing_comment(&body[at + 1..]);
+                (Class::Open, name, comment, tail)
+            } else {
+                let at = closing_brace(body, patterns);
+                let (part, tail) = at.map_or((body, ""), |at| body.split_at(at));
+                let (class, key, value) = if patterns {
+                    (Class::Bare, part, "")
+                } else {
+                    classify(trim(part))
                 };
-                (name, 0)
+                let depth = open.len();
+                found.push(Line {
+                    class,
+                    number,
+                    body: if patterns { part } else { trim(part) },
+                    block: open.last().copied().unwrap_or(""),
+                    depth,
+                    key,
+                    value,
+                });
+                if tail.is_empty() {
+                    break;
+                }
+                rest = tail;
+                continue;
+            };
+            let (block, depth) = match class {
+                Class::Open => {
+                    let depth = open.len();
+                    open.push(key);
+                    (key, depth)
+                }
+                Class::Close => {
+                    let Some(name) = open.pop() else {
+                        return Err(Problem::at(number, "unexpected }"));
+                    };
+                    (name, open.len())
+                }
+                _ => (open.last().copied().unwrap_or(""), open.len()),
+            };
+            found.push(Line {
+                class,
+                number,
+                body,
+                block,
+                depth,
+                key,
+                value,
+            });
+            if tail.trim().is_empty() {
+                break;
             }
-            _ => (open.unwrap_or(""), usize::from(open.is_some())),
-        };
-        found.push(Line {
-            class,
-            number,
-            body,
-            block,
-            depth,
-            key,
-            value,
-        });
+            rest = tail;
+        }
     }
-    if let Some(name) = open {
+    if let Some(name) = open.last() {
         return Err(Problem::at(number, format!("missing }} for {name}")));
     }
     Ok(found)
+}
+
+fn trailing_comment(tail: &str) -> (&str, &str) {
+    if tail.trim_start().starts_with('#') {
+        (trim(tail), "")
+    } else {
+        ("", tail)
+    }
+}
+
+// A structural close is outside quoted values and balanced literal braces.
+// Pattern blocks additionally require whitespace before an inline close,
+// preserving braces that are part of a filename and escaped trailing spaces.
+fn closing_brace(text: &str, patterns: bool) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    let mut braces = 0usize;
+    let mut separated = false;
+    for (at, ch) in text.char_indices() {
+        let separator = ch.is_whitespace() && !escaped && quote.is_none();
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if quote == Some(ch) {
+            quote = None;
+        } else if quote.is_none() {
+            if matches!(ch, '\'' | '"') && (!patterns || at == 0) {
+                quote = Some(ch);
+            } else if ch == '#' && !patterns {
+                break;
+            } else if ch == '{' && !patterns {
+                braces += 1;
+            } else if ch == '}' {
+                if braces > 0 {
+                    braces -= 1;
+                } else if !patterns || separated {
+                    return Some(at);
+                }
+            }
+        }
+        separated = separator;
+    }
+    None
 }
 
 pub fn format(text: &str, config: &Config) -> Result<String, Problem> {
@@ -220,14 +319,15 @@ fn render(line: &Line, width: Option<usize>, config: &Config) -> String {
     let indent = if line.depth == 0 {
         String::new()
     } else {
-        " ".repeat(config.indent)
+        " ".repeat(config.indent * line.depth)
     };
     match line.class {
         // Always the spaced form. `blocks.py` is read with `open_suffix="{"`
         // everywhere except `packages.py`, which uses `" {"`, and `name {` is
         // the only spelling both readers parse the same way.
-        Class::Open => format!("{} {{", line.key),
-        Class::Close => "}".to_string(),
+        Class::Open if line.key.is_empty() => with_comment(format!("{indent}{{"), line.value),
+        Class::Open => with_comment(format!("{indent}{} {{", line.key), line.value),
+        Class::Close => with_comment(format!("{indent}}}"), line.value),
         Class::Entry => {
             // The `=` sits two columns past the widest key in the group, and a
             // key at or past the cap takes its one space and overflows rather
@@ -248,4 +348,12 @@ fn render(line: &Line, width: Option<usize>, config: &Config) -> String {
         // runs in one would be editing data rather than laying it out.
         _ => format!("{indent}{}", line.body),
     }
+}
+
+fn with_comment(mut text: String, comment: &str) -> String {
+    if !comment.is_empty() {
+        text.push(' ');
+        text.push_str(comment);
+    }
+    text
 }

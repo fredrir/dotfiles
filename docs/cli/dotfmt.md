@@ -3,31 +3,123 @@
 ## Commands
 
 <!-- cli:commands:start -->
-| Command  | Description                                                       |
-| -------- | ----------------------------------------------------------------- |
-| `dotfmt` | CLI shell; formatting and configuration actions are placeholders. |
+| Command  | Description                                                                           |
+| -------- | ------------------------------------------------------------------------------------- |
+| `dotfmt` | Formats configured conf, JSON, Lua and Markdown files with one layered configuration. |
 <!-- cli:commands:end -->
+
+```sh
+dotfmt .
+dotfmt --check .
+dotfmt -l json,markdown .
+dotfmt -l lua --dialect luau script.luau
+dotfmt -l conf --stdin ~/.ssh/config < ~/.ssh/config
+dotfmt -l markdown -eq --stdin note.md < note.md
+dotfmt --add .
+dotfmt --sync .
+```
 
 ## Flags
 
 <!-- cli:flags:start -->
-| Flag                    | Description                                                     |
-| ----------------------- | --------------------------------------------------------------- |
-| `--check`               | Check formatting without writing (placeholder).                 |
-| `-a`, `--add`           | Offer formatter configuration to the target (placeholder).      |
-| `-s`, `--sync`          | Refresh the target's formatter configuration (placeholder).     |
-| `--dialect <DIALECT>`   | Select a formatter dialect (placeholder).                       |
-| `-e`, `--editor`        | Format standard input for an editor (placeholder).              |
-| `--stdin <FILENAME>`    | Treat standard input as the named file (placeholder).           |
-| `--owns`                | Report owned files from standard input (placeholder).           |
-| `-v`, `--verbose`       | Show detailed output.                                           |
-| `-q`, `--quiet`         | Report only failures.                                           |
-| `-h`, `--help`          | Shows help for the selected command and exits.                  |
-| `--completions <SHELL>` | Prints a shell completion script for the named shell and exits. |
-| `-V`, `--version`       | Prints the version and exits.                                   |
+| Flag                      | Description                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------- |
+| `-l`, `--lang <LANGUAGE>` | Select configured languages; repeat or comma-separate conf, json, lua, markdown (md). |
+| `--check`                 | Report formatting differences without writing files.                                  |
+| `-a`, `--add`             | Offer dotfmt.dotfile to the target, asking before writing.                            |
+| `-s`, `--sync`            | Replace an existing target dotfmt.dotfile with the shared configuration.              |
+| `--dialect <DIALECT>`     | Override the dialect for one selected language.                                       |
+| `-e`, `--editor`          | Read standard input for an editor; JSON mode enables repairs.                         |
+| `--stdin <FILENAME>`      | Read standard input as the named file, using its configuration and dialect.           |
+| `--owns`                  | Read NUL-separated filenames and emit those selected by the effective configuration.  |
+| `-v`, `--verbose`         | Show detailed formatting results.                                                     |
+| `-q`, `--quiet`           | Report only failures.                                                                 |
+| `-h`, `--help`            | Shows help for the selected command and exits.                                        |
+| `--completions <SHELL>`   | Prints a shell completion script for the named shell and exits.                       |
+| `-V`, `--version`         | Prints the version and exits.                                                         |
 <!-- cli:flags:end -->
 
-| Invocation | Result |
+## Configuration
+
+| Precedence, low to high | Source |
 | --- | --- |
-| No arguments, help, version, completions | Available |
-| Formatting, check, editor, ownership, add, sync | Exit 1 with a not-implemented message; no work performed |
+| 1 | Engine defaults |
+| 2 | `${XDG_CONFIG_HOME:-$HOME/.config}/dotfmt/dotfmt.dotfile` |
+| 3 | Ancestor `dotfmt.dotfile` files, outermost to nearest |
+| 4 | CLI dialect override |
+
+Each layer applies globals, then language settings. Only specified values replace inherited values. A nearer global value replaces an outer language value. Empty language blocks enable inherited defaults; `enabled = false` disables a language. `--lang` selects configured languages; it does not enable disabled or absent blocks.
+
+```text
+{
+  width = 80
+  final_newline = false
+  quote_style = double
+}
+
+conf {
+  indent = 2
+  include {
+    *.ssh
+  }
+}
+
+markdown {}
+json {}
+
+lua {
+  width = 120
+  verify = false
+  excluded_files {
+    init.lua
+  }
+}
+
+excluded_files {
+  README.md
+}
+```
+
+| Rule | Behavior |
+| --- | --- |
+| `included_files` / `include`, global | Nonempty restricts eligible files; empty allows all supported mappings |
+| `included_files` / `include`, language | Adds custom filename mappings alongside built-in extensions |
+| `excluded_files` / `exclude` | Removes matching files |
+| Pattern syntax | Gitignore patterns, negation, directory rules, escaped special characters |
+| Pattern roots | Config directory; installed global config uses invocation directory |
+| Inheritance | Later matching rules win; explicitly empty blocks reset the inherited list |
+| Ambiguous mappings | Error; select the language explicitly |
+| Custom extensions | Must contain syntax understood by the assigned engine |
+
+The shipped config enables all four languages. `dotfile sync` installs it. `--add` and `--sync` use that single configuration file.
+
+## Languages and settings
+
+| Language | Built-in files | Dialects |
+| --- | --- | --- |
+| `conf` | `.conf`, `.config`, `.dotfile` | Filename-dependent plain/Hyprland and block formatting |
+| `json` | `.json`, `.jsonc`, `.hujson`, `.jwcc` | `auto`, `json`, `jsonc`, `hujson` (`jwcc`) |
+| `lua` | `.lua`, `.luau` | `auto`, `all`, `lua51`–`lua54`, `luajit`, `luau` |
+| `markdown` (`md`) | `.md`, `.markdown`, `.mdown`, `.mkd` | `auto`, `commonmark`, `gfm` (`github`), `obsidian` |
+
+| Global setting | Application |
+| --- | --- |
+| `final_newline` | All languages |
+| `indent` | Conf blocks, JSON, Lua |
+| `width` | Lua line wrapping and Markdown table layout |
+| `quote_style` | Lua quote selection; JSON always emits double quotes; conf/Markdown preserve quoting |
+
+| Language | Additional settings |
+| --- | --- |
+| Conf | `align`, `align_max`, `blank_lines` |
+| JSON | `dialect`; `indent = -1` uses tabs, `0` emits compact JSON, `1`–`7` uses spaces |
+| Lua | `dialect`, `indent_type`, `line_endings`, `call_parentheses`, `collapse_simple_statement`, `space_after_function_names`, `block_newline_gaps`, `sort_requires`, `verify` |
+| Markdown | `dialect`, `table_style`, `heading_blank_lines`, `list_marker`, `trim_trailing_blank_lines` |
+
+Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; JSON editor mode retains repair diagnostics.
+
+| Result | Exit status |
+| --- | --- |
+| Successful format / clean check | `0` |
+| Formatting, configuration, I/O failure or check differences | `1` |
+| CLI usage error | `2` |

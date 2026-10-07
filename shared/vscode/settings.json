@@ -77,26 +77,31 @@
       ]
     },
     {
-      "command": "jqfmt -eq",
+      "command": "dotfmt -l json -eq --stdin \"${file}\"",
       "languages": [
-        "json",
+        "json"
+      ]
+    },
+    {
+      "command": "dotfmt -l json -q --dialect jsonc --stdin \"${file}\"",
+      "languages": [
         "jsonc"
       ]
     },
     {
-      "command": "confmt --stdin \"${file}\"",
+      "command": "dotfmt -l conf -eq --stdin \"${file}\"",
       "languages": [
         "properties"
       ]
     },
     {
-      "command": "luafmt -eq --stdin \"${file}\"",
+      "command": "dotfmt -l lua -eq --stdin \"${file}\"",
       "languages": [
         "lua"
       ]
     },
     {
-      "command": "mdfmt -eq --stdin \"${file}\"",
+      "command": "dotfmt -l markdown -eq --stdin \"${file}\"",
       "languages": [
         "markdown"
       ]

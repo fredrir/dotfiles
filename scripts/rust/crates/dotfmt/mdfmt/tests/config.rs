@@ -1,39 +1,47 @@
 #![forbid(unsafe_code)]
 
-use mdfmt::{config::Config, format};
-use testkit::tree_pairs;
+use dotfmt_core::config::{Setting, Settings};
+use mdfmt::config::Config;
 
-#[test]
-fn shipped_defaults_match_built_in_formatting() {
-    let shipped = include_str!("../../../../../../shared/tools/mdfmt.dotfile");
-    let root = tree_pairs(&[("mdfmt.dotfile", shipped)]);
-    let config = Config::read(&root.path().join("mdfmt.dotfile")).unwrap();
-    let built_in = Config::default();
-    assert_eq!(config.dialect, built_in.dialect);
-    assert_eq!(config.width, built_in.width);
-    assert_eq!(config.table_style, built_in.table_style);
-    assert_eq!(config.heading_blank_lines, built_in.heading_blank_lines);
-    assert!(config.trim_trailing_blank_lines);
-    assert_eq!(
-        config.trim_trailing_blank_lines,
-        built_in.trim_trailing_blank_lines
-    );
-    assert_eq!(
-        format("* item", &config).unwrap(),
-        format("* item", &built_in).unwrap()
-    );
-    assert_eq!(config.final_newline, built_in.final_newline);
+fn settings(key: &str, value: &str, global: bool) -> Settings {
+    [(
+        key.to_owned(),
+        Setting {
+            value: value.to_owned(),
+            source: "project/dotfmt.dotfile".into(),
+            line: 7,
+            global,
+        },
+    )]
+    .into()
 }
 
 #[test]
-fn configured_list_markers_are_used_for_nested_lists_and_tasks() {
-    for marker in ["*", "+", "-"] {
-        let config = format!("mdfmt {{\nlist_marker = {marker}\n}}");
-        let root = tree_pairs(&[("mdfmt.dotfile", &config)]);
-        let config = Config::read(&root.path().join("mdfmt.dotfile")).unwrap();
-        let text = format("- one\n  - two\n- [ ] task", &config).unwrap();
-        assert!(text.starts_with(&format!("{marker} one")), "{text}");
-        assert!(text.contains(&format!("{marker} [ ] task")), "{text}");
-        assert_eq!(format(&text, &config).unwrap(), text);
+fn final_newline_applies_from_global_and_local_settings() {
+    for global in [true, false] {
+        assert!(
+            Config::from_settings(&settings("final_newline", "true", global))
+                .unwrap()
+                .final_newline
+        );
+        assert!(
+            !Config::from_settings(&settings("final_newline", "false", global))
+                .unwrap()
+                .final_newline
+        );
     }
+}
+
+#[test]
+fn invalid_settings_name_the_source_and_line() {
+    let error = Config::from_settings(&settings("final_newline", "sometimes", false)).unwrap_err();
+    assert!(error.starts_with("project/dotfmt.dotfile:7:"), "{error}");
+    assert!(error.contains("true or false"), "{error}");
+    assert!(Config::from_settings(&settings("typo", "1", false)).is_err());
+}
+
+#[test]
+fn unsupported_global_settings_are_ignored_but_local_settings_are_rejected() {
+    assert!(Config::from_settings(&settings("quote_style", "80", true)).is_ok());
+    assert!(Config::from_settings(&settings("quote_style", "80", false)).is_err());
 }

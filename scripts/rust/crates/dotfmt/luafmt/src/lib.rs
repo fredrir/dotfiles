@@ -2,7 +2,6 @@
 
 pub mod config;
 pub mod dialect;
-pub mod files;
 
 use config::Config;
 use full_moon::tokenizer::{Lexer, LexerResult, TokenType};

@@ -1,7 +1,6 @@
 #![forbid(unsafe_code)]
 
 use luafmt::{config::Config, dialect::Dialect, format};
-use testkit::tree_pairs;
 
 #[test]
 fn varied_dialects_and_lexical_boundaries_reparse_and_stay_stable() {
@@ -83,9 +82,7 @@ fn extreme_width_and_combined_options_preserve_literal_contents() {
         "line_endings = windows\nfinal_newline = true\nquote_style = force-single",
         "call_parentheses = none\nspace_after_function_names = always",
     ] {
-        let text = format!("luafmt {{\nverify = true\n{settings}\n}}\n");
-        let root = tree_pairs(&[("luafmt.dotfile", &text)]);
-        let config = Config::read(&root.path().join("luafmt.dotfile")).unwrap();
+        let config = configured(&format!("verify = true\n{settings}"));
         let first = format(&input, &config).unwrap();
         // Lua normalizes line breaks inside long strings when loading them.
         assert!(
@@ -98,120 +95,55 @@ fn extreme_width_and_combined_options_preserve_literal_contents() {
     }
 }
 
-fn run(root: &std::path::Path, args: &[&str], input: &str) -> testkit::Ran {
-    testkit::Bin::new(env!("CARGO_BIN_EXE_luafmt"))
-        .args(args)
-        .current_dir(root)
-        .plain()
-        .env("HOME", root.join("home"))
-        .env("XDG_CONFIG_HOME", root.join("config"))
-        .stdin(input)
-        .run()
-}
-
 #[test]
-fn utf8_bom_is_preserved_when_formatting_files_and_editor_input() {
-    let root = tree_pairs(&[("bom.lua", "\u{feff}local x=1")]);
-    let expected = "\u{feff}local x = 1";
-    let output = run(root.path(), &["-eq"], "\u{feff}local x=1");
-    assert_eq!(output.code(), Some(0), "{}", output.stderr);
-    assert_eq!(output.stdout, expected);
-    let output = run(root.path(), &["bom.lua"], "");
-    assert_eq!(output.code(), Some(0), "{}", output.stderr);
+fn utf8_bom_is_preserved() {
     assert_eq!(
-        std::fs::read_to_string(root.path().join("bom.lua")).unwrap(),
-        expected
-    );
-    assert_eq!(
-        run(root.path(), &["--check", "bom.lua"], "").code(),
-        Some(0)
+        format("\u{feff}local x=1", &Config::default()).unwrap(),
+        "\u{feff}local x = 1"
     );
 }
 
 #[test]
-fn unsupported_backticks_report_an_error_and_do_not_stop_other_files() {
-    let root = tree_pairs(&[("bad.lua", "local x=`hi`"), ("good.lua", "local x=1")]);
-    let output = run(root.path(), &["bad.lua", "good.lua"], "");
-    assert_eq!(output.code(), Some(1), "{}", output.stderr);
-    assert!(output.stderr.contains("bad.lua"), "{}", output.stderr);
-    assert!(!output.stderr.contains("panicked"), "{}", output.stderr);
-    assert_eq!(
-        std::fs::read_to_string(root.path().join("bad.lua")).unwrap(),
-        "local x=`hi`"
-    );
-    assert_eq!(
-        std::fs::read_to_string(root.path().join("good.lua")).unwrap(),
-        "local x = 1"
-    );
-    let output = run(root.path(), &["-eq"], "local x=`hi`");
-    assert_eq!(output.code(), Some(1), "{}", output.stderr);
-    assert!(output.stdout.is_empty());
-    assert!(!output.stderr.contains("panicked"), "{}", output.stderr);
+fn deeply_nested_valid_tables_format_without_stack_overflow() {
+    std::thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| {
+            let input = format!("return {}1{}", "{".repeat(150), "}".repeat(150));
+            let first = format(&input, &Config::default()).unwrap();
+            assert_eq!(format(&first, &Config::default()).unwrap(), first);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+fn configured(settings: &str) -> Config {
+    let settings = settings
+        .lines()
+        .enumerate()
+        .map(|(line, text)| {
+            let (key, value) = text.split_once('=').unwrap();
+            (
+                key.trim().to_owned(),
+                dotfmt_core::config::Setting {
+                    value: value.trim().to_owned(),
+                    source: "dotfmt.dotfile".into(),
+                    line: line + 1,
+                    global: false,
+                },
+            )
+        })
+        .collect();
+    Config::from_settings(&settings).unwrap()
 }
 
 #[test]
-fn backticks_in_strings_comments_and_luau_are_preserved() {
-    let root = tree_pairs(&[]);
-    for input in [
-        "local s='`hello`'; return s",
-        "local s=[==[`hello`]==]; return s",
-        "-- `hello`\nlocal x=1",
-        "--[==[`hello`]==]\nlocal x=1",
-        "-- `hello`\nreturn 7&3, ~0, 1<<2",
-    ] {
-        let output = run(root.path(), &["-eq"], input);
-        assert_eq!(output.code(), Some(0), "{input}: {}", output.stderr);
-        assert!(output.stdout.contains("`hello`"), "{}", output.stdout);
-    }
-    let output = run(
-        root.path(),
-        &["-eq", "--stdin", "typed.luau"],
-        "local s=`hello {1+2}`",
-    );
-    assert_eq!(output.code(), Some(0), "{}", output.stderr);
-    assert!(
-        output.stdout.contains("`hello {1 + 2}`"),
-        "{}",
-        output.stdout
-    );
-}
-
-#[test]
-fn backend_luajit_limitations_fail_cleanly_without_overwriting_source() {
-    // These are valid LuaJIT constructs the embedded parser currently rejects.
-    // Until the backend supports them, rejecting them must not damage the files.
+fn unsupported_luajit_constructs_return_errors_without_panicking() {
+    let config = Config {
+        dialect: Dialect::Luajit,
+        ..Config::default()
+    };
     for input in ["return 0x1p-1026", "local goto=1; return goto"] {
-        let root = tree_pairs(&[("input.lua", input)]);
-        let output = run(root.path(), &["--dialect", "luajit", "input.lua"], "");
-        assert_eq!(output.code(), Some(1), "{input}: {}", output.stderr);
-        assert!(output.stderr.contains("input.lua"), "{}", output.stderr);
-        assert!(!output.stderr.contains("panicked"), "{}", output.stderr);
-        assert_eq!(
-            std::fs::read_to_string(root.path().join("input.lua")).unwrap(),
-            input
-        );
+        assert!(format(input, &config).is_err(), "{input}");
     }
-}
-
-#[test]
-fn deeply_nested_valid_tables_format_in_all_modes_without_stack_overflow() {
-    let input = format!("return {}1{}", "{".repeat(150), "}".repeat(150));
-    let root = tree_pairs(&[("a.lua", &input), ("b.lua", &input)]);
-    let streamed = run(root.path(), &["-eq"], &input);
-    assert_eq!(streamed.code(), Some(0), "{}", streamed.stderr);
-    let single = run(root.path(), &["-q", "a.lua"], "");
-    assert_eq!(single.code(), Some(0), "{}", single.stderr);
-    assert_eq!(
-        std::fs::read_to_string(root.path().join("a.lua")).unwrap(),
-        streamed.stdout
-    );
-    let output = run(root.path(), &["-q", "a.lua", "b.lua"], "");
-    assert_eq!(output.code(), Some(0), "{}", output.stderr);
-    let first = std::fs::read_to_string(root.path().join("a.lua")).unwrap();
-    assert_eq!(
-        first,
-        std::fs::read_to_string(root.path().join("b.lua")).unwrap()
-    );
-    let output = run(root.path(), &["--check", "a.lua", "b.lua"], "");
-    assert_eq!(output.code(), Some(0), "{}", output.stderr);
 }
