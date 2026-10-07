@@ -20,7 +20,7 @@ return {
         javascriptreact = { "biome" },
         json = { "jqfmt" },
         jsonc = { "biome" },
-        lua = { "stylua" },
+        lua = { "luafmt" },
         markdown = { "mdfmt" },
         python = { "ruff_format" },
         sql = { "sqlfluff" },
@@ -34,19 +34,9 @@ return {
       formatters = {
         dotfmt = { command = "dotfmt", args = { "--stdin", "$FILENAME" }, stdin = true },
         jqfmt = { command = "jqfmt", args = { "-eq" }, stdin = true },
+        luafmt = { command = "luafmt", args = { "-eq", "--stdin", "$FILENAME" }, stdin = true },
         mdfmt = { command = "mdfmt", args = { "-eq", "--stdin", "$FILENAME" }, stdin = true },
         sqlfluff = { args = { "format", "-" }, require_cwd = false },
-        stylua = {
-          args = function(_, ctx)
-            local args = { "--search-parent-directories", "--respect-ignores" }
-            local config = fallback(ctx.buf, { ".stylua.toml", "stylua.toml" }, "stylua.toml")
-            if config then
-              vim.list_extend(args, { "--config-path", config })
-            end
-            vim.list_extend(args, { "--stdin-filepath", "$FILENAME", "-" })
-            return args
-          end,
-        },
         taplo = {
           args = function(_, ctx)
             local args = { "format" }

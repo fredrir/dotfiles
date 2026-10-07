@@ -47,7 +47,7 @@
     "editor.quickSuggestionsDelay": 1,
     "editor.suggest.snippetsPreventQuickSuggestions": false,
     "editor.formatOnSave": true,
-    "editor.defaultFormatter": "sumneko.lua"
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[toml]": {
     "editor.defaultFormatter": "tamasfe.even-better-toml"
@@ -90,6 +90,12 @@
       ]
     },
     {
+      "command": "luafmt -eq --stdin \"${file}\"",
+      "languages": [
+        "lua"
+      ]
+    },
+    {
       "command": "mdfmt -eq --stdin \"${file}\"",
       "languages": [
         "markdown"
@@ -105,8 +111,6 @@
   "[properties]": {
     "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
-  "stylua.searchParentDirectories": true,
-  "stylua.searchBinaryInPATH": true,
   "evenBetterToml.formatter.alignEntries": true,
   "evenBetterToml.formatter.arrayTrailingComma": true,
   "evenBetterToml.formatter.columnWidth": 100,
@@ -164,8 +168,6 @@
   ],
   "evenBetterToml.taplo.configFile.path": "/Users/fredrir/dotfiles/shared/tools/.taplo.toml",
   "evenBetterToml.taplo.path": "/opt/homebrew/bin/taplo",
-  "stylua.configPath": "/Users/fredrir/dotfiles/shared/tools/stylua.toml",
-  "stylua.targetReleaseVersion": "/opt/homebrew/bin/stylua",
   "extensions.ignoreRecommendations": true,
   "security.workspace.trust.untrustedFiles": "open",
   "terminal.integrated.enableNotifications": false,
