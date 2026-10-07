@@ -1284,7 +1284,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dotfile-format"
+name = "dotfmt"
 version = "0.1.0"
 dependencies = [
  "clap 4.6.6",

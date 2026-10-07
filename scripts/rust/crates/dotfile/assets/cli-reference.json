@@ -25,12 +25,12 @@
       "source": "scripts/rust/crates/dotfile/"
     },
     {
-      "name": "dotfile-format",
-      "title": "dotfile format",
+      "name": "dotfmt",
+      "title": "dotfmt",
       "programs": [
-        "dotfile-format"
+        "dotfmt"
       ],
-      "source": "scripts/rust/crates/dotfile/src/format/"
+      "source": "scripts/rust/crates/dotfmt/cli/"
     },
     {
       "name": "confmt",
@@ -167,7 +167,7 @@
   "native": [
     "count",
     "doc-purge",
-    "dotfile-format",
+    "dotfmt",
     "confmt",
     "flatten",
     "gdd",
@@ -236,7 +236,7 @@
     "dotfile theme check": "Validates every profile and resolved application color pair.",
     "dotfile theme contrast": "Prints one or every profile's resolved contrast matrix.",
     "dotfile theme outputs": "Prints the files owned by the theme generator.",
-    "dotfile-format": "Formats a tree by handing each language to the tool that owns it.",
+    "dotfmt": "Formats a tree by handing each language to the tool that owns it.",
     "confmt": "Formats the `.conf`, `.config`, and `.dotfile` files in a tree.",
     "jqfmt": "Formats the JSON in a tree the way jq does.",
     "flatten": "Lifts a directory's contents out of the directories holding them.",
@@ -362,7 +362,7 @@
       "--yes": "Runs without asking for confirmation.",
       "--verbose": "Lists every row instead of truncating sections after 12 rows."
     },
-    "dotfile-format": {
+    "dotfmt": {
       "--check": "Verifies formatting and runs each language's linter instead of writing anything.",
       "--add": "Offers this repository's tool configuration to the target, asking per file.",
       "--sync": "Replaces the tool configuration the target already has, without asking.",

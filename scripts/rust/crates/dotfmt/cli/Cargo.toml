@@ -1,5 +1,5 @@
 [package]
-name              = "dotfile-format"
+name              = "dotfmt"
 version.workspace = true
 description       = "Format a tree with the tool that owns each language"
 edition.workspace = true

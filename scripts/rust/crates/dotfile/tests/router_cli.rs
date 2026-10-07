@@ -62,3 +62,20 @@ fn extension_dispatch_preserves_arguments_and_exit_status() {
     assert_eq!(ran.code(), Some(7));
     assert_eq!(ran.stdout, "two words\n--flag\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn format_dispatches_to_dotfmt_preserving_arguments_and_exit_status() {
+    use testkit::{Bin, TempDir, executable};
+    let directory = TempDir::new().unwrap();
+    executable(
+        &directory.path().join("dotfmt"),
+        "#!/bin/sh\nprintf '%s\\n' \"$@\"\nexit 7\n",
+    );
+    let ran = Bin::new(env!("CARGO_BIN_EXE_dotfile"))
+        .args(["format", "--check", "two words"])
+        .env("PATH", directory.path())
+        .run();
+    assert_eq!(ran.code(), Some(7));
+    assert_eq!(ran.stdout, "--check\ntwo words\n");
+}

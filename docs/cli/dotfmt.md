@@ -1,11 +1,11 @@
-# dotfile format
+# dotfmt
 
 ## Commands
 
 <!-- cli:commands:start -->
-| Command          | Description                                                       |
-| ---------------- | ----------------------------------------------------------------- |
-| `dotfile-format` | Formats a tree by handing each language to the tool that owns it. |
+| Command  | Description                                                       |
+| -------- | ----------------------------------------------------------------- |
+| `dotfmt` | Formats a tree by handing each language to the tool that owns it. |
 <!-- cli:commands:end -->
 
 ## Flags

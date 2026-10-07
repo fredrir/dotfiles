@@ -21,7 +21,7 @@ use workstation::{Completable, Completions, Style};
 
 use lang::{Lang, Mode};
 
-const PROGRAM: &str = "dotfile-format";
+const PROGRAM: &str = "dotfmt";
 
 #[derive(Parser)]
 #[command(
@@ -29,11 +29,11 @@ const PROGRAM: &str = "dotfile-format";
     about = "Format configurations for most types of files",
     long_about = "Format a tree with the tool that owns each language.",
     long_about = "Examples:
-  dotfile format .                 Format the tree under the working directory
-  dotfile format --check .         Verify formatting and lint, changing nothing
-  dotfile format src/main.rs       Format one file
-  dotfile format -a ~/code/thing   Offer this repo's tool configs to a project
-  dotfile format -s ~/code/thing   Refresh the configs that project already has"
+  dotfmt .                Format the tree under the working directory
+  dotfmt --check .        Verify formatting and lint, changing nothing
+  dotfmt src/main.rs      Format one file
+  dotfmt -a ~/code/thing   Offer this repo's tool configs to a project
+  dotfmt -s ~/code/thing   Refresh the configs that project already has"
 )]
 struct Cli {
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]

@@ -6,7 +6,7 @@ members = [
   "crates/bench-workloads",
   "crates/dcloud",
   "crates/dotfile",
-  "crates/dotfile/src/format",
+  "crates/dotfmt/cli",
   "crates/dotfmt/confmt",
   "crates/dotfmt/jqfmt",
   "crates/dotfmt/luafmt",

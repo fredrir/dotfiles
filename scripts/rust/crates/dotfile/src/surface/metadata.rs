@@ -17,7 +17,7 @@ pub fn native() -> Command {
     tree.children.push(Command {
         path: vec!["dotfile".into(), "format".into()],
         help: "Format configured files".into(),
-        delegate: Some("dotfile-format".into()),
+        delegate: Some("dotfmt".into()),
         ..Default::default()
     });
     tree

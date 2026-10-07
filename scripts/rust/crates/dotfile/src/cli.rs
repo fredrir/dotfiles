@@ -363,8 +363,13 @@ fn external(arguments: Vec<OsString>) -> std::process::ExitCode {
         return ExitCode::SUCCESS;
     };
 
-    let mut program = OsString::from("dotfile-");
-    program.push(name);
+    let program = if name == "format" {
+        OsString::from("dotfmt")
+    } else {
+        let mut program = OsString::from("dotfile-");
+        program.push(name);
+        program
+    };
     let mut command = Command::new(&program);
     command.args(&arguments[1..]);
     #[cfg(unix)]

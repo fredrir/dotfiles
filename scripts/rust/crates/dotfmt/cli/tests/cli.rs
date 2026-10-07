@@ -7,7 +7,7 @@ use std::process::Output;
 use testkit::{Bin, TempDir, at, executable, stderr, stdout, tree};
 
 fn format(args: &[&str], answers: &str, environment: &[(&str, &str)]) -> Output {
-    Bin::new(env!("CARGO_BIN_EXE_dotfile-format"))
+    Bin::new(env!("CARGO_BIN_EXE_dotfmt"))
         .args(args)
         .plain()
         .env_remove("DOTFILE_ROOT")
@@ -101,7 +101,7 @@ fn no_arguments_prints_the_help_on_stdout_and_succeeds() {
 fn completions_need_no_target() {
     let output = format(&["--completions", "zsh"], "", &[]);
     assert!(output.status.success());
-    assert!(stdout(&output).contains("#compdef dotfile-format"));
+    assert!(stdout(&output).contains("#compdef dotfmt"));
 }
 
 #[test]
@@ -1195,8 +1195,8 @@ fn with_no_checkout_to_be_found_the_copies_in_the_binary_are_the_source() {
     let away = tree(&[]);
     let home = tree(&[]);
     let project = tree(&["a.py=x\n"]);
-    let moved = away.path().join("dotfile-format");
-    fs::copy(env!("CARGO_BIN_EXE_dotfile-format"), &moved).unwrap();
+    let moved = away.path().join("dotfmt");
+    fs::copy(env!("CARGO_BIN_EXE_dotfmt"), &moved).unwrap();
 
     let output = Bin::new(&moved)
         .args(["--add", &at(&project, "")])
@@ -1214,7 +1214,7 @@ fn with_no_checkout_to_be_found_the_copies_in_the_binary_are_the_source() {
         stderr(&output)
     );
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../../../shared/tools/ruff.toml")
+        .join("../../../../../shared/tools/ruff.toml")
         .canonicalize()
         .unwrap();
     assert_eq!(
