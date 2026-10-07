@@ -38,6 +38,7 @@ pub fn parse(text: &str) -> Result<Vec<Line<'_>>, Problem> {
     let mut found = Vec::new();
     let mut open: Vec<&str> = Vec::new();
     let mut number = 0;
+    let mut compact_braces = 0;
     for raw in lines(text) {
         number += 1;
         let mut rest = raw;
@@ -56,8 +57,35 @@ pub fn parse(text: &str) -> Result<Vec<Line<'_>>, Problem> {
                 )
             });
             let body = rest.trim_start_matches([' ', '\t']);
-            let body = if patterns { body } else { trim(body) };
-            let structural = body.split_once('#').map_or(body, |(head, _)| trim(head));
+            let structural = body
+                .split_once('#')
+                .map_or(trim(body), |(head, _)| trim(head));
+            let compact = compact_braces > 0 || (!patterns && compact_token(structural));
+            let body = if patterns || compact {
+                body
+            } else {
+                trim(body)
+            };
+            // Compact brace tokens may be data or configuration syntax. Keep
+            // their contents intact, including assignments and multiline spans.
+            if compact {
+                let at = closing_brace(body, false, &mut compact_braces);
+                let (part, tail) = at.map_or((body, ""), |at| body.split_at(at));
+                found.push(Line {
+                    class: Class::Bare,
+                    number,
+                    body: part,
+                    block: open.last().copied().unwrap_or(""),
+                    depth: open.len(),
+                    key: part,
+                    value: "",
+                });
+                if tail.is_empty() {
+                    break;
+                }
+                rest = tail;
+                continue;
+            }
             let (class, key, value, tail) = if body.starts_with('#') || body.is_empty() {
                 let (class, key, value) = classify(body);
                 (class, key, value, "")
@@ -73,7 +101,7 @@ pub fn parse(text: &str) -> Result<Vec<Line<'_>>, Problem> {
                 let (comment, tail) = trailing_comment(&body[at + 1..]);
                 (Class::Open, name, comment, tail)
             } else {
-                let at = closing_brace(body, patterns);
+                let at = closing_brace(body, patterns, &mut 0);
                 let (part, tail) = at.map_or((body, ""), |at| body.split_at(at));
                 let (class, key, value) = if patterns {
                     (Class::Bare, part, "")
@@ -131,6 +159,19 @@ pub fn parse(text: &str) -> Result<Vec<Line<'_>>, Problem> {
     Ok(found)
 }
 
+// Whitespace before an opener and a line-ending opener are structural.
+// Other brace-bearing tokens remain opaque: `lib{a,b}`, `${HOME}`, `json{}`.
+fn compact_token(text: &str) -> bool {
+    let Some(at) = text.find('{') else {
+        return false;
+    };
+    let name = &text[..at];
+    !name.is_empty()
+        && !name.ends_with([' ', '\t'])
+        && !name.contains(['=', '\'', '"'])
+        && at + 1 < text.len()
+}
+
 fn trailing_comment(tail: &str) -> (&str, &str) {
     if tail.trim_start().starts_with('#') {
         (trim(tail), "")
@@ -142,10 +183,9 @@ fn trailing_comment(tail: &str) -> (&str, &str) {
 // A structural close is outside quoted values and balanced literal braces.
 // Pattern blocks additionally require whitespace before an inline close,
 // preserving braces that are part of a filename and escaped trailing spaces.
-fn closing_brace(text: &str, patterns: bool) -> Option<usize> {
+fn closing_brace(text: &str, patterns: bool, braces: &mut usize) -> Option<usize> {
     let mut quote = None;
     let mut escaped = false;
-    let mut braces = 0usize;
     let mut separated = false;
     for (at, ch) in text.char_indices() {
         let separator = ch.is_whitespace() && !escaped && quote.is_none();
@@ -161,10 +201,10 @@ fn closing_brace(text: &str, patterns: bool) -> Option<usize> {
             } else if ch == '#' && !patterns {
                 break;
             } else if ch == '{' && !patterns {
-                braces += 1;
+                *braces += 1;
             } else if ch == '}' {
-                if braces > 0 {
-                    braces -= 1;
+                if *braces > 0 {
+                    *braces -= 1;
                 } else if !patterns || separated {
                     return Some(at);
                 }

@@ -15,7 +15,30 @@ use crate::engine::Engine;
 
 const WORKER_STACK: usize = 32 * 1024 * 1024;
 
-type Engines = HashMap<(usize, Language), Arc<Engine>>;
+#[derive(Default)]
+struct Engines {
+    validated: HashMap<usize, Result<(), String>>,
+    configured: HashMap<(usize, Language), Arc<Engine>>,
+    overridden: HashMap<(usize, Language), Arc<Engine>>,
+}
+
+impl Engines {
+    fn validate(&mut self, config: &Arc<Effective>) -> Result<(), String> {
+        let id = Arc::as_ptr(config) as usize;
+        self.validated
+            .entry(id)
+            .or_insert_with(|| {
+                for (&language, settings) in &config.languages {
+                    if settings.enabled {
+                        let engine = Engine::new(language, &settings.settings, None)?;
+                        self.configured.insert((id, language), Arc::new(engine));
+                    }
+                }
+                Ok(())
+            })
+            .clone()
+    }
+}
 
 struct Job {
     path: PathBuf,
@@ -49,7 +72,8 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
         {
             return Err("standard input may only be read once".into());
         }
-        let result = through(&cli);
+        let stream = prepare_stream(&cli)?;
+        let result = through(&cli, stream);
         cli.targets.retain(|path| path != Path::new("-"));
         if cli.targets.is_empty() {
             return result;
@@ -158,19 +182,29 @@ fn engine(
     cache: &mut Engines,
 ) -> Result<Arc<Engine>, String> {
     let key = (Arc::as_ptr(config) as usize, language);
-    if let Some(found) = cache.get(&key) {
+    cache.validate(config)?;
+    if cli.dialect.is_none() {
+        return Ok(Arc::clone(&cache.configured[&key]));
+    }
+    if let Some(found) = cache.overridden.get(&key) {
         return Ok(Arc::clone(found));
     }
-    let found = Arc::new(Engine::new(
-        language,
-        config.settings(language),
-        cli.dialect.as_deref(),
-    )?);
-    cache.insert(key, Arc::clone(&found));
+    let found = Arc::new(
+        (*cache.configured[&key])
+            .clone()
+            .with_dialect(cli.dialect.as_deref())?,
+    );
+    cache.overridden.insert(key, Arc::clone(&found));
     Ok(found)
 }
 
-fn through(cli: &Cli) -> Result<ExitCode, String> {
+struct Stream {
+    path: PathBuf,
+    language: Option<Language>,
+    engine: Option<Arc<Engine>>,
+}
+
+fn prepare_stream(cli: &Cli) -> Result<Stream, String> {
     let path = cli
         .stdin
         .as_deref()
@@ -178,6 +212,8 @@ fn through(cli: &Cli) -> Result<ExitCode, String> {
         .ok_or("standard input needs --stdin FILENAME or one --lang LANGUAGE")?;
     let resolver = Resolver::new();
     let config = resolver.for_file(path)?;
+    let mut engines = Engines::default();
+    engines.validate(&config)?;
     ensure_requested(cli, &config)?;
     if !config
         .languages
@@ -191,11 +227,26 @@ fn through(cli: &Cli) -> Result<ExitCode, String> {
     let language = config
         .select_languages(path, &cli.languages, forced(cli))?
         .filter(|language| requested(cli, *language));
+    let engine = language
+        .map(|language| {
+            ensure_dialect(cli, [language])?;
+            engine(&config, language, cli, &mut engines)
+        })
+        .transpose()?;
+    Ok(Stream {
+        path: path.to_path_buf(),
+        language,
+        engine,
+    })
+}
+
+fn through(cli: &Cli, stream: Stream) -> Result<ExitCode, String> {
+    let path = stream.path.as_path();
     let mut input = Vec::new();
     io::stdin()
         .read_to_end(&mut input)
         .map_err(|error| format!("stdin: {error}"))?;
-    let Some(language) = language else {
+    let Some(engine) = stream.engine else {
         if !cli.check {
             io::stdout()
                 .write_all(&input)
@@ -203,9 +254,7 @@ fn through(cli: &Cli) -> Result<ExitCode, String> {
         }
         return Ok(ExitCode::SUCCESS);
     };
-    ensure_dialect(cli, [language])?;
-    let engine = Engine::new(language, config.settings(language), cli.dialect.as_deref())?;
-    let output = if language == Language::Lua {
+    let output = if stream.language == Some(Language::Lua) {
         with_stack(|| engine.format(path, &input, cli.editor))?
     } else {
         engine.format(path, &input, cli.editor)?
@@ -236,8 +285,9 @@ fn files(cli: &Cli, parallel: bool, streamed: bool) -> Result<ExitCode, String> 
     let mut errors = Vec::new();
     let mut visited = HashSet::new();
     let mut configured = BTreeSet::new();
+    let mut engines = Engines::default();
     let mut unreadable = 0;
-    // Outer roots cover nested directory targets, so overlapping requests only walk once.
+    // Only prune nested targets that the outer walk can actually reach.
     let mut targets: Vec<_> = cli
         .targets
         .iter()
@@ -254,20 +304,24 @@ fn files(cli: &Cli, parallel: bool, streamed: bool) -> Result<ExitCode, String> 
         if is_dir
             && roots
                 .iter()
-                .any(|root: &PathBuf| absolute.starts_with(root))
+                .any(|root: &PathBuf| directory_covered(root, &absolute))
         {
             continue;
         }
         if is_dir {
-            roots.push(absolute);
             match resolver.for_directory(target) {
-                Ok(config) => configured.extend(
-                    config
-                        .languages
-                        .iter()
-                        .filter(|(_, config)| config.enabled)
-                        .map(|(language, _)| *language),
-                ),
+                Ok(config) => {
+                    if let Err(error) = engines.validate(&config) {
+                        errors.push(error);
+                    }
+                    configured.extend(
+                        config
+                            .languages
+                            .iter()
+                            .filter(|(_, config)| config.enabled)
+                            .map(|(language, _)| *language),
+                    );
+                }
                 Err(error) => {
                     errors.push(error);
                     continue;
@@ -281,6 +335,9 @@ fn files(cli: &Cli, parallel: bool, streamed: bool) -> Result<ExitCode, String> 
             |_| true,
         ) {
             Ok(found) => {
+                if is_dir && found.unreadable == 0 {
+                    roots.push(absolute);
+                }
                 unreadable += found.unreadable;
                 candidates.extend(found.files.into_iter().map(|path| (path, !is_dir)));
             }
@@ -300,6 +357,10 @@ fn files(cli: &Cli, parallel: bool, streamed: bool) -> Result<ExitCode, String> 
                 continue;
             }
         };
+        if let Err(error) = engines.validate(&config) {
+            errors.push(error);
+            continue;
+        }
         configured.extend(
             config
                 .languages
@@ -352,7 +413,6 @@ fn files(cli: &Cli, parallel: bool, streamed: bool) -> Result<ExitCode, String> 
             .map(|(_, language, _)| *language)
             .chain(cli.languages.iter().copied()),
     )?;
-    let mut engines = Engines::new();
     let mut jobs = Vec::new();
     for (path, language, config) in selected {
         match engine(&config, language, cli, &mut engines) {
@@ -452,6 +512,21 @@ fn files(cli: &Cli, parallel: bool, streamed: bool) -> Result<ExitCode, String> 
     })
 }
 
+fn directory_covered(root: &Path, target: &Path) -> bool {
+    if !target.starts_with(root) {
+        return false;
+    }
+    target
+        .ancestors()
+        .take_while(|path| *path != root)
+        .all(|path| {
+            !path
+                .file_name()
+                .is_some_and(|name| workstation::walk::SKIP.iter().any(|skip| name == *skip))
+                && fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir())
+        })
+}
+
 fn apply(job: &Job, check: bool) -> Result<bool, String> {
     let input = fs::read(&job.path).map_err(|error| error.to_string())?;
     let output = job.engine.format(&job.path, &input, false)?;
@@ -470,12 +545,14 @@ fn owns(cli: &Cli) -> Result<ExitCode, String> {
         .map_err(|error| format!("stdin: {error}"))?;
     let resolver = Resolver::new();
     let mut output = Vec::new();
+    let mut engines = Engines::default();
     for name in input
         .split(|byte| *byte == 0)
         .filter(|name| !name.is_empty())
     {
         let path = path_from_bytes(name)?;
         let config = resolver.for_file(&path)?;
+        engines.validate(&config)?;
         if config
             .select_languages(&path, &cli.languages, None)?
             .is_some_and(|language| requested(cli, language))

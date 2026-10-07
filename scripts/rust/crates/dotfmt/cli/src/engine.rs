@@ -3,6 +3,7 @@ use std::path::Path;
 use clap::ValueEnum;
 use dotfmt_core::config::{Language, Settings};
 
+#[derive(Clone)]
 pub enum Engine {
     Conf(confmt::config::Config),
     Json(jqfmt::config::Config, jqfmt::dialect::Dialect),
@@ -21,27 +22,39 @@ impl Engine {
         settings: &Settings,
         dialect: Option<&str>,
     ) -> Result<Self, String> {
+        let engine = match language {
+            Language::Conf => Self::Conf(confmt::config::Config::from_settings(settings)?),
+            Language::Json => Self::Json(
+                jqfmt::config::Config::from_settings(settings)?,
+                jqfmt::dialect::Dialect::Auto,
+            ),
+            Language::Lua => Self::Lua(
+                luafmt::config::Config::from_settings(settings)?,
+                luafmt::dialect::Dialect::Auto,
+            ),
+            Language::Markdown => Self::Markdown(
+                mdfmt::config::Config::from_settings(settings)?,
+                mdfmt::dialect::Dialect::Auto,
+            ),
+        };
+        engine.with_dialect(dialect)
+    }
+
+    pub fn with_dialect(mut self, dialect: Option<&str>) -> Result<Self, String> {
         let value = dialect.unwrap_or("auto");
-        match language {
-            Language::Conf => {
-                if value != "auto" {
+        match &mut self {
+            Self::Conf(_) => {
+                if !value.eq_ignore_ascii_case("auto") {
                     return Err(format!("conf has no {value:?} dialect"));
                 }
-                Ok(Self::Conf(confmt::config::Config::from_settings(settings)?))
             }
-            Language::Json => Ok(Self::Json(
-                jqfmt::config::Config::from_settings(settings)?,
-                jqfmt::dialect::Dialect::from_str(value, true)?,
-            )),
-            Language::Lua => Ok(Self::Lua(
-                luafmt::config::Config::from_settings(settings)?,
-                luafmt::dialect::Dialect::from_str(value, true)?,
-            )),
-            Language::Markdown => Ok(Self::Markdown(
-                mdfmt::config::Config::from_settings(settings)?,
-                mdfmt::dialect::Dialect::from_str(value, true)?,
-            )),
+            Self::Json(_, dialect) => *dialect = jqfmt::dialect::Dialect::from_str(value, true)?,
+            Self::Lua(_, dialect) => *dialect = luafmt::dialect::Dialect::from_str(value, true)?,
+            Self::Markdown(_, dialect) => {
+                *dialect = mdfmt::dialect::Dialect::from_str(value, true)?
+            }
         }
+        Ok(self)
     }
 
     pub fn format(&self, path: &Path, input: &[u8], editor: bool) -> Result<Formatted, String> {
