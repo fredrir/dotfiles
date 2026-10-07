@@ -1,17 +1,17 @@
 luafmt {
-  dialect                    = auto
-  width                      = 120
-  indent                     = 2
-  indent_type                = spaces
-  line_endings               = unix
-  quote_style                = auto-prefer-double
-  call_parentheses           = none
-  collapse_simple_statement  = never
+  dialect                   = auto
+  width                     = 120
+  indent                    = 2
+  indent_type               = spaces
+  line_endings              = unix
+  quote_style               = auto-prefer-double
+  call_parentheses          = none
+  collapse_simple_statement = never
   space_after_function_names = never
-  block_newline_gaps         = never
-  sort_requires              = false
-  final_newline              = false
-  verify                     = false
+  block_newline_gaps        = never
+  sort_requires             = false
+  final_newline             = false
+  verify                    = false
 }
 
 whitelist {

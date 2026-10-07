@@ -84,8 +84,7 @@ local function configure()
       local root = (config or {}).root_dir
       local own = root
         and (
-          vim.uv.fs_stat(vim.fs.joinpath(root, ".taplo.toml"))
-          or vim.uv.fs_stat(vim.fs.joinpath(root, "taplo.toml"))
+          vim.uv.fs_stat(vim.fs.joinpath(root, ".taplo.toml")) or vim.uv.fs_stat(vim.fs.joinpath(root, "taplo.toml"))
         )
       if not own then
         local shared = tools.shared ".taplo.toml"

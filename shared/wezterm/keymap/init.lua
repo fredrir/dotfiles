@@ -36,11 +36,9 @@ local bindings = {
   -- Quit Application --
   keybind(act.QuitApplication, MOD.PRIMARY, { "q", "å" }),
 
-
   ---- Window ----
   -- Close Window
   keybind(close_window, MOD.SUPER_REV, "w"),
-
 
   ---- Tab ----
   -- Quit Tab --
@@ -65,7 +63,10 @@ local bindings = {
     wezterm.action_callback(function(_, pane)
       local tab = pane:move_to_new_tab()
       tab:activate()
-    end), MOD.SUPER_REV, "m" ),
+    end),
+    MOD.SUPER_REV,
+    "m"
+  ),
 
   ---- Pane ----
   keybind(close_pane, MOD.UNIQUE, "q"),
@@ -94,7 +95,6 @@ local bindings = {
   keybind(act.AdjustPaneSize { "Up", 3 }, MOD.SUPER_REV_2, "UpArrow"),
   keybind(act.AdjustPaneSize { "Down", 3 }, MOD.SUPER_REV_2, "DownArrow"),
 
-
   ------ Wezterm ------
 
   keybind("ReloadConfiguration", MOD.SUPER_REV, "r"),
@@ -118,7 +118,6 @@ local bindings = {
   keybind(act.QuickSelect, MOD.SUPER_REV, "Space"),
   keybind(act.SplitVertical { domain = "CurrentPaneDomain" }, MOD.PRIMARY, ";"),
   keybind(open_github, MOD.SUPER_REV, "g"),
-
 }
 
 -- Go to tab 1..9
