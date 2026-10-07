@@ -10,7 +10,7 @@ local vtabs = dofile(package_path)
 local M = { plugin = vtabs }
 
 function M.apply_to_config(config)
-  vtabs.apply_to_config(config, {})
+  vtabs.apply_to_config(config, { settings = { keyboard_shortcuts = false } })
 end
 
 return M

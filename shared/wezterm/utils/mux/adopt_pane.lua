@@ -90,7 +90,7 @@ end
 
 ---@param to AttachTarget
 ---@return string[]
-local function split_args(to)
+local function spawn_args(to)
   if not to.home then
     return { "--domain-name", to.domain }
   end
@@ -131,7 +131,7 @@ local function replace(_, _, source, target, done)
     return done(err)
   end
 
-  local stdout, split_error = mux("split-pane", "--pane-id", source, table.unpack(split_args(to)))
+  local stdout, split_error = mux("split-pane", "--pane-id", source, table.unpack(spawn_args(to)))
   if not stdout then
     return done(split_error)
   end
@@ -146,6 +146,25 @@ local function replace(_, _, source, target, done)
   end
   mux("activate-pane", "--pane-id", replacement)
   done()
+end
+
+---@param done fun(err: string?)
+local function new_tab(_, _, source, target, done)
+  local to, err = resolve(target)
+  if not to then
+    return done(err)
+  end
+
+  local stdout, spawn_error = mux("spawn", "--pane-id", source, table.unpack(spawn_args(to)))
+  if not stdout then
+    return done(spawn_error)
+  end
+  local created = tonumber(stdout:match "^%s*(%d+)%s*$")
+  if not created then
+    return done "invalid new pane"
+  end
+  local _, activate_error = mux("activate-pane", "--pane-id", created)
+  done(activate_error)
 end
 
 local function describe(entry, place)
@@ -271,7 +290,15 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
   end
 end)
 
+local open_peer_tab = once_per_pane(new_tab)
+
 return {
+  attach_peer = wezterm.action_callback(function(window, pane)
+    requests.ATTACH_MUX(window, pane, "peer")
+  end),
+  new_peer_tab = wezterm.action_callback(function(window, pane)
+    open_peer_tab(window, pane, "peer")
+  end),
   adopt = wezterm.action_callback(function(window, pane)
     requests.ADOPT_MUX(window, pane, "peer")
   end),

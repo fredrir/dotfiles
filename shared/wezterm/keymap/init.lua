@@ -35,6 +35,11 @@ local keys = bind_keys {
     mods = MOD.PRIMARY,
     action = hwire_session.new_tab,
   },
+  { -- New tab on peer --
+    key = "t",
+    mods = MOD.SUPER_REV,
+    action = adopt_pane.new_peer_tab,
+  },
   { -- Quit Application --
     key = "q",
     mods = MOD.PRIMARY,
@@ -126,11 +131,11 @@ local keys = bind_keys {
     mods = MOD.SUPER_REV,
     action = mux.detach_pane,
   },
-  -- {
-  --   key = ".",
-  --   mods = MOD.PRIMARY,
-  --   action = attach_peer
-  -- },
+  {
+    key = ".",
+    mods = MOD.PRIMARY,
+    action = adopt_pane.attach_peer,
+  },
   { -- Domain and workspace launcher --
     key = "d",
     mods = MOD.SUPER_REV,

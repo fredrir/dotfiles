@@ -12,13 +12,13 @@
 
 ## Shared Keybinds
 
-[<code>disable_default_key_bindings = true</code>](../../shared/wezterm/keymap/init.lua#L178)
+[<code>disable_default_key_bindings = true</code>](../../shared/wezterm/keymap/init.lua#L183)
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code>CTRL+SHIFT+Tab</code> | [<code>act.ActivateTabRelative(-1)</code>](../../shared/wezterm/keymap/init.lua#L64) | Activate Tab Relative: -1 |
-| <code>CTRL+Tab</code> | [<code>act.ActivateTabRelative(1)</code>](../../shared/wezterm/keymap/init.lua#L59) | Activate Tab Relative: 1 |
-| <code>CTRL+l</code> | [<code>clear_screen</code>](../../shared/wezterm/keymap/init.lua#L110) | Clear screen |
+| <code>CTRL+SHIFT+Tab</code> | [<code>act.ActivateTabRelative(-1)</code>](../../shared/wezterm/keymap/init.lua#L69) | Activate Tab Relative: -1 |
+| <code>CTRL+Tab</code> | [<code>act.ActivateTabRelative(1)</code>](../../shared/wezterm/keymap/init.lua#L64) | Activate Tab Relative: 1 |
+| <code>CTRL+l</code> | [<code>clear_screen</code>](../../shared/wezterm/keymap/init.lua#L115) | Clear screen |
 | <code>CTRL+{ Up = { streak = 1, button = "Left" } }</code> | [<code>wezterm.action.OpenLinkAtMouseCursor</code>](../../shared/wezterm/keymap/mouse-bindings.lua#L7) | Open Link At Mouse Cursor<br><code>mouse</code> |
 | <code>SHIFT+DownArrow</code> | [<code>act.SendString(map.shift_down)</code>](../../shared/wezterm/keymap/motion-keys.lua#L54) | Send String: map.shift_down |
 | <code>SHIFT+Enter</code> | [<code>act.SendString(map.shift_enter)</code>](../../shared/wezterm/keymap/motion-keys.lua#L57) | Send String: map.shift_enter |
@@ -30,18 +30,19 @@
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code>CMD+'</code> | [<code>act.SplitVertical({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L90) | Split Vertical |
-| <code>CMD+0</code> | [<code>act.ActivateTab(-1)</code>](../../shared/wezterm/keymap/init.lua#L54) | Activate Tab: -1 |
-| <code>CMD+1</code> | [<code>act.ActivateTab(0)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 0 |
-| <code>CMD+2</code> | [<code>act.ActivateTab(1)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 1 |
-| <code>CMD+3</code> | [<code>act.ActivateTab(2)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 2 |
-| <code>CMD+4</code> | [<code>act.ActivateTab(3)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 3 |
-| <code>CMD+5</code> | [<code>act.ActivateTab(4)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 4 |
-| <code>CMD+6</code> | [<code>act.ActivateTab(5)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 5 |
-| <code>CMD+7</code> | [<code>act.ActivateTab(6)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 6 |
-| <code>CMD+8</code> | [<code>act.ActivateTab(7)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 7 |
-| <code>CMD+9</code> | [<code>act.ActivateTab(8)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 8 |
-| <code>CMD+;</code> | [<code>act.SplitVertical({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L152) | Split Vertical |
+| <code>CMD+'</code> | [<code>act.SplitVertical({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L95) | Split Vertical |
+| <code>CMD+.</code> | [<code>adopt_pane.attach_peer</code>](../../shared/wezterm/keymap/init.lua#L134) | Adopt pane attach peer |
+| <code>CMD+0</code> | [<code>act.ActivateTab(-1)</code>](../../shared/wezterm/keymap/init.lua#L59) | Activate Tab: -1 |
+| <code>CMD+1</code> | [<code>act.ActivateTab(0)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 0 |
+| <code>CMD+2</code> | [<code>act.ActivateTab(1)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 1 |
+| <code>CMD+3</code> | [<code>act.ActivateTab(2)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 2 |
+| <code>CMD+4</code> | [<code>act.ActivateTab(3)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 3 |
+| <code>CMD+5</code> | [<code>act.ActivateTab(4)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 4 |
+| <code>CMD+6</code> | [<code>act.ActivateTab(5)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 5 |
+| <code>CMD+7</code> | [<code>act.ActivateTab(6)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 6 |
+| <code>CMD+8</code> | [<code>act.ActivateTab(7)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 7 |
+| <code>CMD+9</code> | [<code>act.ActivateTab(8)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 8 |
+| <code>CMD+;</code> | [<code>act.SplitVertical({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L157) | Split Vertical |
 | <code>CMD+Backspace</code> | [<code>act.SendString(map.ctrl_u)</code>](../../shared/wezterm/keymap/motion-keys.lua#L72) | Send String: map.ctrl_u |
 | <code>CMD+DownArrow</code> | [<code>act.ScrollToBottom</code>](../../shared/wezterm/keymap/motion-keys.lua#L38) | Scroll To Bottom |
 | <code>CMD+Enter</code> | [<code>act.SendString(map.ctrl_e .. map.shift_enter)</code>](../../shared/wezterm/keymap/motion-keys.lua#L62) | Send String: map.ctrl_e .. map.shift_enter |
@@ -52,57 +53,58 @@
 | <code>CMD+SHIFT+Enter</code> | [<code>act.SendString(map.ctrl_a .. map.shift_enter .. map.ctrl_b)</code>](../../shared/wezterm/keymap/motion-keys.lua#L67) | Send String: map.ctrl_a .. map.shift_enter .. map.ctrl_b |
 | <code>CMD+SHIFT+LeftArrow</code> | [<code>act.SendString(map.shift_home)</code>](../../shared/wezterm/keymap/motion-keys.lua#L43) | Send String: map.shift_home |
 | <code>CMD+SHIFT+RightArrow</code> | [<code>act.SendString(map.shift_end)</code>](../../shared/wezterm/keymap/motion-keys.lua#L44) | Send String: map.shift_end |
-| <code>CMD+SHIFT+Space</code> | [<code>act.QuickSelect</code>](../../shared/wezterm/keymap/init.lua#L151) | Quick Select |
+| <code>CMD+SHIFT+Space</code> | [<code>act.QuickSelect</code>](../../shared/wezterm/keymap/init.lua#L156) | Quick Select |
 | <code>CMD+SHIFT+UpArrow</code> | [<code>act.SendString(map.ctrl_shift_home)</code>](../../shared/wezterm/keymap/motion-keys.lua#L45) | Send String: map.ctrl_shift_home |
-| <code>CMD+SHIFT+a</code> | [<code>adopt_pane.adopt</code>](../../shared/wezterm/keymap/init.lua#L158) | Adopt pane adopt |
-| <code>CMD+SHIFT+d</code> | [<code>act.ShowLauncherArgs({ flags = "DOMAINS&#124;WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L134) | Show Launcher Args |
-| <code>CMD+SHIFT+g</code> | [<code>open_github</code>](../../shared/wezterm/keymap/init.lua#L153) | Open github |
-| <code>CMD+SHIFT+m</code> | [<code>wezterm.action_callback(callback @L105)</code>](../../shared/wezterm/keymap/init.lua#L102) | Wezterm action callback: callback @L105 |
-| <code>CMD+SHIFT+o</code> | [<code>open_vscode</code>](../../shared/wezterm/keymap/init.lua#L139) | Open vscode |
-| <code>CMD+SHIFT+p</code> | [<code>act.ShowLauncherArgs({ flags = "WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L149) | Show Launcher Args |
-| <code>CMD+SHIFT+r</code> | [<code>ReloadConfiguration</code>](../../shared/wezterm/keymap/init.lua#L121) | Reload Configuration |
-| <code>CMD+SHIFT+s</code> | [<code>mux.detach_pane</code>](../../shared/wezterm/keymap/init.lua#L124) | Mux detach pane |
-| <code>CMD+SHIFT+w</code> | [<code>close_window</code>](../../shared/wezterm/keymap/init.lua#L48) | Close window |
-| <code>CMD+SHIFT+x</code> | [<code>act.ActivateCopyMode</code>](../../shared/wezterm/keymap/init.lua#L150) | Activate Copy Mode |
-| <code>CMD+SHIFT+z</code> | [<code>act.TogglePaneZoomState</code>](../../shared/wezterm/keymap/init.lua#L159) | Toggle Pane Zoom State |
-| <code>CMD+Space</code> | [<code>act.ActivateCommandPalette</code>](../../shared/wezterm/keymap/init.lua#L148) | Activate Command Palette |
+| <code>CMD+SHIFT+a</code> | [<code>adopt_pane.adopt</code>](../../shared/wezterm/keymap/init.lua#L163) | Adopt pane adopt |
+| <code>CMD+SHIFT+d</code> | [<code>act.ShowLauncherArgs({ flags = "DOMAINS&#124;WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L139) | Show Launcher Args |
+| <code>CMD+SHIFT+g</code> | [<code>open_github</code>](../../shared/wezterm/keymap/init.lua#L158) | Open github |
+| <code>CMD+SHIFT+m</code> | [<code>wezterm.action_callback(callback @L110)</code>](../../shared/wezterm/keymap/init.lua#L107) | Wezterm action callback: callback @L110 |
+| <code>CMD+SHIFT+o</code> | [<code>open_vscode</code>](../../shared/wezterm/keymap/init.lua#L144) | Open vscode |
+| <code>CMD+SHIFT+p</code> | [<code>act.ShowLauncherArgs({ flags = "WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L154) | Show Launcher Args |
+| <code>CMD+SHIFT+r</code> | [<code>ReloadConfiguration</code>](../../shared/wezterm/keymap/init.lua#L126) | Reload Configuration |
+| <code>CMD+SHIFT+s</code> | [<code>mux.detach_pane</code>](../../shared/wezterm/keymap/init.lua#L129) | Mux detach pane |
+| <code>CMD+SHIFT+t</code> | [<code>adopt_pane.new_peer_tab</code>](../../shared/wezterm/keymap/init.lua#L38) | Adopt pane new peer tab |
+| <code>CMD+SHIFT+w</code> | [<code>close_window</code>](../../shared/wezterm/keymap/init.lua#L53) | Close window |
+| <code>CMD+SHIFT+x</code> | [<code>act.ActivateCopyMode</code>](../../shared/wezterm/keymap/init.lua#L155) | Activate Copy Mode |
+| <code>CMD+SHIFT+z</code> | [<code>act.TogglePaneZoomState</code>](../../shared/wezterm/keymap/init.lua#L164) | Toggle Pane Zoom State |
+| <code>CMD+Space</code> | [<code>act.ActivateCommandPalette</code>](../../shared/wezterm/keymap/init.lua#L153) | Activate Command Palette |
 | <code>CMD+UpArrow</code> | [<code>act.ScrollToTop</code>](../../shared/wezterm/keymap/motion-keys.lua#L33) | Scroll To Top |
 | <code>CMD+c</code> | [<code>copy_selection</code>](../../shared/wezterm/keymap/init.lua#L27) | Copy selection |
-| <code>CMD+d</code> | [<code>act.SplitHorizontal({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L70) | Split Horizontal |
-| <code>CMD+l</code> | [<code>clear_screen</code>](../../shared/wezterm/keymap/init.lua#L110) | Clear screen |
-| <code>CMD+m</code> | [<code>act.PaneSelect({ mode = "MoveToNewTab" })</code>](../../shared/wezterm/keymap/init.lua#L95) | Pane Select |
+| <code>CMD+d</code> | [<code>act.SplitHorizontal({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L75) | Split Horizontal |
+| <code>CMD+l</code> | [<code>clear_screen</code>](../../shared/wezterm/keymap/init.lua#L115) | Clear screen |
+| <code>CMD+m</code> | [<code>act.PaneSelect({ mode = "MoveToNewTab" })</code>](../../shared/wezterm/keymap/init.lua#L100) | Pane Select |
 | <code>CMD+n</code> | [<code>act.SpawnWindow</code>](../../shared/wezterm/keymap/init.lua#L29) | Spawn Window |
 | <code>CMD+phys:h</code> | [<code>act.SendKey({ key = "h", mods = "CTRL" })</code>](../../shared/wezterm/keymap/physical-keys.lua#L30) | Send Key |
 | <code>CMD+phys:r</code> | [<code>act.SendKey({ key = "r", mods = "CTRL" })</code>](../../shared/wezterm/keymap/physical-keys.lua#L20) | Send Key |
-| <code>CMD+q</code> | [<code>act.QuitApplication</code>](../../shared/wezterm/keymap/init.lua#L38) | Quit Application |
+| <code>CMD+q</code> | [<code>act.QuitApplication</code>](../../shared/wezterm/keymap/init.lua#L43) | Quit Application |
 | <code>CMD+t</code> | [<code>hwire_session.new_tab</code>](../../shared/wezterm/keymap/init.lua#L33) | Hwire session new tab |
 | <code>CMD+v</code> | [<code>act.PasteFrom("Clipboard")</code>](../../shared/wezterm/keymap/init.lua#L28) | Paste From: Clipboard |
-| <code>CMD+w</code> | [<code>close_tab</code>](../../shared/wezterm/keymap/init.lua#L43) | Close tab |
+| <code>CMD+w</code> | [<code>close_tab</code>](../../shared/wezterm/keymap/init.lua#L48) | Close tab |
 | <code>CMD+y</code> | [<code>open_yazi</code>](../../shared/wezterm/keymap/init.lua#L30) | Open yazi |
 | <code>CMD+{ Up = { streak = 1, button = "Left" } }</code> | [<code>wezterm.action.OpenLinkAtMouseCursor</code>](../../shared/wezterm/keymap/mouse-bindings.lua#L15) | Open Link At Mouse Cursor<br><code>mouse</code> |
-| <code>CTRL+'</code> | [<code>act.SplitVertical({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L90) | Split Vertical |
-| <code>CTRL+CMD+DownArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Down", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L118) | Adjust Pane Size |
-| <code>CTRL+CMD+LeftArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Left", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L115) | Adjust Pane Size |
-| <code>CTRL+CMD+RightArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Right", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L116) | Adjust Pane Size |
-| <code>CTRL+CMD+UpArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Up", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L117) | Adjust Pane Size |
+| <code>CTRL+'</code> | [<code>act.SplitVertical({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L95) | Split Vertical |
+| <code>CTRL+CMD+DownArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Down", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L123) | Adjust Pane Size |
+| <code>CTRL+CMD+LeftArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Left", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L120) | Adjust Pane Size |
+| <code>CTRL+CMD+RightArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Right", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L121) | Adjust Pane Size |
+| <code>CTRL+CMD+UpArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Up", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L122) | Adjust Pane Size |
 | <code>OPT+DownArrow</code> | [<code>act.ScrollToPrompt(1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L49) | Scroll To Prompt: 1 |
 | <code>OPT+LeftArrow</code> | [<code>act.SendString(map.ctrl_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L8) | Send String: map.ctrl_left |
 | <code>OPT+RightArrow</code> | [<code>act.SendString(map.ctrl_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L14) | Send String: map.ctrl_right |
 | <code>OPT+SHIFT+LeftArrow</code> | [<code>act.SendString(map.ctrl_shift_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L55) | Send String: map.ctrl_shift_left |
 | <code>OPT+SHIFT+RightArrow</code> | [<code>act.SendString(map.ctrl_shift_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L56) | Send String: map.ctrl_shift_right |
-| <code>OPT+SHIFT+i</code> | [<code>open_jetbrains.intellij</code>](../../shared/wezterm/keymap/init.lua#L146) | Open jetbrains intellij |
-| <code>OPT+SHIFT+p</code> | [<code>open_jetbrains.pycharm</code>](../../shared/wezterm/keymap/init.lua#L144) | Open jetbrains pycharm |
+| <code>OPT+SHIFT+i</code> | [<code>open_jetbrains.intellij</code>](../../shared/wezterm/keymap/init.lua#L151) | Open jetbrains intellij |
+| <code>OPT+SHIFT+p</code> | [<code>open_jetbrains.pycharm</code>](../../shared/wezterm/keymap/init.lua#L149) | Open jetbrains pycharm |
 | <code>OPT+SHIFT+phys:7</code> | [<code>act.SendString("\\")</code>](../../shared/wezterm/keymap/physical-keys.lua#L15) | Send String: \\ |
 | <code>OPT+SHIFT+phys:8</code> | [<code>act.SendString("{")</code>](../../shared/wezterm/keymap/physical-keys.lua#L12) | Send String |
 | <code>OPT+SHIFT+phys:9</code> | [<code>act.SendString("}")</code>](../../shared/wezterm/keymap/physical-keys.lua#L13) | Send String: } |
-| <code>OPT+SHIFT+r</code> | [<code>open_jetbrains.rustrover</code>](../../shared/wezterm/keymap/init.lua#L145) | Open jetbrains rustrover |
-| <code>OPT+Tab</code> | [<code>act.ActivatePaneDirection("Next")</code>](../../shared/wezterm/keymap/init.lua#L75) | Activate Pane Direction: Next |
-| <code>OPT+Tab</code> | [<code>act.ActivatePaneDirection("Prev")</code>](../../shared/wezterm/keymap/init.lua#L80) | Activate Pane Direction: Prev |
+| <code>OPT+SHIFT+r</code> | [<code>open_jetbrains.rustrover</code>](../../shared/wezterm/keymap/init.lua#L150) | Open jetbrains rustrover |
+| <code>OPT+Tab</code> | [<code>act.ActivatePaneDirection("Next")</code>](../../shared/wezterm/keymap/init.lua#L80) | Activate Pane Direction: Next |
+| <code>OPT+Tab</code> | [<code>act.ActivatePaneDirection("Prev")</code>](../../shared/wezterm/keymap/init.lua#L85) | Activate Pane Direction: Prev |
 | <code>OPT+UpArrow</code> | [<code>act.ScrollToPrompt(-1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L48) | Scroll To Prompt: -1 |
-| <code>OPT+l</code> | [<code>clear_screen</code>](../../shared/wezterm/keymap/init.lua#L110) | Clear screen |
+| <code>OPT+l</code> | [<code>clear_screen</code>](../../shared/wezterm/keymap/init.lua#L115) | Clear screen |
 | <code>OPT+phys:8</code> | [<code>act.SendString("&#91;")</code>](../../shared/wezterm/keymap/physical-keys.lua#L9) | Send String: &#91; |
 | <code>OPT+phys:9</code> | [<code>act.SendString("&#93;")</code>](../../shared/wezterm/keymap/physical-keys.lua#L10) | Send String: &#93; |
-| <code>OPT+q</code> | [<code>close_pane</code>](../../shared/wezterm/keymap/init.lua#L85) | Close pane |
+| <code>OPT+q</code> | [<code>close_pane</code>](../../shared/wezterm/keymap/init.lua#L90) | Close pane |
 
 ## Linux / Windows Keybinds
 
@@ -113,29 +115,30 @@
 | <code>ALT+RightArrow</code> | [<code>act.SendString(map.ctrl_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L14) | Send String: map.ctrl_right |
 | <code>ALT+SHIFT+LeftArrow</code> | [<code>act.SendString(map.ctrl_shift_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L55) | Send String: map.ctrl_shift_left |
 | <code>ALT+SHIFT+RightArrow</code> | [<code>act.SendString(map.ctrl_shift_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L56) | Send String: map.ctrl_shift_right |
-| <code>ALT+Tab</code> | [<code>act.ActivatePaneDirection("Next")</code>](../../shared/wezterm/keymap/init.lua#L75) | Activate Pane Direction: Next |
-| <code>ALT+Tab</code> | [<code>act.ActivatePaneDirection("Prev")</code>](../../shared/wezterm/keymap/init.lua#L80) | Activate Pane Direction: Prev |
+| <code>ALT+Tab</code> | [<code>act.ActivatePaneDirection("Next")</code>](../../shared/wezterm/keymap/init.lua#L80) | Activate Pane Direction: Next |
+| <code>ALT+Tab</code> | [<code>act.ActivatePaneDirection("Prev")</code>](../../shared/wezterm/keymap/init.lua#L85) | Activate Pane Direction: Prev |
 | <code>ALT+UpArrow</code> | [<code>act.ScrollToPrompt(-1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L48) | Scroll To Prompt: -1 |
-| <code>ALT+l</code> | [<code>clear_screen</code>](../../shared/wezterm/keymap/init.lua#L110) | Clear screen |
-| <code>ALT+q</code> | [<code>close_pane</code>](../../shared/wezterm/keymap/init.lua#L85) | Close pane |
-| <code>CTRL+0</code> | [<code>act.ActivateTab(-1)</code>](../../shared/wezterm/keymap/init.lua#L54) | Activate Tab: -1 |
-| <code>CTRL+1</code> | [<code>act.ActivateTab(0)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 0 |
-| <code>CTRL+2</code> | [<code>act.ActivateTab(1)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 1 |
-| <code>CTRL+3</code> | [<code>act.ActivateTab(2)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 2 |
-| <code>CTRL+4</code> | [<code>act.ActivateTab(3)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 3 |
-| <code>CTRL+5</code> | [<code>act.ActivateTab(4)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 4 |
-| <code>CTRL+6</code> | [<code>act.ActivateTab(5)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 5 |
-| <code>CTRL+7</code> | [<code>act.ActivateTab(6)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 6 |
-| <code>CTRL+8</code> | [<code>act.ActivateTab(7)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 7 |
-| <code>CTRL+9</code> | [<code>act.ActivateTab(8)</code>](../../shared/wezterm/keymap/init.lua#L164) | Activate Tab: 8 |
-| <code>CTRL+;</code> | [<code>act.SplitVertical({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L152) | Split Vertical |
-| <code>CTRL+ALT+DownArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Down", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L118) | Adjust Pane Size |
-| <code>CTRL+ALT+LeftArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Left", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L115) | Adjust Pane Size |
-| <code>CTRL+ALT+RightArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Right", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L116) | Adjust Pane Size |
-| <code>CTRL+ALT+UpArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Up", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L117) | Adjust Pane Size |
-| <code>CTRL+ALT+i</code> | [<code>open_jetbrains.intellij</code>](../../shared/wezterm/keymap/init.lua#L146) | Open jetbrains intellij |
-| <code>CTRL+ALT+p</code> | [<code>open_jetbrains.pycharm</code>](../../shared/wezterm/keymap/init.lua#L144) | Open jetbrains pycharm |
-| <code>CTRL+ALT+r</code> | [<code>open_jetbrains.rustrover</code>](../../shared/wezterm/keymap/init.lua#L145) | Open jetbrains rustrover |
+| <code>ALT+l</code> | [<code>clear_screen</code>](../../shared/wezterm/keymap/init.lua#L115) | Clear screen |
+| <code>ALT+q</code> | [<code>close_pane</code>](../../shared/wezterm/keymap/init.lua#L90) | Close pane |
+| <code>CTRL+.</code> | [<code>adopt_pane.attach_peer</code>](../../shared/wezterm/keymap/init.lua#L134) | Adopt pane attach peer |
+| <code>CTRL+0</code> | [<code>act.ActivateTab(-1)</code>](../../shared/wezterm/keymap/init.lua#L59) | Activate Tab: -1 |
+| <code>CTRL+1</code> | [<code>act.ActivateTab(0)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 0 |
+| <code>CTRL+2</code> | [<code>act.ActivateTab(1)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 1 |
+| <code>CTRL+3</code> | [<code>act.ActivateTab(2)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 2 |
+| <code>CTRL+4</code> | [<code>act.ActivateTab(3)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 3 |
+| <code>CTRL+5</code> | [<code>act.ActivateTab(4)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 4 |
+| <code>CTRL+6</code> | [<code>act.ActivateTab(5)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 5 |
+| <code>CTRL+7</code> | [<code>act.ActivateTab(6)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 6 |
+| <code>CTRL+8</code> | [<code>act.ActivateTab(7)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 7 |
+| <code>CTRL+9</code> | [<code>act.ActivateTab(8)</code>](../../shared/wezterm/keymap/init.lua#L169) | Activate Tab: 8 |
+| <code>CTRL+;</code> | [<code>act.SplitVertical({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L157) | Split Vertical |
+| <code>CTRL+ALT+DownArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Down", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L123) | Adjust Pane Size |
+| <code>CTRL+ALT+LeftArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Left", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L120) | Adjust Pane Size |
+| <code>CTRL+ALT+RightArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Right", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L121) | Adjust Pane Size |
+| <code>CTRL+ALT+UpArrow</code> | [<code>act.AdjustPaneSize({ 1 = "Up", 2 = 3 })</code>](../../shared/wezterm/keymap/init.lua#L122) | Adjust Pane Size |
+| <code>CTRL+ALT+i</code> | [<code>open_jetbrains.intellij</code>](../../shared/wezterm/keymap/init.lua#L151) | Open jetbrains intellij |
+| <code>CTRL+ALT+p</code> | [<code>open_jetbrains.pycharm</code>](../../shared/wezterm/keymap/init.lua#L149) | Open jetbrains pycharm |
+| <code>CTRL+ALT+r</code> | [<code>open_jetbrains.rustrover</code>](../../shared/wezterm/keymap/init.lua#L150) | Open jetbrains rustrover |
 | <code>CTRL+Backspace</code> | [<code>act.SendString(map.ctrl_u)</code>](../../shared/wezterm/keymap/motion-keys.lua#L72) | Send String: map.ctrl_u |
 | <code>CTRL+DownArrow</code> | [<code>act.ScrollToBottom</code>](../../shared/wezterm/keymap/motion-keys.lua#L38) | Scroll To Bottom |
 | <code>CTRL+Enter</code> | [<code>act.SendString(map.ctrl_e .. map.shift_enter)</code>](../../shared/wezterm/keymap/motion-keys.lua#L62) | Send String: map.ctrl_e .. map.shift_enter |
@@ -146,28 +149,29 @@
 | <code>CTRL+SHIFT+Enter</code> | [<code>act.SendString(map.ctrl_a .. map.shift_enter .. map.ctrl_b)</code>](../../shared/wezterm/keymap/motion-keys.lua#L67) | Send String: map.ctrl_a .. map.shift_enter .. map.ctrl_b |
 | <code>CTRL+SHIFT+LeftArrow</code> | [<code>act.SendString(map.shift_home)</code>](../../shared/wezterm/keymap/motion-keys.lua#L43) | Send String: map.shift_home |
 | <code>CTRL+SHIFT+RightArrow</code> | [<code>act.SendString(map.shift_end)</code>](../../shared/wezterm/keymap/motion-keys.lua#L44) | Send String: map.shift_end |
-| <code>CTRL+SHIFT+Space</code> | [<code>act.QuickSelect</code>](../../shared/wezterm/keymap/init.lua#L151) | Quick Select |
+| <code>CTRL+SHIFT+Space</code> | [<code>act.QuickSelect</code>](../../shared/wezterm/keymap/init.lua#L156) | Quick Select |
 | <code>CTRL+SHIFT+UpArrow</code> | [<code>act.SendString(map.ctrl_shift_home)</code>](../../shared/wezterm/keymap/motion-keys.lua#L45) | Send String: map.ctrl_shift_home |
-| <code>CTRL+SHIFT+a</code> | [<code>adopt_pane.adopt</code>](../../shared/wezterm/keymap/init.lua#L158) | Adopt pane adopt |
+| <code>CTRL+SHIFT+a</code> | [<code>adopt_pane.adopt</code>](../../shared/wezterm/keymap/init.lua#L163) | Adopt pane adopt |
 | <code>CTRL+SHIFT+c</code> | [<code>copy_selection</code>](../../shared/wezterm/keymap/init.lua#L27) | Copy selection |
-| <code>CTRL+SHIFT+d</code> | [<code>act.ShowLauncherArgs({ flags = "DOMAINS&#124;WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L134) | Show Launcher Args |
-| <code>CTRL+SHIFT+g</code> | [<code>open_github</code>](../../shared/wezterm/keymap/init.lua#L153) | Open github |
-| <code>CTRL+SHIFT+m</code> | [<code>wezterm.action_callback(callback @L105)</code>](../../shared/wezterm/keymap/init.lua#L102) | Wezterm action callback: callback @L105 |
-| <code>CTRL+SHIFT+o</code> | [<code>open_vscode</code>](../../shared/wezterm/keymap/init.lua#L139) | Open vscode |
-| <code>CTRL+SHIFT+p</code> | [<code>act.ShowLauncherArgs({ flags = "WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L149) | Show Launcher Args |
-| <code>CTRL+SHIFT+r</code> | [<code>ReloadConfiguration</code>](../../shared/wezterm/keymap/init.lua#L121) | Reload Configuration |
-| <code>CTRL+SHIFT+s</code> | [<code>mux.detach_pane</code>](../../shared/wezterm/keymap/init.lua#L124) | Mux detach pane |
+| <code>CTRL+SHIFT+d</code> | [<code>act.ShowLauncherArgs({ flags = "DOMAINS&#124;WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L139) | Show Launcher Args |
+| <code>CTRL+SHIFT+g</code> | [<code>open_github</code>](../../shared/wezterm/keymap/init.lua#L158) | Open github |
+| <code>CTRL+SHIFT+m</code> | [<code>wezterm.action_callback(callback @L110)</code>](../../shared/wezterm/keymap/init.lua#L107) | Wezterm action callback: callback @L110 |
+| <code>CTRL+SHIFT+o</code> | [<code>open_vscode</code>](../../shared/wezterm/keymap/init.lua#L144) | Open vscode |
+| <code>CTRL+SHIFT+p</code> | [<code>act.ShowLauncherArgs({ flags = "WORKSPACES" })</code>](../../shared/wezterm/keymap/init.lua#L154) | Show Launcher Args |
+| <code>CTRL+SHIFT+r</code> | [<code>ReloadConfiguration</code>](../../shared/wezterm/keymap/init.lua#L126) | Reload Configuration |
+| <code>CTRL+SHIFT+s</code> | [<code>mux.detach_pane</code>](../../shared/wezterm/keymap/init.lua#L129) | Mux detach pane |
+| <code>CTRL+SHIFT+t</code> | [<code>adopt_pane.new_peer_tab</code>](../../shared/wezterm/keymap/init.lua#L38) | Adopt pane new peer tab |
 | <code>CTRL+SHIFT+v</code> | [<code>act.PasteFrom("Clipboard")</code>](../../shared/wezterm/keymap/init.lua#L28) | Paste From: Clipboard |
-| <code>CTRL+SHIFT+w</code> | [<code>close_window</code>](../../shared/wezterm/keymap/init.lua#L48) | Close window |
-| <code>CTRL+SHIFT+x</code> | [<code>act.ActivateCopyMode</code>](../../shared/wezterm/keymap/init.lua#L150) | Activate Copy Mode |
-| <code>CTRL+SHIFT+z</code> | [<code>act.TogglePaneZoomState</code>](../../shared/wezterm/keymap/init.lua#L159) | Toggle Pane Zoom State |
-| <code>CTRL+Space</code> | [<code>act.ActivateCommandPalette</code>](../../shared/wezterm/keymap/init.lua#L148) | Activate Command Palette |
+| <code>CTRL+SHIFT+w</code> | [<code>close_window</code>](../../shared/wezterm/keymap/init.lua#L53) | Close window |
+| <code>CTRL+SHIFT+x</code> | [<code>act.ActivateCopyMode</code>](../../shared/wezterm/keymap/init.lua#L155) | Activate Copy Mode |
+| <code>CTRL+SHIFT+z</code> | [<code>act.TogglePaneZoomState</code>](../../shared/wezterm/keymap/init.lua#L164) | Toggle Pane Zoom State |
+| <code>CTRL+Space</code> | [<code>act.ActivateCommandPalette</code>](../../shared/wezterm/keymap/init.lua#L153) | Activate Command Palette |
 | <code>CTRL+UpArrow</code> | [<code>act.ScrollToTop</code>](../../shared/wezterm/keymap/motion-keys.lua#L33) | Scroll To Top |
-| <code>CTRL+d</code> | [<code>act.SplitHorizontal({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L70) | Split Horizontal |
-| <code>CTRL+m</code> | [<code>act.PaneSelect({ mode = "MoveToNewTab" })</code>](../../shared/wezterm/keymap/init.lua#L95) | Pane Select |
+| <code>CTRL+d</code> | [<code>act.SplitHorizontal({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L75) | Split Horizontal |
+| <code>CTRL+m</code> | [<code>act.PaneSelect({ mode = "MoveToNewTab" })</code>](../../shared/wezterm/keymap/init.lua#L100) | Pane Select |
 | <code>CTRL+n</code> | [<code>act.SpawnWindow</code>](../../shared/wezterm/keymap/init.lua#L29) | Spawn Window |
-| <code>CTRL+q</code> | [<code>act.QuitApplication</code>](../../shared/wezterm/keymap/init.lua#L38) | Quit Application |
+| <code>CTRL+q</code> | [<code>act.QuitApplication</code>](../../shared/wezterm/keymap/init.lua#L43) | Quit Application |
 | <code>CTRL+t</code> | [<code>hwire_session.new_tab</code>](../../shared/wezterm/keymap/init.lua#L33) | Hwire session new tab |
-| <code>CTRL+w</code> | [<code>close_tab</code>](../../shared/wezterm/keymap/init.lua#L43) | Close tab |
+| <code>CTRL+w</code> | [<code>close_tab</code>](../../shared/wezterm/keymap/init.lua#L48) | Close tab |
 | <code>CTRL+y</code> | [<code>open_yazi</code>](../../shared/wezterm/keymap/init.lua#L30) | Open yazi |
-| <code>CTRL+§</code> | [<code>act.SplitVertical({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L90) | Split Vertical |
+| <code>CTRL+§</code> | [<code>act.SplitVertical({ domain = "CurrentPaneDomain" })</code>](../../shared/wezterm/keymap/init.lua#L95) | Split Vertical |

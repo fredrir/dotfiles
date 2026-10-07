@@ -26,6 +26,6 @@
 | [kde](./kde.md) | 266 | 0 |
 | [nvim](./nvim.md) | 86 | 2 |
 | [vscode](./vscode.md) | 74 | 0 |
-| [wezterm](./wezterm.md) | 145 | 1 |
+| [wezterm](./wezterm.md) | 149 | 1 |
 | [yazi](./yazi.md) | 8 | 0 |
 | [zsh](./zsh.md) | 2 | 2 |
