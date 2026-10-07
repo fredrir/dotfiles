@@ -79,7 +79,7 @@ local bindings = {
   -- Cycle  --
   keybind(act.ActivatePaneDirection "Next", MOD.UNIQUE, "Tab"), -- Forward
   keybind(act.ActivatePaneDirection "Prev", MOD.UNIQUE, "Tab"), -- Backward
-  
+
   keybind(
     clear_screen,
     platform.is_mac and { MOD.PRIMARY, MOD.SECONDARY, MOD.UNIQUE } or { MOD.PRIMARY, MOD.UNIQUE },
@@ -101,7 +101,7 @@ local bindings = {
 
   -- Mux --
   keybind(mux.detach_pane, MOD.SUPER_REV, "s"),
-  keybind(adopt_pane.attach_peer, MOD.PRIMARY, "."),
+  keybind(adopt_pane.toggle_host, MOD.PRIMARY, "."),
 
   -- Domain and workspace launcher --
   keybind(act.ShowLauncherArgs { flags = "DOMAINS|WORKSPACES" }, MOD.SUPER_REV, "d"),
@@ -118,7 +118,7 @@ local bindings = {
   keybind(act.QuickSelect, MOD.SUPER_REV, "Space"),
   keybind(act.SplitVertical { domain = "CurrentPaneDomain" }, MOD.PRIMARY, ";"),
   keybind(open_github, MOD.SUPER_REV, "g"),
-  
+
 }
 
 -- Go to tab 1..9

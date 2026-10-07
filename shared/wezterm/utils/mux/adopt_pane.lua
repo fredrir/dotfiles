@@ -3,6 +3,7 @@ local act = wezterm.action
 local dotfile = require "utils.dotfile"
 local hwire_session = require "utils.hwire-session"
 local str = require "utils.str"
+local is_remote = require("utils.remote").is_remote
 local host = require "domain.hosts"
 local ssh_hosts = require "domain.ssh-hosts"
 local ssh_mux = require "domain.ssh-mux"
@@ -125,12 +126,16 @@ local function localmux_pane(pane)
 end
 
 ---@param done fun(err: string?)
-local function replace(_, _, source, target, done)
+local function replace(_, pane, source, target, done)
+  if target == "toggle" then
+    target = is_remote(pane) and host.origin.hostname or host.target.hostname
+  end
   local to, err = resolve(target)
   if not to then
     return done(err)
   end
 
+  local tab = pane:tab()
   local stdout, split_error = mux("split-pane", "--pane-id", source, table.unpack(spawn_args(to)))
   if not stdout then
     return done(split_error)
@@ -139,12 +144,28 @@ local function replace(_, _, source, target, done)
   if not replacement or replacement == source then
     return done "invalid replacement pane"
   end
+  local focused, focus_error = pcall(function()
+    for _ = 1, 100 do
+      for _, candidate in ipairs(tab:panes()) do
+        local metadata = candidate:get_metadata() or {}
+        if candidate:get_domain_name() == "localmux" and metadata.remote_pane_id == replacement then
+          candidate:activate()
+          return
+        end
+      end
+      wezterm.sleep_ms(50)
+    end
+    error "replacement pane did not appear in the GUI"
+  end)
+  if not focused then
+    mux("kill-pane", "--pane-id", replacement)
+    return done(tostring(focus_error))
+  end
   local closed, close_error = mux("kill-pane", "--pane-id", source)
   if not closed then
     mux("kill-pane", "--pane-id", replacement)
     return done(close_error)
   end
-  mux("activate-pane", "--pane-id", replacement)
   done()
 end
 
@@ -293,8 +314,8 @@ end)
 local open_peer_tab = once_per_pane(new_tab)
 
 return {
-  attach_peer = wezterm.action_callback(function(window, pane)
-    requests.ATTACH_MUX(window, pane, "peer")
+  toggle_host = wezterm.action_callback(function(window, pane)
+    requests.ATTACH_MUX(window, pane, "toggle")
   end),
   new_peer_tab = wezterm.action_callback(function(window, pane)
     open_peer_tab(window, pane, "peer")
