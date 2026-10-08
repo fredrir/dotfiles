@@ -43,7 +43,12 @@ local tiles = {
 for k, tile in pairs(tiles) do
   key.createKeybind({ "fn", "ctrl" }, k, function()
     local win = hs.window.focusedWindow()
-    if win and not win:application():selectMenuItem(tile.menu) then
+    if not win then
+      return
+    end
+    ---@type hs.application|nil
+    local app = win:application()
+    if not app or not app:selectMenuItem(tile.menu) then
       win:moveToUnit(tile.unit, 0)
     end
   end)
@@ -63,8 +68,11 @@ for k, neighbour in pairs(neighbours) do
   key.createKeybind({ "fn", "alt" }, k, function()
     local win = hs.window.focusedWindow()
     local target = win and neighbour(win:screen())
-    if target and not win:application():selectMenuItem { "Window", "Move to " .. target:name() } then
-      win:moveToScreen(target, false, true, 0)
+    if target then
+      local frame = target:frame()
+      win:setFrame(frame)
+      hs.mouse.absolutePosition(frame.center)
+      win:focus()
     end
   end)
 end
@@ -73,7 +81,11 @@ end
 local lastMouse = {}
 
 key.createKeybind({ "fn" }, "m", function()
+  ---@type hs.screen|nil
   local from = hs.mouse.getCurrentScreen()
+  if not from then
+    return
+  end
   local to = from:next()
   lastMouse[from:getUUID()] = hs.mouse.absolutePosition()
   hs.mouse.absolutePosition(lastMouse[to:getUUID()] or to:frame().center)

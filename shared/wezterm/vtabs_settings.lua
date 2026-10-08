@@ -3,9 +3,10 @@
 ---@type TabsManaged
 return {
   settings = {
+    background = "#101020",
+    keybinds = { new_tab = {}, reopen = {} },
     keyboard_shortcuts = true,
     width = 256,
-    background = require("ui.colors.profiles").active.colors.accent,
   },
   spaces = { { icon = "󰋜", id = "home", name = "Home" } },
   templates = {},
