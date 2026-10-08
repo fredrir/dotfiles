@@ -160,3 +160,18 @@ fn inline_block_comments_after_commas_keep_the_next_member_on_a_new_line() {
         "[\n  1, /* note */\n  2\n]\n"
     );
 }
+
+#[test]
+fn editor_preserves_comment_dialects_without_json_repairs() {
+    let input = b"// heading\n{\"a\":1, /* note */}\n// footer";
+    for dialect in [Dialect::Jsonc, Dialect::Hujson] {
+        let config = Config::default();
+        let formatted = engine::format(Path::new("test"), input, &config, true, dialect).unwrap();
+        let strict = engine::format(Path::new("test"), input, &config, false, dialect).unwrap();
+        assert_eq!(formatted.text, strict.text);
+        for comment in ["// heading", "/* note */", "// footer"] {
+            assert!(formatted.text.contains(comment), "{}", formatted.text);
+        }
+        assert!(formatted.repairs.is_empty());
+    }
+}

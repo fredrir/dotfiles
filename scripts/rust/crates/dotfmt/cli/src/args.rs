@@ -8,7 +8,7 @@ use workstation::{Completable, Completions};
 #[derive(Parser)]
 #[command(version, about = "The one formatter to rule them all")]
 pub struct Cli {
-    /// Files or directories to format, or `-` for standard input.
+    /// Files, directories or `-` for stdin; editor mode takes a filename.
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]
     pub targets: Vec<PathBuf>,
 
@@ -32,7 +32,7 @@ pub struct Cli {
     #[arg(long, value_name = "DIALECT")]
     pub dialect: Option<String>,
 
-    /// Format standard input for an editor; JSON allows repairs.
+    /// Quietly format stdin as TARGET; infer language and dialect, allow JSON repairs.
     #[arg(short, long)]
     pub editor: bool,
 
@@ -44,7 +44,7 @@ pub struct Cli {
     #[arg(long, conflicts_with_all = ["targets", "check", "stdin", "editor", "add", "sync", "dialect", "verbose"])]
     pub owns: bool,
 
-    /// Show detailed output.
+    /// Show detailed output, including editor repair diagnostics.
     #[arg(short, long, conflicts_with = "quiet")]
     pub verbose: bool,
 

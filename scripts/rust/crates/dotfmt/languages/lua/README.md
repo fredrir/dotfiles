@@ -5,7 +5,7 @@ Internal library used by `dotfmt -l lua`. See [dotfmt](../../../../../../docs/cl
 ```sh
 dotfmt -l lua file.lua directory/
 dotfmt -l lua --check directory/
-dotfmt -l lua -eq --stdin path/to/file.lua < file.lua
+dotfmt -e path/to/file.lua < file.lua
 dotfmt -l lua --dialect lua54 file.lua
 dotfile dev check -p dotfmt-lua
 ```

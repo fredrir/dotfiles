@@ -14,10 +14,18 @@ dotfmt --check .
 dotfmt -l json,markdown .
 dotfmt -l lua --dialect luau script.luau
 dotfmt -l conf --stdin ~/.ssh/config < ~/.ssh/config
-dotfmt -l markdown -eq --stdin note.md < note.md
+dotfmt -e note.md < note.md
 dotfmt --add .
 dotfmt --sync .
 ```
+
+Editor mode uses the filename for language detection and local configuration, reads the buffer from stdin, and writes only formatted text to stdout. It never writes the named file. Conform uses one formatter for all supported filetypes:
+
+```lua
+dotfmt = { command = "dotfmt", args = { "-e", "$FILENAME" } }
+```
+
+Selection uses filenames and `dotfmt.dotfile`, not the editor's filetype. For JSONC stored as `.json`, set `dialect = jsonc` in the applicable `json` block; map extensionless names through that block's `include` rules.
 
 ## Flags
 
@@ -116,7 +124,7 @@ The shipped config enables all four languages. `dotfile sync` installs it. `--ad
 | Lua | `dialect`, `indent_type`, `line_endings`, `call_parentheses`, `collapse_simple_statement`, `space_after_function_names`, `block_newline_gaps`, `sort_requires`, `verify` |
 | Markdown | `dialect`, `table_style`, `heading_blank_lines`, `list_marker`, `trim_trailing_blank_lines` |
 
-Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; JSON editor mode retains repair diagnostics.
+Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; JSONC/HuJSON editor mode preserves comments.
 
 | Result | Exit status |
 | --- | --- |

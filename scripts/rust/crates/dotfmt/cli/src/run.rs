@@ -15,8 +15,14 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
     if cli.add || cli.sync {
         return crate::placement::run(&cli);
     }
-    if cli.editor && cli.targets.iter().any(|path| path != Path::new("-")) {
-        return Err("--editor reads stdin; use --stdin FILENAME for per-file settings".into());
+    if cli.editor {
+        cli.quiet |= !cli.verbose;
+        if cli.targets.len() > 1 {
+            return Err("--editor accepts one filename for standard input".into());
+        }
+        if cli.targets.first().is_some_and(|path| path != Path::new("-")) {
+            cli.stdin = cli.targets.pop();
+        }
     }
     let streamed = cli.stdin.is_some()
         || cli.editor
@@ -48,7 +54,7 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
                     (cli.languages.len() == 1)
                         .then(|| cli.languages[0].default_stdin().to_path_buf())
                 })
-                .ok_or("standard input needs --stdin FILENAME or one --lang LANGUAGE")?;
+                .ok_or("standard input needs --editor FILENAME, --stdin FILENAME or one --lang LANGUAGE")?;
             cli.targets.retain(|path| path != Path::new("-"));
             Some(Buffer {
                 path,

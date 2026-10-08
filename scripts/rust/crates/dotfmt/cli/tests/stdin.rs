@@ -38,7 +38,7 @@ fn stdin_aliases_and_extensionless_explicit_languages_work() {
 }
 
 #[test]
-fn editor_json_repairs_are_reported_and_invalid_lua_has_no_output() {
+fn editor_repairs_are_quiet_unless_verbose_and_errors_still_report() {
     let root = tree_pairs(&[("dotfmt.dotfile", CONFIG)]);
     let output = dotfmt(root.path())
         .args(["--editor", "--stdin", "a.json"])
@@ -46,13 +46,21 @@ fn editor_json_repairs_are_reported_and_invalid_lua_has_no_output() {
         .run();
     assert!(output.success(), "{output:?}");
     assert_eq!(output.stdout, "{\n  \"key\": \"value\"\n}");
-    assert!(output.stderr.contains("fixed"), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let verbose = dotfmt(root.path())
+        .args(["-e", "a.json", "--verbose"])
+        .stdin("{key:'value',}")
+        .run();
+    assert!(verbose.success(), "{verbose:?}");
+    assert_eq!(verbose.stdout, output.stdout);
+    assert!(verbose.stderr.contains("fixed"), "{verbose:?}");
     let output = dotfmt(root.path())
-        .args(["--editor", "--stdin", "a.lua"])
+        .args(["-e", "a.lua"])
         .stdin("local =")
         .run();
     assert!(!output.success(), "{output:?}");
     assert!(output.stdout.is_empty());
+    assert!(output.stderr.contains("a.lua"), "{output:?}");
 }
 
 #[test]
@@ -144,5 +152,123 @@ fn stream_configuration_errors_prevent_writes_to_valid_file_targets() {
     assert_eq!(
         fs::read_to_string(root.path().join("sub/a.json")).unwrap(),
         "{\"x\":1}"
+    );
+}
+
+#[test]
+fn editor_filenames_infer_languages_and_dialects_without_reading_or_writing_files() {
+    let root = tree_pairs(&[("dotfmt.dotfile", CONFIG)]);
+    for (name, input, expected) in [
+        ("a.json", "{key:'value',}", "{\n  \"key\": \"value\"\n}"),
+        (
+            "a.jsonc",
+            "// note\n{\"x\":1,}",
+            "// note\n{\n  \"x\": 1,\n}",
+        ),
+        ("a.lua", "local x=1", "local x = 1"),
+        ("a.luau", "local x: number=1", "local x: number = 1"),
+        ("a.md", "__Strong__", "**Strong**"),
+        ("a.conf", "x=1  \n", "x=1"),
+        ("a.dotfile", "host{\nx=1\n}", "host {\n  x  = 1\n}"),
+    ] {
+        let path = root.path().join(name);
+        let output = dotfmt(root.path()).args(["-e", name]).stdin(input).run();
+        assert!(output.success(), "{name}: {output:?}");
+        assert_eq!(output.stdout, expected, "{name}");
+        assert!(output.stderr.is_empty(), "{name}: {output:?}");
+        assert!(!path.exists(), "editor created {name}");
+        fs::write(&path, "disk contents must stay untouched").unwrap();
+        let before = fs::metadata(&path).unwrap().modified().unwrap();
+        let existing = dotfmt(root.path()).args(["-e", name]).stdin(input).run();
+        assert!(existing.success(), "{name}: {existing:?}");
+        assert_eq!(existing.stdout, expected, "{name}");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "disk contents must stay untouched"
+        );
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), before);
+    }
+}
+
+#[test]
+fn editor_filename_uses_local_settings_custom_mappings_and_exclusions() {
+    let root = tree_pairs(&[
+        ("dotfmt.dotfile", CONFIG),
+        (
+            "nested/dotfmt.dotfile",
+            "json {\n indent = 4\n include { payload }\n}\nexcluded_files { skip.json }\n",
+        ),
+    ]);
+    for name in ["nested/a.json", "nested/payload"] {
+        let output = dotfmt(root.path())
+            .args(["-e", name])
+            .stdin("{\"x\":1}")
+            .run();
+        assert!(output.success(), "{name}: {output:?}");
+        assert_eq!(output.stdout, "{\n    \"x\": 1\n}");
+        assert!(output.stderr.is_empty(), "{output:?}");
+        assert!(!root.path().join(name).exists());
+    }
+    let output = dotfmt(root.path())
+        .args(["-e", "nested/skip.json"])
+        .stdin("unformatted input")
+        .run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(output.stdout, "unformatted input");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    assert!(!root.path().join("nested/skip.json").exists());
+}
+
+#[test]
+fn editor_rejects_multiple_filenames_and_missing_filename_context() {
+    let root = tree_pairs(&[
+        ("dotfmt.dotfile", CONFIG),
+        ("a.json", "{}"),
+        ("b.json", "{}"),
+    ]);
+    for args in [vec!["-e", "a.json", "b.json"], vec!["-e", "-", "a.json"]] {
+        let output = dotfmt(root.path()).args(args).stdin("{\"x\":1}").run();
+        assert!(!output.success(), "{output:?}");
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.contains("one filename"), "{output:?}");
+    }
+    for args in [vec!["-e"], vec!["-e", "-"]] {
+        let output = dotfmt(root.path()).args(args).stdin("{\"x\":1}").run();
+        assert!(!output.success(), "{output:?}");
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.contains("--editor FILENAME"), "{output:?}");
+    }
+    for name in ["a.json", "b.json"] {
+        assert_eq!(fs::read_to_string(root.path().join(name)).unwrap(), "{}");
+    }
+}
+
+#[test]
+fn editor_check_emits_no_output_and_legacy_stdin_flags_remain_compatible() {
+    let root = tree_pairs(&[("dotfmt.dotfile", CONFIG), ("a.json", "disk contents")]);
+    for (input, code) in [("{\"x\":1}", 1), ("{\n  \"x\": 1\n}", 0)] {
+        let output = dotfmt(root.path())
+            .args(["--check", "-e", "a.json"])
+            .stdin(input)
+            .run();
+        assert_eq!(output.code(), Some(code), "{output:?}");
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty(), "{output:?}");
+    }
+    let legacy = dotfmt(root.path())
+        .args(["-eq", "--stdin", "a.json"])
+        .stdin("{key:'value',}")
+        .run();
+    let editor = dotfmt(root.path())
+        .args(["-e", "a.json"])
+        .stdin("{key:'value',}")
+        .run();
+    assert!(legacy.success(), "{legacy:?}");
+    assert!(editor.success(), "{editor:?}");
+    assert_eq!(legacy.stdout, editor.stdout);
+    assert!(legacy.stderr.is_empty(), "{legacy:?}");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.json")).unwrap(),
+        "disk contents"
     );
 }

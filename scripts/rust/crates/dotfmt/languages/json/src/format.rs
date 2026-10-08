@@ -14,8 +14,7 @@ pub struct Formatted {
     pub repairs: Repairs,
 }
 
-/// Lays one body out. `editor` is the flag of the same name: it takes the
-/// repairs jq would refuse, and counts them rather than hiding them.
+/// Format in the selected dialect; editor mode permits repairs for plain JSON.
 pub fn format(
     path: &Path,
     input: &[u8],
@@ -23,7 +22,6 @@ pub fn format(
     editor: bool,
     dialect: Dialect,
 ) -> Result<Formatted, Diagnostic> {
-    let dialect = if editor { Dialect::Json } else { dialect };
     let shaped = shape(path, input, config, editor, dialect)?;
     guard(path, &shaped.text, config, dialect)?;
     Ok(shaped)
