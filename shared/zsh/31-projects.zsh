@@ -18,4 +18,7 @@ alias cdlp="cd $LLUNDE/pyparser"
 alias cdlf="cd $LLUNDE/frontend"
 alias cdlb="cd $LLUNDE/backend"
 
+alias rr='direnv exec "$LLUNDE/pyparser" "$LLUNDE/pyparser/.venv/bin/pyparser-review"'
+
+# wez-vtabs
 alias ww="just --justfile $HOME/projects/wez-plugins/vertical-tabs/justfile"

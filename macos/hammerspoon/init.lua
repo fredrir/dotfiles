@@ -89,4 +89,26 @@ key.createKeybind({ "fn" }, "m", function()
   local to = from:next()
   lastMouse[from:getUUID()] = hs.mouse.absolutePosition()
   hs.mouse.absolutePosition(lastMouse[to:getUUID()] or to:frame().center)
+
+  local position = hs.geometry.new(hs.mouse.absolutePosition())
+  local windows = hs.window.orderedWindows()
+  local sourceWindow
+  for _, win in ipairs(windows) do
+    if win:screen():id() == from:id() then
+      sourceWindow = win
+      break
+    end
+  end
+
+  for _, win in ipairs(windows) do
+    if position:inside(win:frame()) then
+      win:focus()
+      -- App activation can also bring a sibling window forward on the source screen.
+      if sourceWindow and sourceWindow:id() ~= win:id() then
+        sourceWindow:raise()
+      end
+      win:raise():becomeMain()
+      break
+    end
+  end
 end)
