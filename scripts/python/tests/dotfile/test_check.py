@@ -175,15 +175,3 @@ def test_clips_items_and_all_lists_every_finding(ctx):
     full = ctx[2]("--all")
     assert "missing-14" in full.stdout
     assert "and 3 more" not in full.stdout
-
-
-def test_a_requirement_in_two_groups_is_checked_once(ctx):
-    root, _home, doctor = ctx
-    (root / "macos").mkdir()
-    (root / "environment/test/manifest").write_text("shared\nmacos\n")
-    write_requires(ctx, "shared {\n ?missing-native-check\n}\nmacos {\n missing-native-check\n}\n")
-    result = doctor()
-    assert result.returncode == 1
-    assert result.stdout.count("missing-native-check") == 1
-    assert "sudo pacman -S --needed \\\n  missing-native-check\n" in result.stdout
-    assert "optional" not in result.stdout

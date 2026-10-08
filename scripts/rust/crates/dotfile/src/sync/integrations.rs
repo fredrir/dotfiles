@@ -46,6 +46,7 @@ pub fn synchronize(
     if command_exists("systemctl") {
         user_units(context, dry_run, events, &mut outcome, &mut warnings)?;
     }
+    zsh_bundle(context, dry_run, events, &mut outcome, &mut warnings)?;
     let mut git_configs = git_config.join().unwrap_or_default();
     git_settings(
         context,
@@ -133,6 +134,55 @@ fn hyprland(
     if !dry_run && command_exists("hyprctl") {
         crate::cancel::check()?;
         let _ = Command::new("hyprctl").arg("reload").output();
+    }
+    Ok(())
+}
+
+fn zsh_bundle(
+    context: &Context,
+    dry_run: bool,
+    events: &dyn EventSink,
+    outcome: &mut IntegrationOutcome,
+    warnings: &mut Vec<(String, Option<String>)>,
+) -> Result<(), String> {
+    if !file_exists(&context.root.join(zsh_build::config::RELATIVE_PATH))? {
+        return Ok(());
+    }
+    crate::cancel::check()?;
+    let options = zsh_build::Options {
+        root: context.root.clone(),
+        dry_run,
+    };
+    let built = match zsh_build::build(&options) {
+        Ok(built) => built,
+        Err(error) => {
+            warnings.push((format!("zsh-build: {error}"), Some("zsh-build".to_string())));
+            return Ok(());
+        }
+    };
+    for target in built {
+        outcome.checked += 1;
+        if target.changed {
+            outcome.changed += 1;
+            outcome.generated += 1;
+        }
+        warnings.extend(
+            target
+                .warnings
+                .into_iter()
+                .map(|note| (format!("zsh-build: {note}"), None)),
+        );
+        events.emit(Event::Item {
+            action: Action::Generate,
+            path: target.path,
+            detail: if target.changed {
+                "zsh bundle"
+            } else {
+                "current"
+            }
+            .to_string(),
+            changed: target.changed,
+        });
     }
     Ok(())
 }

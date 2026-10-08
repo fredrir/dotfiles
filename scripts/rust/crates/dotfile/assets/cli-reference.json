@@ -145,7 +145,15 @@
       "programs": [
         "zcomp"
       ],
-      "source": "scripts/rust/crates/zsh-completions/"
+      "source": "scripts/rust/crates/zsh/completions/"
+    },
+    {
+      "name": "zsh-build",
+      "title": "zsh-build",
+      "programs": [
+        "zsh-build"
+      ],
+      "source": "scripts/rust/crates/zsh/build/"
     }
   ],
   "native": [
@@ -168,7 +176,8 @@
     "size",
     "dotfile",
     "sysinfo",
-    "zcomp"
+    "zcomp",
+    "zsh-build"
   ],
   "standard": {
     "--help": "Shows help for the selected command and exits.",
@@ -288,7 +297,8 @@
     "zcomp": "Prints zsh completion candidates for npm, pnpm, yarn, bun, their runners, pi, and shadcn.",
     "zcomp complete": "Prints the candidates for the word under the cursor; called by the zsh integration.",
     "zcomp refresh": "Rebuilds one cached source; started in the background when a cache goes stale.",
-    "zcomp warm": "Starts background rebuilds for missing or stale caches; run at shell start."
+    "zcomp warm": "Starts background rebuilds for missing or stale caches; run at shell start.",
+    "zsh-build": "Compiles the zsh startup config into one bundle with fixed command output folded in."
   },
   "flags": {
     "count": {
@@ -504,6 +514,10 @@
       "--current": "Selects the cursor word by its position, counting from 1 like `$CURRENT`.",
       "--prefix": "Sets the cursor word up to the cursor, like `$PREFIX`.",
       "--color": "Colors the candidates with the dotfile theme; set by the zsh integration under fzf-tab."
+    },
+    "zsh-build": {
+      "--dry-run": "Shows whether the bundle would change without writing it.",
+      "--root": "Sets the dotfiles checkout; defaults to `$DOTFILES`, then `~/dotfiles`."
     }
   }
 }

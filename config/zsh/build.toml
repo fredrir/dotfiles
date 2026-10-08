@@ -1,0 +1,31 @@
+output = ".cache/zsh/build"
+
+# Read from the build environment; their runtime values are assumed to match
+ambient = [
+  "HOME",
+  "USER",
+  "HOMEBREW_PREFIX",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "ZSH_CUSTOM",
+  "ZSH_CACHE_DIR",
+  "ZSH_COMPDUMP",
+  "ZOXIDE_CMD_OVERRIDE",
+]
+
+[[target]]
+name   = "zshrc"
+source = "shared/zsh/01-init.zsh"
+env    = ["shared/zsh/00-global.zsh"]
+
+# Output fixed between builds; folded at build time
+[fold]
+commands = [
+  "brew --prefix",
+  "git version",
+  "fzf --version",
+  "fzf --zsh",
+  "zoxide init --cmd z zsh",
+  "starship init zsh --print-full-init",
+]

@@ -50,6 +50,7 @@ toml = { version = "0.9", default-features = false, features = [
 ] }
 ui-terminal = { workspace = true, features = ["ratatui"] }
 workstation.workspace = true
+zsh-build.workspace = true
 
 hwtune  = { path = "../hwtune" }
 sysinfo = { package = "workstation-sysinfo", path = "../sysinfo" }

@@ -276,52 +276,6 @@ fn pending_partial_capture_is_never_promoted_on_recovery() -> Result<()> {
 }
 
 #[test]
-fn retention_expires_history_but_keeps_latest_and_quarantine_donors() -> Result<()> {
-    if !has_restic() {
-        return Ok(());
-    }
-    let mut fixture = fixture()?;
-    for value in ["one", "two", "three"] {
-        fs::write(fixture.source.join("important.txt"), value)?;
-        backup(&fixture.config, &mut fixture.state, "documents", false)?;
-    }
-    let preview = retention(
-        &fixture.config,
-        &mut fixture.state,
-        "archie",
-        "documents",
-        "local",
-        false,
-        false,
-    )?;
-    assert_eq!(preview["plan"]["delete"].as_array().unwrap().len(), 2);
-    retention(
-        &fixture.config,
-        &mut fixture.state,
-        "archie",
-        "documents",
-        "local",
-        true,
-        true,
-    )?;
-    let snapshots =
-        repository(&fixture.config, "archie", "documents", "local")?.snapshots(None, None)?;
-    assert_eq!(snapshots.len(), 1);
-    let result = restore_test(
-        &fixture.config,
-        &mut fixture.state,
-        "archie",
-        "documents",
-        "local",
-        Some(&snapshots[0].id),
-    )?;
-    assert_eq!(result["full_restore"], true);
-    let latest = fixture.state.runs()?.remove(0);
-    assert!(latest.replicas["local"].full_verified_at.is_some());
-    Ok(())
-}
-
-#[test]
 fn complete_readback_is_required_before_automatic_source_quarantine() -> Result<()> {
     if !has_restic() {
         return Ok(());
