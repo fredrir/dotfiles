@@ -310,7 +310,6 @@
       "--server": "Places an added config in the `linux/server` package group.",
       "--macos": "Places an added file in the `macos` package group.",
       "--pkg": "Selects development targets or names an added config, secret, or system package.",
-      "--description": "Adds a package description to `PACKAGES.md`.",
       "--dry-run": "Plans without changing files or contacting the peer.",
       "--override": "Selects a machine override with `<group>=<name|none>`.",
       "--force": "Resolves local edits from the repository and discards conflicting remote edits with `--push`.",

@@ -42,11 +42,14 @@ pub fn parse_with_comments(text: &str, comments: Comments) -> Result<Vec<Entry>,
         if line.is_empty() {
             continue;
         }
+        let compact = line.strip_suffix("{}").filter(|name| {
+            block.is_none() && (name.is_empty() || name.ends_with(char::is_whitespace))
+        });
         if line == "}" {
             if block.take().is_none() {
                 return Err(format!("line {number}: unexpected }}"));
             }
-        } else if let Some(name) = line.strip_suffix('{') {
+        } else if let Some(name) = line.strip_suffix('{').or(compact) {
             if block.is_some() {
                 return Err(format!("line {number}: nested block"));
             }
@@ -54,7 +57,7 @@ pub fn parse_with_comments(text: &str, comments: Comments) -> Result<Vec<Entry>,
             if name.is_empty() {
                 return Err(format!("line {number}: block name missing"));
             }
-            block = Some(name);
+            block = if compact.is_some() { None } else { Some(name) };
             entries.push(Entry {
                 block: name.to_string(),
                 number,

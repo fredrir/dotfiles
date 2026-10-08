@@ -2,7 +2,6 @@ mod benchmarks;
 mod cli;
 pub mod keybinds;
 mod markdown;
-pub(crate) mod packages;
 mod plan;
 mod readme;
 mod reference;
@@ -23,11 +22,7 @@ pub fn synchronize(
         phase: Phase::Artifacts,
         total: None,
     });
-    let (plan, missing) = prepare(
-        context,
-        &[Target::Cli, Target::Keybinds, Target::Packages],
-        true,
-    )?;
+    let (plan, missing) = prepare(context, &[Target::Cli, Target::Keybinds])?;
     for program in missing {
         events.emit(Event::Warning {
             message: format!("{program}: command metadata unavailable; documentation retained"),
@@ -49,11 +44,7 @@ pub fn synchronize(
     Ok(paths.len())
 }
 
-fn prepare(
-    context: &Context,
-    targets: &[Target],
-    inventory: bool,
-) -> Result<(plan::Plan, Vec<String>), String> {
+fn prepare(context: &Context, targets: &[Target]) -> Result<(plan::Plan, Vec<String>), String> {
     let mut outputs = Vec::new();
     let mut missing = Vec::new();
     for target in targets {
@@ -64,7 +55,6 @@ fn prepare(
                 missing.extend(unavailable);
             }
             Target::Keybinds => outputs.extend(keybinds::outputs(&context.root)?),
-            Target::Packages => outputs.extend(packages::outputs(context, inventory)?),
             Target::Readme => outputs.push(readme::output_file(context)?),
             Target::Benchmarks => outputs.push(benchmarks::output(context)?),
         }

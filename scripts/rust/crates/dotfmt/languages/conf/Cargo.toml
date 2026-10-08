@@ -10,3 +10,4 @@ workspace = true
 
 [dependencies]
 dotfmt-core.workspace = true
+unicode-width.workspace = true

@@ -32,8 +32,6 @@ pub struct AddArgs {
     pub macos: bool,
     #[arg(long)]
     pub pkg: Option<String>,
-    #[arg(long, alias = "desc")]
-    pub description: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -178,11 +176,6 @@ pub fn add(args: AddArgs, context: &Context) -> Result<ExitCode, String> {
     if let Some(package) = &args.pkg {
         validate_package(package)?;
     }
-    if let Some(description) = &args.description
-        && (description.is_empty() || description.contains(['\r', '\n']))
-    {
-        return Err("description must be a non-empty single line".into());
-    }
     let source = locate_source(context, &args.path)?;
     if fs::symlink_metadata(&source).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err(
@@ -205,10 +198,6 @@ pub fn add(args: AddArgs, context: &Context) -> Result<ExitCode, String> {
     if fs::symlink_metadata(&target).is_ok() {
         return Err(format!("destination exists: {}", relative.display()));
     }
-    let mut metadata = packages::load_metadata(&context.packages_config)?;
-    if let Some(description) = args.description {
-        metadata.insert(format!("{group}/{package}"), description);
-    }
     let _ = config(context)?;
     let mut transaction = Transaction::new(context)?;
     transaction.move_node(&source, &target)?;
@@ -216,16 +205,7 @@ pub fn add(args: AddArgs, context: &Context) -> Result<ExitCode, String> {
     if let Some(mapping) = mapping {
         append_mapping(context, &mut transaction, &mapping)?;
     }
-    refresh_packages(context, &mut transaction, &metadata)?;
-    transaction.stage(
-        context,
-        &[
-            relative.clone(),
-            context.targets_file.clone(),
-            context.packages_config.clone(),
-            context.packages_doc.clone(),
-        ],
-    )?;
+    transaction.stage(context, &[relative.clone(), context.targets_file.clone()])?;
     transaction.commit()?;
     println!(
         "moved  {} -> {}\nlinked {}",
@@ -349,18 +329,6 @@ pub fn append_mapping(
     transaction.write(&context.targets_file, content.as_bytes())
 }
 
-fn refresh_packages(
-    context: &Context,
-    transaction: &mut Transaction,
-    metadata: &BTreeMap<String, String>,
-) -> Result<(), String> {
-    let groups = packages::package_groups(context)?;
-    packages::validate_packages(context, &groups)?;
-    let (config, document) = packages::render(context, &groups, metadata)?;
-    transaction.write(&context.packages_config, config.as_bytes())?;
-    transaction.write(&context.packages_doc, document.as_bytes())
-}
-
 pub fn remove(args: RemoveArgs, context: &Context) -> Result<ExitCode, String> {
     let _lock = crate::lock::MutationLock::acquire(context)?;
     let path = args.path.strip_prefix(&context.root).unwrap_or(&args.path);
@@ -395,7 +363,6 @@ pub fn remove(args: RemoveArgs, context: &Context) -> Result<ExitCode, String> {
     }
     let configuration = config(context)?;
     validate_remove(context, &configuration, &source, &relative)?;
-    let metadata = packages::load_metadata(&context.packages_config)?;
     let mut transaction = Transaction::new(context)?;
     materialize(
         context,
@@ -440,16 +407,7 @@ pub fn remove(args: RemoveArgs, context: &Context) -> Result<ExitCode, String> {
         .map(|line| format!("{line}\n"))
         .collect::<String>();
     transaction.write(&context.targets_file, kept.as_bytes())?;
-    refresh_packages(context, &mut transaction, &metadata)?;
-    transaction.stage(
-        context,
-        &[
-            relative.clone(),
-            context.targets_file.clone(),
-            context.packages_config.clone(),
-            context.packages_doc.clone(),
-        ],
-    )?;
+    transaction.stage(context, &[relative.clone(), context.targets_file.clone()])?;
     transaction.commit()?;
     println!("removed {} from dotfiles", relative.display());
     Ok(ExitCode::SUCCESS)

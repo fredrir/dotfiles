@@ -244,10 +244,6 @@ fn every_tracked_dotfile_survives_a_round_trip() {
             include_str!("../../../../../../../../config/keys.dotfile"),
         ),
         (
-            "config/packages.dotfile",
-            include_str!("../../../../../../../../config/packages.dotfile"),
-        ),
-        (
             "config/profiles.dotfile",
             include_str!("../../../../../../../../config/profiles.dotfile"),
         ),

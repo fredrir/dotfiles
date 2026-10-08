@@ -30,7 +30,7 @@ fn lua_bom_and_backticks_in_literals_are_preserved() {
 #[test]
 fn formatting_bare_braces_preserves_the_dotfile_readers_entries() {
     let original =
-        "packages {\nlib{foo,bar}\n${HOME}/foo\nlib{}\njson{foo,bar}\nlib{ foo,bar}\n}\n";
+        "packages {\nlib{foo,bar}\n${HOME}/foo\nlib{}\njson{foo,bar}\nlib{ foo,bar}\n}\nempty {\n}\n";
     let root = tree_pairs(&[
         ("dotfmt.dotfile", "conf {}\n"),
         ("packages.dotfile", original),
@@ -44,7 +44,7 @@ fn formatting_bare_braces_preserves_the_dotfile_readers_entries() {
     );
     assert_eq!(
         formatted,
-        "packages {\n  lib{foo,bar}\n  ${HOME}/foo\n  lib{}\n  json{foo,bar}\n  lib{ foo,bar}\n}"
+        "packages {\n  lib{foo,bar}\n  ${HOME}/foo\n  lib{}\n  json{foo,bar}\n  lib{ foo,bar}\n}\nempty {}"
     );
 }
 
@@ -52,35 +52,64 @@ fn formatting_bare_braces_preserves_the_dotfile_readers_entries() {
 fn self_formatting_compact_configuration_preserves_effective_settings() {
     use dotfmt_core::config::Resolver;
     use dotfmt_core::language::Language;
-    let original = "conf{}\njson{indent=4}\nlua{include{ *.custom }}\nmarkdown{width=80\n}\n";
-    let root = tree_pairs(&[("dotfmt.dotfile", original)]);
-    let before = Resolver::with_paths(root.path().to_path_buf(), None)
-        .for_directory(root.path())
-        .unwrap();
-    let output = dotfmt(root.path()).arg("dotfmt.dotfile").run();
-    assert!(output.success(), "{output:?}");
-    let after = Resolver::with_paths(root.path().to_path_buf(), None)
-        .for_directory(root.path())
-        .unwrap();
-    for language in Language::ALL {
-        assert_eq!(
-            before.languages[&language].enabled,
-            after.languages[&language].enabled
-        );
-        let values = |config: &dotfmt_core::config::Effective| {
-            config
-                .settings(language)
-                .iter()
-                .map(|(key, value)| (key.clone(), value.value.clone()))
-                .collect::<std::collections::BTreeMap<_, _>>()
-        };
-        assert_eq!(values(&before), values(&after));
-    }
-    for path in ["a.custom", "a.json", "dotfmt.dotfile", "a.lua"] {
-        assert_eq!(
-            before.select(Path::new(path), None).unwrap(),
-            after.select(Path::new(path), None).unwrap()
-        );
+    for original in [
+        "conf{}\njson{indent=4}\nlua{include{ *.custom }}\nmarkdown{width=80\n}\n",
+        r#"{
+width = 80       # global width
+indent = 2 # global indent
+}
+conf {
+align = true # columns
+align_max = 24          # cap
+included_files {}       # custom files
+excluded_files {} # exclusions
+}
+json {
+indent = 4 # local indent
+final_newline = true   # final newline
+}
+lua {
+include {
+*.custom
+file#name
+}
+}
+markdown {} # enabled
+"#,
+    ] {
+        let root = tree_pairs(&[("dotfmt.dotfile", original)]);
+        let before = Resolver::with_paths(root.path().to_path_buf(), None)
+            .for_directory(root.path())
+            .unwrap();
+        let output = dotfmt(root.path()).arg("dotfmt.dotfile").run();
+        assert!(output.success(), "{output:?}");
+        let after = Resolver::with_paths(root.path().to_path_buf(), None)
+            .for_directory(root.path())
+            .unwrap();
+        for language in Language::ALL {
+            assert_eq!(
+                before.languages[&language].enabled,
+                after.languages[&language].enabled
+            );
+            let values = |config: &dotfmt_core::config::Effective| {
+                config
+                    .settings(language)
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.value.clone()))
+                    .collect::<std::collections::BTreeMap<_, _>>()
+            };
+            assert_eq!(values(&before), values(&after));
+        }
+        for path in ["a.custom", "a.json", "dotfmt.dotfile", "a.lua"] {
+            assert_eq!(
+                before.select(Path::new(path), None).unwrap(),
+                after.select(Path::new(path), None).unwrap()
+            );
+        }
+        let check = dotfmt(root.path())
+            .args(["--check", "dotfmt.dotfile"])
+            .run();
+        assert!(check.success(), "{check:?}");
     }
 }
 

@@ -1,4 +1,5 @@
 use dotfmt_core::syntax::{QuoteMode, scan};
+use unicode_width::UnicodeWidthStr;
 
 use crate::conf::lines;
 use crate::config::Config;
@@ -223,10 +224,22 @@ pub fn format(text: &str, config: &Config) -> Result<String, Problem> {
     }
     let arranged = arrange(&parsed, config);
     let widths = columns(&arranged, config);
+    let rendered: Vec<_> = arranged
+        .iter()
+        .zip(&widths)
+        .map(|(item, width)| render(item, *width, config))
+        .collect();
+    let comments = comment_columns(&arranged, &rendered, config.align);
     let mut out = String::with_capacity(text.len());
-    for (item, width) in arranged.iter().zip(&widths) {
-        if let Item::Text(line) = item {
-            out.push_str(&render(line, *width, config));
+    for ((item, text), column) in arranged.iter().zip(&rendered).zip(comments) {
+        out.push_str(text);
+        let comment = inline_comment(item);
+        if !comment.is_empty() {
+            let gap = column.map_or(1, |column| {
+                column.saturating_sub(display_width(text)).max(1)
+            });
+            out.extend(std::iter::repeat_n(' ', gap));
+            out.push_str(comment);
         }
         out.push('\n');
     }
@@ -242,7 +255,17 @@ pub fn signature(text: &str) -> Result<Vec<(Class, String, String, String)>, Pro
         .filter(|line| line.class != Class::Blank)
         .map(|line| {
             let (class, block, key, value) = line.signature();
-            (class, block.to_string(), key.to_string(), value.to_string())
+            let value = if class == Class::Entry {
+                let (value, comment) = assignment_parts(line);
+                if comment.is_empty() {
+                    value.to_string()
+                } else {
+                    with_comment(value.to_string(), comment)
+                }
+            } else {
+                value.to_string()
+            };
+            (class, block.to_string(), key.to_string(), value)
         })
         .collect())
 }
@@ -259,6 +282,7 @@ impl Problem {
 enum Item<'a> {
     Blank,
     Text(&'a Line<'a>),
+    Compact(&'a Line<'a>, &'a Line<'a>),
 }
 
 fn trim(text: &str) -> &str {
@@ -278,9 +302,8 @@ fn classify(body: &str) -> (Class, &str, &str) {
     if let Some(name) = body.strip_suffix('{') {
         return (Class::Open, trim(name), "");
     }
-    // A trailing `# ...` belongs to the value: `config/hosts.dotfile` holds
-    // part numbers with a `#` in them, and there is no way to tell the two
-    // apart from here.
+    // Retain the original value here; assignment_parts separates only a
+    // whitespace-delimited, unquoted trailing comment when rendering.
     if let Some((key, value)) = body.split_once('=') {
         return (Class::Entry, trim(key), trim(value));
     }
@@ -307,7 +330,18 @@ fn arrange<'a>(parsed: &'a [Line<'a>], config: &Config) -> Vec<Item<'a>> {
             }
         }
         pending = 0;
-        out.push(Item::Text(line));
+        if line.class == Class::Close
+            && let Some(Item::Text(opener)) = out.last()
+            && opener.class == Class::Open
+            && opener.depth == line.depth
+            && opener.value.is_empty()
+        {
+            let opener = *opener;
+            out.pop();
+            out.push(Item::Compact(opener, line));
+        } else {
+            out.push(Item::Text(line));
+        }
     }
     out
 }
@@ -346,19 +380,30 @@ fn columns(arranged: &[Item], config: &Config) -> Vec<Option<usize>> {
 
 fn groupable(item: &Item) -> bool {
     match item {
-        Item::Blank => false,
+        Item::Blank | Item::Compact(..) => false,
         Item::Text(line) => {
             line.depth > 0 && matches!(line.class, Class::Entry | Class::Bare | Class::Comment)
         }
     }
 }
 
-fn render(line: &Line, width: Option<usize>, config: &Config) -> String {
+fn render(item: &Item<'_>, width: Option<usize>, config: &Config) -> String {
+    let line = match item {
+        Item::Blank => return String::new(),
+        Item::Text(line) | Item::Compact(line, _) => line,
+    };
     let indent = if line.depth == 0 {
         String::new()
     } else {
         " ".repeat(config.indent * line.depth)
     };
+    if matches!(item, Item::Compact(..)) {
+        return if line.key.is_empty() {
+            format!("{indent}{{}}")
+        } else {
+            format!("{indent}{} {{}}", line.key)
+        };
+    }
     match line.class {
         // Always the spaced form. `blocks.py` is read with `open_suffix="{"`
         // everywhere except `packages.py`, which uses `" {"`, and `name {` is
@@ -375,9 +420,14 @@ fn render(line: &Line, width: Option<usize>, config: &Config) -> String {
                 None => 1,
             };
             let mut text = format!("{indent}{}{}=", line.key, " ".repeat(pad));
-            if !line.value.is_empty() {
-                text.push(' ');
-                text.push_str(line.value);
+            let (value, _) = assignment_parts(line);
+            if !value.is_empty() {
+                // Inserting whitespace before an unseparated leading hash
+                // would turn its literal value into a trailing comment.
+                if !value.starts_with('#') {
+                    text.push(' ');
+                }
+                text.push_str(value);
             }
             text
         }
@@ -394,4 +444,93 @@ fn with_comment(mut text: String, comment: &str) -> String {
         text.push_str(comment);
     }
     text
+}
+
+// Inspect the untrimmed assignment tail so `key=#literal` stays data, while
+// `key= # comment` is recognized. Track only unescaped layout whitespace:
+// `value\  # comment` contains one escaped space that belongs to the value.
+// Require a gap after the marker too, keeping part numbers like `board #42`
+// and tags like `value #tag` literal even when whitespace precedes their hash.
+fn assignment_parts<'a>(line: &Line<'a>) -> (&'a str, &'a str) {
+    let Some((_, tail)) = line.body.split_once('=') else {
+        return (line.value, "");
+    };
+    let mut gap = None;
+    for token in scan(tail, QuoteMode::Anywhere) {
+        if token.character == '#'
+            && token.is_structural()
+            && tail[token.span.end..]
+                .chars()
+                .next()
+                .is_none_or(char::is_whitespace)
+            && let Some(start) = gap
+        {
+            return (
+                tail[..start].trim_start_matches([' ', '\t']),
+                &tail[token.span.start..],
+            );
+        }
+        if matches!(token.character, ' ' | '\t') && token.is_structural() {
+            gap.get_or_insert(token.span.start);
+        } else {
+            gap = None;
+        }
+    }
+    (line.value, "")
+}
+
+fn inline_comment<'a>(item: &Item<'a>) -> &'a str {
+    match item {
+        Item::Text(line) if line.class == Class::Entry => assignment_parts(line).1,
+        Item::Compact(_, closer) => closer.value,
+        _ => "",
+    }
+}
+
+fn comment_depth(item: &Item<'_>) -> Option<usize> {
+    match item {
+        Item::Text(line) if matches!(line.class, Class::Entry | Class::Bare | Class::Comment) => {
+            Some(line.depth)
+        }
+        Item::Compact(opener, _) => Some(opener.depth),
+        _ => None,
+    }
+}
+
+fn comment_columns(arranged: &[Item<'_>], rendered: &[String], align: bool) -> Vec<Option<usize>> {
+    let mut columns = vec![None; arranged.len()];
+    if !align {
+        return columns;
+    }
+    let mut start = 0;
+    while start < arranged.len() {
+        let Some(depth) = comment_depth(&arranged[start]) else {
+            start += 1;
+            continue;
+        };
+        let mut end = start + 1;
+        while end < arranged.len() && comment_depth(&arranged[end]) == Some(depth) {
+            end += 1;
+        }
+        let column = (start..end)
+            .filter(|&index| !inline_comment(&arranged[index]).is_empty())
+            .map(|index| display_width(&rendered[index]) + 1)
+            .max();
+        columns[start..end].fill(column);
+        start = end;
+    }
+    columns
+}
+
+fn display_width(text: &str) -> usize {
+    text.split('\t')
+        .enumerate()
+        .fold(0, |column, (index, part)| {
+            let column = if index == 0 {
+                column
+            } else {
+                column + 8 - column % 8
+            };
+            column + UnicodeWidthStr::width(part)
+        })
 }

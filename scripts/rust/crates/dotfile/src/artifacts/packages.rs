@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::config::read_manifest;
 pub use crate::config::sorted_directories as directories;
-use crate::config::{blocks, read_manifest};
 use crate::context::Context;
 
 pub const DEFAULT_GROUPS: &[&str] = &[
@@ -16,27 +16,6 @@ pub const DEFAULT_GROUPS: &[&str] = &[
     "linux/server",
     "macos",
 ];
-
-pub fn load_metadata(path: &Path) -> Result<BTreeMap<String, String>, String> {
-    let mut metadata = BTreeMap::new();
-    for entry in blocks::read(path)? {
-        let error = |message: String| format!("{}:{}: {message}", path.display(), entry.number);
-        validate_group(&entry.block).map_err(&error)?;
-        if entry.opens {
-            continue;
-        }
-        let (name, description) = entry.split();
-        validate_package(name).map_err(&error)?;
-        let key = format!("{}/{name}", entry.block);
-        if metadata
-            .insert(key.clone(), description.to_owned())
-            .is_some()
-        {
-            return Err(error(format!("duplicate package: {key}")));
-        }
-    }
-    Ok(metadata)
-}
 
 pub fn package_groups(context: &Context) -> Result<Vec<String>, String> {
     let mut groups = DEFAULT_GROUPS
@@ -74,75 +53,6 @@ pub fn validate_packages(context: &Context, groups: &[String]) -> Result<(), Str
         }
     }
     Ok(())
-}
-
-pub fn render(
-    context: &Context,
-    groups: &[String],
-    metadata: &BTreeMap<String, String>,
-) -> Result<(String, String), String> {
-    let mut config = String::new();
-    let mut document = String::new();
-    let mut wrote_group = false;
-    for group in groups {
-        let mut packages = Vec::new();
-        for path in directories(&context.root.join(group))? {
-            let name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .ok_or_else(|| {
-                    format!(
-                        "package directory name is not valid UTF-8: {}",
-                        path.display()
-                    )
-                })?;
-            if name != "overrides" {
-                packages.push(name.to_string());
-            }
-        }
-        if packages.is_empty() {
-            continue;
-        }
-        if wrote_group {
-            config.push('\n');
-        }
-        config.push_str(group);
-        config.push_str(" {\n");
-        let mut rows = Vec::new();
-        let width = packages
-            .iter()
-            .filter(|package| {
-                metadata
-                    .get(&format!("{group}/{package}"))
-                    .is_some_and(|description| !description.is_empty())
-            })
-            .map(String::len)
-            .max()
-            .unwrap_or(0)
-            + 2;
-        for package in packages {
-            let description = metadata
-                .get(&format!("{group}/{package}"))
-                .map(String::as_str)
-                .unwrap_or_default();
-            config.push_str("  ");
-            config.push_str(&package);
-            if !description.is_empty() {
-                config.push_str(&" ".repeat(width.saturating_sub(package.len())));
-                config.push_str("= ");
-                config.push_str(description);
-            }
-            config.push('\n');
-            rows.push((package, description));
-        }
-        document.push_str(&crate::docs::packages::group(group, &rows));
-        config.push_str("}\n");
-        wrote_group = true;
-    }
-    if config.ends_with('\n') {
-        config.pop();
-    }
-    Ok((config, document))
 }
 
 fn collect_named_files(

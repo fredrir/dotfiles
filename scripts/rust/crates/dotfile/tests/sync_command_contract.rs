@@ -19,8 +19,6 @@ impl Sandbox {
                 "repo/config/targets.dotfile",
                 "shared/git/.gitconfig = ~/.gitconfig\n",
             ),
-            ("repo/config/packages.dotfile", "shared {\n  git\n}\n"),
-            ("repo/PACKAGES.md", "\n## `shared`\n\n- `git`\n"),
             ("repo/environment/test/manifest", "shared\n"),
             ("repo/shared/git/.gitconfig", "[user]\nname = Test\n"),
             ("home/.config/", ""),

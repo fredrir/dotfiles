@@ -9,21 +9,21 @@ dotfile="$(resolve_dotfile "$root" || true)"
 staged() { git diff --cached --name-only -- "$@" | grep -q .; }
 
 if [ ! -x "$dotfile" ]; then
-	echo "pre-commit: error: dotfile secret scan cannot run: native dotfile missing" >&2
-	echo "pre-commit: error: dotfile secret: run: ./setup.sh" >&2
-	exit 1
+  echo "pre-commit: error: dotfile secret scan cannot run: native dotfile missing" >&2
+  echo "pre-commit: error: dotfile secret: run: ./setup.sh" >&2
+  exit 1
 fi
 
 if staged config/keys.dotfile; then
-	"$dotfile" secret sync >/dev/null
-	if [ -e "$root/.sops.yaml" ]; then
-		git add "$root/.sops.yaml"
-	fi
+  "$dotfile" secret sync >/dev/null
+  if [ -e "$root/.sops.yaml" ]; then
+    git add "$root/.sops.yaml"
+  fi
 fi
 
-if staged scripts/rust/crates/ config/packages.dotfile linux/ shared/ docs/ README.md PACKAGES.md; then
-	"$dotfile" docs >/dev/null
-	git add "$root/docs" "$root/PACKAGES.md" "$root/README.md" 2>/dev/null || true
+if staged scripts/rust/crates/ linux/ shared/ docs/ README.md; then
+  "$dotfile" docs >/dev/null
+  git add "$root/docs" "$root/README.md" 2>/dev/null || true
 fi
 
 "$dotfile" secret scan --review --staged >/dev/null

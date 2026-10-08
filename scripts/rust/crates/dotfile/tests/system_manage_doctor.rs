@@ -177,20 +177,10 @@ fn add_then_remove_preserves_content_and_stages_only_relevant_paths() {
     fs::create_dir_all(source.parent().unwrap()).unwrap();
     fs::write(&source, "a=1\n").unwrap();
     fixture.write("unrelated", "not staged");
-    let added = fixture
-        .command()
-        .arg("add")
-        .arg(&source)
-        .args(["--description", "Widget settings"])
-        .run();
+    let added = fixture.command().arg("add").arg(&source).run();
     assert_eq!(added.code(), Some(0), "{}", added.stderr);
     assert!(source.is_symlink());
     assert_eq!(fs::read_to_string(&source).unwrap(), "a=1\n");
-    assert!(
-        fs::read_to_string(fixture.root.join("config/packages.dotfile"))
-            .unwrap()
-            .contains("Widget settings")
-    );
     let removed = fixture.command().args(["remove", "shared/widget"]).run();
     assert_eq!(removed.code(), Some(0), "{}", removed.stderr);
     assert!(!source.is_symlink());
@@ -240,7 +230,6 @@ fn add_rollback_restores_original_config_and_git_index_on_staging_failure() {
         fs::read_to_string(fixture.root.join("config/targets.dotfile")).unwrap(),
         "shared = ~/.config\n"
     );
-    assert!(!fixture.root.join("config/packages.dotfile").exists());
 }
 
 #[test]
@@ -361,19 +350,21 @@ fn profile_relevance_uses_manifest_desktop_requirements() {
 }
 
 #[test]
-fn generated_metadata_symlinks_cannot_redirect_transaction_writes() {
+fn symlinked_targets_cannot_redirect_transaction_writes() {
     let fixture = Fixture::new();
     let source = fixture.home.join(".config/widget.conf");
     fs::write(&source, "original\n").unwrap();
     let victim = fixture.temporary.path().join("victim");
-    fs::write(&victim, "do not change\n").unwrap();
-    std::os::unix::fs::symlink(&victim, fixture.root.join("PACKAGES.md")).unwrap();
+    fs::write(&victim, "shared = ~/.config\n").unwrap();
+    let targets = fixture.root.join("config/targets.dotfile");
+    fs::remove_file(&targets).unwrap();
+    std::os::unix::fs::symlink(&victim, &targets).unwrap();
     let result = fixture.command().arg("add").arg(&source).run();
     assert_eq!(result.code(), Some(1));
-    assert_eq!(fs::read_to_string(&victim).unwrap(), "do not change\n");
+    assert_eq!(fs::read_to_string(&victim).unwrap(), "shared = ~/.config\n");
     assert_eq!(fs::read_to_string(&source).unwrap(), "original\n");
     assert!(!source.is_symlink());
-    assert!(fixture.root.join("PACKAGES.md").is_symlink());
+    assert!(targets.is_symlink());
     assert!(!fixture.root.join("shared/widget").exists());
 }
 

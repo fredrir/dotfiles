@@ -7,7 +7,6 @@ use clap::ValueEnum;
 pub enum Target {
     Cli,
     Keybinds,
-    Packages,
     Readme,
     Benchmarks,
 }
@@ -18,7 +17,7 @@ pub struct Args {
         long,
         value_enum,
         value_delimiter = ',',
-        help = "Select outputs; defaults to cli,keybinds,packages"
+        help = "Select outputs; defaults to cli,keybinds"
     )]
     pub only: Vec<Target>,
     #[arg(
@@ -37,7 +36,7 @@ pub struct Args {
 
 pub fn run(context: &Context, args: Args) -> Result<ExitCode, String> {
     let mut targets = if args.only.is_empty() {
-        vec![Target::Cli, Target::Keybinds, Target::Packages]
+        vec![Target::Cli, Target::Keybinds]
     } else {
         args.only
     };
@@ -52,7 +51,7 @@ pub fn run(context: &Context, args: Args) -> Result<ExitCode, String> {
     if !preview {
         crate::fs::transaction::recover(context)?;
     }
-    let (plan, missing) = super::prepare(context, &targets, false)?;
+    let (plan, missing) = super::prepare(context, &targets)?;
     let paths = plan.paths();
     let changes = plan.report(args.diff);
     if !preview {

@@ -52,12 +52,10 @@ impl Machines {
                 "config/targets.dotfile",
                 "shared/git/.gitconfig = ~/.gitconfig\n",
             ),
-            ("config/packages.dotfile", "shared {\n  git\n}\n"),
             (
                 "config/hosts.dotfile",
                 "macie {\n  hostnames = macie\n}\n\narchie {\n  hostnames = archie\n}\n",
             ),
-            ("PACKAGES.md", "\n## `shared`\n\n- `git`\n"),
             ("environment/test/manifest", "shared\n"),
             ("shared/git/.gitconfig", "[user]\nname = Test\n"),
             (

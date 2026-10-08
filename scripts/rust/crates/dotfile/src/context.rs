@@ -11,8 +11,6 @@ pub struct Context {
     pub root_config: PathBuf,
     pub external_config: PathBuf,
     pub targets_file: PathBuf,
-    pub packages_config: PathBuf,
-    pub packages_doc: PathBuf,
     pub overrides_file: PathBuf,
     pub environment_dir: PathBuf,
     pub process_env: BTreeMap<OsString, OsString>,
@@ -48,8 +46,6 @@ impl Context {
         }
         Ok(Self {
             targets_file: root_config.join("targets.dotfile"),
-            packages_config: root_config.join("packages.dotfile"),
-            packages_doc: root.join("PACKAGES.md"),
             overrides_file: root_config.join("overrides"),
             environment_dir: root.join("environment"),
             process_env: BTreeMap::new(),

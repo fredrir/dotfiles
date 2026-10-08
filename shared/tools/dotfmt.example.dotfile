@@ -1,0 +1,73 @@
+{
+  # width = 80                   # Lua lines / Markdown tables
+  # indent = 2                   # conf / JSON / Lua
+  # final_newline = false        # true | false
+  # quote_style = double         # double | single | auto | auto-prefer-double | auto-prefer-single
+}
+
+conf {
+  enabled        = true  # true | false
+  indent         = 2     # spaces per nesting level (.dotfile)
+  align          = true  # true | false (.dotfile)
+  align_max      = 24    # key alignment width (.dotfile)
+  blank_lines    = 1     # maximum consecutive blank lines (.dotfile)
+  final_newline  = false # true | false
+
+  included_files {} # custom filenames; gitignore patterns
+  excluded_files {} # gitignore patterns
+}
+
+markdown {
+  enabled                   = true  # true | false
+  dialect                   = auto  # auto | commonmark | gfm | obsidian
+  width                     = 80    # 0..10000; table width, 0 = unlimited
+  table_style               = auto  # auto | aligned | compact
+  heading_blank_lines       = 1     # 0..3; after headings
+  list_marker               = -     # - | * | +
+  trim_trailing_blank_lines = true  # true | false
+  final_newline             = false # true | false
+
+  included_files {}
+  excluded_files {}
+}
+
+json {
+  enabled        = true   # true | false
+  dialect        = auto   # auto | json | jsonc | hujson (jwcc)
+  indent         = 2      # -1 = tabs; 0 = compact; 1..7 = spaces
+  quote_style    = double # double only
+  final_newline  = true   # true | false
+
+  included_files {}
+  excluded_files {}
+}
+
+lua {
+  enabled                   = true               # true | false
+  dialect                   = auto               # auto | all | lua51 | lua52 | lua53 | lua54 | luajit | luau
+  width                     = 120                # line width
+  indent                    = 2                  # 1..16; spaces / tab width
+  indent_type               = spaces             # spaces | tabs
+  line_endings              = unix               # unix | windows
+  quote_style               = auto-prefer-double # auto-prefer-double | auto-prefer-single | double | single
+  call_parentheses          = none               # always | no-single-string | no-single-table | none | input
+  collapse_simple_statement = never              # never | function-only | conditional-only | always
+  space_after_function_names = never             # never | definitions | calls | always
+  block_newline_gaps        = never              # never | preserve
+  sort_requires             = false              # true | false
+  final_newline             = false              # true | false
+  verify                    = false              # true | false; reparse formatted output
+
+  included_files {}
+  excluded_files {}
+}
+
+# gitignore syntax
+# an empty block will reset inherited rules
+included_files { # empty = all configured languages
+  # src/**
+}
+
+excluded_files {
+  # vendor/
+}

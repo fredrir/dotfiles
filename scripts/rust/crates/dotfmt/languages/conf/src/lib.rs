@@ -15,3 +15,7 @@ mod format_tests;
 #[cfg(test)]
 #[path = "../tests/unit/block_tests.rs"]
 mod block_tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/layout_tests.rs"]
+mod layout_tests;

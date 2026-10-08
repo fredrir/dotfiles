@@ -48,7 +48,7 @@ local bindings = {
   keybind(hwire_session.new_tab, MOD.PRIMARY, "t"),
 
   -- New tab in archie/macie --
-  keybind(adopt_pane.new_peer_tab, MOD.SUPER_REV, "t"),
+  keybind(adopt_pane.new_peer_tab, { MOD.SUPER_REV, "CTRL|SHIFT" }, "t"),
 
   -- Go to last tab --
   keybind(act.ActivateTab(-1), MOD.PRIMARY, "0"),

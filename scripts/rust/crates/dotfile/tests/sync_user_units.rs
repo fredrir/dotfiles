@@ -33,8 +33,6 @@ impl Sandbox {
                 "repo/config/targets.dotfile",
                 "shared/units = ~/.config/systemd/user\n",
             ),
-            ("repo/config/packages.dotfile", "shared {\n  git\n}\n"),
-            ("repo/PACKAGES.md", "\n## `shared`\n\n- `git`\n"),
             ("repo/environment/test/manifest", "shared\n"),
             (
                 "repo/shared/units/app.service",
