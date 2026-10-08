@@ -1,7 +1,7 @@
 # dotfile theme
 
 | Tool UI                   | Command / path                                 |
-| ------------------------- | ---------------------------------------------- |
+| --- | --- |
 | Component gallery         | `dotfile theme gallery [PROFILE]`              |
 | Component preview         | `dotfile theme preview [PROFILE]`              |
 | Generated runtime palette | `shared/ui/theme.json`                         |
@@ -41,7 +41,7 @@ The tooling derives contextual roles such as `primary_fill`, `on_primary`,
 The literal semantic aliases are deterministic:
 
 | Alias                                 | Primitive                            |
-| ------------------------------------- | ------------------------------------ |
+| --- | --- |
 | `background`                          | `ui.background`                      |
 | `primary`                             | `ui.primary`                         |
 | `accent`, `sidebar`                   | `ui.accent`                          |

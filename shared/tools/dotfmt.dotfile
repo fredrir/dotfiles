@@ -1,5 +1,5 @@
 {
-  width          = 100
+  width          = 120
   indent         = 2
   final_newline  = false
   quote_style    = double
@@ -19,8 +19,10 @@ conf {
 }
 
 markdown {
+  width                     = 80
   dialect                   = auto
   table_style               = auto
+  autosize_table            = false
   heading_blank_lines       = 1
   list_marker               = -
   trim_trailing_blank_lines = true
@@ -36,7 +38,6 @@ json {
 
 lua {
   dialect                   = auto
-  width                     = 120
   indent_type               = spaces
   line_endings              = unix
   call_parentheses          = none
@@ -47,8 +48,6 @@ lua {
   verify                    = false
 }
 
-included_files {
-}
+included_files {}
 
-excluded_files {
-}
+excluded_files {}

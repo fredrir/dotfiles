@@ -1,0 +1,13 @@
+Usage: shadcn build [options] [registry]
+
+build components for a shadcn registry
+
+Arguments:
+  registry             path to registry.json file (default: "./registry.json")
+
+Options:
+  -o, --output <path>  destination directory for json files (default:
+                       "./public/r")
+  -c, --cwd <cwd>      the working directory. defaults to the current directory.
+                       (default: "/project")
+  -h, --help           display help for command

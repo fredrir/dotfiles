@@ -6,7 +6,7 @@ fn the_shim_registers_every_supported_command() {
     let shim = shim();
     assert!(!shim.contains("{{"), "every placeholder is filled");
     assert!(
-        shim.contains("for command in npm npx pnpm pn pnpx pnx yarn bun bunx pi; do"),
+        shim.contains("for command in npm npx pnpm pn pnpx pnx yarn bun bunx pi shadcn; do"),
         "{shim}"
     );
 }

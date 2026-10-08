@@ -1,7 +1,7 @@
 # CLI performance
 
 | Measurement | Value                                        |
-| ----------- | -------------------------------------------- |
+| --- | --- |
 | Date        | 2026-09-11                                   |
 | Platform    | macOS 26.6.2, Apple Silicon                  |
 | Build       | Cargo release profile                        |
@@ -19,7 +19,7 @@
 | Benchmark-run completion, before extraction | 58.6 | 4.6 | 12.9× | 32.0 | 7.2 |
 
 | Documentation preview                    | Rust median ms |
-| ---------------------------------------- | -------------: |
+| --- | ---: |
 | `dotfile docs --dry-run`                 | 170.7          |
 | `dotfile docs --only keybinds --dry-run` | 158.4          |
 
@@ -45,14 +45,14 @@ Machine-specific measurements; the first invocation is not a cold-cache benchmar
 CPU ms is Hyperfine user plus system time. Subprocess probes for `-p`: 5 → 0.
 
 | `-p` wall time before                             | ms   |
-| ------------------------------------------------- | ---: |
+| --- | ---: |
 | `fastfetch`, whose `CPUUsage` module slept 200 ms | 250  |
 | Collectors in series; they now overlap            | 40   |
 | `scutil --get LocalHostName` and `ComputerName`   | 20   |
 | Collection, render, and process start             | 80   |
 
 | Probes `-p` no longer runs         | ms   |
-| ---------------------------------- | ---: |
+| --- | ---: |
 | `ps -ax` plus terminal `--version` | 48   |
 | `$SHELL -c` version probe          | 12   |
 
@@ -72,7 +72,7 @@ hyperfine --shell=none --warmup 2 --runs 15 -i \
 ```
 
 | Report          | Path                                                  |
-| --------------- | ----------------------------------------------------- |
+| --- | --- |
 | Python baseline | [macos-before.json](benchmarks/cli-macos-before.json) |
 | Rust release    | [macos-after.json](benchmarks/cli-macos-after.json)   |
 
@@ -103,7 +103,7 @@ hyperfine --shell=none --warmup 1 --runs 5 \
 | Window | 200 ms; this session's timer coalescing stretched `sleep 0.2` to 320 ms |
 
 | Operation            | Mean ms | User + system CPU ms |
-| -------------------- | ------: | -------------------: |
+| --- | ---: | ---: |
 | `sleep 0.2`          | 320.5   | 2.3                  |
 | `sysinfo -s`         | 364.7   | 74.6                 |
 | `sysinfo -sc`        | 343.9   | 72.5                 |
@@ -112,7 +112,7 @@ hyperfine --shell=none --warmup 1 --runs 5 \
 | `ps aux`             | 32.3    | 24.9                 |
 
 | `-s` cost on macOS                                           | ms    |
-| ------------------------------------------------------------ | ----: |
+| --- | ---: |
 | Process pass, first then second                              | 10–18 |
 | `ps -p` over other users' processes, twice inside the window | 12    |
 | IOKit GPU client readings                                    | 1     |

@@ -131,6 +131,9 @@ fn wiki_cells_measure_source_width_and_preserve_escaped_pipes() {
     assert!(output.contains("[[Note\\|Alias]]"));
     let widths: Vec<_> = output
         .lines()
+        .enumerate()
+        .filter(|(row, _)| *row != 1)
+        .map(|(_, line)| line)
         .map(unicode_width::UnicodeWidthStr::width)
         .collect();
     assert!(widths.iter().all(|w| *w == widths[0]), "{output}");
@@ -145,6 +148,9 @@ fn short_tags_and_math_cells_align_using_their_original_width() {
     let output = obsidian(&input);
     let widths: Vec<_> = output
         .lines()
+        .enumerate()
+        .filter(|(row, _)| *row != 1)
+        .map(|(_, line)| line)
         .map(unicode_width::UnicodeWidthStr::width)
         .collect();
     assert!(widths.iter().all(|w| *w == widths[0]), "{output}");

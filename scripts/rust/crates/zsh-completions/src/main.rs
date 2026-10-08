@@ -9,6 +9,7 @@ mod node;
 mod pi;
 mod process;
 mod reply;
+mod shadcn;
 mod shared;
 
 use std::process::ExitCode;
@@ -28,7 +29,7 @@ const SHIM: &str = include_str!("../assets/zcomp.zsh");
 #[derive(Parser)]
 #[command(
     version,
-    about = "Completion candidates for node package managers and pi, answered for zsh"
+    about = "Completion candidates for node package managers, pi and shadcn, answered for zsh"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -126,6 +127,9 @@ fn complete(ctx: &Context, command: &str, line: &Line) -> Reply {
     if command == "pi" {
         return pi::complete(ctx, line);
     }
+    if command == "shadcn" {
+        return shadcn::complete(ctx, line);
+    }
     match Manager::from_command(command) {
         Some((manager, runner)) => node::complete(ctx, line, manager, runner),
         None => Reply::new(),
@@ -155,11 +159,17 @@ fn refresh(ctx: &Context, source: &str, args: &[String]) -> bool {
             cache::refresh(ctx, &pi::models::ModelsSource { pi: &pi, binary })
         }),
         "pi-gallery" => cache::refresh(ctx, &pi::gallery::Gallery),
+        "shadcn-spec" => ctx
+            .which("shadcn")
+            .is_some_and(|binary| cache::refresh(ctx, &shadcn::spec::SpecSource { binary })),
         _ => false,
     }
 }
 
 fn warm(ctx: &Context) {
+    if let Some(binary) = ctx.which("shadcn") {
+        cache::warm(ctx, &shadcn::spec::SpecSource { binary });
+    }
     let mut any_manager = false;
     for manager in Manager::ALL {
         if let Some(binary) = manager.binary(ctx) {
@@ -188,7 +198,7 @@ fn shim() -> String {
     let commands: Vec<&str> = Manager::ALL
         .iter()
         .flat_map(|manager| manager.commands().iter().map(|(name, _)| *name))
-        .chain(["pi"])
+        .chain(["pi", "shadcn"])
         .collect();
     SHIM.replace("{{COMMANDS}}", &commands.join(" "))
 }

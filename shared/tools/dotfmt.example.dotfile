@@ -7,14 +7,14 @@
 
 conf {
   enabled        = true  # true | false
-  indent         = 2     # spaces per nesting level (.dotfile)
+  indent         = 2     # spaces per nesting level
   align          = true  # true | false (.dotfile)
   align_max      = 24    # key alignment width (.dotfile)
-  blank_lines    = 1     # maximum consecutive blank lines (.dotfile)
+  blank_lines    = 1     # max consecutive blank lines
   final_newline  = false # true | false
 
-  included_files {} # custom filenames; gitignore patterns
-  excluded_files {} # gitignore patterns
+  included_files {} # files to beyond what's supported; gitignore syntax
+  excluded_files {} # gitignore syntax
 }
 
 markdown {
@@ -22,6 +22,7 @@ markdown {
   dialect                   = auto  # auto | commonmark | gfm | obsidian
   width                     = 80    # 0..10000; table width, 0 = unlimited
   table_style               = auto  # auto | aligned | compact
+  autosize_table            = false # true | false; size dividers to aligned columns
   heading_blank_lines       = 1     # 0..3; after headings
   list_marker               = -     # - | * | +
   trim_trailing_blank_lines = true  # true | false

@@ -1,0 +1,11 @@
+Usage: shadcn mcp [options] [command]
+
+MCP server and configuration commands
+
+Options:
+  -c, --cwd <cwd>  the working directory. defaults to the current directory.
+                   (default: "/project")
+  -h, --help       display help for command
+
+Commands:
+  init [options]   Initialize MCP configuration for your client

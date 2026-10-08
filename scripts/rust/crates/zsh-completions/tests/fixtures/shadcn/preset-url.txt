@@ -1,0 +1,9 @@
+Usage: shadcn preset url [options] <code>
+
+get the create URL for a preset code
+
+Arguments:
+  code        the preset code
+
+Options:
+  -h, --help  display help for command

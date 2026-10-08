@@ -3,12 +3,12 @@
 ## Commands
 
 <!-- cli:commands:start -->
-| Command          | Description                                                                         |
-| ---------------- | ----------------------------------------------------------------------------------- |
-| `zcomp`          | Prints zsh completion candidates for npm, pnpm, yarn, bun, their runners, and pi.   |
-| `zcomp complete` | Prints the candidates for the word under the cursor; called by the zsh integration. |
-| `zcomp refresh`  | Rebuilds one cached source; started in the background when a cache goes stale.      |
-| `zcomp warm`     | Starts background rebuilds for missing or stale caches; run at shell start.         |
+| Command          | Description                                                                               |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| `zcomp`          | Prints zsh completion candidates for npm, pnpm, yarn, bun, their runners, pi, and shadcn. |
+| `zcomp complete` | Prints the candidates for the word under the cursor; called by the zsh integration.       |
+| `zcomp refresh`  | Rebuilds one cached source; started in the background when a cache goes stale.            |
+| `zcomp warm`     | Starts background rebuilds for missing or stale caches; run at shell start.               |
 <!-- cli:commands:end -->
 
 ## Flags
@@ -32,11 +32,12 @@
 | `npm`, `pnpm`, `pn`, `yarn`, `bun` | Their `--help`, `package.json`, registry search |
 | `npx`, `pnpx`, `pnx`, `bunx` | `node_modules/.bin`, then as `add` |
 | `pi` | `pi --help`, `pi --list-models`, sessions, settings |
+| `shadcn` | Cached `--help`, built-in component names, option values |
 
 ## Env
 
 | Env                           | Default                                    |
-| ----------------------------- | ------------------------------------------ |
+| --- | --- |
 | `ZCOMP_CACHE_DIR`             | `$XDG_CACHE_HOME/zcomp` (`~/.cache/zcomp`) |
 | `ZCOMP_OFFLINE`               | unset; `1` skips the network               |
 | `ZCOMP_FOREGROUND`            | unset; `1` rebuilds stale caches inline    |
@@ -46,7 +47,7 @@
 ## Search
 
 | Name    | Value                                                       |
-| ------- | ----------------------------------------------------------- |
+| --- | --- |
 | Sources | npm registry search, npms.io prefix suggestions             |
 | Match   | Name contains the typed word; the pick replaces the word    |
 | Order   | Monthly downloads, highest first                            |
@@ -56,7 +57,7 @@
 ## Colors
 
 | Part                            | Theme role                       |
-| ------------------------------- | -------------------------------- |
+| --- | --- |
 | Name                            | `accent`                         |
 | Package scope (`@scope`)        | `info`                           |
 | Scope marker (`@`)              | `ansi.bright.green`              |
@@ -70,11 +71,11 @@
 
 ## Cache
 
-| Source                  | Refreshed                                     |
-| ----------------------- | --------------------------------------------- |
-| Manager and pi `--help` | Binary or pi settings change                  |
-| pi models               | 24h, or pi, `models.json`, `auth.json` change |
-| pi package gallery      | 24h                                           |
-| Popular packages        | 24h, in the background                        |
-| Registry search         | 1h per word                                   |
-| Package versions        | 1h                                            |
+| Source | Refreshed |
+| --- | --- |
+| Manager, pi and shadcn `--help` | Binary or pi settings change |
+| pi models | 24h, or pi, `models.json`, `auth.json` change |
+| pi package gallery | 24h |
+| Popular packages | 24h, in the background |
+| Registry search | 1h per word |
+| Package versions | 1h |

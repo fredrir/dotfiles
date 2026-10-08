@@ -1,0 +1,10 @@
+Usage: shadcn preset decode [options] <code>
+
+decode a preset code
+
+Arguments:
+  code        the preset code to decode
+
+Options:
+  --json      output as JSON. (default: false)
+  -h, --help  display help for command

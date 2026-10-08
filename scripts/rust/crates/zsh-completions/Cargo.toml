@@ -1,7 +1,7 @@
 [package]
 name              = "zcomp"
 version.workspace = true
-description       = "Fast, data-aware zsh completions for node package managers and the pi coding agent"
+description       = "Fast, data-aware zsh completions for node package managers, pi and shadcn"
 edition.workspace = true
 license.workspace = true
 

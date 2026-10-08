@@ -7,6 +7,29 @@ use std::fs;
 use testkit::tree_pairs;
 
 #[test]
+fn markdown_table_autosizing_can_be_enabled_and_overridden_locally() {
+    let input = "| Name | Value |\n| --- | --- |\n| long name | long value |";
+    let root = tree_pairs(&[
+        ("dotfmt.dotfile", "markdown { autosize_table = true }\n"),
+        (
+            "sub/dotfmt.dotfile",
+            "markdown { autosize_table = false }\n",
+        ),
+        ("a.md", input),
+        ("sub/b.md", input),
+    ]);
+    let output = dotfmt(root.path()).arg(".").run();
+    assert!(output.success(), "{output:?}");
+    for (path, divider) in [
+        ("a.md", "| --------- | ---------- |"),
+        ("sub/b.md", "| --- | --- |"),
+    ] {
+        let formatted = fs::read_to_string(root.path().join(path)).unwrap();
+        assert_eq!(formatted.lines().nth(1).unwrap(), divider);
+    }
+}
+
+#[test]
 fn nearer_global_values_override_parent_language_values_and_local_language_wins() {
     let root = tree_pairs(&[
         (

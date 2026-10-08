@@ -1,0 +1,12 @@
+Usage: shadcn registry add [options] [registries...]
+
+add registries to your project
+
+Arguments:
+  registries       registries (@namespace) or registry URLs (@namespace=url)
+
+Options:
+  -c, --cwd <cwd>  the working directory. defaults to the current directory.
+                   (default: "/project")
+  -s, --silent     mute output. (default: false)
+  -h, --help       display help for command

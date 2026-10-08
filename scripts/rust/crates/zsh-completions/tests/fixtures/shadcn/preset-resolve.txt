@@ -1,0 +1,9 @@
+Usage: shadcn preset resolve|info [options]
+
+resolve a preset from your project
+
+Options:
+  -c, --cwd <cwd>  the working directory. defaults to the current directory.
+                   (default: "/project")
+  --json           output as JSON. (default: false)
+  -h, --help       display help for command

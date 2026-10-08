@@ -16,7 +16,7 @@ map("n", "<leader>nl", "<cmd>Lazy<CR>", { desc = "Lazy Open" })
 
 map("v", "J", ":m '>+1<CR>gv=gv", { desc = "Move selection down" })
 map("v", "K", ":m '<-2<CR>gv=gv", { desc = "Move selection up" })
-map("n", "<leader>p", '"_dP', { desc = "Replace line with yanked content" })
+map("n", "<leader>p", "\"_dP", { desc = "Replace line with yanked content" })
 
 -- Buffers --
 
@@ -66,7 +66,7 @@ map({ "n", "v" }, "<leader>sw", "<cmd>Telescope grep_string<CR>", { desc = "[S]e
 map("n", "<leader>sg", "<cmd>SearchGrep<CR>", { desc = "[S]earch by [G]rep" })
 map("n", "<leader>sd", "<cmd>Telescope diagnostics<CR>", { desc = "[S]earch [D]iagnostics" })
 map("n", "<leader>sr", "<cmd>Telescope resume<CR>", { desc = "[S]earch [R]esume" })
-map("n", "<leader>s.", "<cmd>Telescope oldfiles<CR>", { desc = '[S]earch Recent Files ("." for repeat)' })
+map("n", "<leader>s.", "<cmd>Telescope oldfiles<CR>", { desc = "[S]earch Recent Files (\".\" for repeat)" })
 map("n", "<leader>sc", "<cmd>Telescope commands<CR>", { desc = "[S]earch [C]ommands" })
 map("n", "<leader><leader>", "<cmd>Telescope buffers<CR>", { desc = "[ ] Find existing buffers" })
 map("n", "<leader>/", "<cmd>SearchBuffer<CR>", { desc = "[/] Fuzzily search in current buffer" })

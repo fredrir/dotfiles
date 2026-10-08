@@ -1,0 +1,16 @@
+Usage: shadcn migrate [options] [migration] [path]
+
+run a migration.
+
+Arguments:
+  migration          the migration to run.
+  path               optional path or glob pattern to migrate.
+
+Options:
+  -c, --cwd <cwd>    the working directory. defaults to the current directory.
+                     (default: "/project")
+  -l, --list         list all migrations. (default: false)
+  -y, --yes          skip confirmation prompt. (default: false)
+  -f, --from <name>  the base color or icon library to migrate from.
+  -t, --to <name>    the base color or icon library to migrate to.
+  -h, --help         display help for command

@@ -62,7 +62,7 @@ local function match(line)
   for _, p in ipairs(PATTERNS) do
     local path, pattern, code = nil, p[1], p[2]
     if signs:find(pattern) then
-      path = line:sub(4, 4) == '"' and line:sub(5, -2) or line:sub(4)
+      path = line:sub(4, 4) == "\"" and line:sub(5, -2) or line:sub(4)
       path = WINDOWS and path:gsub("/", "\\") or path
     end
     if not path then

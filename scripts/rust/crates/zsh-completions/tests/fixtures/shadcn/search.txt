@@ -1,0 +1,19 @@
+Usage: shadcn search|list [options] [registries...]
+
+search items from registries
+
+Arguments:
+  registries             the registry addresses to search. Supports namespaces,
+                         GitHub sources and URLs. When omitted, searches all
+                         registries configured in components.json.
+
+Options:
+  -c, --cwd <cwd>        the working directory. defaults to the current
+                         directory. (default: "/project")
+  -q, --query <query>    query string
+  -t, --type <type>      filter by item type, e.g. ui, block, hook.
+                         Comma-separated for multiple.
+  -l, --limit <number>   maximum number of items to display (default: "100")
+  -o, --offset <number>  number of items to skip (default: "0")
+  --json                 output as JSON. (default: false)
+  -h, --help             display help for command

@@ -122,12 +122,14 @@ The shipped config enables all four languages. `dotfile sync` installs it. `--ad
 | Conf | `align`, `align_max`, `blank_lines` |
 | JSON | `dialect`; `indent = -1` uses tabs, `0` emits compact JSON, `1`–`7` uses spaces |
 | Lua | `dialect`, `indent_type`, `line_endings`, `call_parentheses`, `collapse_simple_statement`, `space_after_function_names`, `block_newline_gaps`, `sort_requires`, `verify` |
-| Markdown | `dialect`, `table_style`, `heading_blank_lines`, `list_marker`, `trim_trailing_blank_lines` |
+| Markdown | `dialect`, `table_style`, `autosize_table`, `heading_blank_lines`, `list_marker`, `trim_trailing_blank_lines` |
+
+Markdown table dividers use three dashes by default, preserving alignment colons. Set `autosize_table = true` in the `markdown` block to size dividers to aligned columns; compact tables keep three dashes.
 
 Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; JSONC/HuJSON editor mode preserves comments.
 
-| Result | Exit status |
+| Result                                                      | Exit status |
 | --- | --- |
-| Successful format / clean check | `0` |
-| Formatting, configuration, I/O failure or check differences | `1` |
-| CLI usage error | `2` |
+| Successful format / clean check                             | `0`         |
+| Formatting, configuration, I/O failure or check differences | `1`         |
+| CLI usage error                                             | `2`         |

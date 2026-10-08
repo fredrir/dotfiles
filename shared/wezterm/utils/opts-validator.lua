@@ -107,7 +107,7 @@ function OptsValidator:validate(opts)
 
     if value == nil then
       if opt.required then
-        table.insert(errors, string.format('Field "%s" is required', opt.name))
+        table.insert(errors, string.format("Field \"%s\" is required", opt.name))
         error = true
       end
     end
@@ -118,19 +118,19 @@ function OptsValidator:validate(opts)
     end
 
     if type(value) ~= opt.type then
-      table.insert(errors, string.format('Field "%s" must of type "%s"', opt.name, opt.type))
+      table.insert(errors, string.format("Field \"%s\" must of type \"%s\"", opt.name, opt.type))
       error = true
     end
 
     if (opt.type == "string" or opt.type == "number") and opt.enum ~= nil and not tbl_contains(opt.enum, value) then
-      table.insert(errors, string.format('Field "%s" must be one of [%s]', opt.name, table.concat(opt.enum, ", ")))
+      table.insert(errors, string.format("Field \"%s\" must be one of [%s]", opt.name, table.concat(opt.enum, ", ")))
       error = true
     end
 
     if opt.type == "table" then
       for _, v in ipairs(value) do
         if type(v) ~= opt.table_of then
-          table.insert(errors, string.format('Items in field "%s" must be of type "%s"', opt.name, opt.table_of))
+          table.insert(errors, string.format("Items in field \"%s\" must be of type \"%s\"", opt.name, opt.table_of))
           error = true
           goto inner_continue
         end

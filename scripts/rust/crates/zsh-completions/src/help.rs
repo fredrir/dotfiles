@@ -317,20 +317,26 @@ impl<'a> Parser<'a> {
                 .and_then(|rest| rest.strip_prefix(' '))
                 .unwrap_or(text);
         }
-        let name = text.split_whitespace().next().unwrap_or("");
-        if !is_word(name) {
+        let names: Vec<&str> = text
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .split('|')
+            .collect();
+        if !names.iter().all(|name| is_word(name)) {
             return;
         }
+        let name = names[0];
         let columns = columns(text);
         let mut description = if columns.len() > 1 {
             columns.last().copied().unwrap_or("").to_string()
         } else {
             String::new()
         };
-        let mut aliases = Vec::new();
+        let mut aliases: Vec<String> = names[1..].iter().map(|name| (*name).to_string()).collect();
         if let Some(start) = description.find("[alias") {
             if let Some(found) = bracket_aliases(&description[start..]) {
-                aliases = found;
+                aliases.extend(found);
             }
             description.truncate(start);
         }

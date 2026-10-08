@@ -133,7 +133,7 @@
 | restore a profile revision | `git restore --source=<commit> -- config/hwtune/<host>.json` then `hwtune tune apply` |
 
 | Data                        | Path                                          |
-| --------------------------- | --------------------------------------------- |
+| --- | --- |
 | Desired OS settings         | `config/hwtune/<host>.json`                   |
 | Bench settings              | `config/hwtune/<host>.bench.dotfile`          |
 | Per-core throughput samples | `benchmarks/hosts/<host>/curve/<id>.json`     |
@@ -144,7 +144,7 @@
 | Tuning sessions             | `benchmarks/hosts/<host>/tuning/<id>.json`    |
 
 | Env                       | Default                                        |
-| ------------------------- | ---------------------------------------------- |
+| --- | --- |
 | `HWTUNE_BENCHMARKS`       | `<repository>/benchmarks`                      |
 | `HWTUNE_HOST`             | Saved host, inventory alias, or local hostname |
 | `HWTUNE_LACT_CONFIG`      | `/etc/lact/config.yaml`                        |

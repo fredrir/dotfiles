@@ -1,0 +1,11 @@
+Usage: shadcn registry [options] [command]
+
+manage registries
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  add [options] [registries...]  add registries to your project
+  validate [options] [registry]  validate a shadcn registry
+  help [command]                 display help for command

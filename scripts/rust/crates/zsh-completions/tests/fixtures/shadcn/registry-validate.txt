@@ -1,0 +1,12 @@
+Usage: shadcn registry validate [options] [registry]
+
+validate a shadcn registry
+
+Arguments:
+  registry         registry address to validate. Supports registry.json paths
+                   and GitHub sources. (default: "./registry.json")
+
+Options:
+  -c, --cwd <cwd>  the working directory. defaults to the current directory.
+                   (default: "/project")
+  -h, --help       display help for command

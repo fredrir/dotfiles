@@ -3,8 +3,12 @@
   "position": "top",
   "height": 30,
   "spacing": 0,
-  "modules-left": ["hyprland/workspaces"],
-  "modules-center": ["clock"],
+  "modules-left": [
+    "hyprland/workspaces"
+  ],
+  "modules-center": [
+    "clock"
+  ],
   "modules-right": [
     "cpu",
     "memory",

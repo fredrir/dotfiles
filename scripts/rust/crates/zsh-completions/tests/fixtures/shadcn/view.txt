@@ -1,0 +1,11 @@
+Usage: shadcn view [options] <items...>
+
+view items from the registry
+
+Arguments:
+  items            item addresses to view
+
+Options:
+  -c, --cwd <cwd>  the working directory. defaults to the current directory.
+                   (default: "/project")
+  -h, --help       display help for command

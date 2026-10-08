@@ -17,6 +17,30 @@ fn settings(key: &str, value: &str, global: bool) -> Settings {
 }
 
 #[test]
+fn table_autosizing_is_opt_in_and_requires_a_boolean() {
+    assert!(
+        !Config::from_settings(&Settings::new())
+            .unwrap()
+            .autosize_table
+    );
+    for (value, expected) in [("true", true), ("false", false)] {
+        assert_eq!(
+            Config::from_settings(&settings("autosize_table", value, false))
+                .unwrap()
+                .autosize_table,
+            expected
+        );
+    }
+    let error = Config::from_settings(&settings("autosize_table", "yes", false)).unwrap_err();
+    assert_eq!(error.line, Some(7));
+    assert!(
+        error
+            .message
+            .contains("autosize_table must be true or false")
+    );
+}
+
+#[test]
 fn final_newline_applies_from_global_and_local_settings() {
     for global in [true, false] {
         assert!(

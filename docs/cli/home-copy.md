@@ -40,14 +40,14 @@ Without `--to`, `--from`, or `--yes`, the remote filesystem opens in an inline b
 ### Command Behavior
 
 | Command | Behavior                                                      |
-| ------- | ------------------------------------------------------------- |
+| --- | --- |
 | `hpush` | Selects the open directory as its destination                 |
 | `hpull` | Selects the highlighted entry, or a genuinely empty directory |
 
 ### Destination Rules
 
 | Scenario                    | Behavior                                       |
-| --------------------------- | ---------------------------------------------- |
+| --- | --- |
 | Missing `hpush` destination | Can be selected and is created by the transfer |
 | Missing `hpull` source      | Cannot be selected                             |
 | Unreadable `hpull` source   | Cannot be selected                             |

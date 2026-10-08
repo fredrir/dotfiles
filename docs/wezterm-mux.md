@@ -106,7 +106,7 @@ evidence. `hwire -iv` shows that evidence and the selected domain.
 Attached shells start under `env -i`; `attach-mux.lua` restores only:
 
 | Env             | Value                          |
-| --------------- | ------------------------------ |
+| --- | --- |
 | `HOME`          | destination home               |
 | `TERM`          | `xterm-256color`               |
 | `COLORTERM`     | `truecolor`                    |
@@ -151,7 +151,7 @@ lsof -nP -iTCP -sTCP:LISTEN | grep 844          # exactly the intended addresses
 ```
 
 | Name          | Value                                                   |
-| ------------- | ------------------------------------------------------- |
+| --- | --- |
 | Live          | `~/.local/share/wezterm/mtls/{ca,cert,private_key}.pem` |
 | Encrypted     | `linux/arch/wezterm-mtls/`, `macos/wezterm-mtls/`       |
 | Restored by   | `./setup.sh` / `dotfile sync`, through `op`             |
@@ -171,7 +171,7 @@ done
 ## Reinstall
 
 | Step                      | Command                                        |
-| ------------------------- | ---------------------------------------------- |
+| --- | --- |
 | fresh install             | `./setup.sh`; reads the age identity via `op`  |
 | mux certificates          | restored by the same sync                      |
 | restart the mux on archie | `systemctl --user restart wezterm-mux`         |

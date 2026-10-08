@@ -1,0 +1,14 @@
+Usage: shadcn docs [options] <components...>
+
+get docs, api references and usage examples for components
+
+Arguments:
+  components         component names
+
+Options:
+  -c, --cwd <cwd>    the working directory. defaults to the current directory.
+                     (default: "/project")
+  -b, --base <base>  the base to use: base, radix, or aria. defaults to project
+                     base.
+  --json             output as JSON. (default: false)
+  -h, --help         display help for command

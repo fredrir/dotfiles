@@ -52,13 +52,13 @@ http://localhost:5173  → 127.0.0.1, [::1]:5173 ┴─ ssh master ─→ localh
 ## Config
 
 | Name      | Value                         |
-| --------- | ----------------------------- |
+| --- | --- |
 | Installed | `~/.config/hport/config.toml` |
 | Source    | `shared/hport/config.toml`    |
 | Reload    | restart the daemon            |
 
 | Key                | Default |
-| ------------------ | ------- |
+| --- | --- |
 | `max_port`         | `32767` |
 | `ignore_ports`     | `[]`    |
 | `ignore_processes` | `[]`    |
@@ -95,7 +95,7 @@ PORT  PROCESS  ARCHIE              LOCALHOST
 ```
 
 | Cell               | Meaning                            |
-| ------------------ | ---------------------------------- |
+| --- | --- |
 | URL                | forwarded                          |
 | `busy (<process>)` | port held on this machine          |
 | `pending`          | not attempted yet                  |

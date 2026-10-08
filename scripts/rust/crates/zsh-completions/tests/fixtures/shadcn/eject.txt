@@ -1,0 +1,10 @@
+Usage: shadcn eject [options]
+
+inline shadcn/tailwind.css and remove the shadcn dependency
+
+Options:
+  -c, --cwd <cwd>  the working directory. defaults to the current directory.
+                   (default: "/project")
+  -y, --yes        skip confirmation prompt. (default: false)
+  -s, --silent     mute output. (default: false)
+  -h, --help       display help for command

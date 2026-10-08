@@ -14,7 +14,7 @@
 | [gallery](gallery/) | `ui-gallery` | Interactive component gallery and rendered theme previews |
 
 | Boundary                                 | Owner                   |
-| ---------------------------------------- | ----------------------- |
+| --- | --- |
 | Terminal lifecycle                       | `ui-terminal`           |
 | Batch listing and confirmation           | `ui-batch`              |
 | Theme generation and contrast resolution | `dotfile::theme`        |
@@ -76,7 +76,7 @@ match result {
 ```
 
 | Picker key           | Action                               |
-| -------------------- | ------------------------------------ |
+| --- | --- |
 | `↑` / `↓`, `j` / `k` | Move focus                           |
 | `/` or typing        | Search                               |
 | `Space` / `Tab`      | Toggle focused item in multiple mode |
@@ -92,7 +92,7 @@ Selections survive filtering; disabled items remain inspectable. Search input ha
 ## Comparison
 
 | Key                       | Action                                     |
-| ------------------------- | ------------------------------------------ |
+| --- | --- |
 | `j` / `k`, Page Up / Down | Scroll                                     |
 | `[` / `]`                 | Previous/next changed block                |
 | `h` / `l`                 | Horizontal scroll in the standalone viewer |

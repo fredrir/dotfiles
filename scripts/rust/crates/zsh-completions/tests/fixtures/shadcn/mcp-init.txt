@@ -1,0 +1,7 @@
+Usage: shadcn mcp init [options]
+
+Initialize MCP configuration for your client
+
+Options:
+  --client <client>  MCP client (claude, cursor, vscode, codex, opencode)
+  -h, --help         display help for command

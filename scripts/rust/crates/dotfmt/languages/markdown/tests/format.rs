@@ -100,13 +100,42 @@ fn short_tables_align_and_wide_tables_drop_padding_without_losing_content() {
     let input = "| Name | Value |\n| --- | --- |\n| long name | x |\n| a | long value |";
     assert_eq!(
         formatted(input, &Config::default()),
-        "| Name      | Value      |\n| --------- | ---------- |\n| long name | x          |\n| a         | long value |"
+        "| Name      | Value      |\n| --- | --- |\n| long name | x          |\n| a         | long value |"
     );
     let config = Config {
         width: 25,
         ..Config::default()
     };
     assert_eq!(formatted(input, &config), input);
+}
+
+#[test]
+fn divider_autosizing_follows_table_layout_when_enabled() {
+    let input = "| Name | Value |\n| ----- | ---------- |\n| long name | long value |";
+    for table_style in [TableStyle::Auto, TableStyle::Aligned, TableStyle::Compact] {
+        for width in [0, 10, 80] {
+            for autosize_table in [false, true] {
+                let config = Config {
+                    table_style,
+                    width,
+                    autosize_table,
+                    ..Config::default()
+                };
+                let output = formatted(input, &config);
+                let aligned = table_style == TableStyle::Aligned
+                    || (table_style == TableStyle::Auto && width != 10);
+                assert_eq!(
+                    output.lines().nth(1).unwrap(),
+                    if autosize_table && aligned {
+                        "| --------- | ---------- |"
+                    } else {
+                        "| --- | --- |"
+                    },
+                    "{config:?}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -141,9 +170,26 @@ fn table_alignment_unicode_and_escaped_pipes_survive() {
     );
     let widths: Vec<_> = output
         .lines()
+        .enumerate()
+        .filter(|(row, _)| *row != 1)
+        .map(|(_, line)| line)
         .map(unicode_width::UnicodeWidthStr::width)
         .collect();
     assert!(widths.iter().all(|width| *width == widths[0]), "{output}");
+    assert_eq!(output.lines().nth(1).unwrap(), "| :--- | :---: | ---: |");
+    let config = Config {
+        autosize_table: true,
+        ..Config::default()
+    };
+    let output = formatted(input, &config);
+    assert_eq!(
+        output.lines().nth(1).unwrap(),
+        "| :--- | :------: | ------: |"
+    );
+    assert_eq!(
+        comrak::markdown_to_html(input, &options(&config)),
+        comrak::markdown_to_html(&output, &options(&config))
+    );
 }
 
 #[test]

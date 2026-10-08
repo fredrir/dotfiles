@@ -1,0 +1,15 @@
+Usage: shadcn apply [options] [preset]
+
+apply a preset to an existing project
+
+Arguments:
+  preset             the preset to apply
+
+Options:
+  --preset <preset>  preset configuration to apply
+  --only [parts]     apply only parts of a preset: theme, font
+  -y, --yes          skip confirmation prompt. (default: false)
+  -c, --cwd <cwd>    the working directory. defaults to the current directory.
+                     (default: "/project")
+  -s, --silent       mute output. (default: false)
+  -h, --help         display help for command

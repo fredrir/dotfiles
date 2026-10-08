@@ -13,7 +13,7 @@ AMD Ryzen 7 9800X3D, NVIDIA GeForce RTX 5070 Ti, 32 GB
 Baseline: `2026-09-11T22-51-20.177050299Z-91b4b3e3-6f8b`
 
 | Metric                  | Unit   | Latest  | Runs | Best    |
-| ----------------------- | ------ | ------- | ---- | ------- |
+| --- | --- | --- | --- | --- |
 | `ai.generate_tps`       | t/s    | 218.4   | 7    | 218.4   |
 | `ai.gpu_w`              | W      | 164.4   | 7    | 164.4   |
 | `ai.prompt_tps`         | t/s    | 9 717   | 7    | 9 729   |
@@ -51,7 +51,7 @@ AMD Ryzen 7 9800X3D, NVIDIA GeForce RTX 5070 Ti, 32 GB
 Baseline: `2026-08-13T11-34-32Z-10db7d1f`
 
 | Metric                  | Unit   | Latest  | Runs | Best    |
-| ----------------------- | ------ | ------- | ---- | ------- |
+| --- | --- | --- | --- | --- |
 | `cache.read`            | MiB/s  | 105 415 | 1    | 105 415 |
 | `cache.write`           | MiB/s  | 40 353  | 1    | 40 353  |
 | `cpu.crypto`            | MB/s   | 24 469  | 2    | 24 469  |
@@ -79,7 +79,7 @@ Baseline: `2026-08-13T11-34-32Z-10db7d1f`
 Apple M5 Pro, 24 GB
 
 | Metric                  | Unit   | Latest  | Runs | Best    |
-| ----------------------- | ------ | ------- | ---- | ------- |
+| --- | --- | --- | --- | --- |
 | `cache.read`            | MiB/s  | 34 829  | 3    | 461 172 |
 | `cache.write`           | MiB/s  | 34 517  | 3    | 209 567 |
 | `cpu.crypto`            | MB/s   | 8 735   | 1    | 8 735   |

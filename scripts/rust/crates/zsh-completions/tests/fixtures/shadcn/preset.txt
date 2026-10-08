@@ -1,0 +1,12 @@
+Usage: shadcn preset [options] [command]
+
+manage presets
+
+Options:
+  -h, --help               display help for command
+
+Commands:
+  decode [options] <code>  decode a preset code
+  resolve|info [options]   resolve a preset from your project
+  url <code>               get the create URL for a preset code
+  open <code>              open a preset code in the browser

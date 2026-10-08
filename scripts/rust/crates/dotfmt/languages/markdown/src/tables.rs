@@ -74,7 +74,11 @@ pub fn format(
                         .copied()
                         .unwrap_or(TableAlignment::None);
                     let minimum = separator(alignment, 3).len();
-                    let width = if align { widths[column] } else { minimum };
+                    let width = if align && config.autosize_table {
+                        widths[column]
+                    } else {
+                        minimum
+                    };
                     output.push_str(&separator(alignment, width));
                 } else {
                     output.push_str(cell);

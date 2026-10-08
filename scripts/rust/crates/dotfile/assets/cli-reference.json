@@ -285,7 +285,7 @@
     "hwtune curve bench": "Measures per-core single-thread throughput as a clock-stretching detector.",
     "hwtune gpu": "Sweeps GPU power caps through LACT.",
     "hwtune gpu sweep": "Measures GPU metrics at each power cap, then restores the original cap.",
-    "zcomp": "Prints zsh completion candidates for npm, pnpm, yarn, bun, their runners, and pi.",
+    "zcomp": "Prints zsh completion candidates for npm, pnpm, yarn, bun, their runners, pi, and shadcn.",
     "zcomp complete": "Prints the candidates for the word under the cursor; called by the zsh integration.",
     "zcomp refresh": "Rebuilds one cached source; started in the background when a cache goes stale.",
     "zcomp warm": "Starts background rebuilds for missing or stale caches; run at shell start."

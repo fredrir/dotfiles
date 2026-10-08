@@ -1,0 +1,9 @@
+Usage: shadcn preset open [options] <code>
+
+open a preset code in the browser
+
+Arguments:
+  code        the preset code
+
+Options:
+  -h, --help  display help for command

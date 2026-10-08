@@ -22,7 +22,7 @@
 ## Domain
 
 | Name          | Value                                              |
-| ------------- | -------------------------------------------------- |
+| --- | --- |
 | Domain        | `<peer>-<route>`, such as `archie-cable`           |
 | Routes probed | `cable`, `wifi`, `lan`, `tailscale`, in that order |
 | Port          | 8443                                               |

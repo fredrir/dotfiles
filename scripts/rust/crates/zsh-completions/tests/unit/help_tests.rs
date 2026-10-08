@@ -20,6 +20,17 @@ fn choices<'a>(help: &'a Help, name: &str) -> Vec<&'a str> {
 }
 
 #[test]
+fn commander_pipe_aliases_resolve_to_the_canonical_command() {
+    let help = Help::parse(&fixture("shadcn/main"), &["shadcn"]);
+    let init = help.command("create").expect("create aliases init");
+    assert_eq!(init.name, "init");
+    assert_eq!(init.aliases, ["create"]);
+    assert_eq!(help.command("list").unwrap().name, "search");
+    let preset = Help::parse(&fixture("shadcn/preset"), &["shadcn", "preset"]);
+    assert_eq!(preset.command("info").unwrap().name, "resolve");
+}
+
+#[test]
 fn npm_block_flags_pair_short_and_long_names() {
     let help = Help::parse(&fixture("npm-install"), &["npm", "install"]);
     let save = help.flag("-S").expect("-S is listed");
