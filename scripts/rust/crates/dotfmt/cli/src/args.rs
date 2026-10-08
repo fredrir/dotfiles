@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Parser, ValueHint};
-use dotfmt_core::config::Language;
+use dotfmt_core::language::Language;
 use workstation::{Completable, Completions};
 
 #[derive(Parser)]
@@ -57,8 +57,15 @@ pub struct Cli {
 }
 
 fn language() -> impl TypedValueParser<Value = Language> {
-    PossibleValuesParser::new(["conf", "json", "lua", "md", "markdown"])
-        .try_map(|value| Language::parse(&value))
+    PossibleValuesParser::new(Language::ALL.into_iter().flat_map(|language| {
+        language
+            .aliases()
+            .iter()
+            .copied()
+            .filter(move |alias| *alias != language.name())
+            .chain(std::iter::once(language.name()))
+    }))
+    .try_map(|value| Language::parse(&value))
 }
 
 impl Completable for Cli {

@@ -4,7 +4,8 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use dotfmt_core::config::{CONFIG_NAME, Language, Resolver};
+use dotfmt_core::config::{CONFIG_NAME, Resolver};
+use dotfmt_core::language::Language;
 
 fn config(directory: &Path, source: &str) {
     fs::create_dir_all(directory).unwrap();
@@ -192,6 +193,7 @@ fn custom_mapping_conflicts_are_reported_and_forced_language_resolves_them() {
         effective
             .select(&path, None)
             .unwrap_err()
+            .to_string()
             .contains("ambiguous language mapping")
     );
     assert_eq!(
@@ -254,9 +256,11 @@ fn malformed_configuration_reports_source_and_line() {
         let error = resolver(root.path())
             .for_directory(root.path())
             .unwrap_err();
-        assert!(error.contains(diagnostic), "{source}: {error}");
+        assert!(error.to_string().contains(diagnostic), "{source}: {error}");
         assert!(
-            error.contains(&format!("{}:", root.path().join(CONFIG_NAME).display())),
+            error
+                .to_string()
+                .contains(&format!("{}:", root.path().join(CONFIG_NAME).display())),
             "{error}"
         );
     }

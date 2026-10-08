@@ -676,13 +676,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "031ad3d167622974ed636505ae4556267ed4aa2aea0464122fa6bc9698a32825"
 
 [[package]]
-name = "confmt"
-version = "0.1.0"
-dependencies = [
- "dotfmt-core",
-]
-
-[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1281,14 +1274,22 @@ name = "dotfmt"
 version = "0.1.0"
 dependencies = [
  "clap 4.6.6",
- "confmt",
+ "dotfmt-conf",
  "dotfmt-core",
- "jqfmt",
- "luafmt",
- "mdfmt",
+ "dotfmt-json",
+ "dotfmt-lua",
+ "dotfmt-markdown",
  "rayon",
+ "tempfile",
  "testkit",
  "workstation",
+]
+
+[[package]]
+name = "dotfmt-conf"
+version = "0.1.0"
+dependencies = [
+ "dotfmt-core",
 ]
 
 [[package]]
@@ -1297,7 +1298,32 @@ version = "0.1.0"
 dependencies = [
  "ignore",
  "tempfile",
- "workstation",
+]
+
+[[package]]
+name = "dotfmt-json"
+version = "0.1.0"
+dependencies = [
+ "dotfmt-core",
+ "indexmap 2.14.2",
+]
+
+[[package]]
+name = "dotfmt-lua"
+version = "0.1.0"
+dependencies = [
+ "dotfmt-core",
+ "full_moon",
+ "stylua",
+]
+
+[[package]]
+name = "dotfmt-markdown"
+version = "0.1.0"
+dependencies = [
+ "comrak",
+ "dotfmt-core",
+ "unicode-width",
 ]
 
 [[package]]
@@ -3393,16 +3419,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jqfmt"
-version = "0.1.0"
-dependencies = [
- "clap 4.6.6",
- "dotfmt-core",
- "indexmap 2.14.2",
- "workstation",
-]
-
-[[package]]
 name = "js-sys"
 version = "0.3.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3553,16 +3569,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "luafmt"
-version = "0.1.0"
-dependencies = [
- "clap 4.6.6",
- "dotfmt-core",
- "full_moon",
- "stylua",
-]
-
-[[package]]
 name = "mac_address"
 version = "1.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3586,16 +3592,6 @@ name = "maybe-owned"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
-
-[[package]]
-name = "mdfmt"
-version = "0.1.0"
-dependencies = [
- "clap 4.6.6",
- "comrak",
- "dotfmt-core",
- "unicode-width",
-]
 
 [[package]]
 name = "memchr"

@@ -1,0 +1,14 @@
+[package]
+name              = "dotfmt-lua"
+version.workspace = true
+description       = "Format Lua with configurable, syntax-aware formatting"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace = true
+full_moon = "2.2"
+stylua = { version = "2.5.2", default-features = false, features = ["lua54", "luajit", "luau"] }

@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use dotfmt::render::{self, Placement, Source};
@@ -74,14 +74,4 @@ pub fn run(cli: &Cli) -> Result<ExitCode, String> {
         }
     }
     Ok(ExitCode::SUCCESS)
-}
-
-pub fn default_stdin(language: dotfmt_core::config::Language) -> &'static Path {
-    use dotfmt_core::config::Language;
-    Path::new(match language {
-        Language::Conf => "stdin.conf",
-        Language::Json => "stdin.json",
-        Language::Lua => "stdin.lua",
-        Language::Markdown => "stdin.md",
-    })
 }

@@ -1,0 +1,12 @@
+[package]
+name              = "dotfmt-conf"
+version.workspace = true
+description       = "Format .conf, .config and .dotfile files"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace = true

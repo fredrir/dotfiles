@@ -260,3 +260,66 @@ pub fn provenance(source: &Source, style: &Style) -> Option<String> {
         )),
     }
 }
+
+pub fn rows(files: &[crate::app::FileOutcome], check: bool, verbose: bool) -> Vec<Row> {
+    let mut rows = std::collections::BTreeMap::new();
+    for file in files {
+        let row = rows.entry(file.language).or_insert_with(|| Row {
+            name: file.language.name(),
+            ..Row::default()
+        });
+        row.files += 1;
+        row.ran += 1;
+        match &file.result {
+            Ok(change) => {
+                if change.changed && check {
+                    row.findings = true;
+                    row.blamed.push(file.path.display().to_string());
+                }
+                if verbose {
+                    row.output.push_str(&format!(
+                        "  {}: {}\n",
+                        file.path.display(),
+                        if change.changed {
+                            if check { "would reformat" } else { "formatted" }
+                        } else {
+                            "unchanged"
+                        }
+                    ));
+                }
+            }
+            Err(_) => {
+                row.failed = true;
+                row.blamed.push(file.path.display().to_string());
+            }
+        }
+    }
+    rows.into_values().collect()
+}
+
+pub fn repairs(repairs: &crate::app::Repairs) -> String {
+    use crate::app::Repair;
+    Repair::ALL
+        .into_iter()
+        .filter_map(|repair| {
+            let count = repairs.of(repair);
+            if count == 0 {
+                return None;
+            }
+            let (one, many) = match repair {
+                Repair::Comma => ("stray comma", "stray commas"),
+                Repair::MissingComma => ("missing comma", "missing commas"),
+                Repair::Comment => ("comment", "comments"),
+                Repair::Quote => ("single quote", "single quotes"),
+                Repair::Key => ("unquoted key", "unquoted keys"),
+                Repair::Literal => ("literal", "literals"),
+                Repair::Surrogate => ("lone surrogate", "lone surrogates"),
+                Repair::Control => ("control character", "control characters"),
+                Repair::Space => ("unusual space", "unusual spaces"),
+                Repair::Utf8 => ("invalid byte", "invalid bytes"),
+            };
+            Some(format!("{count} {}", plural(count, one, many)))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}

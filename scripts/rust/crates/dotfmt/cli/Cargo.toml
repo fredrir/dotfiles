@@ -13,10 +13,11 @@ clap.workspace = true
 workstation = { workspace = true, features = ["walk"] }
 dotfmt-core.workspace = true
 rayon.workspace = true
-confmt = { path = "../confmt" }
-jqfmt = { path = "../jqfmt" }
-luafmt = { path = "../luafmt" }
-mdfmt = { path = "../mdfmt" }
+dotfmt-conf = { path = "../languages/conf" }
+dotfmt-json = { path = "../languages/json" }
+dotfmt-lua = { path = "../languages/lua" }
+dotfmt-markdown = { path = "../languages/markdown" }
 
 [dev-dependencies]
 testkit.workspace  = true
+tempfile.workspace = true

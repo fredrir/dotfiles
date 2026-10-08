@@ -1,6 +1,10 @@
+use ignore::gitignore::GitignoreBuilder;
+
+use crate::syntax::{QuoteMode, scan};
+
 use super::*;
 
-pub(super) fn parse(source: &str, path: &Path, root: &Path) -> Result<Layer, String> {
+pub(super) fn parse(source: &str, path: &Path, root: &Path) -> Result<Layer, Diagnostic> {
     let mut parser = Parser {
         source,
         offset: 0,
@@ -68,8 +72,8 @@ struct Parser<'a> {
 }
 
 impl Parser<'_> {
-    fn error(&self, line: usize, message: impl Display) -> String {
-        format!("{}:{line}: {message}", self.path.display())
+    fn error(&self, line: usize, message: impl Display) -> Diagnostic {
+        Diagnostic::config(self.path, line, message.to_string())
     }
 
     fn peek(&self) -> Option<char> {
@@ -99,7 +103,7 @@ impl Parser<'_> {
         }
     }
 
-    fn head(&mut self) -> Result<String, String> {
+    fn head(&mut self) -> Result<String, Diagnostic> {
         let start = self.offset;
         let line = self.line;
         while let Some(ch) = self.peek() {
@@ -116,7 +120,7 @@ impl Parser<'_> {
         Err(self.error(line, "expected a block followed by '{'"))
     }
 
-    fn settings(&mut self, global: bool) -> Result<Local, String> {
+    fn settings(&mut self, global: bool) -> Result<Local, Diagnostic> {
         let mut local = Local {
             enabled: true,
             settings: Settings::new(),
@@ -218,7 +222,7 @@ impl Parser<'_> {
         }
     }
 
-    fn value(&mut self) -> Result<String, String> {
+    fn value(&mut self) -> Result<String, Diagnostic> {
         while self.peek().is_some_and(|ch| ch == ' ' || ch == '\t') {
             self.bump();
         }
@@ -269,7 +273,7 @@ impl Parser<'_> {
         Ok(value.to_string())
     }
 
-    fn patterns(&mut self) -> Result<Arc<PatternLayer>, String> {
+    fn patterns(&mut self) -> Result<Arc<PatternLayer>, Diagnostic> {
         let mut builder = GitignoreBuilder::new(self.root);
         loop {
             if !self.skip() {
@@ -287,24 +291,13 @@ impl Parser<'_> {
             }
             let start = self.offset;
             let line = self.line;
-            let mut escaped = false;
-            let mut quote = None;
             let mut separator = false;
-            while let Some(ch) = self.peek() {
-                if ch == '\n' {
+            for token in scan(&self.source[start..], QuoteMode::Start) {
+                let ch = token.character;
+                if ch == '\n' || (ch == '}' && token.is_structural() && separator) {
                     break;
                 }
-                if !escaped {
-                    if quote == Some(ch) {
-                        quote = None;
-                    } else if quote.is_none() && matches!(ch, '\'' | '"') && self.offset == start {
-                        quote = Some(ch);
-                    } else if quote.is_none() && ch == '}' && separator {
-                        break;
-                    }
-                }
-                separator = ch.is_whitespace() && !escaped;
-                escaped = ch == '\\' && !escaped;
+                separator = ch.is_whitespace() && token.is_structural();
                 self.bump();
             }
             let pattern = &self.source[start..self.offset];

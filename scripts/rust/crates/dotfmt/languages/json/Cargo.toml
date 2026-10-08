@@ -1,0 +1,13 @@
+[package]
+name              = "dotfmt-json"
+version.workspace = true
+description       = "Format JSON the way jq does, and repair JSON that nearly is"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace = true
+indexmap = "2"

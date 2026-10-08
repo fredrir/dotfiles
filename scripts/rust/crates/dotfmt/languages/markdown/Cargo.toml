@@ -1,0 +1,14 @@
+[package]
+name              = "dotfmt-markdown"
+version.workspace = true
+description       = "Format Markdown with compact tables and consistent spacing"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace = true
+comrak = { version = "0.48", default-features = false }
+unicode-width.workspace = true

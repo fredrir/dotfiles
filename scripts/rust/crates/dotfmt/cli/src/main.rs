@@ -1,7 +1,6 @@
 #![forbid(unsafe_code)]
 
 mod args;
-mod engine;
 mod placement;
 mod run;
 
