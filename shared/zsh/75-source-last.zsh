@@ -11,7 +11,7 @@ unset _plugin_file
   [[ -r $config ]] || return 0
 
   mkdir -p "${cache:h}" || return
-  if sed -e "s/'prompt_dir'/'bright_red'/g" \
+  if sed -e "s/'prompt_dir'/'cyan'/g" \
     -e 's/(prompt_char)/(bright_red)/g' "$config" >"$cache.$$"; then
     mv -f "$cache.$$" "$cache" && export STARSHIP_CONFIG="$cache"
   else

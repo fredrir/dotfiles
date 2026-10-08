@@ -20,7 +20,7 @@ fi
 
 if has_cmd atuin; then
   export ATUIN_NOBIND=true
-  cached_eval atuin-init atuin init zsh
+  cached_eval atuin-init-no-bind atuin init zsh --disable-ctrl-r --disable-up-arrow
 
   zle -A atuin-search search_history
 fi
