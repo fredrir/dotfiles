@@ -12,7 +12,8 @@ local MUX_ROUTE = dotfile.compiled_dir .. "/mux-route"
 local SOCKET = require("utils.mux.mux").localmux_socket
 local CLI = wezterm.executable_dir .. "/wezterm"
 local MUX_TIMEOUT_SECONDS = 15
-local ISOLATED = 'exec /usr/bin/env -i WEZTERM_PANE="$WEZTERM_PANE" WEZTERM_UNIX_SOCKET="$WEZTERM_UNIX_SOCKET" "$@"'
+local ISOLATED =
+  "exec /usr/bin/env -i WEZTERM_PANE=\"$WEZTERM_PANE\" WEZTERM_UNIX_SOCKET=\"$WEZTERM_UNIX_SOCKET\" \"$@\""
 local pending = {}
 
 ---@return string?, string?
@@ -91,7 +92,7 @@ end
 
 ---@param to AttachTarget
 ---@return string[]
-local function spawn_args(to)
+local function spawn_args(to, wait_for_ready)
   if not to.home then
     return { "--domain-name", to.domain }
   end
@@ -110,6 +111,7 @@ local function spawn_args(to)
     "COLORTERM=truecolor",
     "PATH=/usr/local/bin:/usr/bin:/bin",
     "HWIRE_SESSION=" .. (to.session or ""),
+    "WEZTERM_PANE_READY=" .. (wait_for_ready and "1" or ""),
     "zsh",
     "-l",
   }
@@ -135,36 +137,20 @@ local function replace(_, pane, source, target, done)
     return done(err)
   end
 
-  local tab = pane:tab()
-  local stdout, split_error = mux("split-pane", "--pane-id", source, table.unpack(spawn_args(to)))
+  local args = { "replace-pane", "--pane-id", source }
+  if to.home then
+    table.insert(args, "--wait-for-ready")
+  end
+  for _, arg in ipairs(spawn_args(to, to.home ~= nil)) do
+    table.insert(args, arg)
+  end
+  local stdout, replace_error = mux(table.unpack(args))
   if not stdout then
-    return done(split_error)
+    return done(replace_error)
   end
   local replacement = tonumber(stdout:match "^%s*(%d+)%s*$")
   if not replacement or replacement == source then
     return done "invalid replacement pane"
-  end
-  local focused, focus_error = pcall(function()
-    for _ = 1, 100 do
-      for _, candidate in ipairs(tab:panes()) do
-        local metadata = candidate:get_metadata() or {}
-        if candidate:get_domain_name() == "localmux" and metadata.remote_pane_id == replacement then
-          candidate:activate()
-          return
-        end
-      end
-      wezterm.sleep_ms(50)
-    end
-    error "replacement pane did not appear in the GUI"
-  end)
-  if not focused then
-    mux("kill-pane", "--pane-id", replacement)
-    return done(tostring(focus_error))
-  end
-  local closed, close_error = mux("kill-pane", "--pane-id", source)
-  if not closed then
-    mux("kill-pane", "--pane-id", replacement)
-    return done(close_error)
   end
   done()
 end

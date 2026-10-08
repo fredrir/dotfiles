@@ -101,7 +101,7 @@ local bindings = {
 
   -- Mux --
   keybind(mux.detach_pane, MOD.SUPER_REV, "s"),
-  keybind(adopt_pane.toggle_host, MOD.PRIMARY, "."),
+  keybind(adopt_pane.toggle_host, { MOD.PRIMARY, "CTRL" }, "."),
 
   -- Domain and workspace launcher --
   keybind(act.ShowLauncherArgs { flags = "DOMAINS|WORKSPACES" }, MOD.SUPER_REV, "d"),

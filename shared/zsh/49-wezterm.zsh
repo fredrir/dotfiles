@@ -74,6 +74,18 @@ fi
 
 [[ -o interactive ]] || return 0
 
+if [[ $WEZTERM_PANE_READY == 1 && -n $WEZTERM_PANE ]]; then
+  unset WEZTERM_PANE_READY
+  autoload -Uz add-zle-hook-widget
+  _wezterm_pane_ready() {
+    zle -R
+    printf '\e]1337;SetUserVar=WEZTERM_PANE_READY=MQ==\a'
+    add-zle-hook-widget -d line-init _wezterm_pane_ready
+  }
+  zle -N _wezterm_pane_ready
+  add-zle-hook-widget line-init _wezterm_pane_ready
+fi
+
 _wezterm_open_yazi() {
   local yazi_status
   zle -I
