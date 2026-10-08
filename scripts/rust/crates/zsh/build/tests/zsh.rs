@@ -40,7 +40,7 @@ fn fixture() -> tempfile::TempDir {
     let root = tree_pairs(&[
         (
             "config/zsh/build.toml",
-            "output = \".cache/build\"\nambient = [\"HOME\"]\n\n[[target]]\nname = \"zshrc\"\nsource = \"zsh/rc.zsh\"\nenv = [\"zsh/env.zsh\"]\n\n[fold]\ncommands = [\"probe --value\"]\n",
+            "output = \".cache/build\"\nambient = [\"HOME\"]\n\n[[target]]\nname = \"zshrc\"\nsource = \"zsh/rc.zsh\"\nenv = [\"zsh/env.zsh\"]\n\n[fold]\ncommands = [\"probe --value\", \"absent --value\"]\n",
         ),
         (
             "zsh/env.zsh",
@@ -61,7 +61,7 @@ fn fixture() -> tempfile::TempDir {
         ),
         (
             "zsh/parts/30-fold.zsh",
-            "folded=\"$(probe --value)\"\nhas_cmd probe && has_probe=yes\n",
+            "folded=\"$(probe --value)\"\nhas_cmd probe && has_probe=yes\nhas_cmd absent && absent=\"$(absent --value)\"\n",
         ),
         (
             "zsh/parts/40-cached.zsh",

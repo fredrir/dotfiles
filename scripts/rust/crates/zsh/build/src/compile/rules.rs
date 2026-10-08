@@ -177,7 +177,7 @@ fn generated(compiler: &mut Compiler, inner: &str, rewrite: bool, cx: &Cx) -> Op
         return None;
     }
     let argv = compiler.static_args(&walk::words(simple))?;
-    if !compiler.folder.allows(&argv) {
+    if !compiler.folder.applies(&argv, &compiler.state) {
         return None;
     }
     let output = match compiler.folder.run(&argv, &compiler.state) {

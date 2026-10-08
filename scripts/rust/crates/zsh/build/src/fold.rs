@@ -37,6 +37,11 @@ impl Folder {
             .any(|allowed| allowed[0] == name && allowed[1..] == *args)
     }
 
+    /// A listed command installed on this host; folds of anything else are skipped.
+    pub fn applies(&self, argv: &[String], state: &State) -> bool {
+        self.allows(argv) && matches!(state.command(&argv[0]), Some(Some(_)))
+    }
+
     /// Standard output of `argv`, found on the build-time search path.
     pub fn run(&mut self, argv: &[String], state: &State) -> Result<String, String> {
         if let Some(previous) = self.runs.get(argv) {

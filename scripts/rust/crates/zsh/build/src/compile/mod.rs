@@ -865,7 +865,7 @@ impl Compiler {
             .map(|word| expand::words(word, &self.state, Expand::Args))
             .collect::<Option<Vec<_>>>()?
             .concat();
-        if !self.folder.allows(&argv) {
+        if !self.folder.applies(&argv, &self.state) {
             return None;
         }
         let output = match self.folder.run(&argv, &self.state) {
