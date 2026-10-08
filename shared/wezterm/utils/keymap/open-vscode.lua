@@ -14,10 +14,17 @@ local function open_remote(cwd, pane)
   local hostname = host.target.hostname
   assert(type(hostname) == "string")
   local authority = "ssh-remote+" .. hostname
-  local command = ("code --remote %s %s"):format(
-    wezterm.shell_quote_arg(authority),
-    wezterm.shell_quote_arg(cwd.file_path)
-  )
+
+  local path = cwd.file_path
+  if not path then
+    return false
+  end
+
+  if path:sub(-1) ~= "/" then
+    path = path .. "/"
+  end
+
+  local command = ("code --remote %s %s"):format(wezterm.shell_quote_arg(authority), wezterm.shell_quote_arg(path))
 
   wezterm.background_child_process {
     "/bin/zsh",
