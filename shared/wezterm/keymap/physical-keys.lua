@@ -4,16 +4,7 @@ local act = wezterm.action
 local platform = require "utils.platform"
 
 ---@type KeySpec[]
-local physical_keys = {
-  -- Fixes ⌥+7 '[', ⌥+8 ']',
-  { key = "phys:8", mods = "OPT", action = act.SendString "[" },
-  { key = "phys:9", mods = "OPT", action = act.SendString "]" },
-
-  { key = "phys:8", mods = "OPT|SHIFT", action = act.SendString "{" },
-  { key = "phys:9", mods = "OPT|SHIFT", action = act.SendString "}" },
-
-  { key = "phys:7", mods = "OPT|SHIFT", action = act.SendString "\\" },
-}
+local physical_keys = {}
 
 if platform.is_mac then
   extend(physical_keys, { -- CMD+R on mac should act the same as CTRL+R

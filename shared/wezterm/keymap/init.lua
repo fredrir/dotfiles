@@ -139,6 +139,8 @@ local keymap_config = {
   keys = keys,
   mouse_bindings = mouse_bindings,
   skip_close_confirmation_for_processes_named = skip_close_confirmation,
+  use_dead_keys = false,
+  send_composed_key_when_left_alt_is_pressed = platform.is_mac,
 }
 
 return keymap_config
