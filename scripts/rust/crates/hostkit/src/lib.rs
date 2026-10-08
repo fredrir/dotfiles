@@ -1,6 +1,7 @@
 pub mod env;
 pub mod host;
 pub mod process;
+pub mod session;
 pub mod shell;
 pub mod snapshot;
 pub mod socket;

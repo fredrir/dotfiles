@@ -2,11 +2,11 @@
 
 mod client;
 mod endpoint;
+mod mode;
 mod native;
 mod osc52;
 mod proto;
 mod serve;
-mod session;
 mod state;
 mod tls;
 
@@ -16,7 +16,10 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use hostkit::Host;
+use hostkit::session::Stamp;
 use workstation::{Completable, Completions};
+
+use crate::mode::Mode;
 
 const PROGRAM: &str = "dclip";
 
@@ -70,6 +73,12 @@ fn run(cli: &Cli) -> Result<(), String> {
     }
 }
 
+fn mode() -> Result<Mode, String> {
+    Ok(mode::detect(Host::this()?, native::available(), |name| {
+        std::env::var_os(name)
+    }))
+}
+
 fn copy() -> Result<(), String> {
     let mut input = Vec::new();
     io::stdin()
@@ -77,10 +86,9 @@ fn copy() -> Result<(), String> {
         .map_err(|error| format!("stdin: {error}"))?;
     let text = String::from_utf8(input).map_err(|_| "input is not UTF-8".to_string())?;
     let text = trimmed(&text);
-    if native::available() {
-        native::write(text)
-    } else {
-        osc52::copy(text)
+    match mode()? {
+        Mode::Native => native::write(text),
+        Mode::Mux(_) | Mode::Ssh | Mode::Terminal => osc52::copy(text),
     }
 }
 
@@ -89,10 +97,11 @@ fn trimmed(text: &str) -> &str {
 }
 
 fn paste() -> Result<(), String> {
-    let text = if native::available() {
-        native::read()?
-    } else {
-        remote()?
+    let text = match mode()? {
+        Mode::Native => native::read()?,
+        Mode::Mux(stamp) => remote(stamp)?,
+        Mode::Ssh => return Err("no clipboard over ssh".into()),
+        Mode::Terminal => return Err("no clipboard".into()),
     };
     let mut stdout = io::stdout().lock();
     stdout
@@ -104,13 +113,7 @@ fn paste() -> Result<(), String> {
         })
 }
 
-fn remote() -> Result<String, String> {
-    let this = Host::this()?;
-    let stamp = std::env::var("HWIRE_SESSION")
-        .ok()
-        .filter(|stamp| !stamp.is_empty())
-        .ok_or_else(|| "no clipboard".to_string())?;
-    let stamp = session::parse(&stamp, this)?;
+fn remote(stamp: Stamp) -> Result<String, String> {
     let cache = state::path();
     let cached = cache.as_deref().and_then(state::load);
     let preferred: Vec<_> = [Some(stamp.route), cached].into_iter().flatten().collect();

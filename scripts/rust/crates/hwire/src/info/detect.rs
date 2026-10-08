@@ -75,25 +75,12 @@ pub fn parse_ssh(text: &str, this: Host) -> Result<Session, String> {
 }
 
 pub fn parse_tls(text: &str, this: Host) -> Result<Session, String> {
-    let fields: Vec<&str> = text.split(':').collect();
-    if fields.len() != 5 || fields[0] != "v1" || fields[4] != "tls" {
-        return Err("expected v1:<from>:<to>:<route>:tls".into());
-    }
-    let from = Host::from_name(fields[1])?;
-    let to = Host::from_name(fields[2])?;
-    if to != this || from != this.peer() {
-        return Err(format!(
-            "stamp says {} --> {}, but this process is on {}",
-            from.name(),
-            to.name(),
-            this.name()
-        ));
-    }
-    let route = match fields[3] {
-        "cable" => Route::Cable,
-        "wifi" => Route::Wifi,
-        "tailscale" => Route::Tailscale,
-        other => return Err(format!("unsupported TLS route: {other}")),
+    let stamp = hostkit::session::parse(text, this)?;
+    let (from, to, route) = (stamp.origin, stamp.destination, stamp.route);
+    // The LAN pair is resolved live, so a LAN pane's server address stays unknown.
+    let server_address = match route {
+        Route::Lan => None,
+        route => Some(IpAddr::V4(to.address(route)?)),
     };
     Ok(Session {
         from,
@@ -102,7 +89,7 @@ pub fn parse_tls(text: &str, this: Host) -> Result<Session, String> {
         tls: true,
         client_address: None,
         client_port: None,
-        server_address: Some(IpAddr::V4(to.address(route)?)),
+        server_address,
         server_port: Some(hostkit::MUX_PORT),
         domain: Some(format!("{}-{}", to.name(), route.name())),
         evidence: "HWIRE_SESSION",

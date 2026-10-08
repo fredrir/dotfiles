@@ -2,9 +2,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use clap::ValueEnum;
 use hostkit::Route;
-
-use crate::session::route_named;
 
 pub fn path() -> Option<PathBuf> {
     let state = std::env::var_os("XDG_STATE_HOME")
@@ -17,7 +16,7 @@ pub fn path() -> Option<PathBuf> {
 }
 
 pub fn load(path: &Path) -> Option<Route> {
-    route_named(fs::read_to_string(path).ok()?.trim())
+    Route::from_str(fs::read_to_string(path).ok()?.trim(), false).ok()
 }
 
 pub fn save(path: &Path, route: Route) -> io::Result<()> {

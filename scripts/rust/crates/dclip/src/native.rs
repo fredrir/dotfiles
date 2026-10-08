@@ -2,6 +2,8 @@
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+mod reader;
 
 #[cfg(target_os = "linux")]
 pub use linux::{available, hold, is_holder, read, read_for_peer, write};

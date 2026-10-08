@@ -22,14 +22,18 @@
 
 ## Backends
 
+First match wins:
+
 | Name | Copy | Paste |
 | --- | --- | --- |
-| macie | pasteboard | pasteboard |
-| archie, `WAYLAND_DISPLAY` or `DISPLAY` | Wayland or `xclip` | Wayland or `xclip` |
-| mux pane without a display | OSC 52 to `/dev/tty` | origin's `dclip serve` over mutual TLS |
+| mux pane, `HWIRE_SESSION` from the peer | OSC 52 to `/dev/tty` | origin's `dclip serve` over mutual TLS |
+| ssh, `SSH_CONNECTION` or `SSH_TTY` | OSC 52 to `/dev/tty` | `no clipboard over ssh` |
+| macie, or archie with `WAYLAND_DISPLAY` or `DISPLAY` | pasteboard, Wayland or `xclip` | pasteboard, Wayland or `xclip` |
+| anything else | OSC 52 to `/dev/tty` | `no clipboard` |
 
 | Name | Value |
 | --- | --- |
 | Routes | `HWIRE_SESSION` route first, then the last that answered, then the rest |
-| Budget | 300 ms to connect |
+| Connect | 300 ms for TCP; +1 s for TLS once the peer itself answers |
+| Reply | 2.5 s after TLS |
 | Ports, relays, units | [wezterm-mux.md](../wezterm-mux.md#dclip) |

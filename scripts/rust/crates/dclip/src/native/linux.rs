@@ -180,6 +180,8 @@ pub fn read_for_peer() -> Result<String, String> {
         .env("WAYLAND_DISPLAY", socket)
         .env_remove("DISPLAY")
         .env_remove("HWIRE_SESSION")
+        .env_remove("SSH_CONNECTION")
+        .env_remove("SSH_TTY")
         .stdin(Stdio::null());
     captured(&mut command, "clipboard")
 }
@@ -190,7 +192,10 @@ fn captured(command: &mut Command, label: &str) -> Result<String, String> {
         stderr: 4096,
     };
     let output =
-        process::output(command, limits, PEER_READ).map_err(|error| format!("{label}: {error}"))?;
+        process::output(command, limits, PEER_READ).map_err(|error| match error.kind() {
+            io::ErrorKind::TimedOut => format!("{label} timed out"),
+            _ => format!("{label}: {error}"),
+        })?;
     if !output.status.success() {
         let reason = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if reason.is_empty() {

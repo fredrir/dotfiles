@@ -36,8 +36,15 @@ fn tls_stamps_are_strict_and_host_bound() {
         );
     }
     assert!(parse_tls("v1:archie:macie:cable:tls", Host::Archie).is_err());
-    assert!(parse_tls("v1:macie:archie:lan:tls", Host::Archie).is_err());
     assert!(parse_tls("anything", Host::Archie).is_err());
+}
+
+#[test]
+fn a_lan_pane_is_a_tls_session_without_a_fixed_server_address() {
+    let found = parse_tls("v1:macie:archie:lan:tls", Host::Archie).unwrap();
+    assert_eq!(found.route, Some(Route::Lan));
+    assert_eq!(found.domain.as_deref(), Some("archie-lan"));
+    assert_eq!(found.server_address, None);
 }
 
 #[test]

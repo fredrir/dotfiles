@@ -1,11 +1,13 @@
-use std::sync::{Mutex, mpsc};
-use std::thread;
+use std::sync::OnceLock;
 
 use arboard::{Clipboard, Error};
 
+use super::reader::Reader;
 use crate::PEER_READ;
 
-static PASTEBOARD: Mutex<()> = Mutex::new(());
+const QUEUE: usize = 4;
+
+static READER: OnceLock<Reader> = OnceLock::new();
 
 pub fn available() -> bool {
     true
@@ -26,12 +28,7 @@ pub fn write(text: &str) -> Result<(), String> {
 }
 
 pub fn read_for_peer() -> Result<String, String> {
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || {
-        let _held = PASTEBOARD.lock();
-        let _ = sender.send(read());
-    });
-    receiver
-        .recv_timeout(PEER_READ)
-        .unwrap_or_else(|_| Err("clipboard timed out".into()))
+    READER
+        .get_or_init(|| Reader::spawn(read, QUEUE))
+        .ask(PEER_READ)
 }

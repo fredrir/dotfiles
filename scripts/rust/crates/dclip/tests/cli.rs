@@ -8,6 +8,8 @@ fn dclip(args: &[&str]) -> Bin {
         .env_remove("WAYLAND_DISPLAY")
         .env_remove("DISPLAY")
         .env_remove("HWIRE_SESSION")
+        .env_remove("SSH_CONNECTION")
+        .env_remove("SSH_TTY")
 }
 
 #[test]
@@ -37,17 +39,24 @@ fn a_headless_shell_outside_the_mux_has_nothing_to_paste_from() {
     assert_eq!(testkit::stderr(&output).trim(), "dclip: no clipboard");
 }
 
+#[test]
+fn an_ssh_shell_pastes_nothing_even_beside_a_native_clipboard() {
+    let output = dclip(&["-o"]).env("SSH_TTY", "/dev/pts/9").output();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(
+        testkit::stderr(&output).trim(),
+        "dclip: no clipboard over ssh"
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
-fn a_stamp_from_the_wrong_direction_is_refused_before_dialing() {
+fn a_stamp_from_the_wrong_direction_is_ignored() {
     let output = dclip(&["-o"])
         .env("HWIRE_SESSION", "v1:archie:macie:cable:tls")
         .output();
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert!(
-        testkit::stderr(&output).contains("not macie --> archie"),
-        "{output:?}"
-    );
+    assert_eq!(testkit::stderr(&output).trim(), "dclip: no clipboard");
 }
 
 #[cfg(target_os = "linux")]
@@ -66,6 +75,8 @@ fn a_headless_copy_reaches_the_terminal_as_osc52_without_the_last_newline() {
         .env_remove("WAYLAND_DISPLAY")
         .env_remove("DISPLAY")
         .env_remove("HWIRE_SESSION")
+        .env_remove("SSH_CONNECTION")
+        .env_remove("SSH_TTY")
         .stdin(input)
         .stdout(output)
         .stderr(errors);
