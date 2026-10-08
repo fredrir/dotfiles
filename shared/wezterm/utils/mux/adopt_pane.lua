@@ -12,8 +12,13 @@ local MUX_ROUTE = dotfile.compiled_dir .. "/mux-route"
 local SOCKET = require("utils.mux.mux").localmux_socket
 local CLI = wezterm.executable_dir .. "/wezterm"
 local MUX_TIMEOUT_SECONDS = 15
-local ISOLATED =
-  "exec /usr/bin/env -i WEZTERM_PANE=\"$WEZTERM_PANE\" WEZTERM_UNIX_SOCKET=\"$WEZTERM_UNIX_SOCKET\" \"$@\""
+local ISOLATED = [[
+if ! cd -- "$1" 2>/dev/null; then
+  printf 'attach_mux: cannot enter %s; using ~/\n' "$1" >&2
+fi
+shift
+exec /usr/bin/env -i WEZTERM_PANE="$WEZTERM_PANE" WEZTERM_UNIX_SOCKET="$WEZTERM_UNIX_SOCKET" "$@"
+]]
 local pending = {}
 
 ---@return string?, string?
@@ -50,7 +55,7 @@ end
 
 ---@class AttachTarget
 ---@field domain string
----@field home string? isolated login zsh in `home`; the domain's default shell when nil
+---@field home string? home for the isolated login zsh; the domain's default shell when nil
 ---@field session string?
 ---@field adoptable boolean?
 
@@ -90,9 +95,41 @@ local function resolve(target)
   return nil, "unknown host: " .. target
 end
 
+---@class AttachLocation
+---@field home string?
+---@field cwd string
+
+---@param pane Pane
+---@param to AttachTarget
+---@param location AttachLocation?
+---@return string?
+local function mirrored_cwd(pane, to, location)
+  if not location then
+    local cwd = pane:get_current_working_dir()
+    if not cwd or cwd.scheme ~= "file" then
+      return nil
+    end
+    location = { cwd = cwd.file_path }
+    for _, machine in ipairs { host.origin, host.target } do
+      if location.cwd == machine.home or location.cwd:sub(1, #machine.home + 1) == machine.home .. "/" then
+        location.home = machine.home
+        break
+      end
+    end
+  end
+  local cwd, home = location.cwd, location.home
+  if cwd:sub(1, 1) ~= "/" then
+    return nil
+  end
+  if home and (cwd == home or cwd:sub(1, #home + 1) == home .. "/") then
+    return to.home .. cwd:sub(#home + 1)
+  end
+  return cwd
+end
+
 ---@param to AttachTarget
 ---@return string[]
-local function spawn_args(to, wait_for_ready)
+local function spawn_args(to, wait_for_ready, cwd)
   if not to.home then
     return { "--domain-name", to.domain }
   end
@@ -106,6 +143,7 @@ local function spawn_args(to, wait_for_ready)
     "-c",
     ISOLATED,
     "attach_mux",
+    cwd or to.home,
     "HOME=" .. to.home,
     "TERM=xterm-256color",
     "COLORTERM=truecolor",
@@ -128,7 +166,7 @@ local function localmux_pane(pane)
 end
 
 ---@param done fun(err: string?)
-local function replace(_, pane, source, target, done)
+local function replace(_, pane, source, target, done, location)
   if target == "toggle" then
     target = is_remote(pane) and host.origin.hostname or host.target.hostname
   end
@@ -141,7 +179,11 @@ local function replace(_, pane, source, target, done)
   if to.home then
     table.insert(args, "--wait-for-ready")
   end
-  for _, arg in ipairs(spawn_args(to, to.home ~= nil)) do
+  local cwd
+  if target == host.origin.hostname or target == host.target.hostname then
+    cwd = mirrored_cwd(pane, to, location)
+  end
+  for _, arg in ipairs(spawn_args(to, to.home ~= nil, cwd)) do
     table.insert(args, arg)
   end
   local stdout, replace_error = mux(table.unpack(args))
@@ -253,9 +295,9 @@ local function reply(pane, id, message)
   end
 end
 
----@param action fun(window, pane, source: integer, target: string, done: fun(err: string?))
+---@param action fun(window, pane, source: integer, target: string, done: fun(err: string?), location: AttachLocation?)
 local function once_per_pane(action)
-  return function(window, pane, target, id)
+  return function(window, pane, target, id, location)
     target = target == "peer" and host.target.hostname or target
     local pane_id = pane:pane_id()
     if pending[pane_id] then
@@ -274,7 +316,7 @@ local function once_per_pane(action)
     if not source then
       return done(source_error)
     end
-    local ok, err = pcall(action, window, pane, source, target, done)
+    local ok, err = pcall(action, window, pane, source, target, done, location)
     if not ok then
       done(tostring(err))
     end
@@ -292,8 +334,16 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
     return
   end
   local target, id = value:match "^v1:([%w._-]+):(%d+:%d+%.%d+)$"
+  local location
+  if not target then
+    local home, cwd
+    target, id, home, cwd = value:match "^v2:([%w._-]+):(%d+:%d+%.%d+)%z([^%z]+)%z([^%z]+)$"
+    if target then
+      location = { home = home, cwd = cwd }
+    end
+  end
   if target then
-    request(window, pane, target, id)
+    request(window, pane, target, id, location)
   end
 end)
 

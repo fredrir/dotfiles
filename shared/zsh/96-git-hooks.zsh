@@ -63,10 +63,10 @@ _git_from_root() {
 _sync_git_repo_commands() {
   if _in_git_repo; then
     alias cdg=_cdg_to_root
+    alias g="_git_from_root status -u"
     alias gs='_git_from_root status -u'
     alias gc='_git_from_root commit -m'
     alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'
-    alias gcm='_git_from_root commit -m'
     alias gp='_git_from_root pull --autostash --rebase'
     alias gpp="_git_from_root push"
     alias gl='_git_from_root log'
@@ -83,6 +83,14 @@ unfunction _sync_cdg_command 2>/dev/null
 add-zsh-hook -d chpwd _sync_git_repo_commands 2>/dev/null
 add-zsh-hook chpwd _sync_git_repo_commands
 _sync_git_repo_commands
+
+gcm() {
+  if (($#)); then
+    _git_from_root commit -m "$@"
+  else
+    _git_from_root commit
+  fi
+}
 
 ga() {
   local exclude_targets=0

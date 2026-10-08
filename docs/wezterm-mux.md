@@ -15,6 +15,7 @@ reached through `socat`.
 | `attach_mux archie`, `attach_mux macie` | Fresh shell replaces the invoking split; sibling panes and existing sessions remain |
 | `attach_mux` | Fresh shell on the GUI computer's peer |
 | `Primary+.` | Toggle the invoking split: local → peer; remote → GUI computer |
+| Working directory | Archie/Macie attach and host toggle mirror `~/…`; outside home, try the same absolute path; unavailable directory falls back to `~/` with a notice |
 | `attach_mux <ssh-host>` | SSH session replaces the invoking split; see [SSH domains](#ssh-domains) |
 | `attach_mux --adopt [host]` | Selector: `__detached` tabs and the host's unowned panes; picked one opens as a tab |
 | `CMD+SHIFT+a` / `CTRL+SHIFT+a` | `attach_mux --adopt` for the peer |

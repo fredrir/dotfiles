@@ -15,6 +15,7 @@ local MOD = require "keymap.modifiers"
 local open_vscode = require "utils.keymap.open-vscode"
 local open_jetbrains = require "utils.keymap.open-jetbrains"
 local open_github = require "utils.keymap.open-github"
+local git_add = require "utils.keymap.git-add"
 local open_yazi = require "utils.keymap.open-yazi"
 local close_window = require "utils.close_window"
 local copy_selection = require "utils.copy-selection"
@@ -118,6 +119,7 @@ local bindings = {
   keybind(act.QuickSelect, MOD.SUPER_REV, "Space"),
   keybind(act.SplitVertical { domain = "CurrentPaneDomain" }, MOD.PRIMARY, ";"),
   keybind(open_github, MOD.SUPER_REV, "g"),
+  keybind(git_add, MOD.UNIQUE, "g"),
 }
 
 -- Go to tab 1..9

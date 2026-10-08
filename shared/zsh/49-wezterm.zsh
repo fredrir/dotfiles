@@ -32,10 +32,13 @@ attach_mux() {
   local id="$$:$EPOCHREALTIME"
   local tty_state reply
   tty_state=$(stty -g </dev/tty) || return 1
-  # The GUI answers on this pane's input with "<id> <error>\a"; an empty error means success
   stty -echo -icanon </dev/tty
   {
-    set_user_var $request_name "v1:$target:$id"
+    if [[ $request_name == ATTACH_MUX ]]; then
+      set_user_var $request_name "v2:$target:$id"$'\0'"$HOME"$'\0'"$PWD"
+    else
+      set_user_var $request_name "v1:$target:$id"
+    fi
     while IFS= read -r -t 60 -d $'\a' reply </dev/tty; do
       [[ $reply == "$id "* ]] || continue
       reply=${reply#"$id "}
