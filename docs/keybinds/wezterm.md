@@ -41,8 +41,8 @@
 | <code>CMD+SHIFT+RightArrow</code> | [<code>act.SendString(map.shift_end)</code>](../../shared/wezterm/keymap/motion-keys.lua#L44) | Send String: map.shift_end |
 | <code>CMD+SHIFT+UpArrow</code> | [<code>act.SendString(map.ctrl_shift_home)</code>](../../shared/wezterm/keymap/motion-keys.lua#L45) | Send String: map.ctrl_shift_home |
 | <code>CMD+UpArrow</code> | [<code>act.ScrollToTop</code>](../../shared/wezterm/keymap/motion-keys.lua#L33) | Scroll To Top |
-| <code>CMD+phys:h</code> | [<code>act.SendKey({ key = "h", mods = "CTRL" })</code>](../../shared/wezterm/keymap/physical-keys.lua#L21) | Send Key |
-| <code>CMD+phys:r</code> | [<code>act.SendKey({ key = "r", mods = "CTRL" })</code>](../../shared/wezterm/keymap/physical-keys.lua#L11) | Send Key |
+| <code>CMD+phys:h</code> | [<code>act.SendKey({ key = "h", mods = "CTRL" })</code>](../../shared/wezterm/keymap/physical-keys.lua#L31) | Send Key |
+| <code>CMD+phys:r</code> | [<code>act.SendKey({ key = "r", mods = "CTRL" })</code>](../../shared/wezterm/keymap/physical-keys.lua#L21) | Send Key |
 | <code>CMD+{ Up = { streak = 1, button = "Left" } }</code> | [<code>wezterm.action.OpenLinkAtMouseCursor</code>](../../shared/wezterm/keymap/mouse-bindings.lua#L15) | Open Link At Mouse Cursor<br><code>mouse</code> |
 | <code>OPT+DownArrow</code> | [<code>act.ScrollToPrompt(1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L49) | Scroll To Prompt: 1 |
 | <code>OPT+LeftArrow</code> | [<code>act.SendString(map.ctrl_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L8) | Send String: map.ctrl_left |
@@ -50,6 +50,12 @@
 | <code>OPT+SHIFT+LeftArrow</code> | [<code>act.SendString(map.ctrl_shift_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L55) | Send String: map.ctrl_shift_left |
 | <code>OPT+SHIFT+RightArrow</code> | [<code>act.SendString(map.ctrl_shift_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L56) | Send String: map.ctrl_shift_right |
 | <code>OPT+UpArrow</code> | [<code>act.ScrollToPrompt(-1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L48) | Scroll To Prompt: -1 |
+| <code>OPT+phys:Equal</code> | [<code>act.SendString("&#96;")</code>](../../shared/wezterm/keymap/physical-keys.lua#L15) | Send String: &#96; |
+| <code>OPT+phys:RightBracket</code> | [<code>act.SendString("~")</code>](../../shared/wezterm/keymap/physical-keys.lua#L18) | Send String: ~ |
+| <code>SHIFT+phys:Equal</code> | [<code>act.SendString("&#96;")</code>](../../shared/wezterm/keymap/physical-keys.lua#L14) | Send String: &#96; |
+| <code>SHIFT+phys:RightBracket</code> | [<code>act.SendString("^")</code>](../../shared/wezterm/keymap/physical-keys.lua#L17) | Send String: ^ |
+| <code>phys:Equal</code> | [<code>act.SendString("´")</code>](../../shared/wezterm/keymap/physical-keys.lua#L13) | Send String: ´ |
+| <code>phys:RightBracket</code> | [<code>act.SendString("¨")</code>](../../shared/wezterm/keymap/physical-keys.lua#L16) | Send String: ¨ |
 
 ## Linux / Windows Keybinds
 

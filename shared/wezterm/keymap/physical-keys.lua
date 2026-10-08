@@ -7,6 +7,16 @@ local platform = require "utils.platform"
 local physical_keys = {}
 
 if platform.is_mac then
+  -- Norwegian accent keys: send literal symbols before macOS dead-key composition.
+  -- Equal is the ´ key; RightBracket is the ¨ key on this layout.
+  extend(physical_keys, {
+    { key = "phys:Equal", mods = "NONE", action = act.SendString "´" },
+    { key = "phys:Equal", mods = "SHIFT", action = act.SendString "`" },
+    { key = "phys:Equal", mods = "OPT", action = act.SendString "`" },
+    { key = "phys:RightBracket", mods = "NONE", action = act.SendString "¨" },
+    { key = "phys:RightBracket", mods = "SHIFT", action = act.SendString "^" },
+    { key = "phys:RightBracket", mods = "OPT", action = act.SendString "~" },
+  })
   extend(physical_keys, { -- CMD+R on mac should act the same as CTRL+R
     {
       key = "phys:r",

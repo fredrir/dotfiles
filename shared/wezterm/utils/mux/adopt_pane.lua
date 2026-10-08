@@ -196,13 +196,14 @@ local function replace(_, pane, source, target, done, location)
 end
 
 ---@param done fun(err: string?)
-local function new_tab(_, _, source, target, done)
+local function new_tab(_, pane, source, target, done)
   local to, err = resolve(target)
   if not to then
     return done(err)
   end
 
-  local stdout, spawn_error = mux("spawn", "--pane-id", source, table.unpack(spawn_args(to)))
+  local cwd = mirrored_cwd(pane, to)
+  local stdout, spawn_error = mux("spawn", "--pane-id", source, table.unpack(spawn_args(to, false, cwd)))
   if not stdout then
     return done(spawn_error)
   end

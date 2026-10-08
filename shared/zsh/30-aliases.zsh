@@ -47,7 +47,7 @@ alias fgrep="fgrep --color=auto"
 
 alias port="portview"
 
-alias exz="exec zsh"
+alias exz="dotfile sync > /dev/null 2>&1 && exec zsh"
 
 alias disk="ncdu"
 
