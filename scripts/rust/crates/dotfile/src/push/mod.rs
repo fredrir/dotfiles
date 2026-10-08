@@ -77,11 +77,6 @@ impl Upstream<'_> {
     }
 }
 
-enum Delivery {
-    Behind,
-    Unavailable(String),
-}
-
 #[derive(Debug)]
 pub struct PushPlan {
     host: String,
@@ -551,7 +546,7 @@ fn send_commits(
     directory: &str,
     head: &str,
     upstream: &str,
-) -> Result<(), Delivery> {
+) -> Result<(), String> {
     let mut command = context.command("git");
     command
         .env("GIT_OPTIONAL_LOCKS", "0")
@@ -562,22 +557,13 @@ fn send_commits(
         .args(["push", "--no-verify", "--porcelain"])
         .arg(format!("{host}:{directory}"))
         .arg(format!("{head}:{upstream}"));
-    let output = captured_output(command, Phase::Remote).map_err(Delivery::Unavailable)?;
+    let output = captured_output(command, Phase::Remote)?;
     if output.status.success() {
         return Ok(());
     }
-    let rejected = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .any(|line| line.starts_with('!') && line.contains("[rejected]"));
-    Err(if rejected {
-        Delivery::Behind
-    } else {
-        Delivery::Unavailable(
-            first_line(&output.stderr)
-                .unwrap_or("git push failed")
-                .to_string(),
-        )
-    })
+    Err(first_line(&output.stderr)
+        .unwrap_or("git push failed")
+        .to_string())
 }
 
 fn unsupported_remote(host: &str, directory: &str) -> Failure {
@@ -779,16 +765,7 @@ fn protocol_session(
         });
         match send_commits(context, host, directory, local_head, &state.upstream) {
             Ok(()) => {}
-            Err(Delivery::Behind) => {
-                send_decision(&mut stdin, &Message::Cancel)?;
-                drop(stdin);
-                let _ = finish_child(child, stderr_thread, stdout_thread);
-                return Err(Failure::push(format!(
-                    "'{local_branch}' is behind {} as {host} last saw it; pull with --ff-only or rebase before dotfile sync -p",
-                    branch.upstream
-                )));
-            }
-            Err(Delivery::Unavailable(reason)) => events.emit(Event::Item {
+            Err(reason) => events.emit(Event::Item {
                 action: Action::Pull,
                 path: PathBuf::from(host),
                 detail: format!("pulling from origin; direct delivery failed: {reason}"),
@@ -1193,12 +1170,15 @@ const REBASE_ONTO: &str = r#"rebase_onto() {
     if [ -e "$(git rev-parse --git-path "$state")" ]; then rebase_failure=busy; return 1; fi
   done
   before=$(git rev-parse HEAD) || return 1
-  if git merge-base --is-ancestor "$expected_head" HEAD; then return 0; fi
+  rebase_base=$expected_head
+  if [ -n "$upstream_head" ]; then
+    rebase_base=$(git merge-base --fork-point "$upstream" HEAD) || rebase_base=$upstream_head
+  fi
   stash=$(git stash create) || return 1
   if [ -n "$stash" ]; then
     git stash store -q -m 'dotfile sync -p' "$stash" && git reset -q --hard || return 1
   fi
-  if ! git rebase -q "$expected_head" >/dev/null 2>&1; then
+  if ! git rebase -q --onto "$expected_head" "$rebase_base" >/dev/null 2>&1; then
     if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
       rebase_failure=commits
     else
@@ -1290,6 +1270,13 @@ fn protocol_script(
         "  *) emit_error control 'invalid client decision' 2; exit 2 ;;".to_string(),
         "esac".to_string(),
         REBASE_ONTO.to_string(),
+        "if [ -n \"$upstream\" ] && [ \"$(git rev-parse -q --verify \"$upstream\")\" != \"$expected_head\" ]; then".to_string(),
+        "  fetched=$(git fetch --quiet 2>&1) || { emit_error pull \"$fetched\" 1; exit 1; }".to_string(),
+        "  if [ \"$(git rev-parse -q --verify \"$upstream\")\" != \"$expected_head\" ]; then".to_string(),
+        "    emit_error pull \"incoming '$branch' does not match the refreshed upstream; fetch and rebase on the sending machine before retrying\" 1".to_string(),
+        "    exit 1".to_string(),
+        "  fi".to_string(),
+        "fi".to_string(),
         "if [ \"$current_head\" != \"$expected_head\" ]; then".to_string(),
         "  printf '{\"message\":\"phase\",\"operation\":\"rebase\"}\\n'".to_string(),
         "  if ! git cat-file -e \"${expected_head}^{commit}\" 2>/dev/null; then".to_string(),

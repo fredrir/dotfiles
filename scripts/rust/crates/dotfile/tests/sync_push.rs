@@ -221,6 +221,33 @@ impl Machines {
     fn origin_head(&self) -> String {
         self.git(&self.path("origin.git"), &["rev-parse", "main"])
     }
+
+    fn amend_published_commit(&self) -> String {
+        let local = self.local();
+        let peer = self.peer();
+        self.git(
+            &peer,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                self.path("origin.git").to_str().unwrap(),
+            ],
+        );
+        write(&local.join("notes/change"), "original");
+        self.git(&local, &["add", "-A"]);
+        self.git(&local, &["commit", "--quiet", "-m", "published"]);
+        self.git(&local, &["push", "--quiet", "--no-verify"]);
+        self.git(&peer, &["pull", "--quiet", "--ff-only"]);
+        write(&local.join("notes/change"), "amended");
+        self.git(&local, &["add", "-A"]);
+        self.git(&local, &["commit", "--quiet", "--amend", "--no-edit"]);
+        self.git(
+            &local,
+            &["push", "--quiet", "--no-verify", "--force-with-lease"],
+        );
+        self.git(&local, &["rev-parse", "HEAD"])
+    }
 }
 
 fn write(path: &Path, content: &str) {
@@ -345,6 +372,129 @@ fn nothing_to_push_skips_github_and_still_advances_the_peer() {
 }
 
 #[test]
+fn force_pushed_amendments_replace_old_history_and_preserve_peer_work() {
+    for peer_commit in [false, true] {
+        let machines = Machines::new();
+        let head = machines.amend_published_commit();
+        let peer = machines.peer();
+        if peer_commit {
+            machines.commit(&peer, "peer-only");
+        }
+        write(&peer.join("notes/seed"), "peer edit");
+        write(&peer.join("notes/scratch"), "untracked");
+
+        let ran = machines.sync_push(&[]);
+
+        assert!(ran.success(), "peer_commit={peer_commit}: {ran:?}");
+        assert_eq!(machines.git(&peer, &["rev-parse", "origin/main"]), head);
+        assert_eq!(
+            machines.git(
+                &peer,
+                &["rev-parse", if peer_commit { "HEAD^" } else { "HEAD" }]
+            ),
+            head,
+            "the replaced upstream commit must not be replayed"
+        );
+        if peer_commit {
+            assert_eq!(
+                machines.git(&peer, &["log", "-1", "--format=%s"]),
+                "peer-only"
+            );
+            assert_eq!(
+                fs::read_to_string(peer.join("notes/peer-only")).unwrap(),
+                "peer-only"
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(peer.join("notes/change")).unwrap(),
+            "amended"
+        );
+        assert_eq!(
+            fs::read_to_string(peer.join("notes/seed")).unwrap(),
+            "peer edit"
+        );
+        assert_eq!(
+            fs::read_to_string(peer.join("notes/scratch")).unwrap(),
+            "untracked"
+        );
+        assert!(machines.git(&peer, &["stash", "list"]).is_empty());
+        assert_eq!(machines.origin_head(), head);
+        assert_eq!(machines.pushes(), 0);
+    }
+}
+
+#[test]
+fn conflicting_peer_commits_are_restored_after_an_upstream_rewrite() {
+    let machines = Machines::new();
+    machines.amend_published_commit();
+    let peer = machines.peer();
+    write(&peer.join("notes/change"), "peer committed edit");
+    machines.commit(&peer, "peer-only");
+    write(&peer.join("notes/seed"), "peer uncommitted edit");
+    let before = machines.peer_state();
+
+    let ran = machines.sync_push(&[]);
+
+    assert!(!ran.success(), "{ran:?}");
+    assert!(ran.stderr.contains("local commits conflict"), "{ran:?}");
+    assert_eq!(machines.peer_state(), before);
+    assert_eq!(
+        fs::read_to_string(peer.join("notes/change")).unwrap(),
+        "peer committed edit"
+    );
+}
+
+#[test]
+fn rewritten_upstream_can_be_retried_after_resolving_dirty_peer_changes() {
+    let machines = Machines::new();
+    let head = machines.amend_published_commit();
+    let peer = machines.peer();
+    write(&peer.join("notes/change"), "conflicting edit");
+    let before = machines.peer_state();
+
+    let ran = machines.sync_push(&[]);
+
+    assert!(!ran.success(), "{ran:?}");
+    assert!(ran.stderr.contains("conflict with 'main'"), "{ran:?}");
+    assert_eq!(machines.peer_state(), before);
+    assert_eq!(
+        fs::read_to_string(peer.join("notes/change")).unwrap(),
+        "conflicting edit"
+    );
+    assert_eq!(machines.git(&peer, &["rev-parse", "origin/main"]), head);
+    machines.git(&peer, &["restore", "notes/change"]);
+
+    let retried = machines.sync_push(&[]);
+
+    assert!(retried.success(), "{retried:?}");
+    assert_eq!(machines.git(&peer, &["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        fs::read_to_string(peer.join("notes/change")).unwrap(),
+        "amended"
+    );
+    assert!(machines.git(&peer, &["stash", "list"]).is_empty());
+}
+
+#[test]
+fn a_force_pushed_rewind_does_not_keep_removed_upstream_commits() {
+    let machines = Machines::new();
+    machines.amend_published_commit();
+    let local = machines.local();
+    machines.git(&local, &["reset", "--hard", "HEAD^"]);
+    machines.git(
+        &local,
+        &["push", "--quiet", "--no-verify", "--force-with-lease"],
+    );
+    let head = machines.git(&local, &["rev-parse", "HEAD"]);
+
+    let ran = machines.sync_push(&[]);
+
+    assert!(ran.success(), "{ran:?}");
+    assert_eq!(machines.git(&machines.peer(), &["rev-parse", "HEAD"]), head);
+    assert!(!machines.peer().join("notes/change").exists());
+}
+
+#[test]
 fn a_github_rejection_stops_before_the_peer_moves() {
     let machines = Machines::new();
     let before = machines.git(&machines.peer(), &["rev-parse", "HEAD"]);
@@ -373,7 +523,7 @@ fn a_github_rejection_stops_before_the_peer_moves() {
 }
 
 #[test]
-fn a_peer_ahead_of_this_machine_reports_it_as_behind() {
+fn a_peer_ahead_of_this_machine_requires_the_sender_to_fetch_and_rebase() {
     let machines = Machines::new();
     let peer = machines.peer();
     let origin = machines.path("origin.git");
@@ -387,7 +537,10 @@ fn a_peer_ahead_of_this_machine_reports_it_as_behind() {
     let ran = machines.sync_push(&[]);
 
     assert!(!ran.success(), "{ran:?}");
-    assert!(ran.stderr.contains("is behind origin/main"), "{ran:?}");
+    assert!(
+        ran.stderr.contains("does not match the refreshed upstream"),
+        "{ran:?}"
+    );
     assert_eq!(machines.git(&peer, &["rev-parse", "HEAD"]), newer);
     assert_eq!(machines.pushes(), 0);
 }
