@@ -11,6 +11,8 @@ pub struct Edits {
     /// Start offsets of `$0` references already rewritten.
     pub zero_done: Vec<usize>,
     pub returns_rewritten: usize,
+    /// File-level returns in statements dropped by `# zsh-build: omit`.
+    pub returns_omitted: usize,
 }
 
 impl Edits {

@@ -13,9 +13,7 @@ local SOCKET = require("utils.mux.mux").localmux_socket
 local CLI = wezterm.executable_dir .. "/wezterm"
 local MUX_TIMEOUT_SECONDS = 15
 local ISOLATED = [[
-if ! cd -- "$1" 2>/dev/null; then
-  printf 'attach_mux: cannot enter %s; using ~/\n' "$1" >&2
-fi
+cd -- "$1" 2>/dev/null
 shift
 exec /usr/bin/env -i WEZTERM_PANE="$WEZTERM_PANE" WEZTERM_UNIX_SOCKET="$WEZTERM_UNIX_SOCKET" "$@"
 ]]

@@ -15,17 +15,25 @@ ambient = [
 ]
 
 [[target]]
-name   = "zshrc"
-source = "shared/zsh/01-init.zsh"
-env    = ["shared/zsh/00-global.zsh"]
+name    = "zshrc"
+source  = "shared/zsh/01-init.zsh"
+env     = ["shared/zsh/00-global.zsh"]
+profile = "shared/zsh/00-profile.zsh"
+system  = true
+
+# Global startup files; compiled in, and skipped by zsh, only when all of them compile
+[system]
+ambient = ["HOME", "USER"]
 
 # Output fixed between builds; folded at build time
 [fold]
 commands = [
   "brew --prefix",
+  "brew shellenv zsh",
   "git version",
   "fzf --version",
   "fzf --zsh",
   "zoxide init --cmd z zsh",
   "starship init zsh --print-full-init",
+  "starship prompt --continuation",
 ]

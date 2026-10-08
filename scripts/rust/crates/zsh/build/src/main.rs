@@ -47,8 +47,13 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             (true, true) => "would update",
             (true, false) => "updated",
         };
+        let system = match target.system {
+            Some(true) => "  system compiled",
+            Some(false) => "  system left to zsh",
+            None => "",
+        };
         println!(
-            "{}  {}  {status}  {} inlined  {} folded",
+            "{}  {}  {status}  {} inlined  {} folded{system}",
             target.name,
             target.path.display(),
             target.inlined,

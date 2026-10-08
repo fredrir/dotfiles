@@ -18,6 +18,7 @@ shared/wezterm = ~/.config/wezterm
 shared/yazi = ~/.config/yazi
 shared/zsh/00-global.zsh = ~/.zshenv
 shared/zsh/01-init.zsh = ~/.zshrc
+macos:shared/zsh/00-profile.zsh = ~/.zprofile
 
 # shared/tools
 shared/tools/.editorconfig = ~/.editorconfig

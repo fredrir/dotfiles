@@ -182,6 +182,13 @@ fn parse_raw(text: &str) -> Result<ZshProgram, String> {
     }
 }
 
+/// FNV-1a: stable across builds and platforms, unlike `std`'s hasher.
+pub fn hash(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
 pub fn same_lists(left: &[ZshList], right: &[ZshList]) -> bool {
     left.len() == right.len()
         && left

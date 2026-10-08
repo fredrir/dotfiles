@@ -247,9 +247,7 @@ pub fn fingerprint(node: &ZshFuncDef) -> u64 {
     strip_positions(&mut value);
     let mut canonical = String::new();
     write_canonical(&value, &mut canonical);
-    canonical.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-    })
+    crate::script::hash(&canonical)
 }
 
 /// JSON with sorted keys, whatever map order serde_json was built with.

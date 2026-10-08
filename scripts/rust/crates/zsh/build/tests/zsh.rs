@@ -267,3 +267,28 @@ fn only_the_dotfiles_own_code_warns_when_left_to_run() {
         "{built:?}"
     );
 }
+
+#[test]
+fn wordcode_compiled_from_an_older_bundle_is_discarded() {
+    let root = fixture();
+    assert!(build(root.path(), &[]).success());
+    let bundle = root.path().join(".cache/build/zshrc.zsh");
+    let wordcode = root.path().join(".cache/build/zshrc.zsh.zwc");
+    let compile_line = |text: &str| {
+        text.lines()
+            .nth(1)
+            .and_then(|line| line.strip_suffix(" &!"))
+            .unwrap()
+            .to_string()
+    };
+    let older = compile_line(&fs::read_to_string(&bundle).unwrap());
+    fs::write(root.path().join("zsh/parts/60-new.zsh"), "added=1\n").unwrap();
+    assert!(build(root.path(), &[]).success());
+    let current = compile_line(&fs::read_to_string(&bundle).unwrap());
+    assert_ne!(older, current);
+
+    assert!(Bin::new("zsh").args(["-fc", &older]).run().code() != Some(127));
+    assert!(!wordcode.exists());
+    assert!(Bin::new("zsh").args(["-fc", &current]).run().success());
+    assert!(wordcode.exists());
+}

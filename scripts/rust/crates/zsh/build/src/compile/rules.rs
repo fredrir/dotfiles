@@ -7,6 +7,7 @@ use zshrs_parse::parser::{RedirType, ZshRedir, ZshSimple};
 
 use super::{Compiler, Cx, Mode, unique, walk};
 use crate::expand::{self, Env, Mode as Expand, Var};
+use crate::native;
 use crate::quote;
 use crate::script::{self, Script};
 
@@ -168,6 +169,44 @@ pub fn source(
 
 /// `source <(command)` for a listed command: its output, inlined.
 fn generated(compiler: &mut Compiler, inner: &str, rewrite: bool, cx: &Cx) -> Option<String> {
+    let argv = substituted(compiler, inner)?;
+    let script = output(compiler, &argv)?;
+    compiler.inline(&script, None, Mode::Plain, rewrite, cx)
+}
+
+/// `eval` of a command's output: a listed command's output inlined, or
+/// native code for an emulated command.
+pub fn eval(
+    compiler: &mut Compiler,
+    simple: &ZshSimple,
+    args: &[String],
+    rewrite: bool,
+    cx: &Cx,
+) -> (Option<String>, bool) {
+    let [arg] = args else {
+        return (None, false);
+    };
+    let Some((inner, quoted)) = substitution(arg) else {
+        return (None, false);
+    };
+    let Some(argv) = substituted(compiler, inner) else {
+        return (None, false);
+    };
+    if native::emulates(&argv) {
+        return (emulated(compiler, simple, rewrite), false);
+    }
+    if !quoted {
+        return (None, false);
+    }
+    let text = output(compiler, &argv)
+        // A `return` in eval'd code leaves the caller, not the code.
+        .filter(|script| walk::file_returns(&script.program.lists) == Some(0))
+        .and_then(|script| compiler.inline(&script, None, Mode::Plain, rewrite, cx));
+    (text, false)
+}
+
+/// The arguments of a substituted command, when they are fixed.
+fn substituted(compiler: &Compiler, inner: &str) -> Option<Vec<String>> {
     let program = script::parse(inner).ok()?;
     let [list] = program.lists.as_slice() else {
         return None;
@@ -176,19 +215,63 @@ fn generated(compiler: &mut Compiler, inner: &str, rewrite: bool, cx: &Cx) -> Op
     if !simple.assigns.is_empty() || !simple.redirs.iter().all(discards_stderr) {
         return None;
     }
-    let argv = compiler.static_args(&walk::words(simple))?;
-    if !compiler.folder.applies(&argv, &compiler.state) {
+    compiler.static_args(&walk::words(simple))
+}
+
+/// A listed command's output, parsed.
+fn output(compiler: &mut Compiler, argv: &[String]) -> Option<Script> {
+    if !compiler.folder.applies(argv, &compiler.state) {
         return None;
     }
-    let output = match compiler.folder.run(&argv, &compiler.state) {
+    let output = match compiler.folder.run(argv, &compiler.state) {
         Ok(output) => output,
         Err(error) => {
             compiler.note(format!("fold {error}"));
             return None;
         }
     };
-    let script = Script::parse(output).ok()?;
-    compiler.inline(&script, None, Mode::Plain, rewrite, cx)
+    Script::parse(output).ok()
+}
+
+/// The command in `$(...)`, `"$(...)"` or backquotes, and whether it is quoted.
+fn substitution(arg: &str) -> Option<(&str, bool)> {
+    let (arg, quoted) = match arg
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+    {
+        Some(inner) => (inner, true),
+        None => (arg, false),
+    };
+    if let Some(inner) = arg
+        .strip_prefix("$(")
+        .and_then(|rest| rest.strip_suffix(')'))
+    {
+        return Some((inner, quoted));
+    }
+    arg.strip_prefix('`')
+        .and_then(|rest| rest.strip_suffix('`'))
+        .filter(|inner| !inner.contains(['\\', '`', '"']))
+        .map(|inner| (inner, quoted))
+}
+
+fn emulated(compiler: &mut Compiler, simple: &ZshSimple, rewrite: bool) -> Option<String> {
+    compiler.state.forget("PATH");
+    compiler.state.forget("MANPATH");
+    let original = script::reprint(simple)?;
+    let helper = match native::PathHelper::load(&compiler.path_helper_root) {
+        Ok(helper) => helper,
+        Err(error) => {
+            let note = format!("path_helper: {error}; left to runtime");
+            if !compiler.skipped.contains(&note) {
+                compiler.skipped.push(note);
+            }
+            return None;
+        }
+    };
+    let text = helper.code(&original);
+    script::parse(&text).ok()?;
+    compiler.dependencies.extend(helper.sources);
+    rewrite.then_some(text)
 }
 
 pub fn cached_eval(

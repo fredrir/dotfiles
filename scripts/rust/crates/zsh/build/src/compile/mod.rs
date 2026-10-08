@@ -3,6 +3,7 @@
 
 mod edits;
 mod rules;
+pub mod system;
 pub mod walk;
 
 use std::collections::BTreeSet;
@@ -33,6 +34,15 @@ pub enum Mode {
     Plain,
     /// Code a helper function sourced; it runs in a function scope.
     Function,
+    /// A startup file zsh reads itself: `return` leaves only that file and
+    /// `$0` names the shell.
+    Startup,
+}
+
+impl Mode {
+    fn file_scoped(self) -> bool {
+        matches!(self, Mode::Plain | Mode::Startup)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -52,8 +62,14 @@ pub struct Compiler {
     pub skipped: Vec<String>,
     pub inlined: usize,
     pub folded: usize,
+    /// `PATH_HELPER_ROOT` for the `path_helper` emulation.
+    pub path_helper_root: String,
+    /// System files that native emulations read.
+    pub dependencies: Vec<PathBuf>,
     stack: Vec<PathBuf>,
     root: PathBuf,
+    startup: bool,
+    refusals: Vec<String>,
 }
 
 struct Snapshot {
@@ -75,8 +91,12 @@ impl Compiler {
             skipped: Vec::new(),
             inlined: 0,
             folded: 0,
+            path_helper_root: String::new(),
+            dependencies: Vec::new(),
             stack: Vec::new(),
             root,
+            startup: false,
+            refusals: Vec::new(),
         }
     }
 
@@ -163,8 +183,9 @@ impl Compiler {
             return Ok(String::new());
         }
         let returns = match cx.mode {
-            Mode::Plain => {
+            Mode::Plain | Mode::Startup => {
                 walk::file_returns(&script.program.lists).ok_or("return inside a subshell")?
+                    - edits.returns_omitted
             }
             _ => 0,
         };
@@ -192,6 +213,7 @@ impl Compiler {
                 .any(|zero| matches!(zero.form, ZeroForm::Name { .. }));
         let zero = match (names_zero, cx.mode, cx.origin) {
             (false, _, _) => None,
+            (true, Mode::Startup, _) => Some("$ZSH_ARGZERO".to_string()),
             (true, Mode::Root, _) | (true, _, None) => {
                 return Err("$0 reference with no source file".to_string());
             }
@@ -240,6 +262,8 @@ impl Compiler {
                     let range = segment.lists.clone();
                     index = range.end;
                     if omitted(script, &segment) {
+                        edits.returns_omitted +=
+                            walk::file_returns(&lists[range]).unwrap_or_default();
                         edits.replace_lines(segment.lines.clone(), String::new());
                         continue;
                     }
@@ -542,6 +566,11 @@ impl Compiler {
             "return" | "exit" => (None, true),
             "source" | "." if simple.assigns.is_empty() => rules::source(self, args, rewrite, cx),
             "cached_eval" => rules::cached_eval(self, args, rewrite, cx),
+            "eval" => rules::eval(self, simple, args, rewrite, cx),
+            "emulate" if self.startup => {
+                self.refusals.push("emulate is not modeled".to_string());
+                (None, false)
+            }
             "add_path" | "add_plugin_path" | "add_plugins" | "add_fpath" => {
                 rules::helper(self, &name, args, rewrite)
             }
@@ -781,7 +810,7 @@ impl Compiler {
             }
         }
         let mut returns = 0;
-        if cx.mode == Mode::Plain && !definition {
+        if cx.mode.file_scoped() && !definition {
             let found = walk::returns(lists).unwrap_or_default();
             let file_level = found.iter().filter(|site| site.depth.is_some()).count();
             if file_level > 0
@@ -1007,6 +1036,14 @@ pub(crate) fn read(path: &Path) -> Result<Script, String> {
 
 pub(crate) fn read_text(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|error| format!("read: {error}"))
+}
+
+pub(crate) fn unique_paths(values: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = BTreeSet::new();
+    values
+        .into_iter()
+        .filter(|value| seen.insert(value.clone()))
+        .collect()
 }
 
 pub(crate) fn unique(values: Vec<String>) -> Vec<String> {
