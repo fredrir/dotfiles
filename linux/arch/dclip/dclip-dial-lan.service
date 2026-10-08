@@ -1,0 +1,12 @@
+[Unit]
+Description=dclip LAN dial: reach macie's dclip listener over the home LAN
+
+[Service]
+Type=simple
+Environment=USER=%u
+ExecStart=%h/dotfiles/scripts/shell/wezterm-mux-route --lan-client macie.local 8458 8453
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

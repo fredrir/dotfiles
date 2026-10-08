@@ -4,6 +4,7 @@ resolver = "2"
 # and `crates/git` is a folder of them.
 members = [
   "crates/bench-workloads",
+  "crates/dclip",
   "crates/dcloud",
   "crates/dotfile",
   "crates/dotfmt/cli",

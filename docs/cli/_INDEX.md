@@ -4,6 +4,7 @@
 | Command      | Docs                                 | Path                                        |
 | ------------ | ------------------------------------ | ------------------------------------------- |
 | count        | [count.md](./count.md)               | [scripts/rust/crates/utility/count/]        |
+| dclip        | [dclip.md](./dclip.md)               | [scripts/rust/crates/dclip/]                |
 | doc-purge    | [doc-purge.md](./doc-purge.md)       | [scripts/rust/crates/utility/doc-purge/]    |
 | dotfile      | [dotfile.md](./dotfile.md)           | [scripts/rust/crates/dotfile/]              |
 | dotfmt       | [dotfmt.md](./dotfmt.md)             | [scripts/rust/crates/dotfmt/cli/]           |

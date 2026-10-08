@@ -120,6 +120,10 @@ local bindings = {
   keybind(act.SplitVertical { domain = "CurrentPaneDomain" }, MOD.PRIMARY, ";"),
   keybind(open_github, MOD.SUPER_REV, "g"),
   keybind(git_add, MOD.UNIQUE, "g"),
+
+  ---- Directory Navigation ----
+  keybind(act.SendString "\x1b[112;9u", MOD.UNIQUE, "p"),
+  keybind(act.SendString "\x1b[100;9u", MOD.UNIQUE, "d"),
 }
 
 -- Go to tab 1..9

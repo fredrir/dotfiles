@@ -15,7 +15,13 @@ wezterm-mux-route.wifi.log
 wezterm-mux-route.tailscale.log
 wezterm-mux-route.lan.log
 wezterm-mux-dial.lan.log
-wezterm-mux-gc.log'
+wezterm-mux-gc.log
+dclip.log
+dclip-route.cable.log
+dclip-route.wifi.log
+dclip-route.tailscale.log
+dclip-route.lan.log
+dclip-dial.lan.log'
 
 PER_PID_PATTERNS='agent.*
 gui-sock-*

@@ -13,12 +13,13 @@ alias cda="cd $APPKOM"
 
 # llunde
 export LLUNDE="$HOME/llunde"
+export PYPARSER="$LLUNDE/pyparser"
 alias cdl="cd  $LLUNDE"
-alias cdlp="cd $LLUNDE/pyparser"
+alias cdlp="cd $PYPARSER"
 alias cdlf="cd $LLUNDE/frontend"
 alias cdlb="cd $LLUNDE/backend"
 
-alias rr='direnv exec "$LLUNDE/pyparser" "$LLUNDE/pyparser/.venv/bin/pyparser-review"'
+alias rr='direnv exec "$PYPARSER" "$LLUNDE/pyparser/.venv/bin/pyparser-review"'
 
 # wez-vtabs
 alias ww="just --justfile $HOME/projects/wez-plugins/vertical-tabs/justfile"

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fredrir.dclip</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec env PATH="$HOME/dotfiles/.bin:/opt/homebrew/bin:$PATH" "$HOME/dotfiles/.bin/dclip" serve</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>USER</key>
+    <string>fredrir</string>
+    <key>HOME</key>
+    <string>/Users/fredrir</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/fredrir/Library/Logs/dclip.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/fredrir/Library/Logs/dclip.log</string>
+</dict>
+</plist>

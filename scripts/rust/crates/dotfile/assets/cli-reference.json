@@ -9,6 +9,14 @@
       "source": "scripts/rust/crates/utility/count/"
     },
     {
+      "name": "dclip",
+      "title": "dclip",
+      "programs": [
+        "dclip"
+      ],
+      "source": "scripts/rust/crates/dclip/"
+    },
+    {
       "name": "doc-purge",
       "title": "doc-purge",
       "programs": [
@@ -158,6 +166,7 @@
   ],
   "native": [
     "count",
+    "dclip",
     "doc-purge",
     "dotfmt",
     "flatten",
@@ -186,6 +195,8 @@
   },
   "commands": {
     "count": "Counts items inside a directory.",
+    "dclip": "Copies stdin to the clipboard, minus one trailing newline.",
+    "dclip serve": "Serves this clipboard to the peer until stopped; run by launchd or systemd.",
     "doc-purge": "Purges comments, doc strings and typographic glyphs from source files.",
     "dotfile": "Manages this repository's symlinks, packages, themes, secrets, and system files.",
     "dotfile add": "Moves a live config into the repository and symlinks it back.",
@@ -305,6 +316,9 @@
     "count": {
       "--recursive": "Counts every entry below the directory instead of only its direct children.",
       "--no-hidden": "Excludes hidden entries and everything inside hidden directories."
+    },
+    "dclip": {
+      "--output": "Prints the clipboard; without a display, the mux origin's."
     },
     "dotfile": {
       "--lang": "Selects languages; repeat or comma-separate.",

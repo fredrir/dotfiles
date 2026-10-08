@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fredrir.dclip-route.wifi</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec "$HOME/dotfiles/scripts/shell/wezterm-mux-route" 10.77.78.1 8453 8454</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/fredrir/Library/Logs/dclip-route.wifi.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/fredrir/Library/Logs/dclip-route.wifi.log</string>
+</dict>
+</plist>

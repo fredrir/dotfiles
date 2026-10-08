@@ -53,7 +53,7 @@ mount --mkdir /dev/nvme0n1p1 /mnt/efi
 | user configs | `dotfile sync` |
 | root-owned configs, services | `dotfile system install`; enables every unit a tracked `system-preset/*.preset` names |
 | UKI with the tracked command line | `sudo mkinitcpio -P` |
-| user services | `systemctl --user enable --now wezterm-mux wezterm-mux-route-lan wezterm-mux-dial-lan` |
+| user services | `systemctl --user enable --now wezterm-mux wezterm-mux-route-lan wezterm-mux-dial-lan dclip dclip-route-lan dclip-dial-lan` |
 | mux without a login session | `sudo loginctl enable-linger fredrir` |
 | peer ports on `macie:PORT` and `localhost:PORT` | `hport setup` |
 | energy counters without reboot | `sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=powercap --action=add` |

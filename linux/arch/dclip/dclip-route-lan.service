@@ -1,0 +1,12 @@
+[Unit]
+Description=dclip LAN route: expose this host's dclip listener to macie on the home LAN
+
+[Service]
+Type=simple
+Environment=USER=%u
+ExecStart=%h/dotfiles/scripts/shell/wezterm-mux-route --lan-server macie.local 8453 8457
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

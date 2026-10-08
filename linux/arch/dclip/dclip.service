@@ -1,0 +1,12 @@
+[Unit]
+Description=dclip server: clipboard for the peer over mutual TLS
+
+[Service]
+Type=simple
+Environment=USER=%u
+ExecStart=%h/dotfiles/.bin/dclip serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

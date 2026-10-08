@@ -117,6 +117,38 @@ Attached shells start under `env -i`; `attach-mux.lua` restores only:
 `COLORTERM=truecolor` is required: without it `ui-theme` detects `Ansi256` and
 the `ui_indexed` fallback paints `#1c1c1c` instead of `#15152b`.
 
+## dclip
+
+Clipboard for attached remote shells: OSC 52 reaches the GUI computer's
+clipboard on copy, but WezTerm ignores OSC 52 reads. `dclip serve` on both
+hosts answers `dclip -o` over the same mutual TLS certificates and routes as
+the mux. Peer-facing port is 8453.
+
+| Route | macie `dclip serve` | macie peer-facing | archie `dclip serve` | archie peer-facing |
+| --- | --- | --- | --- | --- |
+| cable | 127.0.0.1:8453 | 10.77.77.1:8453 | 10.77.77.2:8453 | 10.77.77.2:8453 |
+| wifi | 127.0.0.1:8454 | 10.77.78.1:8453 | 10.77.78.2:8453 | 10.77.78.2:8453 |
+| lan | 127.0.0.1:8457 | `<macie-lan>`:8453 | 127.0.0.1:8457 | `<archie-lan>`:8453 |
+| tailscale | 127.0.0.1:8456 | 100.75.71.79:8453 | 100.124.205.100:8453 | 100.124.205.100:8453 |
+
+| Name | Value |
+| --- | --- |
+| LAN dial | `127.0.0.1:8458` → `<peer-lan>:8453`, sourced from `<own-lan>` |
+| Relays | `wezterm-mux-route`, as for the mux |
+| Logs | macie: `~/Library/Logs/dclip*.log`; archie: `journalctl --user -u dclip` |
+| Restart | `launchctl kickstart -k gui/$(id -u)/com.fredrir.dclip`, `systemctl --user restart dclip` |
+| nvim | `utils/clipboard.lua`: paste `dclip -o`; copy `dclip`, or nvim's OSC 52 without a native clipboard |
+
+```
+macos/launchd/com.fredrir.dclip.plist
+macos/launchd/com.fredrir.dclip-route.{cable,wifi,lan,tailscale}.plist
+macos/launchd/com.fredrir.dclip-dial.lan.plist
+linux/arch/dclip/dclip.service
+linux/arch/dclip/dclip-route-lan.service
+linux/arch/dclip/dclip-dial-lan.service
+scripts/rust/crates/dclip/
+```
+
 ## Why the two halves differ
 
 `wezterm-mux-server` binds every `tls_servers` entry at startup and exits if any

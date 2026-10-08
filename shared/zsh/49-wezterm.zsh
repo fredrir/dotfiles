@@ -100,6 +100,41 @@ _wezterm_open_yazi() {
 
 zle -N wezterm-open-yazi _wezterm_open_yazi
 
+_wezterm_cd_preview() {
+  # Preview the destination's venv without changing the environment ahead of direnv.
+  local REPLY
+  if (($+functions[_find_python_project_venv])); then
+    _find_python_project_venv
+    local -x VIRTUAL_ENV=$REPLY
+    [[ -n $VIRTUAL_ENV ]] || unset VIRTUAL_ENV
+  fi
+
+  zle reset-prompt
+  zle -R
+  return 0
+}
+
+_wezterm_cd() {
+  local destination=${1:-}
+  if [[ -z $destination || ! -d $destination ]]; then
+    zle -M "Not an existing directory: ${destination:-<unset>}"
+    return 1
+  fi
+
+  [[ ${PWD:A} == "${destination:A}" ]] && return 0
+
+  # Paint before slow chpwd hooks; keep their order and finish them before accepting input.
+  local -a chpwd_functions=(_wezterm_cd_preview "${chpwd_functions[@]}")
+  builtin cd -- "$destination" || return
+  zle reset-prompt
+}
+
+_wezterm_cd_pyparser() { _wezterm_cd "$PYPARSER"; }
+_wezterm_cd_dotfiles() { _wezterm_cd "$DOTFILES"; }
+
+zle -N wezterm-cd-pyparser _wezterm_cd_pyparser
+zle -N wezterm-cd-dotfiles _wezterm_cd_dotfiles
+
 wez-restart() {
 
   if [[ -n $MACOS ]]; then

@@ -1,8 +1,8 @@
 #!/bin/sh
-# Expose one mux route through socat. Static routes bind a fixed address that
-# only has to appear; the LAN route has no fixed address on either host, so it
-# resolves the DHCP pair through home-lan-connect and exits when that pair
-# moves, leaving the restart to launchd or systemd.
+# Expose one mux or dclip route through socat. Static routes bind a fixed
+# address that only has to appear; the LAN route has no fixed address on either
+# host, so it resolves the DHCP pair through home-lan-connect and exits when
+# that pair moves, leaving the restart to launchd or systemd.
 
 set -eu
 
