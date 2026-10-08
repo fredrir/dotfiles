@@ -3,9 +3,10 @@
 ## Commands
 
 <!-- cli:commands:start -->
-| Command     | Description                                                                          |
-| ----------- | ------------------------------------------------------------------------------------ |
-| `zsh-build` | Compiles the zsh startup config into one bundle with fixed command output folded in. |
+| Command           | Description                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| `zsh-build`       | Compiles the zsh startup config into one bundle with fixed command output folded in. |
+| `zsh-build where` | Prints the file and line where bundled shell functions were defined.                 |
 <!-- cli:commands:end -->
 
 ## Flags
@@ -27,6 +28,7 @@
 | `config/zsh/build.toml` | Targets, ambient variables, commands folded at build time |
 | `.cache/zsh/build/zshrc.zsh` | Bundle; built by `dotfile sync` |
 | `.cache/zsh/build/zshrc.zsh.zwc` | Wordcode; compiled in the background by the first shell after a build |
+| `.cache/zsh/build/zshrc.origins` | Function name to defining `file:line`; read by `zsh-build where` and the bundle's `type`/`whence` |
 | `.cache/zsh/build/zshrc.rcs.zsh` | Guard sourced by `~/.zshenv`; only when every global startup file compiled |
 | `shared/zsh/00-profile.zsh` | `~/.zprofile` (macOS) |
 

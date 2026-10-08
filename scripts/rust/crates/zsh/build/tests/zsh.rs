@@ -292,3 +292,60 @@ fn wordcode_compiled_from_an_older_bundle_is_discarded() {
     assert!(Bin::new("zsh").args(["-fc", &current]).run().success());
     assert!(wordcode.exists());
 }
+
+#[test]
+fn bundled_functions_report_where_they_were_defined() {
+    let root = fixture();
+    assert!(build(root.path(), &[]).success());
+    let zero = root.path().join("zsh/parts/20-zero.zsh");
+    let located = build(
+        root.path(),
+        &["where", "f_zero", "tool_completion", "missing"],
+    );
+    assert!(!located.success());
+    assert!(
+        located
+            .stdout
+            .contains(&format!("f_zero  {}:4", zero.display())),
+        "{}",
+        located.stdout
+    );
+    assert!(
+        located.stdout.contains(".cache/zsh/tool-completion.zsh:2"),
+        "{}",
+        located.stdout
+    );
+    assert!(
+        located.stderr.contains("missing: not a bundled function"),
+        "{}",
+        located.stderr
+    );
+
+    let lookup = "type f_zero; whence -v f_zero; whence -w f_zero; f() { type -a f_zero }; f; type nosuch; print status=$?";
+    let run = |bundle: bool| {
+        let mut command = Bin::new("zsh")
+            .args([
+                "-fc",
+                &format!("source zsh/env.zsh; source zsh/rc.zsh; {lookup}"),
+            ])
+            .current_dir(root.path())
+            .env("HOME", root.path())
+            .env("PATH", path(root.path()))
+            .env("PROBE_LOG", root.path().join("run.log"));
+        if !bundle {
+            command = command.env("NO_BUNDLE", "1");
+        }
+        command.run().stdout
+    };
+    let sources = run(false);
+    let bundle = run(true);
+    assert_eq!(
+        bundle,
+        sources.replace(
+            &format!("from {}", zero.display()),
+            &format!("from {}:4", zero.display())
+        )
+    );
+    assert!(bundle.contains("f_zero: function"), "{bundle}");
+    assert!(bundle.ends_with("nosuch not found\nstatus=1\n"), "{bundle}");
+}

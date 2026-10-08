@@ -6,7 +6,7 @@ mod rules;
 pub mod system;
 pub mod walk;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::{Range, RangeInclusive};
 use std::path::{Path, PathBuf};
 
@@ -45,11 +45,21 @@ impl Mode {
     }
 }
 
+/// Where function definitions in compiled code are reported as coming from.
+#[derive(Clone, Copy, Debug)]
+pub enum Origin<'a> {
+    /// At their own line in this file.
+    File(&'a str),
+    /// All at this `file:line`, such as the `eval` that ran them.
+    Fixed(&'a str),
+}
+
 #[derive(Clone, Copy)]
 pub struct Cx<'a> {
     pub mode: Mode,
     pub origin: Option<&'a Path>,
     pub analysis: bool,
+    pub source: Option<Origin<'a>>,
 }
 
 pub struct Compiler {
@@ -66,7 +76,10 @@ pub struct Compiler {
     pub path_helper_root: String,
     /// System files that native emulations read.
     pub dependencies: Vec<PathBuf>,
+    /// Function name to the `file:line` it was defined at before bundling.
+    pub origins: BTreeMap<String, String>,
     stack: Vec<PathBuf>,
+    line: usize,
     root: PathBuf,
     startup: bool,
     refusals: Vec<String>,
@@ -79,6 +92,7 @@ struct Snapshot {
     skipped: usize,
     inlined: usize,
     folded: usize,
+    origins: BTreeMap<String, String>,
 }
 
 impl Compiler {
@@ -93,7 +107,9 @@ impl Compiler {
             folded: 0,
             path_helper_root: String::new(),
             dependencies: Vec::new(),
+            origins: BTreeMap::new(),
             stack: Vec::new(),
+            line: 0,
             root,
             startup: false,
             refusals: Vec::new(),
@@ -109,6 +125,7 @@ impl Compiler {
                 mode: Mode::Root,
                 origin: Some(path),
                 analysis: true,
+                source: None,
             },
         )
         .map(|_| ())
@@ -123,6 +140,7 @@ impl Compiler {
                 mode: Mode::Root,
                 origin: None,
                 analysis: false,
+                source: path.to_str().map(Origin::File),
             },
         );
         self.stack.pop();
@@ -157,6 +175,7 @@ impl Compiler {
             skipped: self.skipped.len(),
             inlined: self.inlined,
             folded: self.folded,
+            origins: self.origins.clone(),
         }
     }
 
@@ -167,6 +186,21 @@ impl Compiler {
         self.skipped.truncate(snapshot.skipped);
         self.inlined = snapshot.inlined;
         self.folded = snapshot.folded;
+        self.origins = snapshot.origins;
+    }
+
+    /// The `file:line` of the statement being compiled.
+    pub(crate) fn location(&self, cx: &Cx) -> Option<String> {
+        match cx.source? {
+            Origin::File(file) => Some(format!("{file}:{}", self.line)),
+            Origin::Fixed(location) => Some(location.to_string()),
+        }
+    }
+
+    fn define(&mut self, names: impl IntoIterator<Item = String>, location: &str) {
+        for name in names {
+            self.origins.insert(name, location.to_string());
+        }
     }
 
     pub fn compile(&mut self, script: &Script, cx: &Cx) -> Result<String, String> {
@@ -313,6 +347,7 @@ impl Compiler {
         edits: &mut Edits,
         cx: &Cx,
     ) -> (Option<String>, bool) {
+        self.line = script::start_line(list);
         if list.flags.async_ {
             return (None, false);
         }
@@ -528,6 +563,11 @@ impl Compiler {
                     .functions
                     .insert(walk::text(name), function.clone());
             }
+            if !cx.analysis
+                && let Some(location) = self.location(cx)
+            {
+                self.define(node.names.iter().map(|name| walk::text(name)), &location);
+            }
             return;
         }
         if let Some(lines) = lines {
@@ -537,6 +577,7 @@ impl Compiler {
             mode: Mode::Function,
             origin: None,
             analysis: cx.analysis,
+            source: cx.source,
         };
         self.state.push_frame();
         let last = lines.map_or(0, |lines| *lines.end());
@@ -790,8 +831,12 @@ impl Compiler {
             return;
         }
         let mut local: Vec<(Range<usize>, String, Kind)> = Vec::new();
+        let mut values = BTreeMap::new();
         for substitution in &scan.substitutions {
-            if let Some(replacement) = self.fold(&text[substitution.inner.clone()], substitution) {
+            if let Some((replacement, value)) =
+                self.fold(&text[substitution.inner.clone()], substitution)
+            {
+                values.insert(substitution.range.start, value);
                 local.push((substitution.range.clone(), replacement, Kind::Fold));
             }
         }
@@ -869,6 +914,12 @@ impl Compiler {
             }
         }
         for (range, replacement, kind) in accepted {
+            if kind == Kind::Fold
+                && let Some(value) = values.get(&range.start)
+            {
+                self.line = *segment.lines.start() + text[..range.start].matches('\n').count();
+                self.define_evaluated(value, cx);
+            }
             match kind {
                 Kind::Fold => self.folded += 1,
                 Kind::Zero => edits.zero_done.push(base + range.start),
@@ -879,8 +930,20 @@ impl Compiler {
         edits.returns_rewritten += returns;
     }
 
-    /// `${__zbN}` for a listed command's output.
-    fn fold(&mut self, inner: &str, substitution: &scan::Substitution) -> Option<String> {
+    /// Functions a folded value defines when evaluated, reported where it is evaluated.
+    fn define_evaluated(&mut self, value: &str, cx: &Cx) {
+        let Some(location) = self.location(cx) else {
+            return;
+        };
+        let names = match script::parse(value) {
+            Ok(program) => walk::function_names(&program.lists),
+            Err(_) => walk::declared_names(value),
+        };
+        self.define(names, &location);
+    }
+
+    /// `${__zbN}` and the value, for a listed command's output.
+    fn fold(&mut self, inner: &str, substitution: &scan::Substitution) -> Option<(String, String)> {
         let program = script::parse(inner).ok()?;
         let [list] = program.lists.as_slice() else {
             return None;
@@ -909,7 +972,10 @@ impl Compiler {
         {
             return None;
         }
-        Some(format!("${{{}}}", self.constants.name(value)))
+        Some((
+            format!("${{{}}}", self.constants.name(value.clone())),
+            value,
+        ))
     }
 }
 

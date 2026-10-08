@@ -56,3 +56,21 @@ fn assigned_names_cover_declarations_and_loops() {
         assert!(names.contains(&name.to_string()), "{name} in {names:?}");
     }
 }
+
+#[test]
+fn defined_names_skip_nested_and_anonymous_functions() {
+    let program = parse("a() { b() { : } }\nif true; then function c { : }; fi\n() { : }").unwrap();
+    assert_eq!(
+        function_names(&program.lists),
+        vec!["a".to_string(), "c".to_string()]
+    );
+}
+
+#[test]
+fn declared_names_are_found_in_unparsed_code() {
+    let text = "  fzf-file-widget() {\nfunction __fzf_select {\nx=1 # () {\nfoo bar() {\n";
+    assert_eq!(
+        declared_names(text),
+        vec!["fzf-file-widget".to_string(), "__fzf_select".to_string()]
+    );
+}

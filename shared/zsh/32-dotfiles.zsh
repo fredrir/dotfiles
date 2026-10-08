@@ -17,6 +17,8 @@ alias pp="hwire -i"
 alias ss="sysinfo -p"
 alias ssp="sysinfo -s"
 
+alias tt="zsh-build where"
+
 if [[ "$HOST" == "macie" ]]; then
   alias sspa="sysinfo -st archie"
 fi

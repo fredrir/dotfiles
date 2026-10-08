@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{Compiler, Cx, Mode, placeholder};
+use super::{Compiler, Cx, Mode, Origin, placeholder};
 use crate::script::Script;
 use crate::state::State;
 
@@ -147,6 +147,7 @@ impl Compiler {
                 mode: Mode::Startup,
                 origin: Some(path),
                 analysis: false,
+                source: path.to_str().map(Origin::File),
             },
         );
         self.stack.pop();

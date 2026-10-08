@@ -182,6 +182,42 @@ fn contains_word(lists: &[ZshList], name: &str) -> bool {
     serde_json::to_string(lists).is_ok_and(|json| json.contains(&format!("\"{name}\"")))
 }
 
+/// Named functions `lists` define when run, outside other function bodies.
+pub fn function_names(lists: &[ZshList]) -> Vec<String> {
+    let mut visits = Vec::new();
+    visit(lists, 0, &mut visits);
+    visits
+        .iter()
+        .filter_map(|(_, visit)| match visit {
+            Visit::Command(ZshCommand::FuncDef(node)) if node.auto_call_args.is_none() => {
+                Some(node.names.iter().map(|name| text(name)).collect::<Vec<_>>())
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+/// Function names declared at the start of lines, for code the parser rejects.
+pub fn declared_names(text: &str) -> Vec<String> {
+    let is_name = |name: &str| {
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '+'))
+    };
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim_start();
+            let name = match line.strip_prefix("function ") {
+                Some(rest) => rest.split(['(', ' ', '{']).next()?,
+                None => line.split_once("()")?.0.trim_end(),
+            };
+            is_name(name).then(|| name.to_string())
+        })
+        .collect()
+}
+
 pub fn contains_function(lists: &[ZshList]) -> bool {
     let mut visits = Vec::new();
     visit(lists, 0, &mut visits);

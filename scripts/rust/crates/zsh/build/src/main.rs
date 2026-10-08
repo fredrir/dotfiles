@@ -3,9 +3,9 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, ValueHint};
+use clap::{Parser, Subcommand, ValueHint};
 use workstation::{Completable, Completions};
-use zsh_build::{Options, build, default_root};
+use zsh_build::{Options, build, default_root, origins};
 
 const PROGRAM: &str = "zsh-build";
 
@@ -15,11 +15,23 @@ struct Cli {
     #[arg(short = 'n', long)]
     dry_run: bool,
 
-    #[arg(long, value_hint = ValueHint::DirPath)]
+    #[arg(long, global = true, value_hint = ValueHint::DirPath)]
     root: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
 
     #[command(flatten)]
     completions: Completions,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Print where bundled shell functions were defined
+    Where {
+        #[arg(required = true)]
+        names: Vec<String>,
+    },
 }
 
 impl Completable for Cli {
@@ -37,6 +49,9 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         .root
         .or_else(default_root)
         .ok_or("dotfiles root not found")?;
+    if let Some(Command::Where { names }) = cli.command {
+        return locate(&root, &names);
+    }
     let built = build(&Options {
         root,
         dry_run: cli.dry_run,
@@ -64,4 +79,19 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn locate(root: &std::path::Path, names: &[String]) -> Result<ExitCode, String> {
+    let origins = origins(root)?;
+    let mut code = ExitCode::SUCCESS;
+    for name in names {
+        match origins.get(name) {
+            Some(location) => println!("{name}  {location}"),
+            None => {
+                eprintln!("{PROGRAM}: {name}: not a bundled function");
+                code = ExitCode::FAILURE;
+            }
+        }
+    }
+    Ok(code)
 }

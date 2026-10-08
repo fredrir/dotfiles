@@ -77,6 +77,7 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
             .join(&config.output)
             .join(format!("{}.zsh", target.name));
         let guard_path = output.with_file_name(format!("{}.rcs.zsh", target.name));
+        let origins = output.with_file_name(format!("{}.origins", target.name));
         let system = if target.system {
             let startup = Startup {
                 dir: &config.system.dir,
@@ -109,6 +110,7 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
         let text = emit::bundle(
             &output,
             &target.source,
+            &origins,
             &compiler.constants,
             &(section.to_string() + &body),
         )?;
@@ -119,6 +121,7 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
         if changed && !options.dry_run {
             emit::write_atomic(&output, &text)?;
         }
+        changed |= emit::write_origins(&origins, &compiler.origins, options.dry_run)?;
         if let Some((text, sources)) = guard {
             changed |= emit::write_guard(&guard_path, text, sources, options.dry_run)?;
         }
@@ -171,6 +174,21 @@ fn system(
             System::Kept
         }
     })
+}
+
+/// Where each bundled function was defined, across targets.
+pub fn origins(root: &Path) -> Result<BTreeMap<String, String>, String> {
+    let config = Config::load(&root.join(config::RELATIVE_PATH))?;
+    let mut origins = BTreeMap::new();
+    for target in &config.targets {
+        let path = root
+            .join(&config.output)
+            .join(format!("{}.origins", target.name));
+        if path.is_file() {
+            origins.extend(emit::read_origins(&path)?);
+        }
+    }
+    Ok(origins)
 }
 
 /// Where zsh reads the user's startup files.

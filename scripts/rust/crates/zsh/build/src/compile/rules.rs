@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use zshrs_parse::parser::{RedirType, ZshRedir, ZshSimple};
 
-use super::{Compiler, Cx, Mode, unique, walk};
+use super::{Compiler, Cx, Mode, Origin, unique, walk};
 use crate::expand::{self, Env, Mode as Expand, Var};
 use crate::native;
 use crate::quote;
@@ -72,13 +72,14 @@ impl Compiler {
         &mut self,
         script: &Script,
         origin: Option<&Path>,
+        source: Option<Origin>,
         mode: Mode,
         rewrite: bool,
         cx: &Cx,
     ) -> Option<String> {
         let analysis = cx.analysis || !rewrite;
         let snapshot = self.snapshot();
-        let attempt = self.compile_in(script, origin, mode, analysis);
+        let attempt = self.compile_in(script, origin, source, mode, analysis);
         match attempt {
             Ok(text) if !analysis => {
                 self.inlined += 1;
@@ -88,7 +89,7 @@ impl Compiler {
             Err(reason) => {
                 self.restore(snapshot);
                 self.left_to_runtime(origin, &reason);
-                let _ = self.compile_in(script, origin, mode, true);
+                let _ = self.compile_in(script, origin, source, mode, true);
                 None
             }
         }
@@ -98,13 +99,16 @@ impl Compiler {
         &mut self,
         script: &Script,
         origin: Option<&Path>,
+        source: Option<Origin>,
         mode: Mode,
         analysis: bool,
     ) -> Result<String, String> {
+        let line = self.line;
         let cx = Cx {
             mode,
             origin,
             analysis,
+            source,
         };
         if mode == Mode::Function {
             self.state.push_frame();
@@ -113,7 +117,21 @@ impl Compiler {
         if mode == Mode::Function {
             self.state.pop_frame();
         }
+        self.line = line;
         result
+    }
+
+    /// Code generated at the current statement, reported as defined there.
+    fn inline_generated(
+        &mut self,
+        script: &Script,
+        mode: Mode,
+        rewrite: bool,
+        cx: &Cx,
+    ) -> Option<String> {
+        let location = self.location(cx);
+        let source = location.as_deref().map(Origin::Fixed);
+        self.inline(script, None, source, mode, rewrite, cx)
     }
 
     fn inline_file(&mut self, path: &Path, mode: Mode, rewrite: bool, cx: &Cx) -> Option<String> {
@@ -128,7 +146,14 @@ impl Compiler {
             }
         };
         self.stack.push(path.to_path_buf());
-        let text = self.inline(&script, Some(path), mode, rewrite, cx);
+        let text = self.inline(
+            &script,
+            Some(path),
+            path.to_str().map(Origin::File),
+            mode,
+            rewrite,
+            cx,
+        );
         self.stack.pop();
         text
     }
@@ -171,7 +196,7 @@ pub fn source(
 fn generated(compiler: &mut Compiler, inner: &str, rewrite: bool, cx: &Cx) -> Option<String> {
     let argv = substituted(compiler, inner)?;
     let script = output(compiler, &argv)?;
-    compiler.inline(&script, None, Mode::Plain, rewrite, cx)
+    compiler.inline_generated(&script, Mode::Plain, rewrite, cx)
 }
 
 /// `eval` of a command's output: a listed command's output inlined, or
@@ -201,7 +226,7 @@ pub fn eval(
     let text = output(compiler, &argv)
         // A `return` in eval'd code leaves the caller, not the code.
         .filter(|script| walk::file_returns(&script.program.lists) == Some(0))
-        .and_then(|script| compiler.inline(&script, None, Mode::Plain, rewrite, cx));
+        .and_then(|script| compiler.inline_generated(&script, Mode::Plain, rewrite, cx));
     (text, false)
 }
 
@@ -306,7 +331,13 @@ pub fn cached_eval(
         Var::Scalar(cache) => Some(PathBuf::from(cache).join(format!("{name}.zsh"))),
         _ => None,
     };
-    let text = compiler.inline(&script, origin.as_deref(), Mode::Function, rewrite, cx);
+    let text = match origin.as_deref() {
+        Some(origin) => {
+            let source = origin.to_str().map(Origin::File);
+            compiler.inline(&script, Some(origin), source, Mode::Function, rewrite, cx)
+        }
+        None => compiler.inline_generated(&script, Mode::Function, rewrite, cx),
+    };
     (text.map(|text| function_call(&text, command)), false)
 }
 
