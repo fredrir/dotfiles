@@ -33,6 +33,7 @@ pub struct Cli {
     pub dialect: Option<String>,
 
     /// Quietly format stdin as TARGET; infer language and dialect, allow JSON repairs.
+    /// On formatting or configuration errors, pass input through and succeed unless --verbose or --check.
     #[arg(short, long)]
     pub editor: bool,
 

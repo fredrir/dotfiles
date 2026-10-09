@@ -19,7 +19,7 @@ dotfmt --add .
 dotfmt --sync .
 ```
 
-Editor mode uses the filename for language detection and local configuration, reads the buffer from stdin, and writes only formatted text to stdout. It never writes the named file. Conform uses one formatter for all supported filetypes:
+Editor mode uses the filename for language detection and local configuration, reads the buffer from stdin, and writes formatted text to stdout. Formatting or configuration errors return the original input unchanged, with no diagnostics and exit status `0`. Use `--verbose` to diagnose failures; `--check` retains normal failure status. It never writes the named file. Conform uses one formatter for all supported filetypes:
 
 ```lua
 dotfmt = { command = "dotfmt", args = { "-e", "$FILENAME" } }
@@ -131,5 +131,6 @@ Known global settings apply where supported. Unsupported language-local settings
 | Result                                                      | Exit status |
 | --- | --- |
 | Successful format / clean check                             | `0`         |
+| Editor formatting/configuration failure, without `--verbose` or `--check` | `0` (original input) |
 | Formatting, configuration, I/O failure or check differences | `1`         |
 | CLI usage error                                             | `2`         |

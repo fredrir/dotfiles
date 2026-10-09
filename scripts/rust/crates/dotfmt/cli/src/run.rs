@@ -87,20 +87,34 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
             .and_then(|value| value.parse().ok())
             .filter(|workers| *workers > 0),
     };
+    let editor_input = match &operation {
+        Operation::Format {
+            buffer: Some(buffer),
+            ..
+        } if cli.editor && !cli.verbose && !cli.check => Some(buffer.input.clone()),
+        _ => None,
+    };
     let mut session = Session::new(Resolver::new(), options);
-    let outcome = session
-        .run(Request {
-            operation,
-            languages: cli.languages.clone(),
-            dialect: cli.dialect.clone(),
-        })
-        .map_err(|errors| {
-            errors
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("\ndotfmt: ")
-        })?;
+    let outcome = session.run(Request {
+        operation,
+        languages: cli.languages.clone(),
+        dialect: cli.dialect.clone(),
+    });
+    if let Some(input) = editor_input
+        && outcome.as_ref().map_or(true, Outcome::failed)
+    {
+        io::stdout()
+            .write_all(&input)
+            .map_err(|error| format!("stdout: {error}"))?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    let outcome = outcome.map_err(|errors| {
+        errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\ndotfmt: ")
+    })?;
     let failed = outcome.failed();
     match outcome {
         Outcome::Owned(paths) => {

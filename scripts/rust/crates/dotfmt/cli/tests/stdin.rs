@@ -38,7 +38,7 @@ fn stdin_aliases_and_extensionless_explicit_languages_work() {
 }
 
 #[test]
-fn editor_repairs_are_quiet_unless_verbose_and_errors_still_report() {
+fn editor_repairs_are_quiet_unless_verbose() {
     let root = tree_pairs(&[("dotfmt.dotfile", CONFIG)]);
     let output = dotfmt(root.path())
         .args(["--editor", "--stdin", "a.json"])
@@ -54,13 +54,61 @@ fn editor_repairs_are_quiet_unless_verbose_and_errors_still_report() {
     assert!(verbose.success(), "{verbose:?}");
     assert_eq!(verbose.stdout, output.stdout);
     assert!(verbose.stderr.contains("fixed"), "{verbose:?}");
-    let output = dotfmt(root.path())
-        .args(["-e", "a.lua"])
-        .stdin("local =")
-        .run();
-    assert!(!output.success(), "{output:?}");
-    assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("a.lua"), "{output:?}");
+}
+
+#[test]
+fn editor_formatting_errors_succeed_silently_and_preserve_the_buffer() {
+    let root = tree_pairs(&[("dotfmt.dotfile", CONFIG), ("a.lua", "disk contents")]);
+    for args in [
+        vec!["-e", "a.lua"],
+        vec!["--editor", "--stdin", "a.lua"],
+        vec!["-l", "lua", "-eq", "--stdin", "a.lua"],
+    ] {
+        let input = "\u{feff}-- unfinished buffer\r\nlocal =  \r\n";
+        let output = dotfmt(root.path()).args(args).stdin(input).run();
+        assert!(output.success(), "{output:?}");
+        assert_eq!(output.stdout, input);
+        assert!(output.stderr.is_empty(), "{output:?}");
+    }
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.lua")).unwrap(),
+        "disk contents"
+    );
+}
+
+#[test]
+fn editor_configuration_errors_succeed_silently_and_preserve_the_buffer() {
+    for config in ["", "lua {", "lua { indent = bad }\n"] {
+        let root = tree_pairs(&[("dotfmt.dotfile", config)]);
+        let input = "local x=1\r\n";
+        let output = dotfmt(root.path())
+            .args(["-l", "lua", "-eq", "--stdin", "a.lua"])
+            .stdin(input)
+            .run();
+        assert!(output.success(), "{config}: {output:?}");
+        assert_eq!(output.stdout, input);
+        assert!(output.stderr.is_empty(), "{output:?}");
+    }
+}
+
+#[test]
+fn verbose_editor_check_and_non_editor_modes_still_report_errors() {
+    for (config, input, diagnostic) in [
+        (CONFIG, "local =", "a.lua"),
+        ("lua { indent = bad }\n", "local x=1", "indent"),
+    ] {
+        let root = tree_pairs(&[("dotfmt.dotfile", config)]);
+        for args in [
+            vec!["-e", "a.lua", "--verbose"],
+            vec!["-e", "a.lua", "--check"],
+            vec!["-q", "--stdin", "a.lua"],
+        ] {
+            let output = dotfmt(root.path()).args(args).stdin(input).run();
+            assert_eq!(output.code(), Some(1), "{output:?}");
+            assert!(output.stdout.is_empty());
+            assert!(output.stderr.contains(diagnostic), "{output:?}");
+        }
+    }
 }
 
 #[test]
