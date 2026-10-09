@@ -92,6 +92,9 @@ impl Source for PopularSource {
 }
 
 pub fn load(ctx: &Context) -> Option<Popular> {
+    if ctx.cached_packages {
+        return cache::peek(ctx, "node-popular");
+    }
     cache::load(ctx, &PopularSource)
 }
 

@@ -63,6 +63,12 @@ enum Action {
         #[arg(long, help = "Color the candidates with the dotfile theme")]
         color: bool,
 
+        #[arg(long, hide = true)]
+        picker: bool,
+
+        #[arg(long, hide = true)]
+        cached: bool,
+
         #[arg(last = true, value_name = "WORDS")]
         words: Vec<String>,
     },
@@ -94,16 +100,25 @@ fn main() -> ExitCode {
             current,
             prefix,
             color,
+            picker,
+            cached,
             words,
         }) => {
-            let ctx = Context::from_env();
+            let mut ctx = Context::from_env();
+            ctx.cached_packages = cached;
             let line = Line::new(words, current, prefix);
             let style = if color {
                 Style::for_mode(ColorMode::Auto, true)
             } else {
                 Style::plain()
             };
-            print!("{}", complete(&ctx, &command, &line).render(&style));
+            let reply = complete(&ctx, &command, &line);
+            let rendered = if picker {
+                reply.render_picker(&style, &line.prefix)
+            } else {
+                reply.render(&style)
+            };
+            print!("{rendered}");
             ExitCode::SUCCESS
         }
         Some(Action::Refresh { source, args }) => {

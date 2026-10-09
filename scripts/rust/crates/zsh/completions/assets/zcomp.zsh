@@ -1,6 +1,41 @@
 # zcomp: the binary decides what to offer; this only hands its answer to the completion system.
 typeset -gA _zcomp_orig
 
+_zcomp_search() {
+  local -a rows selected args fields
+  local line skip='' value answer reload
+  for line in "${_zcomp_lines[@]}"; do
+    fields=("${(@ps:\t:)line}")
+    case $fields[1] in
+    skip) skip=$fields[2] ;;
+    item)
+      value=$skip$fields[2]
+      [[ -z $skip || $value == "$PREFIX"* ]] || continue
+      rows+=("$value"$'\t'"$skip${fields[3]:-$fields[2]}")
+      ;;
+    esac
+  done
+  args=("$commands[zcomp]" complete --picker --color --command="$service" --current="$CURRENT")
+  # fzf quotes {q}; quote every original shell word before building its reload command.
+  reload="${(j: :)${(@q)args}} --prefix={q} -- ${(j: :)${(@q)words}}"
+  answer=$({ ((${#rows})) && print -rl -- "${rows[@]}"; } | FZF_DEFAULT_OPTS='' SHELL=$commands[zsh] command fzf \
+    --ansi --disabled --no-sort --delimiter=$'\t' --with-nth=2.. \
+    --height=60% --layout=reverse --multi --query="$PREFIX" \
+    --bind="start:reload($reload)" \
+    --bind="change:unbind(enter)+reload(sleep 0.15; $reload),load:rebind(enter)" \
+    --bind='ctrl-space:toggle,tab:down,btab:up')
+  local ret=$?
+  ((ret == 0)) && [[ -n $answer ]] || return 1
+  for line in "${(@f)answer}"; do
+    selected+=("${line%%$'\t'*}")
+  done
+  # fzf-tab still captures the chosen specs so it can apply them normally.
+  compadd -U -V packages -- "${selected[@]}"
+  compstate[list]=''
+  compstate[insert]=all
+  typeset -g _zcomp_picked=1
+}
+
 _zcomp_fzf() {
   emulate -L zsh -o extended_glob
   local -a rows selected
@@ -8,6 +43,15 @@ _zcomp_fzf() {
   local row plain answer
   local -i i
   rows=("${(@f)$(command cat)}")
+  if (( ${_zcomp_picked:-0} )); then
+    # Multiple specs were already selected in the live picker.
+    local option
+    for option in "$@"; do
+      [[ $option == --header-lines=* ]] && rows[1,${option#*=}]=()
+    done
+    print -rl -- '' '' "${rows[@]}"
+    return 0
+  fi
   for row in "${rows[@]}"; do
     plain=${row//$'\e'\[[0-9\;:]#m/}
     originals[$plain]=$row
@@ -48,12 +92,28 @@ _zcomp_add() {
 }
 
 _zcomp_complete() {
+  typeset -g _zcomp_picked=0
   local -a _zcomp_lines _zcomp_values _zcomp_displays _zcomp_options fields
   local _zcomp_tag _zcomp_label line orig=${_zcomp_orig[$service]:-} ret=1
   # Colors only where they render: fzf-tab passes display strings to fzf with --ansi.
   local color=${${functions[fzf-tab-complete]:+--color}:-} # shucked: ignore=C001
+  local -a initial
+  if (( IN_FZF_TAB && $+commands[fzf] )); then
+    case $service in
+    bun|bunx|npm|npx|pnpm|pn|pnpx|pnx|yarn) initial=(--cached) ;; # shucked: ignore=C001
+    esac
+  fi
   _zcomp_lines=("${(@f)$(command zcomp complete --command="$service" --current="$CURRENT" \
-    --prefix="$PREFIX" $color -- "${words[@]}" 2>/dev/null)}")
+    --prefix="$PREFIX" $color "${initial[@]}" -- "${words[@]}" 2>/dev/null)}")
+
+  if (( IN_FZF_TAB && $+commands[fzf] )) && (( ${_zcomp_lines[(Ie)search]} )); then
+    # Cancellation must not fall through to another completion attempt.
+    _zcomp_search && return 0
+    compstate[list]=''
+    compstate[insert]=''
+    _ftb_finish=1
+    return 0
+  fi
 
   for line in "${_zcomp_lines[@]}"; do
     fields=("${(@ps:\t:)line}")

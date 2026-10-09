@@ -6,7 +6,6 @@ use std::time::Duration;
 use indexmap::IndexMap;
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::cache;
 use crate::context::Context;
@@ -16,11 +15,8 @@ use crate::process;
 
 const SEARCH_SIZE: &str = "25";
 const SHOWN: usize = 30;
-// Prefix matches from a slower-moving index; the registry's own search matches whole words only.
-const SUGGESTIONS: &str = "https://api.npms.io/v2/search/suggestions";
-const DOWNLOADS: &str = "https://api.npmjs.org/downloads/point/last-month";
 const POPULAR_TIMEOUT: Duration = Duration::from_millis(500);
-const SEARCH_TIMEOUT: Duration = Duration::from_millis(1500);
+const SEARCH_TIMEOUT: Duration = Duration::from_millis(750);
 const SEARCH_TTL: u64 = 3600;
 const VERSIONS_TIMEOUT: Duration = Duration::from_secs(4);
 const VERSIONS_TTL: u64 = 3600;
@@ -64,11 +60,6 @@ struct SearchPackage {
 }
 
 #[derive(Deserialize)]
-struct Suggestion {
-    package: SearchPackage,
-}
-
-#[derive(Deserialize)]
 struct Downloads {
     #[serde(default)]
     monthly: u64,
@@ -82,55 +73,48 @@ struct Packument {
     versions: IndexMap<String, IgnoredAny>,
 }
 
-// Packages whose name contains `text`, the most downloaded first.
+// Match package names first; downloads break ties within each kind of match.
 pub fn search(ctx: &Context, registry: &str, text: &str) -> Vec<Hit> {
     if text.is_empty() {
         return Vec::new();
     }
+    let cached = cached_search(ctx, registry, text);
+    if ctx.cached_packages {
+        return rank(cached, text);
+    }
     let key = search_key(registry, text);
     if let Some((hits, age)) = cache::peek_aged::<Vec<Hit>>(ctx, &key)
-        && age < SEARCH_TTL
+        && age < if hits.is_empty() { 30 } else { SEARCH_TTL }
     {
-        return hits;
+        return rank(merge(Some(hits), Some(cached)).unwrap_or_default(), text);
     }
-    let fetched = if registry == DEFAULT_REGISTRY {
+    // npm searches words, not prefixes. Query the strongest known name too,
+    // so `prett` retrieves metadata for `prettier` without a third-party service.
+    let hint = rank(cached.clone(), text)
+        .into_iter()
+        .find(|hit| hit.name.starts_with(text) && super::catalog::position(&hit.name).is_some())
+        .map(|hit| hit.name)
+        .filter(|name| name != text);
+    let fetched = if let Some(hint) = hint.filter(|_| registry == DEFAULT_REGISTRY) {
         thread::scope(|scope| {
-            let words = scope.spawn(|| query(ctx, registry, text, SEARCH_SIZE, SEARCH_TIMEOUT));
-            let prefixed = suggestions(ctx, text).map(|hits| with_downloads(ctx, hits));
-            merge(words.join().ok().flatten(), prefixed)
+            let primary = scope.spawn(|| query(ctx, registry, text, SEARCH_SIZE, SEARCH_TIMEOUT));
+            let expanded = query(ctx, registry, &hint, SEARCH_SIZE, SEARCH_TIMEOUT);
+            merge(primary.join().ok().flatten(), expanded)
         })
     } else {
         query(ctx, registry, text, SEARCH_SIZE, SEARCH_TIMEOUT)
     };
-    if let Some(hits) = fetched
-        .map(|hits| rank(hits, text))
-        .filter(|hits| !hits.is_empty())
-    {
+    if let Some(hits) = fetched {
+        let hits = rank(merge(Some(hits), Some(cached)).unwrap_or_default(), text);
         cache::store(ctx, &key, &hits);
         return hits;
     }
-    let earlier = (1..text.len())
-        .rev()
-        .filter(|end| text.is_char_boundary(*end))
-        .find_map(|end| cache::peek::<Vec<Hit>>(ctx, &search_key(registry, &text[..end])))
-        .map(|hits| rank(hits, text))
-        .unwrap_or_default();
-    if earlier.is_empty() {
+    let cached = rank(cached, text);
+    if cached.is_empty() && registry == DEFAULT_REGISTRY {
         popular_offline(ctx, text)
     } else {
-        earlier
+        cached
     }
-}
-
-pub fn rank(hits: Vec<Hit>, text: &str) -> Vec<Hit> {
-    let needle = text.to_lowercase();
-    let mut kept: Vec<Hit> = hits
-        .into_iter()
-        .filter(|hit| hit.name.to_lowercase().contains(&needle))
-        .collect();
-    kept.sort_by_key(|hit| Reverse(hit.downloads));
-    kept.truncate(SHOWN);
-    kept
 }
 
 fn merge(first: Option<Vec<Hit>>, second: Option<Vec<Hit>>) -> Option<Vec<Hit>> {
@@ -140,54 +124,90 @@ fn merge(first: Option<Vec<Hit>>, second: Option<Vec<Hit>>) -> Option<Vec<Hit>> 
     let mut merged: Vec<Hit> = Vec::new();
     for hit in first.into_iter().chain(second).flatten() {
         match merged.iter_mut().find(|known| known.name == hit.name) {
-            Some(known) => known.downloads = known.downloads.max(hit.downloads),
+            Some(known) => {
+                known.downloads = known.downloads.max(hit.downloads);
+                if known.description.is_empty() {
+                    known.description = hit.description;
+                }
+                if known.version.is_empty() {
+                    known.version = hit.version;
+                }
+            }
             None => merged.push(hit),
         }
     }
     Some(merged)
 }
 
-fn suggestions(ctx: &Context, text: &str) -> Option<Vec<Hit>> {
-    let found: Vec<Suggestion> = Request::get(SUGGESTIONS)
-        .query("q", text)
-        .query("size", SEARCH_SIZE)
-        .timeout(SEARCH_TIMEOUT)
-        .json(ctx)?;
-    Some(
-        found
-            .into_iter()
-            .map(|suggestion| hit(suggestion.package, 0))
-            .collect(),
-    )
+fn cached_search(ctx: &Context, registry: &str, text: &str) -> Vec<Hit> {
+    let mut pool = Vec::new();
+    for end in (1..=text.len())
+        .rev()
+        .filter(|end| text.is_char_boundary(*end))
+    {
+        // Retain useful results from the previous cache format, but don't let a
+        // partial old response suppress a fresh lookup for an hour.
+        for key in [
+            search_key(registry, &text[..end]),
+            format!("search-{}-{}", host(registry), &text[..end]),
+        ] {
+            if let Some(hits) = cache::peek::<Vec<Hit>>(ctx, &key) {
+                pool = merge(Some(pool), Some(hits)).unwrap_or_default();
+            }
+        }
+    }
+    if registry == DEFAULT_REGISTRY {
+        if let Some(popular) = cache::peek::<super::popular::Popular>(ctx, "node-popular") {
+            pool = merge(Some(pool), Some(popular.libraries)).unwrap_or_default();
+            pool = merge(Some(pool), Some(popular.tools)).unwrap_or_default();
+        }
+        pool = merge(Some(pool), Some(super::catalog::matching(text))).unwrap_or_default();
+    }
+    pool
 }
 
-// Monthly downloads for unscoped names in one request; the bulk endpoint refuses scoped ones.
-fn with_downloads(ctx: &Context, mut hits: Vec<Hit>) -> Vec<Hit> {
-    let names: Vec<&str> = hits
-        .iter()
-        .map(|hit| hit.name.as_str())
-        .filter(|name| !name.starts_with('@'))
+pub fn rank(hits: Vec<Hit>, text: &str) -> Vec<Hit> {
+    let needle = text.to_lowercase();
+    let mut kept: Vec<Hit> = hits
+        .into_iter()
+        .filter(|hit| hit.name.to_lowercase().contains(&needle))
         .collect();
-    if names.is_empty() {
-        return hits;
-    }
-    let url = format!("{DOWNLOADS}/{}", names.join(","));
-    let Some(counts) = Request::get(&url)
-        .timeout(SEARCH_TIMEOUT)
-        .json::<Value>(ctx)
-    else {
-        return hits;
-    };
-    for hit in &mut hits {
-        hit.downloads = download_count(&counts, &hit.name).unwrap_or(hit.downloads);
-    }
-    hits
-}
-
-pub fn download_count(counts: &Value, name: &str) -> Option<u64> {
-    let single = counts.get("package").and_then(Value::as_str) == Some(name);
-    let entry = if single { counts } else { counts.get(name)? };
-    entry.get("downloads").and_then(Value::as_u64)
+    kept.sort_by_cached_key(|hit| {
+        let name = hit.name.to_lowercase();
+        let unscoped = name.split_once('/').map_or(name.as_str(), |(_, name)| name);
+        let relevance = if name == needle {
+            0
+        } else if unscoped == needle {
+            1
+        } else if name.starts_with(&needle) {
+            2
+        } else if unscoped.starts_with(&needle) {
+            3
+        } else {
+            4
+        };
+        let catalog = super::catalog::position(&name);
+        let familiar = catalog.is_some() || hit.downloads >= 1_000_000;
+        // Unknown counts are not evidence that a package is unpopular.
+        let popularity = if familiar {
+            0
+        } else if (1..1000).contains(&hit.downloads) {
+            2
+        } else {
+            1
+        };
+        let extension = familiar && unscoped.contains(['-', '_', '.']);
+        (
+            relevance,
+            popularity,
+            extension,
+            Reverse(hit.downloads),
+            catalog.unwrap_or(usize::MAX),
+            name,
+        )
+    });
+    kept.truncate(SHOWN);
+    kept
 }
 
 // Bun ships an index of popular package names that answers without the network.
@@ -253,6 +273,9 @@ pub fn query(
 
 pub fn versions(ctx: &Context, registry: &str, name: &str) -> Option<Versions> {
     let key = format!("versions-{}-{name}", host(registry));
+    if ctx.cached_packages {
+        return cache::peek(ctx, &key);
+    }
     if let Some((versions, age)) = cache::peek_aged::<Versions>(ctx, &key)
         && age < VERSIONS_TTL
     {
@@ -307,7 +330,7 @@ pub fn split_version(spec: &str) -> Option<(&str, &str)> {
 }
 
 fn search_key(registry: &str, prefix: &str) -> String {
-    format!("search-{}-{prefix}", host(registry))
+    format!("search-v2-{}-{prefix}", host(registry))
 }
 
 fn host(registry: &str) -> &str {

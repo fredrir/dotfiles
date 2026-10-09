@@ -10,6 +10,7 @@ const GAP: &str = "  ";
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Reply {
     skip: Option<String>,
+    search: bool,
     sections: Vec<Section>,
     delegate: bool,
     fallback: Vec<Section>,
@@ -134,6 +135,10 @@ impl Reply {
         Reply::default()
     }
 
+    pub fn search(&mut self) {
+        self.search = true;
+    }
+
     pub fn skip(&mut self, literal: impl Into<String>) {
         let literal = literal.into();
         if !literal.is_empty() {
@@ -184,6 +189,9 @@ impl Reply {
 
     pub fn render(&self, style: &Style) -> String {
         let mut out = String::new();
+        if self.search {
+            out.push_str("search\n");
+        }
         if let Some(skip) = &self.skip {
             let _ = writeln!(out, "skip\t{}", clean(skip));
         }
@@ -191,6 +199,30 @@ impl Reply {
         if self.delegate {
             out.push_str("delegate\n");
             render_sections(&mut out, &self.fallback, style);
+        }
+        out
+    }
+
+    // The picker inserts whole package specs, including the name before a version.
+    pub fn render_picker(&self, style: &Style, prefix: &str) -> String {
+        let mut out = String::new();
+        let skip = self.skip.as_deref().unwrap_or("");
+        for section in &self.sections {
+            let Section::Group(group) = section else {
+                continue;
+            };
+            let mut rendered = String::new();
+            render_group(&mut rendered, group, style);
+            for row in rendered.lines().skip(1) {
+                let mut fields = row.splitn(3, '\t');
+                let _ = fields.next();
+                let value = fields.next().unwrap_or("");
+                let display = fields.next().unwrap_or(value);
+                let value = format!("{skip}{value}");
+                if group.replace || value.starts_with(prefix) {
+                    let _ = writeln!(out, "{value}\t{skip}{display}");
+                }
+            }
         }
         out
     }

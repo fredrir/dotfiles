@@ -1,6 +1,37 @@
 use super::*;
 
 #[test]
+fn picker_versions_preserve_the_package_and_filter_the_typed_tag() {
+    let mut reply = Reply::new();
+    reply.skip("@types/node@");
+    reply.group(
+        Group::new("dist-tags", "tag")
+            .items([Item::new("latest", "24.0.0"), Item::new("next", "25.0.0")]),
+    );
+    assert_eq!(
+        reply.render_picker(&Style::plain(), "@types/node@lat"),
+        "@types/node@latest\t@types/node@latest  24.0.0\n"
+    );
+}
+
+#[test]
+fn picker_name_matches_keep_the_ranked_order_and_only_insert_names() {
+    let mut reply = Reply::new();
+    reply.group(Group::new("registry", "package").replace().items([
+        Item::new("shadcn", "CLI"),
+        Item::new("@acme/shadcn", "tools"),
+    ]));
+    let rendered = reply.render_picker(&Style::plain(), "shadcn");
+    assert_eq!(
+        rendered
+            .lines()
+            .map(|line| line.split('\t').next().unwrap())
+            .collect::<Vec<_>>(),
+        ["shadcn", "@acme/shadcn"]
+    );
+}
+
+#[test]
 fn groups_render_as_tab_separated_lines() {
     let mut reply = Reply::new();
     reply.skip("--tools=read,");

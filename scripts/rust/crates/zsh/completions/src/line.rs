@@ -12,6 +12,7 @@ pub struct Line {
 #[derive(Debug, Default)]
 pub struct Scan<'a> {
     pub positionals: Vec<&'a str>,
+    pub first_positional: Option<usize>,
     pub flags: Vec<&'a str>,
     pub pending: Option<&'a Flag>,
     pub after_separator: bool,
@@ -75,12 +76,25 @@ impl Line {
 }
 
 pub fn scan<'a>(words: &'a [String], helps: &[&'a Help]) -> Scan<'a> {
+    scan_words(words, helps, false)
+}
+
+// Top-level flags stop applying once a subcommand is reached.
+pub fn scan_command<'a>(words: &'a [String], helps: &[&'a Help]) -> Scan<'a> {
+    scan_words(words, helps, true)
+}
+
+fn scan_words<'a>(words: &'a [String], helps: &[&'a Help], command: bool) -> Scan<'a> {
     let lookup = |name: &str| helps.iter().find_map(|help| help.flag(name));
     let mut scan = Scan::default();
-    let mut iter = words.iter().peekable();
-    while let Some(word) = iter.next() {
+    let mut iter = words.iter().enumerate();
+    while let Some((index, word)) = iter.next() {
         if scan.after_separator {
+            scan.first_positional.get_or_insert(index);
             scan.positionals.push(word);
+            if command {
+                break;
+            }
             continue;
         }
         if word == "--" {
@@ -101,7 +115,11 @@ pub fn scan<'a>(words: &'a [String], helps: &[&'a Help]) -> Scan<'a> {
             }
             continue;
         }
+        scan.first_positional.get_or_insert(index);
         scan.positionals.push(word);
+        if command {
+            break;
+        }
     }
     scan
 }

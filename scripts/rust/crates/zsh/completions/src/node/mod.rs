@@ -1,3 +1,4 @@
+mod catalog;
 pub mod manager;
 pub mod npmrc;
 pub mod popular;
@@ -6,7 +7,7 @@ pub mod registry;
 
 use crate::context::Context;
 use crate::help::{Flag, Help};
-use crate::line::{Line, scan};
+use crate::line::{Line, scan, scan_command};
 use crate::reply::{Group, Item, Reply, Tone};
 use crate::shared;
 use manager::{Manager, Role, RoleSpec, Spec};
@@ -16,6 +17,16 @@ const WORKSPACE_FLAGS: &[&str] = &["workspace", "filter"];
 
 pub fn complete(ctx: &Context, line: &Line, manager: Manager, runner: bool) -> Reply {
     let spec = manager::spec(ctx, manager);
+    complete_with_spec(ctx, line, manager, runner, &spec)
+}
+
+fn complete_with_spec(
+    ctx: &Context,
+    line: &Line,
+    manager: Manager,
+    runner: bool,
+    spec: &Spec,
+) -> Reply {
     let mut reply = Reply::new();
     if runner {
         let role = spec.role(Role::Dlx);
@@ -24,7 +35,7 @@ pub fn complete(ctx: &Context, line: &Line, manager: Manager, runner: bool) -> R
             ctx,
             line,
             manager,
-            &spec,
+            spec,
             Role::Dlx,
             help,
             line.before(),
@@ -34,20 +45,23 @@ pub fn complete(ctx: &Context, line: &Line, manager: Manager, runner: bool) -> R
     }
 
     let before = line.before();
-    let scanned = scan(before, &[&spec.top]);
+    let scanned = scan_command(before, &[&spec.top]);
     if let Some(flag) = scanned.pending {
         flag_value(ctx, flag, &line.prefix, &mut reply);
         return reply;
     }
-    let mut positionals = scanned.positionals.iter().copied();
-    let Some(mut subcommand) = positionals.next() else {
-        top_level(ctx, line, &spec, &mut reply);
+    let Some(mut at) = scanned.first_positional else {
+        top_level(ctx, line, spec, &mut reply);
         return reply;
     };
+    let mut subcommand = before[at].as_str();
     let yarn_global = manager == Manager::Yarn && subcommand == "global";
     if yarn_global {
-        match positionals.next() {
-            Some(next) => subcommand = next,
+        match before.get(at + 1) {
+            Some(next) => {
+                at += 1;
+                subcommand = next;
+            }
             None => {
                 reply.group(
                     Group::new("commands", "yarn global command")
@@ -62,17 +76,14 @@ pub fn complete(ctx: &Context, line: &Line, manager: Manager, runner: bool) -> R
         reply.files();
         return reply;
     };
-    let start = before
-        .iter()
-        .position(|word| word == subcommand)
-        .map_or(before.len(), |at| at + 1);
+    let start = at + 1;
     let global = yarn_global || line.has_flag(&["-g", "--global"]);
     let context = RoleContext { global };
     role_arguments_with(
         ctx,
         line,
         manager,
-        &spec,
+        spec,
         role,
         &before[start..],
         context,
@@ -212,6 +223,7 @@ fn packages(ctx: &Context, prefix: &str, commands: bool, reply: &mut Reply) {
         return;
     }
     let npmrc = Npmrc::load(ctx);
+    reply.search();
     if let Some((name, _)) = registry::split_version(prefix) {
         versions(
             ctx,
@@ -232,6 +244,7 @@ fn packages(ctx: &Context, prefix: &str, commands: bool, reply: &mut Reply) {
 
 fn popular_packages(ctx: &Context, commands: bool, reply: &mut Reply) {
     let Some(popular) = popular::load(ctx) else {
+        reply.message("type a package name to search");
         return;
     };
     let (label, hits) = if commands {

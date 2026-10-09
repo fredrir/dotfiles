@@ -12,6 +12,8 @@ pub struct Context {
     // Refreshes run in the foreground instead of in a detached process.
     pub foreground: bool,
     pub offline: bool,
+    // The initial picker frame must not wait for package registry requests.
+    pub cached_packages: bool,
     vars: BTreeMap<String, String>,
 }
 
@@ -36,6 +38,7 @@ impl Context {
         Context {
             foreground: flag("ZCOMP_FOREGROUND"),
             offline: flag("ZCOMP_OFFLINE"),
+            cached_packages: false,
             cwd,
             home,
             now: SystemTime::now(),

@@ -4,6 +4,8 @@ alias cdw="cd $DOTFILES/shared/wezterm"
 alias cdz="cd $DOTFILES/shared/zsh"
 alias cdhh="cd $DOTFILES/macos/hammerspoon"
 
+alias exz="zsh-build > /dev/null 2>&1 && exec zsh"
+
 # Git
 alias gdd="git-discard"
 
@@ -16,8 +18,6 @@ alias pp="hwire -i"
 
 alias ss="sysinfo -p"
 alias ssp="sysinfo -s"
-
-alias tt="zsh-build where"
 
 if [[ "$HOST" == "macie" ]]; then
   alias sspa="sysinfo -st archie"

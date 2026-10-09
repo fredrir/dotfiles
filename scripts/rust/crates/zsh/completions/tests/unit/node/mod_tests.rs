@@ -73,7 +73,7 @@ fn a_version_after_the_name_comes_from_the_registry_answer() {
     cache::store(&ctx, "versions-registry.npmjs.org-react", &versions);
     let reply = completed(&root, "bun", "bun add react@");
     let rendered = reply.plain();
-    assert!(rendered.starts_with("skip\treact@\n"), "{rendered}");
+    assert!(rendered.starts_with("search\nskip\treact@\n"), "{rendered}");
     assert_eq!(reply.values(), ["latest", "19.1.0", "18.3.1"]);
     assert!(
         rendered.contains("item\t19.1.0\t19.1.0  latest"),
@@ -93,11 +93,16 @@ fn adding_offers_registry_hits_that_replace_the_word() {
     }];
     cache::store(&ctx, "search-registry.npmjs.org-claude", &hits);
     let rendered = completed(&root, "npm", "npm i -g claude").plain();
-    assert_eq!(
-        rendered,
-        "group\tregistry\tregistry package\tlines\tunsorted\treplace\n\
-         item\t@anthropic-ai/claude-code\t@anthropic-ai/claude-code  50M/mo  Claude in the terminal\n"
+    assert!(
+        rendered
+            .starts_with("search\ngroup\tregistry\tregistry package\tlines\tunsorted\treplace\n")
     );
+    let row = rendered
+        .lines()
+        .find(|line| line.starts_with("item\t@anthropic-ai/claude-code\t"))
+        .unwrap();
+    assert!(row.contains("50M/mo"));
+    assert!(row.ends_with("Claude in the terminal"));
 }
 
 #[test]
@@ -127,10 +132,10 @@ fn a_bare_word_lists_popular_commands_globally_and_libraries_locally() {
 }
 
 #[test]
-fn a_bare_word_says_so_while_the_popular_list_is_fetched() {
+fn a_bare_word_can_search_before_the_popular_list_is_ready() {
     let root = project();
     let rendered = completed(&root, "npm", "npm i -g ").plain();
-    assert!(rendered.starts_with("message\tfetching"), "{rendered}");
+    assert_eq!(rendered, "search\nmessage\ttype a package name to search\n");
 }
 
 #[test]
@@ -181,4 +186,78 @@ fn unknown_subcommands_are_delegated_with_files_as_the_fallback() {
         completed(&root, "npm", "npm publish ").plain(),
         "delegate\nfiles\n"
     );
+}
+
+fn bun_reply(ctx: &Context, text: &str) -> Reply {
+    let mut spec = Spec::fallback(Manager::Bun);
+    spec.top = Help::parse(include_str!("../../fixtures/bun.txt"), &["bun"]);
+    spec.roles[0].help = Help::parse(include_str!("../../fixtures/bun-add.txt"), &["bun", "add"]);
+    let words: Vec<String> = text.split(' ').map(String::from).collect();
+    let line = Line::new(words.clone(), words.len(), None);
+    complete_with_spec(ctx, &line, Manager::Bun, false, &spec)
+}
+
+#[test]
+fn bun_install_dev_flags_complete_packages_instead_of_define_values() {
+    let root = project();
+    let ctx = Context::testing(&root.path().join("home"), root.path(), &[]);
+    cache::store(
+        &ctx,
+        "search-registry.npmjs.org-shadcn",
+        &vec![registry::Hit {
+            name: "shadcn".into(),
+            description: String::new(),
+            version: String::new(),
+            downloads: 1,
+        }],
+    );
+    for command in ["i", "install", "add", "a"] {
+        for flag in ["-d", "--dev", "-g"] {
+            let text = format!("bun {command} {flag} shadcn");
+            let reply = bun_reply(&ctx, &text);
+            assert_eq!(reply.values(), ["shadcn"], "{text}: {}", reply.plain());
+        }
+        let reply = bun_reply(&ctx, &format!("bun {command} -d "));
+        assert!(reply.plain().starts_with("search\n"), "{}", reply.plain());
+        assert!(!reply.plain().contains("define"));
+    }
+}
+
+#[test]
+fn bun_flags_before_and_after_the_command_use_the_correct_help() {
+    let root = project();
+    let ctx = Context::testing(&root.path().join("home"), root.path(), &[]);
+    assert!(bun_reply(&ctx, "bun -d ").plain().contains("--define"));
+    assert!(
+        bun_reply(&ctx, "bun i --backend ")
+            .values()
+            .contains(&"hardlink")
+    );
+    assert!(
+        bun_reply(&ctx, "bun --cwd i i -d ")
+            .plain()
+            .starts_with("search\n")
+    );
+}
+
+#[test]
+fn every_manager_offers_the_same_ranked_package_names() {
+    let root = project();
+    let ctx = Context::testing(&root.path().join("home"), root.path(), &[]);
+    let hits: Vec<registry::Hit> = [("shadcn-ui", 100), ("shadcn", 1), ("typescript", 1000)]
+        .into_iter()
+        .map(|(name, downloads)| registry::Hit {
+            name: name.into(),
+            downloads,
+            description: String::new(),
+            version: String::new(),
+        })
+        .collect();
+    cache::store(&ctx, "search-registry.npmjs.org-shadcn", &hits);
+    for (command, action) in [("bun", "i"), ("npm", "i"), ("pnpm", "add"), ("yarn", "add")] {
+        assert_eq!(
+            completed(&root, command, &format!("{command} {action} shadcn")).values(),
+            ["shadcn", "shadcn-ui"]
+        );
+    }
 }
