@@ -14,6 +14,9 @@ if has_cmd claude; then
   claude() {
     _run_agent claude --dangerously-skip-permissions "$@"
   }
+  cc() {
+    _run_agent claude --dangerously-skip-permissions "$@"
+  }
 fi
 
 if has_cmd codex; then

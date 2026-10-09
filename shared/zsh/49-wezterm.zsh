@@ -144,12 +144,17 @@ if [[ $WEZTERM_PANE_READY == 1 && -n $WEZTERM_PANE ]]; then
   add-zle-hook-widget line-init _wezterm_pane_ready
 fi
 
+_wezterm_reset_prompt() {
+  (($+functions[_prompt_render_left])) && _prompt_render_left
+  zle reset-prompt
+}
+
 _wezterm_open_yazi() {
   local yazi_status
   zle -I
   ycd
   yazi_status=$?
-  zle reset-prompt
+  _wezterm_reset_prompt
   return "$yazi_status"
 }
 
@@ -163,7 +168,7 @@ _wezterm_cd_preview() {
     [[ -n $VIRTUAL_ENV ]] || unset VIRTUAL_ENV
   fi
 
-  zle reset-prompt
+  _wezterm_reset_prompt
   zle -R
   return 0
 }
@@ -179,7 +184,7 @@ _wezterm_cd() {
 
   local -a chpwd_functions=(_wezterm_cd_preview "${chpwd_functions[@]}")
   builtin cd -- "$destination" || return
-  zle reset-prompt
+  _wezterm_reset_prompt
 }
 
 _wezterm_cd_pyparser() { _wezterm_cd "$PYPARSER"; }

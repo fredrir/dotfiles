@@ -94,3 +94,5 @@ benchmarks/.lock
 
 /.dotfile-transaction-*/
 **/.dotfile-recovery-*/
+
+/macos/karabiner/automatic_backups*

@@ -21,6 +21,7 @@
 | size         | [size.md](./size.md)                 | [scripts/rust/crates/utility/size/]         |
 | sysinfo      | [sysinfo.md](./sysinfo.md)           | [scripts/rust/crates/sysinfo/]              |
 | transcript   | [transcript.md](./transcript.md)     | [scripts/python/src/tools/transcript/]      |
+| wfocus       | [wfocus.md](./wfocus.md)             | [scripts/rust/crates/wfocus/]               |
 | zcomp        | [zcomp.md](./zcomp.md)               | [scripts/rust/crates/zsh/completions/]      |
 | zsh-build    | [zsh-build.md](./zsh-build.md)       | [scripts/rust/crates/zsh/build/]            |
 <!-- cli:index:end -->

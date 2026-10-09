@@ -12,11 +12,12 @@
 
 ## Shared Keybinds
 
-[<code>disable_default_key_bindings = true</code>](../../shared/wezterm/keymap/init.lua#L143)
+[<code>disable_default_key_bindings = true</code>](../../shared/wezterm/keymap/init.lua#L144)
 
 | Key | Action | Description |
 | --- | --- | --- |
 | <code>CTRL+{ Up = { streak = 1, button = "Left" } }</code> | [<code>wezterm.action.OpenLinkAtMouseCursor</code>](../../shared/wezterm/keymap/mouse-bindings.lua#L7) | Open Link At Mouse Cursor<br><code>mouse</code> |
+| <code>NUM_LOCK+s</code> | [<code>act.SendString("\\x1b&#91;112;9u")</code>](../../shared/wezterm/keymap/init.lua#L126) | Send String: \\x1b&#91;112;9u |
 | <code>SHIFT+DownArrow</code> | [<code>act.SendString(map.shift_down)</code>](../../shared/wezterm/keymap/motion-keys.lua#L54) | Send String: map.shift_down |
 | <code>SHIFT+Enter</code> | [<code>act.SendString(map.shift_enter)</code>](../../shared/wezterm/keymap/motion-keys.lua#L57) | Send String: map.shift_enter |
 | <code>SHIFT+LeftArrow</code> | [<code>act.SendString(map.shift_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L51) | Send String: map.shift_left |

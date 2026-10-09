@@ -75,13 +75,18 @@ _prompt_preexec() {
   ((_prompt_started = int(rint(EPOCHREALTIME * 1000))))
 }
 
-_prompt_precmd() {
+_prompt_render_left() {
   local REPLY left=
   [[ -n $VIRTUAL_ENV ]] && left+="%{$THEME_PYTHON%}(.venv)"
   _prompt_git_branch && left+="%{$THEME_GIT%}[${REPLY//\%/%%}]"
   _prompt_dir
   left+="%{$_prompt_dir_color%}[${REPLY//\%/%%}]%{$_prompt_char_color%}\$%{$THEME_RESET%} "
   _prompt_left=$left
+}
+
+_prompt_precmd() {
+  local REPLY
+  _prompt_render_left
   _prompt_right=
   if ((${+_prompt_started})); then
     local -i elapsed=$((int(rint(EPOCHREALTIME * 1000)) - _prompt_started))
