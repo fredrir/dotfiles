@@ -69,3 +69,36 @@ fn a_profile_needs_its_target_to_compile_the_system_files() {
     let twice = "output = \"x\"\n[[target]]\nname = \"a\"\nsource = \"a\"\nsystem = true\n[[target]]\nname = \"b\"\nsource = \"b\"\nsystem = true\n";
     assert!(Config::parse(twice).is_err());
 }
+
+#[test]
+fn nothing_is_deferred_by_default() {
+    let config = Config::parse("output = \"x\"\n").unwrap();
+    assert!(!config.defer.compinit);
+    assert!(config.defer.plugins.is_empty() && config.defer.files.is_empty());
+    let config = Config::parse(
+        r#"
+output = "x"
+
+[defer]
+compinit = true
+plugins = ["git"]
+evals = ["*-completion"]
+files = ["zsh/70-*.zsh"]
+"#,
+    )
+    .unwrap();
+    assert!(config.defer.compinit);
+    assert_eq!(config.defer.evals, vec!["*-completion".to_string()]);
+}
+
+#[test]
+fn bad_defer_patterns_and_unknown_keys_are_rejected() {
+    assert!(Config::parse("output = \"x\"\n[defer]\nplugins = [\"[\"]\n").is_err());
+    assert!(Config::parse("output = \"x\"\n[defer]\nlibs = [\"x\"]\n").is_err());
+}
+
+#[test]
+fn a_missing_fold_table_keeps_the_default_timeout() {
+    let config = Config::parse("output = \"x\"\n").unwrap();
+    assert_eq!(config.fold.timeout_ms, 5000);
+}

@@ -7,12 +7,13 @@ use crate::quote;
 const WHENCE: &str = include_str!("../assets/whence.zsh");
 
 /// The bundle: a background `zcompile` when its wordcode is stale, kept only
-/// if the bundle it compiled is still current, folded values, then the code.
+/// if the bundle it compiled is still current, folded values, helpers, then the code.
 pub fn bundle(
     path: &Path,
     source: &Path,
     origins: &Path,
     constants: &Constants,
+    helpers: &[&str],
     body: &str,
 ) -> Result<String, String> {
     let bundle = path
@@ -33,7 +34,7 @@ pub fn bundle(
     let wrappers = WHENCE
         .replace("@BUNDLE@", bundle)
         .replace("@ORIGINS@", origins);
-    let declarations = constants.declarations() + &wrappers;
+    let declarations = constants.declarations() + &helpers.concat() + &wrappers;
     let id = crate::script::hash(&format!("{declarations}{body}"));
     let header = format!("# zsh-build: {id:016x} generated from {}", source.display());
     let expected = quote::word(&header);

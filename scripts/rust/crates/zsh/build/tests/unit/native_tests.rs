@@ -95,3 +95,69 @@ fn the_emulation_parses_and_keeps_the_original_as_fallback() {
     );
     assert!(code.contains("entries=(/usr/bin)\n"), "{code}");
 }
+
+#[test]
+fn only_atuin_uuid_has_a_native_substitute() {
+    assert!(substitute(&names(&["atuin", "uuid"])).is_some());
+    assert!(substitute(&names(&["/opt/homebrew/bin/atuin", "uuid"])).is_some());
+    assert!(substitute(&names(&["atuin", "uuid", "--help"])).is_none());
+    assert!(substitute(&names(&["atuin"])).is_none());
+    assert!(substitute(&names(&["uuidgen"])).is_none());
+    assert!(substitute(&[]).is_none());
+}
+
+fn at(millis: u64) -> SystemTime {
+    UNIX_EPOCH + std::time::Duration::from_millis(millis)
+}
+
+#[test]
+fn atuin_uuid_output_must_have_the_form_the_helper_makes() {
+    let made = 0x01a1_20c9_8fed;
+    let id = "01a120c98fed74a3beeadec383fcc3b8\n";
+    assert!(is_uuid7(id, at(made)));
+    assert!(is_uuid7(id, at(made + 59_000)));
+    assert!(!is_uuid7(id, at(made + 61_000)));
+    for other in [
+        "01a120c98fed74a3beeadec383fcc3b8",
+        "01a120c98fed74a3beeadec383fcc3b8\n\n",
+        "01A120C98FED74A3BEEADEC383FCC3B8\n",
+        "01a120c9-8fed-74a3-beea-dec383fcc3b8\n",
+        "01a120c98fed44a3beeadec383fcc3b8\n",
+        "01a120c98fed78a3beeadec383fcc3b8\n",
+        "01a120c98fed74a3ceeadec383fcc3b8\n",
+        "01a120c98fed74a3beeadec383fcc3b\n",
+    ] {
+        assert!(!is_uuid7(other, at(made)), "{other}");
+    }
+}
+
+#[test]
+fn the_expansion_calls_the_helper_and_keeps_the_original_as_fallback() {
+    let atuin = substitute(&names(&["atuin", "uuid"])).unwrap();
+    let expansion = atuin.expansion("$(atuin uuid)");
+    assert_eq!(
+        expansion,
+        "${${:-$((_zsh_build_uuid7()))}:+${_zsh_build_uuid:-$(atuin uuid)}}"
+    );
+    let code = format!("export ATUIN_SESSION={expansion}\nids+=(\"{expansion}\")\n");
+    assert!(crate::script::parse(&code).is_ok(), "{code}");
+}
+
+#[test]
+fn the_helper_defines_the_math_function_from_a_proper_random_source() {
+    let atuin = substitute(&names(&["atuin", "uuid"])).unwrap();
+    let program = crate::script::parse(atuin.helper).unwrap();
+    assert_eq!(
+        crate::compile::walk::function_names(&program.lists),
+        names(&[atuin.function])
+    );
+    for part in [
+        format!("functions -M {} 0 0\n", atuin.function),
+        format!("typeset -g {}=\n", atuin.value),
+        "now=($epochtime)\n".to_string(),
+        "sysread -s 10 random </dev/urandom || return\n".to_string(),
+    ] {
+        assert!(atuin.helper.contains(&part), "{part}");
+    }
+    assert!(!atuin.helper.contains("RANDOM"));
+}

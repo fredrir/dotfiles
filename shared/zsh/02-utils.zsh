@@ -68,13 +68,52 @@ typeset -ga _defer_queue
 
 defer() {
   (($#_defer_queue)) || _defer_schedule
-  _defer_queue+=("$*")
+  # Queued by deferred work: runs right after it
+  if ((${+_defer_at})); then
+    _defer_queue[_defer_at,_defer_at-1]=("$*")
+    ((_defer_at++))
+  else
+    _defer_queue+=("$*")
+  fi
 }
 
 _defer_schedule() {
   local fd
   exec {fd}</dev/null
-  zle -F $fd _defer_flush
+  # As a widget, so it sees the keys typed while it runs
+  zle -F -w $fd _defer_flush
+  autoload -Uz add-zle-hook-widget
+  add-zle-hook-widget line-init _defer_typeahead
+  add-zle-hook-widget line-finish _defer_drain
+}
+
+_defer_unhook() {
+  add-zle-hook-widget -d line-init _defer_typeahead
+  add-zle-hook-widget -d line-finish _defer_drain
+}
+
+# zle reads keys typed before the prompt ahead of the queue; run it first
+_defer_typeahead() {
+  ((KEYS_QUEUED_COUNT || PENDING)) && _defer_drain
+  return 0
+}
+
+# A line accepted before the queue empties runs after the rest of it
+_defer_drain() {
+  while (($#_defer_queue)); do _defer_next; done
+  _defer_unhook
+}
+
+_defer_next() {
+  local -i _defer_at=2
+  # Under job control, each pipeline makes zle redraw the prompt
+  if [[ -o monitor ]]; then
+    unsetopt monitor
+    { eval $_defer_queue[1] } always { setopt monitor }
+  else
+    eval $_defer_queue[1]
+  fi
+  shift _defer_queue
 }
 
 _defer_flush() {
@@ -83,14 +122,14 @@ _defer_flush() {
   exec {fd}<&-
 
   while (($#_defer_queue)); do
-    eval $_defer_queue[1]
-    shift _defer_queue
+    _defer_next
     ((KEYS_QUEUED_COUNT || PENDING)) && {
       _defer_schedule
       return
     }
   done
 
+  _defer_unhook
   (($+functions[_zsh_autosuggest_start])) && _zsh_autosuggest_start
   zle reset-prompt
 }

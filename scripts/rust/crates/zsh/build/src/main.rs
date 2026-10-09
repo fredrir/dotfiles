@@ -68,12 +68,16 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             None => "",
         };
         println!(
-            "{}  {}  {status}  {} inlined  {} folded{system}",
+            "{}  {}  {status}  {} inlined  {} folded  {} deferred{system}",
             target.name,
             target.path.display(),
             target.inlined,
-            target.folded
+            target.folded,
+            target.deferred
         );
+        for dump in &target.refreshed {
+            println!("{}  completion dump refreshed", dump.display());
+        }
         for note in target.warnings.iter().chain(&target.skipped) {
             eprintln!("{PROGRAM}: {note}");
         }

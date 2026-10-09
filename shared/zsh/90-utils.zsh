@@ -192,3 +192,21 @@ inspect-port() {
 inspect-pid() {
   ps -p "$1" -o pid,vsz=MEMORY -o user,group=GROUP -o comm,args=ARGS
 }
+
+if has_cmd bat; then
+  cat() {
+    if (($# == 0)); then
+      bat -pp
+      return
+    fi
+
+    local f
+    for f in "$@"; do
+      if has_cmd chafa && [[ -f "$f" && "$(file -b --mime-type -- "$f")" == image/* ]]; then
+        chafa -- "$f"
+      else
+        bat -pp -- "$f"
+      fi
+    done
+  }
+fi

@@ -33,18 +33,26 @@ impl Edits {
     }
 
     pub fn render(&self, script: &Script) -> String {
-        self.render_with(script, |text| text)
+        self.render_with(script, 0..script.text.len(), |text| text)
+    }
+
+    /// The rendering of the edits within `bounds`, a range of whole statements.
+    pub fn render_within(&self, script: &Script, bounds: Range<usize>) -> String {
+        self.render_with(script, bounds, |text| text)
     }
 
     /// The rendering with each replaced statement stubbed out: what remains
     /// to check once every replacement was checked on its own.
     pub fn skeleton(&self, script: &Script) -> String {
-        self.render_with(script, |text| if text.is_empty() { "" } else { ":\n" })
+        self.render_with(script, 0..script.text.len(), |text| {
+            if text.is_empty() { "" } else { ":\n" }
+        })
     }
 
     fn render_with<'a>(
         &'a self,
         script: &Script,
+        bounds: Range<usize>,
         line_text: impl Fn(&'a str) -> &'a str,
     ) -> String {
         let mut edits: Vec<(Range<usize>, &str)> = self
@@ -56,10 +64,12 @@ impl Edits {
                     .iter()
                     .map(|(range, text)| (range.clone(), text.as_str())),
             )
+            .filter(|(range, _)| bounds.start <= range.start && range.end <= bounds.end)
             .collect();
-        edits.sort_by_key(|(range, _)| range.start);
-        let mut out = String::with_capacity(script.text.len());
-        let mut position = 0;
+        // Insertions sort ahead of a replacement starting at the same offset.
+        edits.sort_by_key(|(range, _)| (range.start, range.end));
+        let mut out = String::with_capacity(bounds.len());
+        let mut position = bounds.start;
         for (range, text) in edits {
             if range.start < position {
                 continue;
@@ -72,7 +82,7 @@ impl Edits {
             }
             position = range.end;
         }
-        out.push_str(&script.text[position..]);
+        out.push_str(&script.text[position..bounds.end]);
         out
     }
 }

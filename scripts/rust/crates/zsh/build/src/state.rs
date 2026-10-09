@@ -144,6 +144,10 @@ impl State {
         !self.frames.is_empty()
     }
 
+    pub fn is_local(&self, name: &str) -> bool {
+        self.frames.iter().any(|frame| frame.contains_key(name))
+    }
+
     pub fn pop_frame(&mut self) {
         if let Some(frame) = self.frames.pop() {
             for (name, value) in frame {

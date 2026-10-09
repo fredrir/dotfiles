@@ -48,7 +48,7 @@ fn pipes(list: &ZshList) -> Vec<&ZshPipe> {
 }
 
 /// Every command in `lists`, with the loop depth it runs at; function bodies excluded.
-fn visit<'a>(lists: &'a [ZshList], depth: usize, out: &mut Vec<(usize, Visit<'a>)>) {
+pub fn visit<'a>(lists: &'a [ZshList], depth: usize, out: &mut Vec<(usize, Visit<'a>)>) {
     for list in lists {
         for pipe in pipes(list) {
             command(&pipe.cmd, depth, out);
@@ -275,6 +275,15 @@ pub fn for_words(list: &ForList) -> Option<Vec<String>> {
         ForList::Words(words) => Some(words.iter().map(|word| text(word)).collect()),
         _ => None,
     }
+}
+
+/// Stable identity of statements, insensitive to layout and comments.
+pub fn fingerprint_lists(lists: &[ZshList]) -> u64 {
+    let mut value = serde_json::to_value(lists).unwrap_or_default();
+    strip_positions(&mut value);
+    let mut canonical = String::new();
+    write_canonical(&value, &mut canonical);
+    crate::script::hash(&canonical)
 }
 
 /// Stable identity of a function body, insensitive to layout and comments.

@@ -63,8 +63,6 @@ function gg() {
   git clone git@github.com:fredrir/${1}.git
 }
 
-has_cmd bat && alias cat='bat -pp'
-
 alias sshmux="ssh -O check"
 alias sshmux-exit="ssh -O exit"
 alias wez="wezterm cli --no-auto-start"

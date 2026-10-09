@@ -1,7 +1,10 @@
 //! Walks startup code in execution order, tracking build-time state, and
 //! rewrites what that state decides: sources, helpers and folded commands.
 
+mod compinit;
+pub mod defer;
 mod edits;
+mod ledger;
 mod rules;
 pub mod system;
 pub mod walk;
@@ -21,7 +24,9 @@ use crate::quote;
 use crate::scan::{self, ZeroForm, ZeroRef};
 use crate::script::{self, Script, Segment};
 use crate::state::{Function, State};
+use defer::Deferral;
 use edits::Edits;
+use ledger::Ledger;
 
 const OMIT: &str = "# zsh-build: omit";
 
@@ -78,6 +83,14 @@ pub struct Compiler {
     pub dependencies: Vec<PathBuf>,
     /// Function name to the `file:line` it was defined at before bundling.
     pub origins: BTreeMap<String, String>,
+    /// Definitions native expansions call, emitted ahead of the bundle.
+    pub helpers: Vec<&'static str>,
+    /// What runs after the first prompt.
+    pub deferral: Deferral,
+    pub deferred: usize,
+    ledger: Ledger,
+    /// Above zero inside deferred code and loop bodies, where nothing more is deferred.
+    defer_suspended: usize,
     stack: Vec<PathBuf>,
     line: usize,
     root: PathBuf,
@@ -92,7 +105,9 @@ struct Snapshot {
     skipped: usize,
     inlined: usize,
     folded: usize,
+    ledger: (usize, usize),
     origins: BTreeMap<String, String>,
+    helpers: usize,
 }
 
 impl Compiler {
@@ -108,6 +123,11 @@ impl Compiler {
             path_helper_root: String::new(),
             dependencies: Vec::new(),
             origins: BTreeMap::new(),
+            helpers: Vec::new(),
+            deferral: Deferral::default(),
+            deferred: 0,
+            ledger: Ledger::default(),
+            defer_suspended: 0,
             stack: Vec::new(),
             line: 0,
             root,
@@ -175,7 +195,9 @@ impl Compiler {
             skipped: self.skipped.len(),
             inlined: self.inlined,
             folded: self.folded,
+            ledger: self.ledger.len(),
             origins: self.origins.clone(),
+            helpers: self.helpers.len(),
         }
     }
 
@@ -186,7 +208,9 @@ impl Compiler {
         self.skipped.truncate(snapshot.skipped);
         self.inlined = snapshot.inlined;
         self.folded = snapshot.folded;
+        self.ledger.truncate(snapshot.ledger);
         self.origins = snapshot.origins;
+        self.helpers.truncate(snapshot.helpers);
     }
 
     /// The `file:line` of the statement being compiled.
@@ -205,14 +229,29 @@ impl Compiler {
 
     pub fn compile(&mut self, script: &Script, cx: &Cx) -> Result<String, String> {
         let mut edits = Edits::default();
-        self.lists(
-            script,
-            &script.program.lists,
-            script.line_count(),
-            true,
-            &mut edits,
-            cx,
-        );
+        let lists = &script.program.lists;
+        match (self.compinit_window(script, cx), cx.origin) {
+            (Some(window), Some(origin)) => {
+                let (start, end) = (*window.lines.start(), *window.lines.end());
+                let before = &lists[..window.lists.start];
+                self.lists(script, before, start - 1, true, &mut edits, cx);
+                self.open_window();
+                self.lists(
+                    script,
+                    &lists[window.lists.clone()],
+                    end,
+                    true,
+                    &mut edits,
+                    cx,
+                );
+                self.wrap_window(script, &window, &mut edits, origin);
+                let rest = &lists[window.lists.end..];
+                self.lists(script, rest, script.line_count(), true, &mut edits, cx);
+            }
+            _ => {
+                self.lists(script, lists, script.line_count(), true, &mut edits, cx);
+            }
+        }
         if cx.analysis {
             return Ok(String::new());
         }
@@ -287,10 +326,28 @@ impl Compiler {
         } else {
             vec![None; lists.len()]
         };
+        let section = if cx.analysis {
+            None
+        } else {
+            compinit::find(lists, &segments)
+        };
         let mut ended = false;
         let mut index = 0;
-        for segment in segments {
-            let dead = ended.then(|| self.state.clone());
+        for (position, segment) in segments.into_iter().enumerate() {
+            if let Some(section) = section
+                .as_ref()
+                .filter(|section| section.segments.contains(&position))
+            {
+                if position == section.segments.start {
+                    for list in &lists[section.lists.clone()] {
+                        self.statement(script, list, None, edits, cx);
+                    }
+                    edits.replace_lines(section.lines.clone(), compinit::text(script, section));
+                }
+                index = section.lists.end;
+                continue;
+            }
+            let dead = ended.then(|| (self.state.clone(), self.ledger.mark()));
             match segment {
                 Some(segment) => {
                     let range = segment.lists.clone();
@@ -332,8 +389,9 @@ impl Compiler {
                     index += 1;
                 }
             }
-            if let Some(state) = dead {
+            if let Some((state, mark)) = dead {
                 self.state = state;
+                self.ledger.reset(mark);
             }
         }
         ended
@@ -461,7 +519,9 @@ impl Compiler {
                 Some(cond) => self.program_truth(cond),
             };
             if decided || taken == Some(false) {
+                let mark = self.ledger.mark();
                 self.lists(script, &body.lists, last, owned, edits, cx);
+                self.ledger.reset(mark);
                 continue;
             }
             if !self.lists(script, &body.lists, last, owned, edits, cx) {
@@ -504,7 +564,9 @@ impl Compiler {
         let saved = self.state.clone();
         self.state.forget(&node.var);
         let last = lines.map_or(0, |lines| *lines.end());
+        self.defer_suspended += 1;
         self.lists(script, &node.body.lists, last, lines.is_some(), edits, cx);
+        self.defer_suspended -= 1;
         self.state.merge(&saved);
         self.state.forget(&node.var);
         (None, false)
@@ -559,9 +621,9 @@ impl Compiler {
                 fingerprint: walk::fingerprint(node),
             };
             for name in &node.names {
-                self.state
-                    .functions
-                    .insert(walk::text(name), function.clone());
+                let name = walk::text(name);
+                self.record_function(&name, &node.body.lists);
+                self.state.functions.insert(name, function.clone());
             }
             if !cx.analysis
                 && let Some(location) = self.location(cx)
@@ -603,6 +665,7 @@ impl Compiler {
         let name = expand::scalar(&words[0], &self.state).unwrap_or_else(|| words[0].clone());
         let rewrite = rewrite && simple.assigns.is_empty() && simple.redirs.is_empty();
         let args = &words[1..];
+        self.record_command(&name, args);
         match name.as_str() {
             "return" | "exit" => (None, true),
             "source" | "." if simple.assigns.is_empty() => rules::source(self, args, rewrite, cx),
@@ -668,6 +731,7 @@ impl Compiler {
         for arg in args.iter().filter(|arg| !arg.starts_with(['-', '+'])) {
             match arg.split_once('=') {
                 Some((variable, value)) => {
+                    self.record_assign(variable, local);
                     if local {
                         self.state.declare_local(variable);
                     }
@@ -698,6 +762,7 @@ impl Compiler {
     }
 
     fn assign(&mut self, assign: &ZshAssign, local: bool) {
+        self.record_assign(&assign.name, local);
         if local {
             self.state.declare_local(&assign.name);
         }
@@ -833,11 +898,18 @@ impl Compiler {
         let mut local: Vec<(Range<usize>, String, Kind)> = Vec::new();
         let mut values = BTreeMap::new();
         for substitution in &scan.substitutions {
-            if let Some((replacement, value)) =
-                self.fold(&text[substitution.inner.clone()], substitution)
-            {
+            let inner = &text[substitution.inner.clone()];
+            if let Some((replacement, value)) = self.fold(inner, substitution) {
                 values.insert(substitution.range.start, value);
                 local.push((substitution.range.clone(), replacement, Kind::Fold));
+            } else if let Some((replacement, helper)) =
+                rules::substitute(self, inner, &text[substitution.range.clone()])
+            {
+                local.push((
+                    substitution.range.clone(),
+                    replacement,
+                    Kind::Native(helper),
+                ));
             }
         }
         let functions = definition || walk::contains_function(lists);
@@ -923,7 +995,10 @@ impl Compiler {
             match kind {
                 Kind::Fold => self.folded += 1,
                 Kind::Zero => edits.zero_done.push(base + range.start),
-                Kind::Return => {}
+                Kind::Native(helper) if !self.helpers.contains(&helper) => {
+                    self.helpers.push(helper)
+                }
+                Kind::Native(_) | Kind::Return => {}
             }
             edits.replace_bytes(base + range.start..base + range.end, replacement);
         }
@@ -984,6 +1059,7 @@ enum Kind {
     Fold,
     Zero,
     Return,
+    Native(&'static str),
 }
 
 fn list_of(cmd: ZshCommand) -> ZshList {

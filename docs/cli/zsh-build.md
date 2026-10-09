@@ -25,10 +25,11 @@
 
 | Path | Value |
 | --- | --- |
-| `config/zsh/build.toml` | Targets, ambient variables, commands folded at build time |
+| `config/zsh/build.toml` | Targets, ambient variables, commands folded at build time, deferred code |
 | `.cache/zsh/build/zshrc.zsh` | Bundle; built by `dotfile sync` |
 | `.cache/zsh/build/zshrc.zsh.zwc` | Wordcode; compiled in the background by the first shell after a build |
 | `.cache/zsh/build/zshrc.origins` | Function name to defining `file:line`; read by `zsh-build where` and the bundle's `type`/`whence` |
+| `~/.zcompdump-*.fpath` | `fpath` the completion dump was built for; while it matches, the bundle runs `compinit -C`. A build removes a dump whose completion functions changed |
 | `.cache/zsh/build/zshrc.rcs.zsh` | Guard sourced by `~/.zshenv`; only when every global startup file compiled |
 | `shared/zsh/00-profile.zsh` | `~/.zprofile` (macOS) |
 
@@ -46,6 +47,30 @@
 | `dir` | `/etc` on macOS, `/etc/zsh` elsewhere |
 | `ambient` | `[]`; variables known while global files run (`PATH` is never known) |
 | `path_helper_root` | `""`; prefix for `/etc/paths`, `/etc/manpaths` (as `PATH_HELPER_ROOT`) |
+
+## Defer
+
+| Key | Default |
+| --- | --- |
+| `compinit` | `false`; oh-my-zsh's statements from the dump path to `_omz_source` |
+| `plugins` | `[]`; oh-my-zsh plugin names, globs |
+| `evals` | `[]`; `cached_eval` names, globs |
+| `files` | `[]`; sourced files relative to the root, globs |
+
+| Runtime | Value |
+| --- | --- |
+| Prompt follows | Queued through `defer` at its original place; runs after the first prompt |
+| `zsh -i -c`, `zsh -i script`, no zle | Runs in place |
+| Line typed before the queue empties | Queue runs first |
+| `compdef` before a deferred `compinit` | Queued in order with the deferred code |
+| Deferred `compinit` | Sees `fpath` as of its original place |
+
+| Kept in place when | Value |
+| --- | --- |
+| Top level | `typeset`, `local`, `trap`, `emulate -L`, local options, `return`, loop control |
+| compinit section | `$0`; sets `fpath`; shares lines |
+| Later startup code | Changes or calls an alias, function, widget, zstyle, option, variable or completion it sets |
+| Any unit | Adds a precmd hook; `defer` unrecognized |
 
 ## Global startup files
 
@@ -70,6 +95,7 @@
 | --- | --- |
 | `eval` of `path_helper -s` | Native zsh; runs `path_helper` when `PATH`/`MANPATH` hold `$`, `` ` ``, `\`, `"`, tabs, newlines or double spaces |
 | `eval "$(cmd)"` | Output inlined when `cmd` is in `[fold] commands` |
+| `$(atuin uuid)` | Native UUIDv7; runs `atuin uuid` when `/dev/urandom` or `epochtime` fail; kept when its output changes form |
 
 ## Switches
 

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod compdump;
 pub mod compile;
 pub mod config;
 pub mod emit;
@@ -16,8 +17,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use compile::Compiler;
+use compile::defer::Deferral;
 use compile::system::{Outcome, Startup};
 use config::Config;
+use expand::Env;
 use fold::Folder;
 use state::State;
 
@@ -33,10 +36,13 @@ pub struct Built {
     pub changed: bool,
     pub inlined: usize,
     pub folded: usize,
+    pub deferred: usize,
     pub warnings: Vec<String>,
     pub skipped: Vec<String>,
     /// Whether the global startup files were compiled in; `None` when not asked.
     pub system: Option<bool>,
+    /// Completion dumps removed because the completion functions changed.
+    pub refreshed: Vec<PathBuf>,
 }
 
 pub fn build(options: &Options) -> Result<Vec<Built>, String> {
@@ -67,6 +73,7 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
         );
         let mut compiler = Compiler::new(state, folder, options.root.clone());
         compiler.path_helper_root = config.system.path_helper_root.clone();
+        compiler.deferral = Deferral::new(&config.defer, &options.root)?;
         let env: Vec<PathBuf> = target
             .env
             .iter()
@@ -107,12 +114,14 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
             compiler.analyze(env)?;
         }
         let body = compiler.root(&options.root.join(&target.source))?;
+        let body = compiler.settle_deferral(section.to_string() + &body);
         let text = emit::bundle(
             &output,
             &target.source,
             &origins,
             &compiler.constants,
-            &(section.to_string() + &body),
+            &compiler.helpers,
+            &body,
         )?;
         let mut changed = std::fs::read_to_string(&output).map_or(true, |current| current != text);
         if guard.is_none() {
@@ -125,15 +134,23 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
         if let Some((text, sources)) = guard {
             changed |= emit::write_guard(&guard_path, text, sources, options.dry_run)?;
         }
+        let omz = match compiler.state.var("ZSH") {
+            expand::Var::Scalar(omz) => Some(PathBuf::from(omz)),
+            _ => None,
+        };
+        let refreshed = compdump::refresh(&zdotdir()?, omz.as_deref(), options.dry_run)?;
+        changed |= !refreshed.is_empty();
         built.push(Built {
             name: target.name.clone(),
             path: output,
             changed,
             inlined: compiler.inlined,
             folded: compiler.folded,
+            deferred: compiler.deferred,
             warnings: compiler.warnings,
             skipped: compiler.skipped,
             system: system.map(|system| matches!(system, System::Compiled { .. })),
+            refreshed,
         });
     }
     Ok(built)

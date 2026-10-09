@@ -172,6 +172,15 @@ fn zsh_bundle(
                 .into_iter()
                 .map(|note| (format!("zsh-build: {note}"), None)),
         );
+        for dump in target.refreshed {
+            outcome.changed += 1;
+            events.emit(Event::Item {
+                action: Action::Prune,
+                path: dump,
+                detail: "stale completion dump".to_string(),
+                changed: true,
+            });
+        }
         events.emit(Event::Item {
             action: Action::Generate,
             path: target.path,

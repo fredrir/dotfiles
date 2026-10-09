@@ -16,6 +16,8 @@ pub struct Config {
     pub fold: Fold,
     #[serde(default)]
     pub system: System,
+    #[serde(default)]
+    pub defer: Defer,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,7 +66,7 @@ fn default_global_dir() -> PathBuf {
     })
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Fold {
     #[serde(default)]
@@ -73,8 +75,35 @@ pub struct Fold {
     pub timeout_ms: u64,
 }
 
+impl Default for Fold {
+    fn default() -> Self {
+        Self {
+            commands: Vec::new(),
+            timeout_ms: default_timeout(),
+        }
+    }
+}
+
 fn default_timeout() -> u64 {
     5000
+}
+
+/// Code run after the first prompt, through the dotfiles' `defer`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Defer {
+    /// oh-my-zsh's compinit section.
+    #[serde(default)]
+    pub compinit: bool,
+    /// oh-my-zsh plugin names; glob patterns.
+    #[serde(default)]
+    pub plugins: Vec<String>,
+    /// `cached_eval` names; glob patterns.
+    #[serde(default)]
+    pub evals: Vec<String>,
+    /// Sourced files relative to the root; glob patterns.
+    #[serde(default)]
+    pub files: Vec<String>,
 }
 
 impl Config {
@@ -102,6 +131,17 @@ impl Config {
         for command in &config.fold.commands {
             if command.split_whitespace().next().is_none() {
                 return Err("fold.commands: empty command".to_string());
+            }
+        }
+        let defer = &config.defer;
+        for (key, patterns) in [
+            ("plugins", &defer.plugins),
+            ("evals", &defer.evals),
+            ("files", &defer.files),
+        ] {
+            for pattern in patterns {
+                glob::Pattern::new(pattern)
+                    .map_err(|error| format!("defer.{key}: {pattern}: {error}"))?;
             }
         }
         Ok(config)

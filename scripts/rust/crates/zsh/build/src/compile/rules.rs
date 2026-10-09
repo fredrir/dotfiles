@@ -20,6 +20,7 @@ const HELPERS: &[(&str, u64)] = &[
     ("has_cmd", 0x1b16_8d4d_4e28_aec0),
     ("cached_eval", 0xca06_b1b9_892c_8a18),
     ("_omz_source", 0xea92_6805_11a2_f97f),
+    ("defer", 0xa758_6708_26e4_ee04),
 ];
 
 pub fn expected(name: &str) -> Option<u64> {
@@ -189,7 +190,11 @@ pub fn source(
     if !path.is_file() {
         return (None, false);
     }
-    (compiler.inline_file(&path, Mode::Plain, rewrite, cx), false)
+    let wanted = compiler.deferral.file(&path);
+    let text = compiler.deferred(wanted, &path, cx, |compiler| {
+        compiler.inline_file(&path, Mode::Plain, rewrite, cx)
+    });
+    (text, false)
 }
 
 /// `source <(command)` for a listed command: its output, inlined.
@@ -299,6 +304,32 @@ fn emulated(compiler: &mut Compiler, simple: &ZshSimple, rewrite: bool) -> Optio
     rewrite.then_some(text)
 }
 
+/// The native expansion for `original`, a substitution of `inner`, when the
+/// command here prints what its native code makes.
+pub fn substitute(
+    compiler: &mut Compiler,
+    inner: &str,
+    original: &str,
+) -> Option<(String, &'static str)> {
+    let argv = substituted(compiler, inner)?;
+    let substitute = native::substitute(&argv)?;
+    if !matches!(compiler.state.command(&argv[0]), Some(Some(_))) {
+        return None;
+    }
+    let matches = compiler
+        .folder
+        .run(&argv, &compiler.state)
+        .is_ok_and(|output| (substitute.matches)(&output));
+    if !matches {
+        let note = format!("{}: unexpected output; left to runtime", argv.join(" "));
+        if !compiler.skipped.contains(&note) {
+            compiler.skipped.push(note);
+        }
+        return None;
+    }
+    Some((substitute.expansion(original), substitute.helper))
+}
+
 pub fn cached_eval(
     compiler: &mut Compiler,
     args: &[String],
@@ -331,14 +362,19 @@ pub fn cached_eval(
         Var::Scalar(cache) => Some(PathBuf::from(cache).join(format!("{name}.zsh"))),
         _ => None,
     };
-    let text = match origin.as_deref() {
-        Some(origin) => {
-            let source = origin.to_str().map(Origin::File);
-            compiler.inline(&script, Some(origin), source, Mode::Function, rewrite, cx)
-        }
-        None => compiler.inline_generated(&script, Mode::Function, rewrite, cx),
-    };
-    (text.map(|text| function_call(&text, command)), false)
+    let place = origin.clone().unwrap_or_else(|| PathBuf::from(name));
+    let wanted = compiler.deferral.eval(name);
+    let text = compiler.deferred(wanted, &place, cx, |compiler| {
+        let text = match origin.as_deref() {
+            Some(origin) => {
+                let source = origin.to_str().map(Origin::File);
+                compiler.inline(&script, Some(origin), source, Mode::Function, rewrite, cx)
+            }
+            None => compiler.inline_generated(&script, Mode::Function, rewrite, cx),
+        };
+        text.map(|text| function_call(&text, command))
+    });
+    (text, false)
 }
 
 pub fn omz_source(
@@ -372,11 +408,13 @@ pub fn omz_source(
     let Some(path) = path else {
         return (rewrite.then(|| ":\n".to_string()), false);
     };
-    let text = compiler.inline_file(&path, Mode::Function, rewrite, cx);
-    (
-        text.map(|text| function_call(&text, std::slice::from_ref(&relative))),
-        false,
-    )
+    let wanted = compiler.deferral.plugin(&relative);
+    let text = compiler.deferred(wanted, &path, cx, |compiler| {
+        compiler
+            .inline_file(&path, Mode::Function, rewrite, cx)
+            .map(|text| function_call(&text, std::slice::from_ref(&relative)))
+    });
+    (text, false)
 }
 
 fn function_call(body: &str, args: &[String]) -> String {

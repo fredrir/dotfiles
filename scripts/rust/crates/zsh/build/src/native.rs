@@ -3,16 +3,84 @@
 
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::quote;
 
 /// The command each emulation replaces, by file name and arguments.
 pub fn emulates(argv: &[String]) -> bool {
-    let name = argv
-        .first()
+    program(argv) == Some("path_helper") && argv[1..] == ["-s"]
+}
+
+fn program(argv: &[String]) -> Option<&str> {
+    argv.first()
         .and_then(|program| Path::new(program).file_name())
-        .and_then(|name| name.to_str());
-    name == Some("path_helper") && argv[1..] == ["-s"]
+        .and_then(|name| name.to_str())
+}
+
+/// A command substitution whose output native zsh makes without a process.
+pub struct Substitute {
+    /// The command, by file name and arguments.
+    pub argv: &'static [&'static str],
+    /// Defines `function`, a math function that sets `value` or empties it.
+    pub helper: &'static str,
+    pub function: &'static str,
+    pub value: &'static str,
+    /// Whether the command's output has the form `helper` makes.
+    pub matches: fn(&str) -> bool,
+}
+
+const SUBSTITUTES: &[Substitute] = &[Substitute {
+    argv: &["atuin", "uuid"],
+    helper: include_str!("../assets/uuid7.zsh"),
+    function: "_zsh_build_uuid7",
+    value: "_zsh_build_uuid",
+    matches: |output| is_uuid7(output, SystemTime::now()),
+}];
+
+pub fn substitute(argv: &[String]) -> Option<&'static Substitute> {
+    let name = program(argv)?;
+    SUBSTITUTES
+        .iter()
+        .find(|substitute| substitute.argv[0] == name && substitute.argv[1..] == argv[1..])
+}
+
+impl Substitute {
+    /// The helper's value, else the output of `original`, the substitution it replaces.
+    pub fn expansion(&self, original: &str) -> String {
+        // No spaces in the math call: `sh_word_split` splits it inside `${:-...}`.
+        format!(
+            "${{${{:-$(({function}()))}}:+${{{value}:-{original}}}}}",
+            function = self.function,
+            value = self.value,
+        )
+    }
+}
+
+/// `atuin uuid` output: a UUIDv7 made now, in simple form, with the `uuid`
+/// crate's 42-bit counter in a new process, seeded below 2^41.
+pub fn is_uuid7(output: &str, now: SystemTime) -> bool {
+    let Some(id) = output.strip_suffix('\n') else {
+        return false;
+    };
+    let bytes = id.as_bytes();
+    if bytes.len() != 32
+        || !bytes
+            .iter()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return false;
+    }
+    let Ok(millis) = u64::from_str_radix(&id[..12], 16) else {
+        return false;
+    };
+    let now = now.duration_since(UNIX_EPOCH).map_or(0, |since| {
+        u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+    });
+    bytes[12] == b'7'
+        && bytes[13] <= b'7'
+        && matches!(bytes[16], b'8' | b'9' | b'a' | b'b')
+        && millis.abs_diff(now) < 60_000
 }
 
 /// `path_helper -s`: `/etc/paths` entries, then those of `/etc/paths.d` in

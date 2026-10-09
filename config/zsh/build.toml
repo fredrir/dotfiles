@@ -25,6 +25,27 @@ system  = true
 [system]
 ambient = ["HOME", "USER"]
 
+# Run after the first prompt in their original order; in place when no prompt follows
+[defer]
+compinit = true
+plugins = [
+  "archlinux",
+  "bun",
+  "colored-man-pages",
+  "copyfile",
+  "copypath",
+  "docker",
+  "docker-compose",
+  "gh",
+  "gitignore",
+  "helm",
+  "kubectl",
+  "macos",
+  "npm",
+  "postgres",
+]
+files = ["shared/zsh/70-completions.zsh"]
+
 # Output fixed between builds; folded at build time
 [fold]
 commands = [
