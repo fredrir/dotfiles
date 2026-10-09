@@ -7,13 +7,13 @@ local act = wezterm.action
 local motion_keys = {
   { -- Back one word
     key = "LeftArrow",
-    mods = MOD.UNIQUE,
+    mods = MOD.UNIQUE_LEFT,
     action = act.SendString(map.ctrl_left),
     act.SendKey { key = "b", mods = "ALT" },
   },
   { -- Forward one word
     key = "RightArrow",
-    mods = MOD.UNIQUE,
+    mods = MOD.UNIQUE_LEFT,
     action = act.SendString(map.ctrl_right),
     act.SendKey { key = "f", mods = "ALT" },
   },
@@ -45,15 +45,15 @@ local motion_keys = {
   { key = "UpArrow", mods = MOD.SUPER_REV, action = act.SendString(map.ctrl_shift_home) }, -- Select to document start
   { key = "DownArrow", mods = MOD.SUPER_REV, action = act.SendString(map.ctrl_shift_end) }, -- Select to document end
 
-  { key = "UpArrow", mods = MOD.UNIQUE, action = act.ScrollToPrompt(-1) }, -- Previous prompt
-  { key = "DownArrow", mods = MOD.UNIQUE, action = act.ScrollToPrompt(1) }, -- Next prompt
+  { key = "UpArrow", mods = MOD.UNIQUE_LEFT, action = act.ScrollToPrompt(-1) }, -- Previous prompt
+  { key = "DownArrow", mods = MOD.UNIQUE_LEFT, action = act.ScrollToPrompt(1) }, -- Next prompt
 
   { key = "LeftArrow", mods = "SHIFT", action = act.SendString(map.shift_left) }, -- Select char left
   { key = "RightArrow", mods = "SHIFT", action = act.SendString(map.shift_right) }, -- Select char right
   { key = "UpArrow", mods = "SHIFT", action = act.SendString(map.shift_up) }, -- Select line up
   { key = "DownArrow", mods = "SHIFT", action = act.SendString(map.shift_down) }, -- Select line down
-  { key = "LeftArrow", mods = MOD.UNIQUE .. "|SHIFT", action = act.SendString(map.ctrl_shift_left) }, -- Select word left
-  { key = "RightArrow", mods = MOD.UNIQUE .. "|SHIFT", action = act.SendString(map.ctrl_shift_right) }, -- Select word right
+  { key = "LeftArrow", mods = MOD.UNIQUE_LEFT .. "|SHIFT", action = act.SendString(map.ctrl_shift_left) }, -- Select word left
+  { key = "RightArrow", mods = MOD.UNIQUE_LEFT .. "|SHIFT", action = act.SendString(map.ctrl_shift_right) }, -- Select word right
   { -- Newline without submit
     key = "Enter",
     mods = "SHIFT",

@@ -1,4 +1,7 @@
+---@diagnostic disable: missing-fields
 local platform = require "utils.platform"
+
+local M = {}
 
 ---@type Mods
 local MOD
@@ -7,11 +10,13 @@ if platform.is_mac then
   MOD = {
     PRIMARY = "CMD",
     SECONDARY = "CTRL",
-    UNIQUE = "OPT",
     EDGE = "CMD",
     ---
     SUPER_REV = "CMD|SHIFT",
-    SUPER_REV_2 = "CTRL|CMD",
+    SUPER_REV_2 = "CTRL|ALT|CMD|SHIFT",
+    ---
+    UNIQUE_LEFT = "OPT", -- Normal Macos Option Key
+    UNIQUE_RIGHT = "CTRL|ALT|CMD|SHIFT", -- Macos Right Option Key remapped with Karabiner
     UNIQUE_REV = "OPT|SHIFT",
     ---
     SPLITBELOW = "'",
@@ -20,7 +25,8 @@ else
   MOD = {
     PRIMARY = "CTRL",
     SECONDARY = "ALT",
-    UNIQUE = "ALT",
+    UNIQUE_LEFT = "ALT",
+    UNIQUE_RIGHT = "ALT",
     EDGE = "ALT",
 
     SUPER_REV = "CTRL|SHIFT",
@@ -30,7 +36,6 @@ else
   }
 end
 
--- EDGE; What should be CMD on mac, but is not naturally reserved for alt-key in linux. CTRL key with mac-keyboard is less ergonomical and more akward than CTRL on windows due the placement of the "fn" button being bottom left.
--- UNQIUE: The key that is unique between macos and linux; macos has one more unique usable key due to WM in linux owning SUPER.
+MOD.UNIQUE_XOR = { MOD.UNIQUE_LEFT, MOD.UNIQUE_RIGHT }
 
 return MOD ---@ type Mods

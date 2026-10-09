@@ -70,7 +70,7 @@ local bindings = {
   ),
 
   ---- Pane ----
-  keybind(close_pane, MOD.UNIQUE, "q"),
+  keybind(close_pane, MOD.UNIQUE_LEFT, "q"),
   -- Split --
   keybind(act.SplitHorizontal { domain = "CurrentPaneDomain" }, MOD.PRIMARY, "d"),
   keybind(
@@ -79,12 +79,12 @@ local bindings = {
     MOD.SPLITBELOW
   ),
   -- Cycle  --
-  keybind(act.ActivatePaneDirection "Next", MOD.UNIQUE, "Tab"), -- Forward
-  keybind(act.ActivatePaneDirection "Prev", MOD.UNIQUE, "Tab"), -- Backward
+  keybind(act.ActivatePaneDirection "Next", MOD.UNIQUE_LEFT, "Tab"), -- Forward
+  keybind(act.ActivatePaneDirection "Prev", MOD.UNIQUE_LEFT, "Tab"), -- Backward
 
   keybind(
     clear_screen,
-    platform.is_mac and { MOD.PRIMARY, MOD.SECONDARY, MOD.UNIQUE } or { MOD.PRIMARY, MOD.UNIQUE },
+    platform.is_mac and { MOD.PRIMARY, MOD.SECONDARY, MOD.UNIQUE_LEFT } or { MOD.PRIMARY, MOD.UNIQUE_LEFT },
     "l"
   ),
 
@@ -119,12 +119,13 @@ local bindings = {
   keybind(act.QuickSelect, MOD.SUPER_REV, "Space"),
   keybind(act.SplitVertical { domain = "CurrentPaneDomain" }, MOD.PRIMARY, ";"),
   keybind(open_github, MOD.SUPER_REV, "g"),
-  keybind(git_add, MOD.UNIQUE, "g"),
+  keybind(git_add, MOD.UNIQUE_LEFT, "g"),
 
   ---- Directory Navigation ----
-  keybind(act.SendString "\x1b[112;9u", MOD.UNIQUE, "p"),
-  { key = "s", mods = "NUM_LOCK", action = act.SendString "\x1b[112;9u" },
-  keybind(act.SendString "\x1b[100;9u", MOD.UNIQUE, "d"),
+  keybind(act.SendString "\x1b[112;9u", { MOD.UNIQUE_LEFT, MOD.UNIQUE_RIGHT }, "p"),
+
+  keybind(act.SendString "\x1b[100;9u", MOD.UNIQUE_XOR, "d"),
+  keybind(act.SendString "\x1b[100;9u", MOD.UNIQUE_XOR, "d"),
 }
 
 -- Go to tab 1..9
