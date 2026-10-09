@@ -55,6 +55,4 @@ commands = [
   "fzf --version",
   "fzf --zsh",
   "zoxide init --cmd z zsh",
-  "starship init zsh --print-full-init",
-  "starship prompt --continuation",
 ]

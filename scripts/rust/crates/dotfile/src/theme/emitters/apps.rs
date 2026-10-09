@@ -150,10 +150,18 @@ pub fn zsh(t: &Theme) -> Result<String> {
         ("GIT", "prompt_git"),
         ("DIR", "prompt_dir"),
         ("CHAR", "prompt_char"),
+        ("PYTHON", "prompt_python"),
+        ("DURATION", "prompt_duration"),
     ] {
         out.push(format!(
             "export THEME_{env}=$'\\e[{}m'",
             t.role(role)?.ansi()
+        ));
+    }
+    for (env, color) in [("CYAN", "cyan"), ("BRIGHT_RED", "bright_red")] {
+        out.push(format!(
+            "export THEME_{env}=$'\\e[{}m'",
+            t.color(color)?.ansi()
         ));
     }
     for (env, role) in [

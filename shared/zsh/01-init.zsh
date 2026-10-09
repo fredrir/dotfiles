@@ -6,6 +6,7 @@ if [[ -z $ZSH_BUILD_SKIP && -r $DOTFILES_ZSH_CACHE/build/zshrc.zsh ]]; then
 fi
 
 if [[ -n "$AGENT_SHELL" ]]; then
+  unset HISTFILE
   source "$ZCONF/02-utils.zsh"
   source "$ZCONF/03-paths.zsh"
   return 0

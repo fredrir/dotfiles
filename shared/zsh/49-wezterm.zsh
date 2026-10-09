@@ -64,15 +64,70 @@ if [[ -n $WEZTERM_PANE ]]; then
 
   : ${WEZTERM_HOSTNAME:=$HOST}
 
-  for _wezterm_sh in \
-    /Applications/WezTerm.app/Contents/Resources/wezterm.sh \
-    /etc/profile.d/wezterm.sh \
-    /usr/share/wezterm/shell-integration/wezterm.sh; do
-    [[ -r $_wezterm_sh ]] || continue
-    source "$_wezterm_sh"
-    break
-  done
-  unset _wezterm_sh
+  if [[ -o interactive && $TERM != (linux|dumb) && ${WEZTERM_SHELL_SKIP_ALL-} != 1 && -z ${WEZTERM_SHELL_SKIP_USER_VARS-} ]]; then
+    _wezterm_user_var() {
+      _b64 "$2"
+      if [[ -z ${TMUX-} ]]; then
+        printf -v REPLY '\e]1337;SetUserVar=%s=%s\a' "$1" "$REPLY"
+      else
+        printf -v REPLY '\ePtmux;\e\e]1337;SetUserVar=%s=%s\a\e\\' "$1" "$REPLY"
+      fi
+    }
+    () {
+      local REPLY name value
+      typeset -g _wezterm_prompt_vars=
+      for name value in WEZTERM_PROG '' WEZTERM_USER "$USERNAME" WEZTERM_IN_TMUX "${${TMUX:+1}:-0}" WEZTERM_HOST "$WEZTERM_HOSTNAME"; do
+        _wezterm_user_var $name "$value"
+        _wezterm_prompt_vars+=$REPLY
+      done
+    }
+    __wezterm_user_vars_precmd() {
+      print -rn -- "$_wezterm_prompt_vars"
+    }
+    __wezterm_user_vars_preexec() {
+      local REPLY
+      _wezterm_user_var WEZTERM_PROG "$1"
+      print -rn -- "$REPLY"
+    }
+    precmd_functions+=(__wezterm_user_vars_precmd)
+    preexec_functions+=(__wezterm_user_vars_preexec)
+  fi
+fi
+
+if (($+functions[omz_termsupport_cwd])); then
+  _omz_urlencode_path() {
+    emulate -L zsh -o no_multibyte
+    local in=$1 out='' byte
+    local -i i
+    for ((i = 1; i <= ${#in}; i++)); do
+      byte=${in[i]}
+      if [[ $byte == [A-Za-z0-9\;/?:@\&=+'$',_.\!\~\*\(\)-] ]]; then
+        out+=$byte
+      else
+        out+=%$(([##16] #byte))
+      fi
+    done
+    REPLY=$out
+  }
+  omz_termsupport_cwd() {
+    setopt localoptions unset
+    local REPLY URL_HOST URL_PATH
+    if [[ ${langinfo[CODESET]} == (UTF-8|utf8|US-ASCII) ]]; then
+      if [[ $_omz_cwd_key != "$HOST/$PWD" ]]; then
+        _omz_urlencode_path $HOST
+        _omz_cwd_host=$REPLY
+        _omz_urlencode_path $PWD
+        _omz_cwd_path=$REPLY
+        _omz_cwd_key="$HOST/$PWD"
+      fi
+      URL_HOST=$_omz_cwd_host URL_PATH=$_omz_cwd_path
+    else
+      URL_HOST="$(omz_urlencode -P $HOST)" || return 1
+      URL_PATH="$(omz_urlencode -P $PWD)" || return 1
+    fi
+    [[ -z "$KONSOLE_PROFILE_NAME" && -z "$KONSOLE_DBUS_SESSION" ]] || URL_HOST=""
+    printf "\e]7;file://%s%s\e\\" "${URL_HOST}" "${URL_PATH}"
+  }
 fi
 
 [[ -o interactive ]] || return 0
@@ -101,7 +156,6 @@ _wezterm_open_yazi() {
 zle -N wezterm-open-yazi _wezterm_open_yazi
 
 _wezterm_cd_preview() {
-  # Preview the destination's venv without changing the environment ahead of direnv.
   local REPLY
   if (($+functions[_find_python_project_venv])); then
     _find_python_project_venv
@@ -123,7 +177,6 @@ _wezterm_cd() {
 
   [[ ${PWD:A} == "${destination:A}" ]] && return 0
 
-  # Paint before slow chpwd hooks; keep their order and finish them before accepting input.
   local -a chpwd_functions=(_wezterm_cd_preview "${chpwd_functions[@]}")
   builtin cd -- "$destination" || return
   zle reset-prompt

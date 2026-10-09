@@ -4,6 +4,7 @@ export NVM_DIR="$HOME/.config/nvm"
 export ZSH="$HOME/.oh-my-zsh"
 export ZSH_DISABLE_COMPFIX=true
 export ZSH_AUTOSUGGEST_STRATEGY=(history)
+export ZSH_AUTOSUGGEST_MANUAL_REBIND=1
 export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=$HOST # hport: http://$HOST:PORT
 
 has_cmd less &&

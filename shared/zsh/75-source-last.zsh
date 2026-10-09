@@ -2,24 +2,35 @@ for _plugin_file in $zsh_plugin_sources; do
   defer source "$_plugin_file"
 done
 unset _plugin_file
-() {
-  [[ ${HOST%%.*} == archie ]] || return 0
-
-  local config="${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml"
-  local cache="$DOTFILES_ZSH_CACHE/starship-archie.toml"
-  [[ -n $STARSHIP_CONFIG && $STARSHIP_CONFIG != "$cache" ]] && return 0
-  [[ -r $config ]] || return 0
-
-  mkdir -p "${cache:h}" || return
-  if sed -e "s/'prompt_dir'/'cyan'/g" \
-    -e 's/(prompt_char)/(bright_red)/g' "$config" >"$cache.$$"; then
-    mv -f "$cache.$$" "$cache" && export STARSHIP_CONFIG="$cache"
-  else
-    rm -f "$cache.$$"
-  fi
-}
-
-cached_eval starship-init starship init zsh
-PROMPT_EOL_MARK='' # Fix extra % when no new-line
-
 cached_eval direnv-hook direnv hook zsh
+
+if (($+functions[_direnv_hook])); then
+  functions[_direnv_export]=$functions[_direnv_hook]
+  _direnv_needed() {
+    [[ -n $DIRENV_DIR ]] && return 0
+    local dir=$PWD
+    while true; do
+      [[ -e $dir/.envrc ]] && return 0
+      [[ $dir == / ]] && return 1
+      dir=${dir:h}
+    done
+  }
+  _direnv_hook() {
+    if [[ $_direnv_ran == "$PWD" ]]; then
+      unset _direnv_ran
+      return 0
+    fi
+    _direnv_needed && _direnv_export
+  }
+  _direnv_hook_chpwd() {
+    _direnv_needed && _direnv_export
+    _direnv_ran=$PWD
+  }
+  chpwd_functions[${chpwd_functions[(i)_direnv_hook]}]=_direnv_hook_chpwd
+fi
+
+if (($+functions[__zoxide_hook])); then
+  __zoxide_hook() {
+    \command zoxide add -- "$PWD" &!
+  }
+fi

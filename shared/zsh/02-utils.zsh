@@ -41,7 +41,24 @@ add_plugins() {
 
 has_cmd() { (($+commands[$1])); }
 dir_exists() { [[ -d "$1" ]]; }
-set_user_var() { printf '\e]1337;SetUserVar=%s=%s\a' "$1" "$(print -rn -- "$2" | base64 | tr -d '\r\n')"; }
+_b64() {
+  emulate -L zsh -o no_multibyte
+  local table=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/
+  local in=$1 out='' c1 c2 c3
+  local -i i n=${#in} chunk
+  for ((i = 1; i <= n; i += 3)); do
+    c1=${in[i]} c2=${in[i+1]} c3=${in[i+2]} # shucked: ignore=C001
+    ((chunk = #c1 << 16 | (${#c2} ? #c2 : 0) << 8 | (${#c3} ? #c3 : 0)))
+    out+="${table[(chunk >> 18 & 63) + 1]}${table[(chunk >> 12 & 63) + 1]}"
+    out+="${${c2:+${table[(chunk >> 6 & 63)+1]}}:-=}${${c3:+${table[(chunk & 63)+1]}}:-=}"
+  done
+  REPLY=$out
+}
+set_user_var() {
+  local REPLY
+  _b64 "$2"
+  printf '\e]1337;SetUserVar=%s=%s\a' "$1" "$REPLY"
+}
 
 add_fpath() {
   local dir
@@ -109,7 +126,7 @@ _defer_next() {
   # Under job control, each pipeline makes zle redraw the prompt
   if [[ -o monitor ]]; then
     unsetopt monitor
-    { eval $_defer_queue[1] } always { setopt monitor }
+    { eval $_defer_queue[1]; } always { setopt monitor; }
   else
     eval $_defer_queue[1]
   fi
