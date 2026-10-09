@@ -14,6 +14,8 @@ struct Page {
     title: String,
     programs: Vec<String>,
     source: String,
+    #[serde(default)]
+    os: Option<String>,
 }
 #[derive(Deserialize)]
 struct Catalog {
@@ -49,7 +51,11 @@ pub(super) fn outputs(context: &Context) -> Result<(Vec<Output>, Vec<String>), S
             .cloned()
             .collect::<Vec<_>>();
         if !absent.is_empty() {
-            if context.root.join(&page.source).exists() {
+            let native = page
+                .os
+                .as_deref()
+                .is_none_or(|os| os == std::env::consts::OS);
+            if native && context.root.join(&page.source).exists() {
                 missing.extend(absent);
             }
             continue;

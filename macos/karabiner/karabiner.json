@@ -1,28 +1,40 @@
 {
-  "global": {
-    "show_in_menu_bar": false
-  },
-  "machine_specific": {
-    "krbn-e3aaf8b5-f6c3-402f-993d-2c60ce204f5e": {
-      "external_editor_path": "/Applications/Visual Studio Code.app"
-    }
-  },
-  "profiles": [
-    {
-      "devices": [
+    "global": { "show_in_menu_bar": false },
+    "machine_specific": { "krbn-e3aaf8b5-f6c3-402f-993d-2c60ce204f5e": { "external_editor_path": "/Applications/Visual Studio Code.app" } },
+    "profiles": [
         {
-          "identifiers": {
-            "is_keyboard": true
-          },
-          "ignore": false,
-          "swap_grave_accent_and_non_us_backslash": true
+            "complex_modifications": {
+                "rules": [
+                    {
+                        "manipulators": [
+                            {
+                                "description": "Change right_opt to keypad",
+                                "from": {
+                                    "key_code": "right_option",
+                                    "modifiers": { "optional": ["any"] }
+                                },
+                                "to": [
+                                    {
+                                        "key_code": "caps_lock",
+                                        "modifiers": ["left_control", "left_option", "left_shift"]
+                                    }
+                                ],
+                                "type": "basic"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "devices": [
+                {
+                    "identifiers": { "is_keyboard": true },
+                    "ignore": false,
+                    "swap_grave_accent_and_non_us_backslash": true
+                }
+            ],
+            "name": "Default profile",
+            "selected": true,
+            "virtual_hid_keyboard": { "keyboard_type_v2": "iso" }
         }
-      ],
-      "name": "Default profile",
-      "selected": true,
-      "virtual_hid_keyboard": {
-        "keyboard_type_v2": "iso"
-      }
-    }
-  ]
+    ]
 }

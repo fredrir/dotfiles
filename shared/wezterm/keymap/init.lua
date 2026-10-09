@@ -123,6 +123,7 @@ local bindings = {
 
   ---- Directory Navigation ----
   keybind(act.SendString "\x1b[112;9u", MOD.UNIQUE, "p"),
+  { key = "s", mods = "NUM_LOCK", action = act.SendString "\x1b[112;9u" },
   keybind(act.SendString "\x1b[100;9u", MOD.UNIQUE, "d"),
 }
 

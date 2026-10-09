@@ -152,6 +152,32 @@ fn binaries_are_derived_from_the_manifests_that_build_them() {
 }
 
 #[test]
+fn crates_for_another_os_are_not_installed() {
+    let root = sandbox();
+    fs::write(
+        root.path().join("scripts/rust/Cargo.toml"),
+        "[workspace]\nmembers = ['crates/tool', 'crates/native', 'crates/foreign']\n",
+    )
+    .unwrap();
+    for (name, os) in [("native", std::env::consts::OS), ("foreign", "plan9")] {
+        let directory = root.path().join("scripts/rust/crates").join(name);
+        fs::create_dir_all(directory.join("src")).unwrap();
+        fs::write(
+            directory.join("Cargo.toml"),
+            format!("[package]\nname = '{name}'\n\n[package.metadata.dotfile]\nos = '{os}'\n"),
+        )
+        .unwrap();
+        fs::write(directory.join("src/main.rs"), "fn main() {}\n").unwrap();
+    }
+    let toolchain = Toolchain::read(root.path()).unwrap();
+
+    assert_eq!(
+        toolchain.stage(Language::Rust).unwrap().binaries,
+        ["native", "tool"]
+    );
+}
+
+#[test]
 fn crates_that_opt_into_release_build_beside_the_commands_profile() {
     let root = sandbox();
     fs::write(

@@ -18,6 +18,7 @@
 | `testkit/src/pty.rs` | Child-only session and controlling-terminal setup before exec |
 | `sysinfo/src/collect/macos.rs` | Native handle ownership and typed FFI contracts; matching release for owned references |
 | `flatten/src/dir.rs` | Descriptor-relative operations; retain no-follow and directory checks |
+| `dwin/src/skylight.rs` | Private SkyLight signatures as declared by yabai; out-pointers to live locals; event record sized to `0xf8` |
 
 Run from `scripts/rust`:
 

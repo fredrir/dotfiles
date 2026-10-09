@@ -165,6 +165,7 @@ struct CrateMetadata {
 #[derive(Default, Deserialize)]
 struct InstallMetadata {
     profile: Option<String>,
+    os: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -173,7 +174,7 @@ struct BinaryTarget {
 }
 
 /// A crate's explicit `[[bin]]` targets, or its package name when `src/main.rs`
-/// makes it an implicit one; library-only crates contribute nothing.
+/// makes it an implicit one; library-only crates and crates for another OS contribute nothing.
 fn rust_crates(root: &Path) -> Result<Vec<Crate>, String> {
     let workspace = root.join("scripts/rust");
     if !workspace.is_dir() {
@@ -184,6 +185,16 @@ fn rust_crates(root: &Path) -> Result<Vec<Crate>, String> {
     for member in manifest.workspace.members {
         let directory = workspace.join(&member);
         let manifest: CrateManifest = read_toml(&directory.join("Cargo.toml"))?;
+        if manifest
+            .package
+            .metadata
+            .dotfile
+            .os
+            .as_deref()
+            .is_some_and(|os| os != std::env::consts::OS)
+        {
+            continue;
+        }
         let binaries = if manifest.binaries.is_empty() {
             if directory.join("src/main.rs").is_file() {
                 vec![manifest.package.name.clone()]

@@ -41,6 +41,15 @@
       "source": "scripts/rust/crates/dotfmt/cli/"
     },
     {
+      "name": "dwin",
+      "title": "dwin",
+      "programs": [
+        "dwin"
+      ],
+      "source": "scripts/rust/crates/macos/dwin/",
+      "os": "macos"
+    },
+    {
       "name": "flatten",
       "title": "flatten",
       "programs": [
@@ -169,6 +178,7 @@
     "dclip",
     "doc-purge",
     "dotfmt",
+    "dwin",
     "flatten",
     "gdd",
     "gget",
@@ -239,6 +249,7 @@
     "dotfile theme contrast": "Prints one or every profile's resolved contrast matrix.",
     "dotfile theme outputs": "Prints the files owned by the theme generator.",
     "dotfmt": "Formats configured conf, JSON, Lua and Markdown files with one layered configuration.",
+    "dwin": "Focuses a window without raising its app's other windows.",
     "flatten": "Lifts a directory's contents out of the directories holding them.",
     "gdd": "Discards tracked and untracked working-tree changes while preserving ignored files and nested repositories.",
     "gget": "Downloads a file or directory from a GitHub repository into the current directory.",

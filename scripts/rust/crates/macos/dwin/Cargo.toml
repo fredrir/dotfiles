@@ -1,0 +1,21 @@
+[package]
+name              = "dwin"
+version.workspace = true
+description       = "Focus a window without raising its app's other windows"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# Spawned per keypress: fat LTO's smaller binary starts measurably faster.
+[package.metadata.dotfile]
+profile = "release"
+os      = "macos"
+
+[dependencies]
+clap.workspace        = true
+workstation.workspace = true
+
+[dev-dependencies]
+testkit.workspace = true

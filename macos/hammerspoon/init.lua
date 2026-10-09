@@ -79,6 +79,9 @@ end
 
 -- Mouse between monitors --
 local lastMouse = {}
+local dwin = os.getenv "HOME" .. "/dotfiles/.bin/dwin"
+---@type hs.task|nil
+local focusTask
 
 key.createKeybind({ "fn" }, "m", function()
   ---@type hs.screen|nil
@@ -91,24 +94,20 @@ key.createKeybind({ "fn" }, "m", function()
   hs.mouse.absolutePosition(lastMouse[to:getUUID()] or to:frame().center)
 
   local position = hs.geometry.new(hs.mouse.absolutePosition())
-  local windows = hs.window.orderedWindows()
-  local sourceWindow
-  for _, win in ipairs(windows) do
-    if win:screen():id() == from:id() then
-      sourceWindow = win
-      break
-    end
-  end
-
-  for _, win in ipairs(windows) do
+  for _, win in ipairs(hs.window.orderedWindows()) do
     if position:inside(win:frame()) then
-      win:focus()
-      -- App activation can also bring a sibling window forward on the source screen.
-      if sourceWindow and sourceWindow:id() ~= win:id() then
-        sourceWindow:raise()
+      -- hs.window:focus also raises the app's last key window, which may sit on the source screen.
+      focusTask = hs.task.new(dwin, function(code)
+        if code == 0 then
+          win:raise()
+        else
+          win:focus()
+        end
+      end, { tostring(win:id()) })
+      if not (focusTask and focusTask:start()) then
+        win:focus()
       end
-      win:raise():becomeMain()
-      break
+      return
     end
   end
 end)

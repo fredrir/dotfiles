@@ -8,6 +8,7 @@
 | doc-purge    | [doc-purge.md](./doc-purge.md)       | [scripts/rust/crates/utility/doc-purge/]    |
 | dotfile      | [dotfile.md](./dotfile.md)           | [scripts/rust/crates/dotfile/]              |
 | dotfmt       | [dotfmt.md](./dotfmt.md)             | [scripts/rust/crates/dotfmt/cli/]           |
+| dwin         | [dwin.md](./dwin.md)                 | [scripts/rust/crates/macos/dwin/]           |
 | flatten      | [flatten.md](./flatten.md)           | [scripts/rust/crates/utility/flatten/]      |
 | git          | [git.md](./git.md)                   | [scripts/rust/crates/git/]                  |
 | home-copy    | [home-copy.md](./home-copy.md)       | [scripts/rust/crates/hcopy/]                |
@@ -21,7 +22,6 @@
 | size         | [size.md](./size.md)                 | [scripts/rust/crates/utility/size/]         |
 | sysinfo      | [sysinfo.md](./sysinfo.md)           | [scripts/rust/crates/sysinfo/]              |
 | transcript   | [transcript.md](./transcript.md)     | [scripts/python/src/tools/transcript/]      |
-| wfocus       | [wfocus.md](./wfocus.md)             | [scripts/rust/crates/wfocus/]               |
 | zcomp        | [zcomp.md](./zcomp.md)               | [scripts/rust/crates/zsh/completions/]      |
 | zsh-build    | [zsh-build.md](./zsh-build.md)       | [scripts/rust/crates/zsh/build/]            |
 <!-- cli:index:end -->
