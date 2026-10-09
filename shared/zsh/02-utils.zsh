@@ -47,7 +47,7 @@ _b64() {
   local in=$1 out='' c1 c2 c3
   local -i i n=${#in} chunk
   for ((i = 1; i <= n; i += 3)); do
-    c1=${in[i]} c2=${in[i+1]} c3=${in[i+2]} # shucked: ignore=C001
+    c1=${in[i]} c2=${in[i+1]} c3=${in[i+2]}
     ((chunk = #c1 << 16 | (${#c2} ? #c2 : 0) << 8 | (${#c3} ? #c3 : 0)))
     out+="${table[(chunk >> 18 & 63) + 1]}${table[(chunk >> 12 & 63) + 1]}"
     out+="${${c2:+${table[(chunk >> 6 & 63)+1]}}:-=}${${c3:+${table[(chunk & 63)+1]}}:-=}"

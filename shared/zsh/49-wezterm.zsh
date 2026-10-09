@@ -101,7 +101,7 @@ if (($+functions[omz_termsupport_cwd])); then
     local -i i
     for ((i = 1; i <= ${#in}; i++)); do
       byte=${in[i]}
-      if [[ $byte == [A-Za-z0-9\;/?:@\&=+'$',_.\!\~\*\(\)-] ]]; then
+      if [[ $byte == [A-Za-z0-9\;/?:@\&=+\$,_.\!\~\*\(\)-] ]]; then
         out+=$byte
       else
         out+=%$(([##16] #byte))
