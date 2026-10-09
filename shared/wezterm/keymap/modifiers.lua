@@ -12,11 +12,10 @@ if platform.is_mac then
     SECONDARY = "CTRL",
     EDGE = "CMD",
     ---
-    SUPER_REV = "CMD|SHIFT",
-    SUPER_REV_2 = "CTRL|ALT|CMD|SHIFT",
-    ---
     UNIQUE_LEFT = "OPT", -- Normal Macos Option Key
     UNIQUE_RIGHT = "CTRL|ALT|CMD|SHIFT", -- Macos Right Option Key remapped with Karabiner
+    ---
+    SUPER_REV = "CMD|SHIFT",
     UNIQUE_REV = "OPT|SHIFT",
     ---
     SPLITBELOW = "'",
@@ -25,13 +24,14 @@ else
   MOD = {
     PRIMARY = "CTRL",
     SECONDARY = "ALT",
+    EDGE = "ALT",
+    ---
     UNIQUE_LEFT = "ALT",
     UNIQUE_RIGHT = "ALT",
-    EDGE = "ALT",
-
+    ---
     SUPER_REV = "CTRL|SHIFT",
-    SUPER_REV_2 = "CTRL|ALT",
     UNIQUE_REV = "CTRL|ALT",
+    ---
     SPLITBELOW = "§",
   }
 end

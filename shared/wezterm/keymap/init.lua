@@ -48,13 +48,13 @@ local bindings = {
   -- New Tab --
   keybind(hwire_session.new_tab, MOD.PRIMARY, "t"),
 
-  -- New tab in archie/macie --
-  keybind(adopt_pane.new_peer_tab, { MOD.SUPER_REV, "CTRL|SHIFT" }, "t"),
+  -- New Tab in archie/macie --
+  keybind(adopt_pane.new_peer_tab, MOD.SUPER_REV, "t"),
 
-  -- Go to last tab --
+  -- Go to last Tab --
   keybind(act.ActivateTab(-1), MOD.PRIMARY, "0"),
 
-  -- Go to next/prev tab --
+  -- Go to next/prev Tab --
   keybind(act.ActivateTabRelative(1), "CTRL", "Tab"),
   keybind(act.ActivateTabRelative(-1), "CTRL|SHIFT", "Tab"),
 
@@ -91,10 +91,10 @@ local bindings = {
   keybind(adopt_pane.adopt, MOD.SUPER_REV, "a"),
   keybind(act.TogglePaneZoomState, MOD.SUPER_REV, "z"),
 
-  keybind(act.AdjustPaneSize { "Left", 3 }, MOD.SUPER_REV_2, "LeftArrow"),
-  keybind(act.AdjustPaneSize { "Right", 3 }, MOD.SUPER_REV_2, "RightArrow"),
-  keybind(act.AdjustPaneSize { "Up", 3 }, MOD.SUPER_REV_2, "UpArrow"),
-  keybind(act.AdjustPaneSize { "Down", 3 }, MOD.SUPER_REV_2, "DownArrow"),
+  keybind(act.AdjustPaneSize { "Left", 3 }, MOD.UNIQUE_REV, "LeftArrow"),
+  keybind(act.AdjustPaneSize { "Right", 3 }, MOD.UNIQUE_REV, "RightArrow"),
+  keybind(act.AdjustPaneSize { "Up", 3 }, MOD.UNIQUE_REV, "UpArrow"),
+  keybind(act.AdjustPaneSize { "Down", 3 }, MOD.UNIQUE_REV, "DownArrow"),
 
   ------ Wezterm ------
 

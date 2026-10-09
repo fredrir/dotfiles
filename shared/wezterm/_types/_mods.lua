@@ -6,5 +6,6 @@
 ---@field EDGE string
 ---@field SUPER_REV string
 ---@field SUPER_REV_2 string
+---@field EDGE_REV string
 ---@field SPLITBELOW string
 ---@field UNIQUE_XOR string[]

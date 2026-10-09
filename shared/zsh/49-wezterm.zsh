@@ -82,6 +82,9 @@ if [[ -n $WEZTERM_PANE ]]; then
       done
     }
     __wezterm_user_vars_precmd() {
+      local REPLY
+      _wezterm_user_var WEZTERM_JOBS "${#jobstates}"
+      print -rn -- "$REPLY"
       print -rn -- "$_wezterm_prompt_vars"
     }
     __wezterm_user_vars_preexec() {
