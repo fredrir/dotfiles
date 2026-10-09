@@ -1,6 +1,8 @@
 {
   "workbench.secondarySideBar.defaultVisibility": "hidden",
   "editor.gotoLocation.multipleDefinitions": "goto",
+  "editor.gotoLocation.multipleReferences": "goto",
+  "editor.gotoLocation.multipleImplementations": "goto",
   "editor.definitionLinkOpensInPeek": false,
   "workbench.editor.enablePreviewFromCodeNavigation": false,
   "explorer.confirmDelete": false,

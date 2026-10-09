@@ -13,6 +13,7 @@
 
 | Key | Action | Description |
 | --- | --- | --- |
+| <code>&#91;Backslash&#93;</code> | [<code>goToNextReference</code>](../../shared/vscode/keybindings.json#L371) | Go To Next Reference<br><code>inReferenceSearchEditor &#124;&#124; referenceSearchVisible</code> |
 | <code>alt+e</code> | [<code>editor.action.marker.next</code>](../../shared/vscode/keybindings.json#L351) | Editor action marker next<br><code>editorFocus</code> |
 | <code>alt+f5</code> | [<code>-workbench.action.compareEditor.nextChange</code>](../../shared/vscode/keybindings.json#L196) | Compare Editor next Change<br><code>textCompareEditorVisible; remove binding</code> |
 | <code>alt+f8</code> | [<code>-editor.action.marker.next</code>](../../shared/vscode/keybindings.json#L356) | Editor action marker next<br><code>editorFocus; remove binding</code> |
@@ -26,6 +27,8 @@
 | <code>ctrl+7</code> | [<code>-workbench.action.openEditorAtIndex7</code>](../../shared/vscode/keybindings.json#L70) | Open Editor At Index7<br><code>global; remove binding</code> |
 | <code>ctrl+8</code> | [<code>-workbench.action.openEditorAtIndex8</code>](../../shared/vscode/keybindings.json#L78) | Open Editor At Index8<br><code>global; remove binding</code> |
 | <code>ctrl+9</code> | [<code>-workbench.action.openEditorAtIndex9</code>](../../shared/vscode/keybindings.json#L86) | Open Editor At Index9<br><code>global; remove binding</code> |
+| <code>ctrl+&#91;Backslash&#93;</code> | [<code>editor.action.revealDefinition</code>](../../shared/vscode/keybindings.json#L361) | Editor action reveal Definition<br><code>editorHasDefinitionProvider &amp;&amp; editorTextFocus</code> |
+| <code>ctrl+&#91;Backslash&#93;</code> | [<code>editor.gotoNextSymbolFromResult</code>](../../shared/vscode/keybindings.json#L381) | Editor goto Next Symbol From Result<br><code>hasSymbols</code> |
 | <code>ctrl+alt+c</code> | [<code>copyRelativeFilePath</code>](../../shared/vscode/keybindings.json#L120) | Copy Relative File Path<br><code>!editorFocus</code> |
 | <code>ctrl+d</code> | [<code>-deleteRight</code>](../../shared/vscode/keybindings.json#L234) | Delete Right<br><code>textInputFocus; remove binding</code> |
 | <code>ctrl+d</code> | [<code>-markdown.editor.deleteRight</code>](../../shared/vscode/keybindings.json#L229) | Markdown editor delete Right<br><code>markdownEditorFocus &amp;&amp; activeCustomEditorId == 'vscode.markdown.editor'; remove binding</code> |
@@ -36,6 +39,9 @@
 | <code>ctrl+w</code> | [<code>-workbench.action.switchWindow</code>](../../shared/vscode/keybindings.json#L6) | Switch Window<br><code>global; remove binding</code> |
 | <code>escape</code> | [<code>-inlineChat2.close</code>](../../shared/vscode/keybindings.json#L271) | Inline Chat2 close<br><code>chatInputHasFocus &amp;&amp; inlineChatHasEditsAgent &amp;&amp; inlineChatVisible &#124;&#124; chatInputHasFocus &amp;&amp; inlineChatHasNotebookAgent &amp;&amp; inlineChatVisible &amp;&amp; activeEditor == 'workbench.editor.notebook' &#124;&#124; editorFocus &amp;&amp; inlineChatHasEditsAgent &amp;&amp; inlineChatVisible &amp;&amp; !chatEdits.hasEditorModifications &#124;&#124; editorFocus &amp;&amp; inlineChatHasNotebookAgent &amp;&amp; inlineChatVisible &amp;&amp; !chatEdits.hasEditorModifications &amp;&amp; activeEditor == 'workbench.editor.notebook'; remove binding</code> |
 | <code>escape</code> | [<code>-workbench.action.terminal.chat.close</code>](../../shared/vscode/keybindings.json#L266) | Terminal chat close<br><code>chatIsEnabled &amp;&amp; terminalChatFocus &amp;&amp; terminalChatVisible &#124;&#124; chatIsEnabled &amp;&amp; terminalChatVisible &amp;&amp; terminalFocus; remove binding</code> |
+| <code>f12</code> | [<code>-editor.action.revealDefinition</code>](../../shared/vscode/keybindings.json#L366) | Editor action reveal Definition<br><code>editorHasDefinitionProvider &amp;&amp; editorTextFocus; remove binding</code> |
+| <code>f12</code> | [<code>-editor.gotoNextSymbolFromResult</code>](../../shared/vscode/keybindings.json#L386) | Editor goto Next Symbol From Result<br><code>hasSymbols; remove binding</code> |
+| <code>f12</code> | [<code>-goToNextReference</code>](../../shared/vscode/keybindings.json#L376) | Go To Next Reference<br><code>inReferenceSearchEditor &#124;&#124; referenceSearchVisible; remove binding</code> |
 | <code>shift+alt+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"command":"workbench.action.tasks.runTask","args":"Copy active file content"}&#93;}</code>](../../shared/vscode/keybindings.json#L157) | Run Commands<br><code>editorFocus</code> |
 | <code>shift+alt+b</code> | [<code>workbench.action.tasks.build</code>](../../shared/vscode/keybindings.json#L311) | Tasks build<br><code>taskCommandsRegistered</code> |
 | <code>shift+alt+f5</code> | [<code>-workbench.action.compareEditor.previousChange</code>](../../shared/vscode/keybindings.json#L206) | Compare Editor previous Change<br><code>textCompareEditorVisible; remove binding</code> |
