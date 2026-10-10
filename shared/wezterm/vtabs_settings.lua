@@ -4,7 +4,7 @@
 return {
   settings = {
     background = "#101020",
-    keybinds = { commands = { "Super+p" }, new_tab = { "Super+t" }, quick_terminal = { "Super+Shift+;" } },
+    keybinds = { commands = { "Super+p" }, new_tab = { "Super+t" }, quick_terminal = { "Super+-", "Ctrl+-" } },
     keyboard_shortcuts = true,
     width = 256,
   },

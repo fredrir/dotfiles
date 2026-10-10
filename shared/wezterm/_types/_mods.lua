@@ -1,8 +1,8 @@
 ---@class Mods
 ---@field PRIMARY string
 ---@field SECONDARY string
----@field UNIQUE_LEFT string
----@field UNIQUE_RIGHT string
+---@field UNIQUE string
+---@field SHIFT_RIGHT string
 ---@field EDGE string
 ---@field SUPER_REV string
 ---@field SUPER_REV_2 string

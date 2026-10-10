@@ -8,9 +8,9 @@
                     {
                         "manipulators": [
                             {
-                                "description": "remap right_opt to hyper",
+                                "description": "remap right_shift to hyper",
                                 "from": {
-                                    "key_code": "right_option",
+                                    "key_code": "right_shift",
                                     "modifiers": { "optional": ["any"] }
                                 },
                                 "to": [
