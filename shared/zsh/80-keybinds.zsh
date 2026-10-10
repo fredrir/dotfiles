@@ -1,5 +1,9 @@
 bindkey -e
 
+bindkey -M emacs -r '^R'
+bindkey -M viins -r '^R'
+bindkey -M vicmd -r '^R'
+
 bindkey -N motion-select
 
 key() { ((${+widgets[${@[-1]}]})) && bindkey -M emacs "$@" && bindkey -M viins "$@"; }

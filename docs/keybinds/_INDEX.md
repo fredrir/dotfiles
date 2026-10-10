@@ -28,4 +28,4 @@
 | [vscode](./vscode.md) | 80 | 0 |
 | [wezterm](./wezterm.md) | 53 | 1 |
 | [yazi](./yazi.md) | 8 | 0 |
-| [zsh](./zsh.md) | 2 | 2 |
+| [zsh](./zsh.md) | 5 | 2 |
