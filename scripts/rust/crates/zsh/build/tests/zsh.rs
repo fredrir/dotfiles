@@ -299,6 +299,38 @@ fn wordcode_compiled_from_an_older_bundle_is_discarded() {
 }
 
 #[test]
+fn a_function_defined_after_an_alias_of_its_name_fails_the_build() {
+    let root = fixture();
+    let part = root.path().join("zsh/parts/50-alias.zsh");
+    fs::write(
+        &part,
+        "has_cmd probe && alias cat=probe\nfunction cat { :; }\n[[ $UNDECIDED == x ]] && alias ls=probe\nls() { :; }\nif has_cmd probe; then\n  cat() { :; }\nfi\n",
+    )
+    .unwrap();
+    let built = build(root.path(), &[]);
+    assert!(!built.success());
+    assert_eq!(
+        built.stderr.trim_end(),
+        format!(
+            "zsh-build: {}:6: cat: alias redefined as function",
+            part.display()
+        )
+    );
+}
+
+#[test]
+fn a_function_may_take_the_name_of_an_unaliased_or_suffix_alias() {
+    let root = fixture();
+    fs::write(
+        root.path().join("zsh/parts/50-alias.zsh"),
+        "alias cat=probe\nunalias cat\ncat() { :; }\nalias -s txt=probe\ntxt() { :; }\n",
+    )
+    .unwrap();
+    let built = build(root.path(), &[]);
+    assert!(built.success(), "{}", built.stderr);
+}
+
+#[test]
 fn bundled_functions_report_where_they_were_defined() {
     let root = fixture();
     assert!(build(root.path(), &[]).success());

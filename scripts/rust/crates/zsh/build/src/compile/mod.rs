@@ -75,6 +75,8 @@ pub struct Compiler {
     pub warnings: Vec<String>,
     /// Third-party code left to runtime.
     pub skipped: Vec<String>,
+    /// `name()` definitions after an alias of that name.
+    pub redefined: Vec<String>,
     pub inlined: usize,
     pub folded: usize,
     /// `PATH_HELPER_ROOT` for the `path_helper` emulation.
@@ -103,6 +105,7 @@ struct Snapshot {
     constants: usize,
     warnings: usize,
     skipped: usize,
+    redefined: usize,
     inlined: usize,
     folded: usize,
     ledger: (usize, usize),
@@ -118,6 +121,7 @@ impl Compiler {
             constants: Constants::default(),
             warnings: Vec::new(),
             skipped: Vec::new(),
+            redefined: Vec::new(),
             inlined: 0,
             folded: 0,
             path_helper_root: String::new(),
@@ -193,6 +197,7 @@ impl Compiler {
             constants: self.constants.len(),
             warnings: self.warnings.len(),
             skipped: self.skipped.len(),
+            redefined: self.redefined.len(),
             inlined: self.inlined,
             folded: self.folded,
             ledger: self.ledger.len(),
@@ -206,6 +211,7 @@ impl Compiler {
         self.constants.truncate(snapshot.constants);
         self.warnings.truncate(snapshot.warnings);
         self.skipped.truncate(snapshot.skipped);
+        self.redefined.truncate(snapshot.redefined);
         self.inlined = snapshot.inlined;
         self.folded = snapshot.folded;
         self.ledger.truncate(snapshot.ledger);
@@ -616,6 +622,7 @@ impl Compiler {
         cx: &Cx,
     ) {
         if node.auto_call_args.is_none() {
+            self.check_aliases(script, node, cx);
             let function = Function {
                 file: cx.origin.map(Path::to_path_buf).unwrap_or_default(),
                 fingerprint: walk::fingerprint(node),
@@ -679,6 +686,10 @@ impl Compiler {
                 rules::helper(self, &name, args, rewrite)
             }
             "_omz_source" => rules::omz_source(self, args, rewrite, cx),
+            "alias" | "unalias" if self.ledger.collecting.is_none() => {
+                self.track_aliases(&name, args);
+                (None, false)
+            }
             "unset" => {
                 let functions = args
                     .iter()
@@ -713,6 +724,48 @@ impl Compiler {
                 (None, false)
             }
             _ => (None, false),
+        }
+    }
+
+    /// Aliases set in place; deferred code sets them after the bundle is parsed.
+    fn track_aliases(&mut self, command: &str, args: &[String]) {
+        let values: Vec<String> = args
+            .iter()
+            .filter_map(|arg| expand::scalar(arg, &self.state))
+            .collect();
+        let flags: String = values
+            .iter()
+            .filter(|value| value.starts_with('-'))
+            .flat_map(|value| value.chars().skip(1))
+            .collect();
+        let operands = values.iter().filter(|value| !value.starts_with(['-', '+']));
+        match command {
+            _ if flags.contains('s') => {}
+            "alias" => self
+                .state
+                .aliases
+                .extend(operands.filter_map(|value| Some(value.split_once('=')?.0.to_string()))),
+            _ if flags.contains(['a', 'm']) => self.state.aliases.clear(),
+            _ => operands.for_each(|name| {
+                self.state.aliases.remove(name);
+            }),
+        }
+    }
+
+    /// Parsed from source, zsh expands an alias in `name()`; `zcompile -U` wordcode does not.
+    fn check_aliases(&mut self, script: &Script, node: &ZshFuncDef, cx: &Cx) {
+        let line = script.text.lines().nth(self.line.saturating_sub(1));
+        for name in node.names.iter().map(|name| walk::text(name)) {
+            if self.state.aliases.contains(&name)
+                && !line.is_some_and(|line| walk::defines_with_keyword(line, &name))
+            {
+                let place = self
+                    .location(cx)
+                    .or_else(|| cx.origin.map(|origin| origin.display().to_string()))
+                    .unwrap_or_else(|| "generated code".to_string());
+                self.redefined
+                    .push(format!("{place}: {name}: alias redefined as function"));
+            }
         }
     }
 

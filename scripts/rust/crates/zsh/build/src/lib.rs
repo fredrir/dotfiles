@@ -114,6 +114,9 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
             compiler.analyze(env)?;
         }
         let body = compiler.root(&options.root.join(&target.source))?;
+        if !compiler.redefined.is_empty() {
+            return Err(compiler.redefined.join("\n"));
+        }
         let body = compiler.settle_deferral(section.to_string() + &body);
         let text = emit::bundle(
             &output,

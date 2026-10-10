@@ -64,6 +64,8 @@ pub struct State {
     host: String,
     path: Option<Vec<PathBuf>>,
     pub functions: BTreeMap<String, Function>,
+    /// Names that are aliases on every path here; `name()` after one fails to parse.
+    pub aliases: BTreeSet<String>,
     pub omz_alias_styles: bool,
     frames: Vec<BTreeMap<String, Var>>,
 }
@@ -80,6 +82,7 @@ impl State {
             host,
             path: Some(path),
             functions: BTreeMap::new(),
+            aliases: BTreeSet::new(),
             omz_alias_styles: false,
             frames: Vec::new(),
         }
@@ -169,6 +172,7 @@ impl State {
         }
         self.functions
             .retain(|name, function| other.functions.get(name) == Some(function));
+        self.aliases.retain(|name| other.aliases.contains(name));
         self.omz_alias_styles |= other.omz_alias_styles;
     }
 }

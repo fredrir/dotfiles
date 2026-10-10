@@ -198,6 +198,14 @@ pub fn function_names(lists: &[ZshList]) -> Vec<String> {
         .collect()
 }
 
+/// Whether `line` defines `name` as `function name`, where zsh expands no alias.
+pub fn defines_with_keyword(line: &str, name: &str) -> bool {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    words
+        .windows(2)
+        .any(|pair| pair[0] == "function" && pair[1].split(['(', '{']).next() == Some(name))
+}
+
 /// Function names declared at the start of lines, for code the parser rejects.
 pub fn declared_names(text: &str) -> Vec<String> {
     let is_name = |name: &str| {

@@ -193,19 +193,30 @@ inspect-pid() {
   ps -p "$1" -o pid,vsz=MEMORY -o user,group=GROUP -o comm,args=ARGS
 }
 
-if has_cmd bat; then
+if has_cmd hexcat || has_cmd bat; then
+  _cat_image() {
+    has_cmd chafa && [[ -f "$1" && "$(file -b --mime-type -- "$1")" == image/* ]]
+  }
+
   cat() {
-    if (($# == 0)); then
-      bat -pp
+    local -a show=(bat -pp)
+    has_cmd hexcat && show=(hexcat)
+
+    local f
+    local -i images=0
+    for f in "$@"; do
+      _cat_image "$f" && images=1 && break
+    done
+    if ((!images)); then
+      "${show[@]}" "$@"
       return
     fi
 
-    local f
     for f in "$@"; do
-      if has_cmd chafa && [[ -f "$f" && "$(file -b --mime-type -- "$f")" == image/* ]]; then
+      if _cat_image "$f"; then
         chafa -- "$f"
       else
-        bat -pp -- "$f"
+        "${show[@]}" -- "$f"
       fi
     done
   }
