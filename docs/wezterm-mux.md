@@ -27,7 +27,12 @@ reached through `socat`.
 | Failure | Source pane stays open; shell prints the error (exit 1); picker/keybind: WezTerm log |
 | Timeout | 15s per `wezterm cli` call; shell waits 60s for the GUI's reply |
 | Prerequisite | Updated vertical-tabs WezTerm GUI, CLI and localmux server; reload shell definitions |
-| Restart | Terminates localmux's local sessions; remote shells return as orphans |
+| `wez-restart` | GUI always; each mux only when its vertical-tabs `mux_digest` changed |
+| `wez-restart -d` | `git pull --ff-only` vertical-tabs on macie and archie, deploy both, then restart |
+| `wez-restart -m` | Restart muxes regardless |
+| Running digest | macie: `~/.local/state/wezterm/mux-digest` from `wezterm-mux-serve`; archie: `/proc/<pid>/exe` |
+| Localmux restart | Detached; log: `~/Library/Logs/wez-restart.log`; failure: macOS notification |
+| Mux restart | `[Y/n]` prompt naming the machines; terminates their local sessions; remote shells return as orphans |
 | macOS Local Network | Allow `wezterm-mux-server` per WezTerm update; else cable/LAN: `No route to host` |
 
 
@@ -228,6 +233,7 @@ shared/wezterm/utils/attach-mux.lua    the `ATTACH_MUX` handler
 shared/ssh/config                      the `Include` both OpenSSH and WezTerm read
 shared/wezterm/utils/hwire-session.lua propagates TLS metadata to tabs and splits
 shared/zsh/49-wezterm.zsh              `mux`, `attach_mux`, the `archie`/`macie` aliases
+scripts/shell/wez-restart              GUI and stale mux restart, `-d` deploy
 scripts/rust/crates/mux-route/         which route answers, and the domain to attach over it
 scripts/rust/crates/hostkit/           the addresses those two read, and the guard on hosts.lua
 

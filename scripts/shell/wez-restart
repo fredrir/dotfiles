@@ -1,0 +1,209 @@
+#!/bin/sh
+
+set -eu
+
+PROGRAM=wez-restart
+
+PEER=archie
+SELF=$(uname -n | cut -d. -f1)
+REPO=$HOME/projects/wez-plugins/vertical-tabs
+APP=/Applications/WezTerm.app
+GUI=$APP/Contents/MacOS/wezterm-gui
+CLI=$HOME/.local/bin/wezterm
+SERVER=$HOME/.local/bin/wezterm-mux-server
+LOCALMUX=com.fredrir.wezterm-mux
+LOCALMUX_SOCKET=$HOME/.local/share/wezterm/localmux.sock
+RUNNING_DIGEST=$HOME/.local/state/wezterm/mux-digest
+LOG=$HOME/Library/Logs/wez-restart.log
+
+usage() {
+  cat <<EOF
+usage: $PROGRAM [-d] [-m]
+
+  -d  pull and deploy vertical-tabs on macie and $PEER first
+  -m  restart mux servers even if unchanged
+EOF
+}
+
+note() {
+  printf '%s: %s\n' "$1" "$2"
+}
+
+fail() {
+  printf '%s: %s\n' "$PROGRAM" "$1" >&2
+  exit 1
+}
+
+confirm() {
+  printf 'Restart mux on %s? Panes there are killed. [Y/n] ' "$1" >&2
+  read -r answer </dev/tty || return 1
+  case $answer in
+  '' | [Yy] | [Yy][Ee][Ss]) ;;
+  *) return 1 ;;
+  esac
+}
+
+wait_for() {
+  tries=0
+  until "$@"; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 100 ] || return 1
+    sleep 0.1
+  done
+}
+
+bundle_digest() {
+  dir=$(dirname "$1")
+  for marker in "$dir/bundle.json" "$dir/../Resources/bundle.json"; do
+    if [ -f "$marker" ]; then
+      jq -r '.mux_digest // empty' "$marker"
+      return
+    fi
+  done
+}
+
+differs() {
+  [ -z "$2" ] || [ "$1" != "$2" ]
+}
+
+linux_mux_stale() {
+  pid=$(systemctl --user show -p MainPID --value wezterm-mux)
+  running=
+  if [ "$pid" != 0 ]; then
+    running=$(bundle_digest "$(readlink "/proc/$pid/exe")")
+  fi
+  differs "$running" "$(bundle_digest "$(realpath "$SERVER")")"
+}
+
+peer_state() {
+  ssh -o ConnectTimeout=5 "$PEER" sh -s -- --state <"$0" || {
+    [ $? = 255 ] || fail "$PEER: state check failed"
+    echo unreachable
+  }
+}
+
+gui_stopped() {
+  ! pgrep -qf "^$GUI"
+}
+
+pid_gone() {
+  ! kill -0 "$1" 2>/dev/null
+}
+
+localmux_ready() {
+  WEZTERM_UNIX_SOCKET=$LOCALMUX_SOCKET "$CLI" cli --prefer-mux --no-auto-start list >/dev/null 2>&1
+}
+
+quit_gui() {
+  pkill -f "^$GUI" || return 0
+  wait_for gui_stopped && return
+  pkill -KILL -f "^$GUI" || :
+  wait_for gui_stopped
+}
+
+restart_localmux() {
+  old=$(pgrep -xf "$SERVER" || :)
+  launchctl kickstart -k "gui/$(id -u)/$LOCALMUX" || return 1
+  for pid in $old; do
+    wait_for pid_gone "$pid" || return 1
+  done
+  wait_for localmux_ready
+}
+
+restart_local() {
+  quit_gui || return 1
+  if [ "$1" = 1 ]; then
+    restart_localmux || return 1
+    note "$SELF" "mux restarted"
+  fi
+  open "$APP"
+}
+
+notify_failure() {
+  osascript -e "display notification \"restart failed, see $LOG\" with title \"$PROGRAM\""
+}
+
+restart_macos() {
+  if [ "$deploy" = 1 ]; then
+    git -C "$REPO" pull --ff-only
+    ssh -n "$PEER" git -C "${REPO#"$HOME"/}" pull --ff-only
+    (cd "$REPO" && just deploy && just deploy --to "$PEER")
+  fi
+
+  peer_mux=0
+  local_mux=0
+  targets=
+  state=$(peer_state)
+  if [ "$state" = unreachable ]; then
+    note "$PEER" "unreachable"
+  elif [ "$force" = 1 ] || [ "$state" = stale ]; then
+    peer_mux=1
+    targets=$PEER
+  fi
+  running=$(cat "$RUNNING_DIGEST" 2>/dev/null || :)
+  if [ "$force" = 1 ] || differs "$running" "$(bundle_digest "$(realpath "$SERVER")")"; then
+    local_mux=1
+    targets=${targets:+$targets, }$SELF
+  fi
+  if [ -n "$targets" ]; then
+    confirm "$targets" || fail aborted
+  fi
+
+  if [ "$peer_mux" = 1 ]; then
+    ssh -n "$PEER" systemctl --user restart wezterm-mux
+    note "$PEER" "mux restarted"
+  fi
+  if [ "$local_mux" = 1 ]; then
+    note "$SELF" "restarting mux and GUI in the background, log: $LOG"
+    (
+      trap '' HUP
+      date
+      restart_local 1 || notify_failure
+    ) </dev/null >>"$LOG" 2>&1 &
+  else
+    restart_local 0 || fail "GUI restart failed"
+  fi
+}
+
+restart_linux() {
+  [ "$deploy" = 0 ] || fail "-d is macOS only"
+  if [ "$force" = 0 ] && ! linux_mux_stale; then
+    return
+  fi
+  confirm "$SELF" || fail aborted
+  systemctl --user restart wezterm-mux
+  note "$SELF" "mux restarted"
+}
+
+if [ "${1-}" = --state ]; then
+  if linux_mux_stale; then echo stale; else echo current; fi
+  exit 0
+fi
+
+deploy=0
+force=0
+while getopts dmh opt; do
+  case $opt in
+  d) deploy=1 ;;
+  m) force=1 ;;
+  h)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+  esac
+done
+shift $((OPTIND - 1))
+if [ $# -ne 0 ]; then
+  usage >&2
+  exit 2
+fi
+
+case $(uname -s) in
+Darwin) restart_macos ;;
+Linux) restart_linux ;;
+*) fail "unsupported platform" ;;
+esac

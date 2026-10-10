@@ -195,17 +195,3 @@ _wezterm_cd_dotfiles() { _wezterm_cd "$DOTFILES"; }
 
 zle -N wezterm-cd-pyparser _wezterm_cd_pyparser
 zle -N wezterm-cd-dotfiles _wezterm_cd_dotfiles
-
-wez-restart() {
-
-  if [[ -n $MACOS ]]; then
-    launchctl kickstart -k gui/$(id -u)/com.fredrir.wezterm-mux || true
-    open /Applications/WezTerm.app
-    exit 0
-  fi
-
-  if [[ -n $LINUX ]]; then
-    sudo pkill wezterm-mux-ser
-    exit 0
-  fi
-}
