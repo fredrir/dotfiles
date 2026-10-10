@@ -37,6 +37,7 @@ macos:shared/vscode = ~/Library/Application Support/Code/User
 linux:shared/vscode = ~/.config/Code/User
 
 # macos
+macos/atuin-server = ~/.config/atuin-server
 macos/fastfetch = ~/.config/fastfetch
 macos/git/.gitconfig = ~/.gitconfig
 macos/launchd = ~/Library/LaunchAgents

@@ -1,0 +1,4 @@
+host              = "100.75.71.79"
+port              = 8888
+open_registration = false
+db_uri            = "sqlite:///Users/fredrir/.local/share/atuin-server/atuin.db"
