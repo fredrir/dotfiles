@@ -39,5 +39,6 @@
   "Lua.format.enable": false,
   "Lua.telemetry.enable": false,
   "Lua.type.checkTableShape": true,
-  "Lua.type.inferParamType": true
+  "Lua.type.inferParamType": true,
+  "stylua.targetReleaseVersion": "latest"
 }

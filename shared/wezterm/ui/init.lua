@@ -3,6 +3,7 @@ local performance = require "ui.performance"
 local fonts = require "ui.fonts.fonts"
 local profiles = require "ui.colors.profiles"
 local theme = require "ui.theme"
+require "ui.maximize"
 
 ---@type Config
 local ui_config = {
