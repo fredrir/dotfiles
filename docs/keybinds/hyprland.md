@@ -44,7 +44,7 @@
 | <code>SUPER+CTRL+right</code> | [<code>resizeactive, 40 0</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L30) | Resizeactive: 40 0<br><code>global; bind</code> |
 | <code>SUPER+CTRL+up</code> | [<code>resizeactive, 0 -40</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L31) | Resizeactive: 0 -40<br><code>global; bind</code> |
 | <code>SUPER+D</code> | [<code>layoutmsg, preselect</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L85) | Layoutmsg: preselect<br><code>global; bind</code> |
-| <code>SUPER+E</code> | [<code>exec, $terminal -o confirm_os_window_close=0 --class yazi-overlay -e yazi</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L6) | Exec: $terminal -o confirm_os_window_close=0 --class yazi-overlay -e yazi<br><code>global; bind</code> |
+| <code>SUPER+E</code> | [<code>exec, $terminal -o confirm_os_window_close=0 --class yazi-overlay -e env YAZI_CONFIG_HOME="$HOME/dotfiles/shared/yazi" yazi</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L6) | Exec: $terminal -o confirm_os_window_close=0 --class yazi-overlay -e env YAZI_CONFIG_HOME="$HOME/dotfiles/shared/yazi" yazi<br><code>global; bind</code> |
 | <code>SUPER+F</code> | [<code>fullscreen, 0</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L77) | Fullscreen: 0<br><code>global; bind</code> |
 | <code>SUPER+F10</code> | [<code>exec, pkill hyprsunset</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L109) | Exec: pkill hyprsunset<br><code>global; bind</code> |
 | <code>SUPER+F9</code> | [<code>exec, hyprsunset -t 5000</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L108) | Exec: hyprsunset -t 5000<br><code>global; bind</code> |

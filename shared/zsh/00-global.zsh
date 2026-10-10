@@ -6,6 +6,10 @@ export DOTFILES_ZSH_CACHE="$DOTFILES/.cache/zsh"
 export DOTFILES_COMPILED="$DOTFILES/.bin"
 
 export ZCONF="$DOTFILES/shared/zsh"
+export ATUIN_CONFIG_DIR="$DOTFILES/shared/atuin"
+export DIRENV_CONFIG="$DOTFILES/shared/direnv"
+export STARSHIP_CONFIG="$DOTFILES/shared/starship/starship.toml"
+export YAZI_CONFIG_HOME="$DOTFILES/shared/yazi"
 
 [[ -d "$HOME/llama.cpp" ]] && export LLAMA="$HOME/llama.cpp"
 

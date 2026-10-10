@@ -7,10 +7,20 @@ DEFAULT_VAULT = "~/Documents/main"
 DEFAULT_PROJECTS = ("dotfiles", "ArchTeX")
 
 
-def _config_path():
-    return Path(
-        os.environ.get("TRANSCRIPT_CONFIG", os.path.expanduser("~/.config/transcript/config.toml"))
+def _repo_root():
+    if root := os.environ.get("DOTFILE_ROOT"):
+        return Path(root)
+    here = Path(__file__).resolve()
+    return next(
+        (path for path in here.parents if (path / "config/targets.dotfile").is_file()),
+        here.parents[5],
     )
+
+
+def _config_path():
+    if path := os.environ.get("TRANSCRIPT_CONFIG"):
+        return Path(path)
+    return _repo_root() / "config/transcript/config.toml"
 
 
 @lru_cache(maxsize=8)

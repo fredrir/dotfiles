@@ -51,11 +51,10 @@ http://localhost:5173  → 127.0.0.1, [::1]:5173 ┴─ ssh master ─→ localh
 
 ## Config
 
-| Name      | Value                         |
+| Name   | Value                     |
 | --- | --- |
-| Installed | `~/.config/hport/config.toml` |
-| Source    | `shared/hport/config.toml`    |
-| Reload    | restart the daemon            |
+| Source | `config/hport/config.toml` |
+| Reload | restart the daemon         |
 
 | Key                | Default |
 | --- | --- |
@@ -65,7 +64,7 @@ http://localhost:5173  → 127.0.0.1, [::1]:5173 ┴─ ssh master ─→ localh
 
 | Env | Default |
 | --- | --- |
-| `HPORT_CONFIG` | `${XDG_CONFIG_HOME:-~/.config}/hport/config.toml` |
+| `HPORT_CONFIG` | `${DOTFILE_ROOT:-<repo>}/config/hport/config.toml` |
 | `XDG_STATE_HOME` | `~/.local/state`; holds `hport/state.json` and `hport/master.sock` |
 | `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` | `$HOST`, from `shared/zsh/04-env.zsh` |
 

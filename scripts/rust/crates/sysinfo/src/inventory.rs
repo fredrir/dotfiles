@@ -68,24 +68,7 @@ impl InventoryContext {
     }
 }
 
-pub fn repo_root() -> PathBuf {
-    if let Some(root) = std::env::var_os("DOTFILE_ROOT").filter(|v| !v.is_empty()) {
-        return PathBuf::from(root);
-    }
-    let executable = std::env::current_exe().ok();
-    let compiled = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for start in executable.iter().chain(std::iter::once(&compiled)) {
-        for path in start.ancestors() {
-            if path.join("config/targets.dotfile").is_file() || path.join(".git").exists() {
-                return path.to_path_buf();
-            }
-        }
-    }
-    compiled
-        .join("../../../..")
-        .canonicalize()
-        .unwrap_or(compiled)
-}
+pub use workstation::path::repo_root;
 
 pub fn parse_hosts(text: &str) -> Result<Vec<Host>, String> {
     let mut hosts: Vec<Host> = Vec::new();

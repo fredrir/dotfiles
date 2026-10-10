@@ -53,11 +53,7 @@ fn path() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("HPORT_CONFIG").filter(|path| !path.is_empty()) {
         return Ok(PathBuf::from(path));
     }
-    let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|path| !path.is_empty()) {
-        Some(base) => PathBuf::from(base),
-        None => home()?.join(".config"),
-    };
-    Ok(base.join("hport/config.toml"))
+    Ok(workstation::path::repo_root().join("config/hport/config.toml"))
 }
 
 pub fn home() -> Result<PathBuf, String> {

@@ -157,11 +157,7 @@ fn remote_arguments_from_help(stdout: &[u8], stderr: &[u8]) -> RemoteArguments {
 }
 
 pub fn excludes() -> Option<PathBuf> {
-    let base = match std::env::var_os("XDG_CONFIG_HOME") {
-        Some(value) if !value.is_empty() => PathBuf::from(value),
-        _ => PathBuf::from(std::env::var_os("HOME")?).join(".config"),
-    };
-    let file = base.join("rsync/excludes");
+    let file = workstation::path::repo_root().join("config/hcopy/excludes");
     file.is_file().then_some(file)
 }
 

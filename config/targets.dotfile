@@ -1,21 +1,14 @@
 # shared
-shared/atuin = ~/.config/atuin
-shared/direnv = ~/.config/direnv
 shared/fastfetch = ~/.config/fastfetch
 shared/gh = ~/.config/gh
 shared/git = ~/.config/git
 shared/git/.gitconfig = ~/.gitconfig
-shared/hport = ~/.config/hport
 shared/nvim = ~/.config/nvim
 shared/op-bridge/op = ~/.local/bin/op
 shared/obsidian = ~/Documents/main/.obsidian
 shared/obsidian/plugins/agent-transcripts = ~/Documents/main/.obsidian/plugins/agent-transcripts
-shared/rsync = ~/.config/rsync
 shared/ssh = ~/.ssh
-shared/starship = ~/.config
-shared/transcript = ~/.config/transcript
 shared/wezterm = ~/.config/wezterm
-shared/yazi = ~/.config/yazi
 shared/zsh/00-global.zsh = ~/.zshenv
 shared/zsh/01-init.zsh = ~/.zshrc
 macos:shared/zsh/00-profile.zsh = ~/.zprofile
