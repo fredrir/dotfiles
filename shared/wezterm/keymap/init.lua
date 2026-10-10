@@ -17,6 +17,7 @@ local open_jetbrains = require "utils.keymap.open-jetbrains"
 local open_github = require "utils.keymap.open-github"
 local git_add = require "utils.keymap.git-add"
 local open_yazi = require "utils.keymap.open-yazi"
+local go_to = require "utils.keymap.go-to"
 local close_window = require "utils.close_window"
 local copy_selection = require "utils.copy-selection"
 local clear_screen = require "utils.keymap.clear_screen"
@@ -109,13 +110,10 @@ local bindings = {
 
   -- Open Vscode --
   keybind(open_vscode, MOD.SUPER_REV, "o"),
-  keybind(open_jetbrains.pycharm, MOD.UNIQUE_REV, "p"),
+  keybind(open_jetbrains.pycharm, MOD.SUPER_REV, "p"),
   keybind(open_jetbrains.rustrover, MOD.UNIQUE_REV, "r"),
   keybind(open_jetbrains.intellij, MOD.UNIQUE_REV, "i"),
 
-  keybind(act.ActivateCommandPalette, MOD.PRIMARY, "Space"),
-  keybind(act.ShowLauncherArgs { flags = "WORKSPACES" }, MOD.SUPER_REV, "p"),
-  keybind(act.ActivateCopyMode, MOD.SUPER_REV, "x"),
   keybind(act.QuickSelect, MOD.SUPER_REV, "Space"),
   keybind(act.SplitVertical { domain = "CurrentPaneDomain" }, MOD.PRIMARY, ";"),
   keybind(open_github, MOD.SUPER_REV, "g"),
@@ -124,9 +122,13 @@ local bindings = {
   ------ Directory Navigation ------
   ------ SHIFT_RIGHT for left side of the keyboard, and OPT for the right side of the keyboard
   ----
-  keybind(act.SendString "\x1b[112;9u", { MOD.UNIQUE }, "p"),
+  keybind(go_to "PYPARSER", MOD.UNIQUE, "p"),
+  keybind(go_to "LLUNDE", MOD.UNIQUE, "l"),
   ----
-  keybind(act.SendString "\x1b[100;9u", MOD.SHIFT_RIGHT, "d"),
+  keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),
+  keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
+  ----
+  keybind(go_to "DOTFILES/shared/wezterm", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "w"),
 }
 
 -- Go to tab 1..9

@@ -190,8 +190,16 @@ _wezterm_cd() {
   _wezterm_reset_prompt
 }
 
-_wezterm_cd_pyparser() { _wezterm_cd "$PYPARSER"; }
-_wezterm_cd_dotfiles() { _wezterm_cd "$DOTFILES"; }
+_wezterm_go_to() {
+  local target='' char
+  while read -rs -t 1 -k 1 char && [[ $char != $'\a' ]]; do target+=$char; done
 
-zle -N wezterm-cd-pyparser _wezterm_cd_pyparser
-zle -N wezterm-cd-dotfiles _wezterm_cd_dotfiles
+  local name=${target%%/*}
+  if [[ -z $name || $name == *[^[:IDENT:]]* ]]; then
+    zle -M "Invalid target: $target"
+    return 1
+  fi
+  _wezterm_cd "${(P)name}${target#"$name"}"
+}
+
+zle -N wezterm-go-to _wezterm_go_to

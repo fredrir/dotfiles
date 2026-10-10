@@ -30,6 +30,14 @@ key.openApp({ "fn" }, "o", "Obsidian")
 -- Vscode --
 key.openApp({ "fn" }, "p", "Visual Studio Code")
 
+-- Cycle windows of focused app --
+key.createKeybind({ "fn" }, "tab", function()
+  hs.eventtap.keyStroke({ "cmd" }, "<", 0)
+end)
+key.createKeybind({ "fn", "shift" }, "tab", function()
+  hs.eventtap.keyStroke({ "cmd", "shift" }, "<", 0)
+end)
+
 -- Window tiling --
 -- fn+arrows arrive as home/end/pageup/pagedown
 local tiles = {
