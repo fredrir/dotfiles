@@ -11,6 +11,7 @@
 | dwin         | [dwin.md](./dwin.md)                 | [scripts/rust/crates/macos/dwin/]           |
 | flatten      | [flatten.md](./flatten.md)           | [scripts/rust/crates/utility/flatten/]      |
 | git          | [git.md](./git.md)                   | [scripts/rust/crates/git/]                  |
+| hexcat       | [hexcat.md](./hexcat.md)             | [scripts/rust/crates/utility/hexcat/]       |
 | home-copy    | [home-copy.md](./home-copy.md)       | [scripts/rust/crates/hcopy/]                |
 | hwire        | [hwire.md](./hwire.md)               | [scripts/rust/crates/hwire/]                |
 | hport        | [hport.md](./hport.md)               | [scripts/rust/crates/hport/]                |

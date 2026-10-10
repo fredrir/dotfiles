@@ -10,6 +10,8 @@ export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=$HOST # hport: http://$HOST:PORT
 has_cmd less &&
   export PAGER=less \
     export LESS="-R -F --mouse --wheel-lines=3"
+has_cmd hexcat &&
+  export BAT_PAGER="hexcat --pager"
 has_cmd nvim &&
   export MANPAGER='nvim +Man!' \
     export MANWIDTH=999

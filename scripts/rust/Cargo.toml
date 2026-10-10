@@ -40,6 +40,7 @@ members = [
   "crates/utility/count",
   "crates/utility/doc-purge",
   "crates/utility/flatten",
+  "crates/utility/hexcat",
   "crates/utility/path",
   "crates/utility/rm-emptydirs",
   "crates/utility/size",

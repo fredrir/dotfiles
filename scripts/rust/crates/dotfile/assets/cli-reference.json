@@ -68,6 +68,14 @@
       "source": "scripts/rust/crates/git/"
     },
     {
+      "name": "hexcat",
+      "title": "hexcat",
+      "programs": [
+        "hexcat"
+      ],
+      "source": "scripts/rust/crates/utility/hexcat/"
+    },
+    {
       "name": "home-copy",
       "title": "hpush and hpull",
       "programs": [
@@ -183,6 +191,7 @@
     "gdd",
     "gget",
     "gppf",
+    "hexcat",
     "hpull",
     "hpush",
     "hwire",
@@ -254,6 +263,7 @@
     "gdd": "Discards tracked and untracked working-tree changes while preserving ignored files and nested repositories.",
     "gget": "Downloads a file or directory from a GitHub repository into the current directory.",
     "gppf": "Stages everything, commits with the supplied message, and pushes the commit.",
+    "hexcat": "Prints files like cat; on a terminal with built-in bat highlighting and color swatches.",
     "hpull": "Copies a path from the other machine to the same place on this one.",
     "hpush": "Copies a path from this machine to the same place on the other one.",
     "hwire": "Inspects connections or measures latency and throughput between two machines.",
@@ -403,6 +413,22 @@
       "--yes": "Skips confirmation before discarding changes or replacing a download.",
       "--fredrir": "Reads the `gget` target as a repository owned by `fredrir`.",
       "--branch": "Selects the branch or tag from which `gget` downloads."
+    },
+    "hexcat": {
+      "--show-all": "Shows nonprinting characters, tabs and line ends.",
+      "--number-nonblank": "Numbers nonempty lines.",
+      "-e": "Same as `-vE`.",
+      "--show-ends": "Shows `$` at line ends.",
+      "-l": "Locks stdout while writing.",
+      "--number": "Numbers all lines.",
+      "--squeeze-blank": "Squeezes repeated empty lines into one.",
+      "-t": "Same as `-vT`.",
+      "--show-tabs": "Shows tabs as `^I`.",
+      "-u": "Writes output unbuffered.",
+      "--show-nonprinting": "Shows nonprinting characters.",
+      "--color": "Chooses `auto`, `always`, or `never` colors; `never` runs plain cat.",
+      "--filter": "Adds swatches to the input without running cat or bat.",
+      "--pager": "Adds swatches, then pages through less; set as `BAT_PAGER`."
     },
     "home-copy": {
       "--dry-run": "Reports what would be transferred and changes nothing.",

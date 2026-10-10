@@ -8,3 +8,5 @@ dotfile() {
 sudo() {
   command sudo -p "${THEME_SUDO}SUDO${THEME_CHAR}\$${THEME_RESET} " "$@"
 }
+
+has_cmd hexcat && alias cat="hexcat"
