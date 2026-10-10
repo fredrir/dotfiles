@@ -329,3 +329,31 @@ fn the_path_helper_emulation_matches_path_helper() {
         }
     }
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn the_ctype_codeset_comes_from_langinfo_like_locale_prints_it() {
+    let root = fixture();
+    fs::write(
+        root.path().join("sys/zshrc"),
+        "order+=(zshrc)\nif [[ ! -x /usr/bin/locale ]] || [[ \"$(locale LC_CTYPE)\" == \"UTF-8\" ]]; then\n  order+=(utf8)\nfi\n",
+    )
+    .unwrap();
+    let built = build(root.path());
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    let bundle = bundle_text(root.path());
+    assert!(
+        bundle.contains("[[ \"${${langinfo[CODESET]}:-$(locale LC_CTYPE)}\" == \"UTF-8\" ]]"),
+        "{bundle}"
+    );
+    assert!(bundle.contains("zmodload zsh/langinfo"), "{bundle}");
+    for (lang, utf8) in [
+        ("en_US.UTF-8", true),
+        ("C", false),
+        ("nb_NO.ISO8859-1", false),
+    ] {
+        let env = [("LANG", lang), ("LC_ALL", ""), ("LC_CTYPE", "")];
+        let order = same(root.path(), "-fic", &env);
+        assert_eq!(order.contains("zshrc utf8 rc"), utf8, "{lang}: {order}");
+    }
+}

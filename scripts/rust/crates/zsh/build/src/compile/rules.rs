@@ -10,6 +10,7 @@ use crate::expand::{self, Env, Mode as Expand, Var};
 use crate::native;
 use crate::quote;
 use crate::script::{self, Script};
+use crate::state::State;
 
 /// Helper definitions the rules below reproduce; any other body is left to run.
 const HELPERS: &[(&str, u64)] = &[
@@ -304,21 +305,63 @@ fn emulated(compiler: &mut Compiler, simple: &ZshSimple, rewrite: bool) -> Optio
     rewrite.then_some(text)
 }
 
-/// The native expansion for `original`, a substitution of `inner`, when the
-/// command here prints what its native code makes.
+/// Where a substitution runs, for expansions that depend on it.
+#[derive(Clone, Copy)]
+pub struct Place {
+    /// Build state holds each time it runs: outside function bodies and loops.
+    pub current: bool,
+    /// Runs at top level, outside functions and deferred code.
+    pub top_level: bool,
+}
+
+/// What `original`, a substitution of `inner`, prints, as native zsh, and
+/// the helper that code needs.
 pub fn substitute(
     compiler: &mut Compiler,
     inner: &str,
     original: &str,
-) -> Option<(String, &'static str)> {
+    place: Place,
+) -> Option<(String, Option<&'static str>)> {
     let argv = substituted(compiler, inner)?;
-    let substitute = native::substitute(&argv)?;
-    if !matches!(compiler.state.command(&argv[0]), Some(Some(_))) {
-        return None;
+    let words: Vec<&str> = argv.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        ["emulate"] => {
+            (place.top_level && compiler.emulation_is_zsh()).then(|| ("zsh".to_string(), None))
+        }
+        ["command", "-v", name] if place.current => {
+            compiler.command_path(name).map(|path| (path, None))
+        }
+        _ => native_substitute(compiler, &argv, original)
+            .map(|(expansion, helper)| (expansion, Some(helper))),
     }
+}
+
+/// The native expansion for `original` when the command here prints what
+/// its native code makes.
+fn native_substitute(
+    compiler: &mut Compiler,
+    argv: &[String],
+    original: &str,
+) -> Option<(String, &'static str)> {
+    let substitute = native::substitute(argv)?;
+    let build_path;
+    let state = match compiler.state.command(&argv[0]) {
+        Some(Some(_)) => &compiler.state,
+        Some(None) => return None,
+        // Global startup files run before the search path is known.
+        None => {
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            build_path = State::new(
+                Default::default(),
+                String::new(),
+                std::env::split_paths(&path).collect(),
+            );
+            &build_path
+        }
+    };
     let matches = compiler
         .folder
-        .run(&argv, &compiler.state)
+        .run(argv, state)
         .is_ok_and(|output| (substitute.matches)(&output));
     if !matches {
         let note = format!("{}: unexpected output; left to runtime", argv.join(" "));
@@ -327,7 +370,62 @@ pub fn substitute(
         }
         return None;
     }
-    Some((substitute.expansion(original), substitute.helper))
+    Some(((substitute.expansion)(original), substitute.helper))
+}
+
+/// Builtins of zsh and its bundled modules, and reserved words: names
+/// `command -v` prints as they are.
+const SHELL_WORDS: &str = "\
+    ! - . : [ [[ { } alias autoload bg bindkey break builtin bye cap case cd chdir chgrp chmod \
+    chown clone command compadd comparguments compcall compctl compdescribe compfiles compgroups \
+    compquote compset comptags comptry compvalues continue coproc declare dirs disable disown do \
+    done echo echotc echoti elif else emulate enable end esac eval example exec exit export \
+    false fc fg fi float for foreach function functions getcap getln getopts hash history if \
+    integer jobs kill let limit ln local log logout mkdir mv nameref nocorrect noglob \
+    pcre_compile pcre_match pcre_study popd print printf private pushd pushln pwd r read \
+    readonly rehash repeat return rm rmdir sched select set setcap setopt shift source stat \
+    strftime suspend sync syserror sysopen sysread sysseek syswrite test then time times trap \
+    true ttyctl type typeset ulimit umask unalias unfunction unhash unlimit unset unsetopt until \
+    vared wait whence where which while zcompile zcurses zdelattr zf_chgrp zf_chmod zf_chown \
+    zf_ln zf_mkdir zf_mv zf_rm zf_rmdir zf_sync zformat zftp zgdbmpath zgetattr zle zlistattr \
+    zmodload zparseopts zprof zpty zregexparse zselect zsetattr zsocket zstat zstyle zsystem \
+    ztcp ztie zuntie";
+
+impl Compiler {
+    /// What `command -v name` prints, when that is a path on the tracked
+    /// search path: not a function, alias, builtin or reserved word.
+    fn command_path(&self, name: &str) -> Option<String> {
+        if name.contains('/')
+            || !name.bytes().all(quote::is_plain)
+            || SHELL_WORDS.split_whitespace().any(|word| word == name)
+            || self.shadowed(name)
+        {
+            return None;
+        }
+        let path = self.state.command(name)??;
+        path.to_str()
+            .filter(|path| quote::is_plain_path(path) && !path.contains("//"))
+            .map(str::to_string)
+    }
+
+    /// Whether compiled code may define `name` as a function or alias.
+    fn shadowed(&self, name: &str) -> bool {
+        let names = self.ledger.units.iter().map(|unit| &unit.names);
+        let defined = names
+            .chain(self.ledger.collecting.as_ref())
+            .flat_map(|names| names.defined.iter())
+            .chain(self.ledger.events.iter().map(|(_, key)| key));
+        self.state.functions.contains_key(name)
+            || self.state.aliases.contains(name)
+            || defined.into_iter().any(|(kind, defined)| {
+                matches!(*kind, "function" | "alias") && (defined == name || defined == "*")
+            })
+    }
+
+    /// Whether `emulate` prints `zsh` here: no code before changed the emulation.
+    fn emulation_is_zsh(&self) -> bool {
+        !self.emulation_changed && !self.shadowed("emulate")
+    }
 }
 
 pub fn cached_eval(
@@ -348,7 +446,7 @@ pub fn cached_eval(
         Some(None) => return (rewrite.then(|| ":\n".to_string()), false),
         None => return (None, false),
     }
-    let Ok(output) = compiler.folder.run(command, &compiler.state) else {
+    let Ok(output) = compiler.folder.run_cached(command, &compiler.state) else {
         return (rewrite.then(|| ":\n".to_string()), false);
     };
     let Ok(script) = Script::parse(output) else {
@@ -358,6 +456,16 @@ pub fn cached_eval(
         ));
         return (None, false);
     };
+    if rewrite
+        && !cx.analysis
+        && let Some((file, functions)) = compiler.deferral.completions.take(&script)
+    {
+        for (function, line) in functions {
+            let location = format!("{}:{line}", file.display());
+            compiler.origins.insert(function, location);
+        }
+        return (Some(":\n".to_string()), false);
+    }
     let origin = match compiler.state.var("DOTFILES_ZSH_CACHE") {
         Var::Scalar(cache) => Some(PathBuf::from(cache).join(format!("{name}.zsh"))),
         _ => None,

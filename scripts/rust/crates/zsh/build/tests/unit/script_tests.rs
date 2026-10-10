@@ -44,6 +44,33 @@ fn simple_commands_reprint_to_the_same_command() {
 }
 
 #[test]
+fn array_lines_starting_like_commands_stay_elements() {
+    let text = "f() {\n  a=( do\n    if { [[\n    FOO=1 (x|y)\n  )\n}\nb=(\n  c\n)\n";
+    let script = Script::parse(text.to_string()).unwrap();
+    let ZshCommand::FuncDef(function) = &script.program.lists[0].sublist.pipe.cmd else {
+        panic!("function expected");
+    };
+    let one_line = parse("a=( do if { [[ FOO=1 (x|y) )").unwrap();
+    assert!(same_lists(&function.body.lists, &one_line.lists));
+    assert!(script.joined);
+    assert_eq!(start_line(&script.program.lists[1]), 7);
+    assert_eq!(
+        script
+            .segments(&script.program.lists, script.line_count())
+            .into_iter()
+            .map(|segment| segment.map(|segment| *segment.lines.end()))
+            .collect::<Vec<_>>(),
+        vec![Some(6), Some(9)]
+    );
+}
+
+#[test]
+fn arrays_that_parse_as_written_are_not_joined() {
+    assert!(!Script::parse("a=(\n  b\n)\n".to_string()).unwrap().joined);
+    assert!(parse("a=( b # note\n  if )").is_err());
+}
+
+#[test]
 fn incomplete_input_is_an_error() {
     assert!(parse("if true; then").is_err());
     assert!(parse("f() {\n  :").is_err());

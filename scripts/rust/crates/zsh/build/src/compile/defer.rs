@@ -16,6 +16,7 @@ use super::edits::Edits;
 use super::ledger::{COMPS, Names, Touch, Unit, local_option};
 use super::walk::{self, Visit};
 use super::{Compiler, Cx, Mode, rules};
+use crate::completions::Completions;
 use crate::config;
 use crate::scan;
 use crate::script::{self, Script};
@@ -40,6 +41,8 @@ pub struct Deferral {
     plugins: Vec<Pattern>,
     evals: Vec<Pattern>,
     files: Vec<Pattern>,
+    /// Completion scripts left for compinit to load, on `fpath` ahead of a deferred `compinit`.
+    pub completions: Completions,
 }
 
 impl Deferral {
@@ -61,6 +64,7 @@ impl Deferral {
             plugins: patterns(&config.plugins, None)?,
             evals: patterns(&config.evals, None)?,
             files: patterns(&config.files, Some(root))?,
+            completions: Completions::default(),
         })
     }
 
@@ -148,7 +152,8 @@ impl Compiler {
         false
     }
 
-    /// The function header and the closing text that queues it.
+    /// The function header and the closing text that queues it; a `compinit`
+    /// unit's header follows completion `fpath`, which stays when it is unwrapped.
     fn wrapper(
         &mut self,
         body: &str,
@@ -162,12 +167,12 @@ impl Compiler {
         } else {
             "\n"
         };
-        let (fpath, unqueue, queue) = if compinit {
+        let (fpath, unqueue, queue, completions) = if compinit {
             self.ledger.compinit = Some(self.ledger.units.len());
             names.defined.insert(("var", COMPS.to_string()));
-            (FPATH, UNQUEUE, QUEUE)
+            (FPATH, UNQUEUE, QUEUE, self.deferral.completions.place())
         } else {
-            ("", "", "")
+            ("", "", "", String::new())
         };
         let head = format!("{name}() {{\n{fpath}");
         let tail = format!(
@@ -180,7 +185,7 @@ impl Compiler {
             names,
             after: self.ledger.events.len(),
         });
-        (head, tail)
+        (completions + &head, tail)
     }
 
     fn kept_in_place(&mut self, place: &Path, reason: &str) {

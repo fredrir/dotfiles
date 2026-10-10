@@ -9,13 +9,13 @@ export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=$HOST # hport: http://$HOST:PORT
 
 has_cmd less &&
   export PAGER=less \
-    export LESS="-R -F --mouse --wheel-lines=3"
+    LESS="-R -F --mouse --wheel-lines=3"
 has_cmd hexcat &&
   export BAT_PAGER="hexcat --pager"
 has_cmd nvim &&
   export MANPAGER='nvim +Man!' \
-    export MANWIDTH=999
+    MANWIDTH=999
 has_cmd nvim &&
   export NVIM="$DOTFILES/shared/nvim" \
-    export EDITOR=nvim \
-    export SUDO_EDITOR="$(command -v nvim)"
+    EDITOR=nvim \
+    SUDO_EDITOR="$(command -v nvim)"

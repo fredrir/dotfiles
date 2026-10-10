@@ -97,11 +97,15 @@ fn the_emulation_parses_and_keeps_the_original_as_fallback() {
 }
 
 #[test]
-fn only_atuin_uuid_has_a_native_substitute() {
+fn only_atuin_uuid_and_the_ctype_codeset_have_native_substitutes() {
     assert!(substitute(&names(&["atuin", "uuid"])).is_some());
     assert!(substitute(&names(&["/opt/homebrew/bin/atuin", "uuid"])).is_some());
+    assert!(substitute(&names(&["locale", "LC_CTYPE"])).is_some());
+    assert!(substitute(&names(&["/usr/bin/locale", "LC_CTYPE"])).is_some());
     assert!(substitute(&names(&["atuin", "uuid", "--help"])).is_none());
     assert!(substitute(&names(&["atuin"])).is_none());
+    assert!(substitute(&names(&["locale"])).is_none());
+    assert!(substitute(&names(&["locale", "LC_ALL"])).is_none());
     assert!(substitute(&names(&["uuidgen"])).is_none());
     assert!(substitute(&[]).is_none());
 }
@@ -134,7 +138,7 @@ fn atuin_uuid_output_must_have_the_form_the_helper_makes() {
 #[test]
 fn the_expansion_calls_the_helper_and_keeps_the_original_as_fallback() {
     let atuin = substitute(&names(&["atuin", "uuid"])).unwrap();
-    let expansion = atuin.expansion("$(atuin uuid)");
+    let expansion = (atuin.expansion)("$(atuin uuid)");
     assert_eq!(
         expansion,
         "${${:-$((_zsh_build_uuid7()))}:+${_zsh_build_uuid:-$(atuin uuid)}}"
@@ -149,15 +153,44 @@ fn the_helper_defines_the_math_function_from_a_proper_random_source() {
     let program = crate::script::parse(atuin.helper).unwrap();
     assert_eq!(
         crate::compile::walk::function_names(&program.lists),
-        names(&[atuin.function])
+        names(&["_zsh_build_uuid7"])
     );
     for part in [
-        format!("functions -M {} 0 0\n", atuin.function),
-        format!("typeset -g {}=\n", atuin.value),
-        "now=($epochtime)\n".to_string(),
-        "sysread -s 10 random </dev/urandom || return\n".to_string(),
+        "functions -M _zsh_build_uuid7 0 0\n",
+        "typeset -g _zsh_build_uuid=\n",
+        "now=($epochtime)\n",
+        "sysread -s 10 random </dev/urandom || return\n",
     ] {
-        assert!(atuin.helper.contains(&part), "{part}");
+        assert!(atuin.helper.contains(part), "{part}");
     }
     assert!(!atuin.helper.contains("RANDOM"));
+}
+
+#[test]
+fn the_ctype_codeset_must_print_alone_as_macos_prints_it() {
+    for codeset in ["UTF-8\n", "US-ASCII\n", "ISO8859-1\n", "eucJP\n"] {
+        assert!(is_codeset(codeset), "{codeset}");
+    }
+    for other in [
+        "UTF-8",
+        "UTF-8\n\n",
+        "\n",
+        "C\n",
+        "POSIX\n",
+        "en_US.UTF-8\n",
+        "ANSI_X3.4-1968\n",
+        "upper;lower;alpha\nUTF-8\n",
+    ] {
+        assert!(!is_codeset(other), "{other:?}");
+    }
+}
+
+#[test]
+fn the_codeset_expansion_loads_langinfo_and_keeps_the_original_as_fallback() {
+    let locale = substitute(&names(&["locale", "LC_CTYPE"])).unwrap();
+    let expansion = (locale.expansion)("$(locale LC_CTYPE)");
+    assert_eq!(expansion, "${${langinfo[CODESET]}:-$(locale LC_CTYPE)}");
+    let code = format!("[[ \"{expansion}\" == UTF-8 ]] && x={expansion}\n");
+    assert!(crate::script::parse(&code).is_ok(), "{code}");
+    assert!(locale.helper.contains("zmodload zsh/langinfo"));
 }

@@ -330,10 +330,80 @@ fn keys_typed_before_the_prompt_see_deferred_key_bindings() {
     shell.wait_until(|_| fs::read_to_string(&log).is_ok_and(|log| log.contains("widget")));
 }
 
+/// A clap-style completion script: autoloadable, or sourced to bind itself.
+const COMPLETION: &str = "#!/bin/sh\nprintf '%s\\n' '#compdef comptool' '' '_comptool() { print -r -- completing }' '' 'if [ \"$funcstack[1]\" = \"_comptool\" ]; then' '    _comptool \"$@\"' 'else' '    compdef _comptool comptool' 'fi'\n";
+
+const COMPLETED: &str = "print -r -- comp=$_comps[comptool] fpath=${fpath[(I)*zshrc.completions]}; _comptool; print -r -- source=${functions_source[_comptool]:t}";
+
+#[test]
+fn completion_scripts_are_left_to_compinit_to_autoload() {
+    let root = fixture();
+    executable(&root.path().join("bin/comptool"), COMPLETION);
+    fs::write(
+        root.path().join("zsh/late.zsh"),
+        "mark late\ncached_eval comptool-completion comptool --completions zsh\n(($+functions[_comptool])) && mark registered\n",
+    )
+    .unwrap();
+    let completions = root.path().join(".cache/build/zshrc.completions");
+    let dry = Bin::new(env!("CARGO_BIN_EXE_zsh-build"))
+        .args(["--dry-run", "--root"])
+        .arg(root.path())
+        .env("HOME", root.path())
+        .env("PATH", path(root.path()))
+        .env_remove("ZDOTDIR")
+        .run();
+    assert!(dry.success(), "{dry:?}");
+    assert!(!completions.exists());
+    assert!(build(root.path()).success());
+    let file = fs::read_to_string(completions.join("_comptool")).unwrap();
+    assert!(file.starts_with("#compdef comptool\n"), "{file}");
+    let bundle = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
+    assert!(!bundle.contains("_comptool()"), "{bundle}");
+    assert!(
+        bundle.contains(&format!(
+            "fpath=({} \"${{fpath[@]}}\")\n__zb_defer_",
+            completions.display()
+        )),
+        "{bundle}"
+    );
+
+    let run = |extra: &[(&str, &str)]| {
+        let _ = fs::remove_file(root.path().join("order.log"));
+        let output = Shell::spawn(root.path(), &["-di", "-c", COMPLETED], extra).finish();
+        let log = fs::read_to_string(root.path().join("order.log")).unwrap();
+        (output, log.contains("registered"))
+    };
+    let (bundled, registered) = run(&[]);
+    assert!(registered);
+    assert!(
+        bundled.contains("comp=_comptool fpath=1\r\ncompleting\r\nsource=_comptool"),
+        "{bundled}"
+    );
+    let (sources, registered) = run(&[("NO_BUNDLE", "1")]);
+    assert!(registered);
+    assert!(
+        sources.contains("comp=_comptool fpath=0\r\ncompleting\r\n"),
+        "{sources}"
+    );
+
+    executable(
+        &root.path().join("bin/comptool"),
+        &COMPLETION.replace("'fi'", "'fi' 'typeset -g extra=1'"),
+    );
+    assert!(build(root.path()).success());
+    assert!(!completions.join("_comptool").exists());
+    let bundle = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
+    assert!(bundle.contains("_comptool()"), "{bundle}");
+    assert!(!bundle.contains("zshrc.completions"), "{bundle}");
+}
+
 #[test]
 fn line_init_hooks_added_after_deferral_run_on_the_first_prompt() {
     let root = built();
     let mut shell = Shell::spawn(root.path(), &["-di"], &[]);
     shell.wait_until(prompt);
-    assert_eq!(shell.wait_for_file(&root.path().join("line-init")).trim(), "ok");
+    assert_eq!(
+        shell.wait_for_file(&root.path().join("line-init")).trim(),
+        "ok"
+    );
 }

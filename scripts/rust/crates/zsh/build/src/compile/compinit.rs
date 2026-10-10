@@ -55,12 +55,12 @@ pub fn find(lists: &[ZshList], segments: &[Option<Segment>]) -> Option<Section> 
 }
 
 /// The section as written, run only when the stamp next to the dump shows
-/// it was built for a different `fpath`.
+/// it was built for a different `fpath`, or the dump was rebuilt since.
 pub fn text(script: &Script, section: &Section) -> String {
     let original = script.lines(&section.lines);
     let newline = if original.ends_with('\n') { "" } else { "\n" };
     format!(
-        "if [[ -r $ZSH_COMPDUMP && -r $ZSH_COMPDUMP.fpath && \"$(<$ZSH_COMPDUMP.fpath)\" == \"${{(F)fpath}}\" ]]; then\n\
+        "if [[ -r $ZSH_COMPDUMP && -r $ZSH_COMPDUMP.fpath && ! $ZSH_COMPDUMP -nt $ZSH_COMPDUMP.fpath && \"$(<$ZSH_COMPDUMP.fpath)\" == \"${{(F)fpath}}\" ]]; then\n\
          compinit -C -d \"$ZSH_COMPDUMP\"\n\
          unset zcompdump_revision zcompdump_fpath zcompdump_refresh\n\
          unset -f _omz_compdump_has_metadata\n\

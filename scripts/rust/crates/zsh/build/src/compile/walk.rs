@@ -1,5 +1,6 @@
 //! Questions about parsed statements that do not depend on build state.
 
+use serde_json::Value;
 use zshrs_parse::lexer::untokenize_preserve_quotes;
 use zshrs_parse::parser::{
     ForList, ZshAssign, ZshCommand, ZshFuncDef, ZshList, ZshPipe, ZshProgram, ZshSimple,
@@ -277,6 +278,181 @@ pub fn assigned(lists: &[ZshList]) -> Vec<String> {
 pub const DECLARATIONS: &[&str] = &[
     "typeset", "local", "declare", "export", "readonly", "integer", "float",
 ];
+
+/// `$+commands[name]` or `${+commands[name]}`, maybe negated with `!`: the
+/// command name and whether the test is negated.
+pub fn command_test(expr: &str) -> Option<(&str, bool)> {
+    let expr = expr.trim();
+    let (expr, negated) = match expr.strip_prefix('!') {
+        Some(rest) => (rest.trim_start(), true),
+        None => (expr, false),
+    };
+    let name = expr
+        .strip_prefix("$+commands[")
+        .and_then(|rest| rest.strip_suffix(']'))
+        .or_else(|| {
+            expr.strip_prefix("${+commands[")
+                .and_then(|rest| rest.strip_suffix("]}"))
+        })?;
+    let plain = !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'+'));
+    plain.then_some((name, negated))
+}
+
+/// The command a simple command runs, past `builtin` and quotes.
+fn command_words(simple: &ZshSimple) -> Vec<String> {
+    let words: Vec<String> = words(simple)
+        .iter()
+        .map(|word| word.trim_matches(['\'', '"']).to_string())
+        .collect();
+    match words.split_first() {
+        Some((first, rest)) if first == "builtin" => rest.to_vec(),
+        _ => words,
+    }
+}
+
+/// Whether a simple command may leave an emulation other than zsh in effect.
+pub fn sets_emulation(simple: &ZshSimple, in_function: bool) -> bool {
+    match command_words(simple).split_first() {
+        Some((name, args)) if name == "emulate" => changes_emulation(args, in_function),
+        Some((name, args)) if name == "eval" => args.iter().any(|arg| arg.contains("emulate")),
+        _ => false,
+    }
+}
+
+/// Whether `emulate ARGS` leaves an emulation other than zsh in effect; `-L`
+/// restores it when the function running it returns.
+fn changes_emulation(args: &[String], in_function: bool) -> bool {
+    let local = args
+        .iter()
+        .any(|arg| arg.starts_with('-') && !arg.starts_with("--") && arg.contains('L'));
+    let command = args.iter().any(|arg| arg == "-c");
+    let mut rest = args.iter();
+    let mut mode = None;
+    while let Some(arg) = rest.next() {
+        match arg.as_str() {
+            "-o" | "+o" => {
+                rest.next();
+            }
+            flag if flag.starts_with(['-', '+']) => {}
+            word => {
+                mode = Some(word);
+                break;
+            }
+        }
+    }
+    mode.is_some_and(|mode| mode != "zsh") && !command && !(local && in_function)
+}
+
+/// Whether running `lists`, or a function they define, may change the emulation.
+pub fn changes_emulation_in(lists: &[ZshList], in_function: bool) -> bool {
+    let mut visits = Vec::new();
+    visit(lists, 0, &mut visits);
+    visits.iter().any(|(_, visit)| match visit {
+        Visit::Command(ZshCommand::Simple(simple)) => sets_emulation(simple, in_function),
+        Visit::Command(ZshCommand::FuncDef(node)) => changes_emulation_in(&node.body.lists, true),
+        _ => false,
+    })
+}
+
+/// Whether running `lists` may change an option, outside nested function bodies.
+pub fn sets_options(lists: &[ZshList]) -> bool {
+    let mut visits = Vec::new();
+    visit(lists, 0, &mut visits);
+    visits.iter().any(|(_, visit)| match visit {
+        Visit::Command(ZshCommand::Simple(simple)) => {
+            simple
+                .assigns
+                .iter()
+                .any(|assign| assign.name.starts_with("options"))
+                || command_words(simple).first().is_some_and(|name| {
+                    matches!(name.as_str(), "setopt" | "unsetopt" | "emulate" | "set")
+                })
+        }
+        _ => false,
+    })
+}
+
+/// Whether `list`, the first statement of some code, reads the status the
+/// command before it left: `$?`, `$status`, or a bare `return` or `exit`.
+pub fn reads_status(list: &ZshList) -> bool {
+    let bare = sole_simple(list).is_some_and(|simple| {
+        simple.redirs.is_empty()
+            && matches!(command_words(simple).as_slice(), [name] if name == "return" || name == "exit")
+    });
+    let text = top_level_text(std::slice::from_ref(list));
+    bare || ["$?", "${?", "$status", "${status", "pipestatus"]
+        .iter()
+        .any(|read| text.contains(read))
+}
+
+/// The words of `lists` outside function bodies, as written.
+pub fn top_level_text(lists: &[ZshList]) -> String {
+    fn collect(value: &Value, out: &mut String) {
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    if key == "FuncDef" {
+                        if let Some(names) = child.get("names") {
+                            collect(names, out);
+                        }
+                    } else {
+                        collect(child, out);
+                    }
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|item| collect(item, out)),
+            Value::String(string) => {
+                out.push_str(&text(string));
+                out.push('\n');
+            }
+            _ => {}
+        }
+    }
+    let mut out = String::new();
+    collect(&serde_json::to_value(lists).unwrap_or_default(), &mut out);
+    out
+}
+
+/// `lists` with each simple command in a function body that `replace` maps
+/// replaced by the command it maps to.
+pub fn replace_in_functions(
+    lists: &[ZshList],
+    replace: &dyn Fn(&ZshSimple) -> Option<ZshCommand>,
+) -> Option<Vec<ZshList>> {
+    fn walk(
+        value: &mut Value,
+        in_function: bool,
+        replace: &dyn Fn(&ZshSimple) -> Option<ZshCommand>,
+    ) {
+        let replacement = match value.as_object() {
+            Some(map) if in_function && map.len() == 1 => map
+                .get("Simple")
+                .and_then(|simple| serde_json::from_value::<ZshSimple>(simple.clone()).ok())
+                .and_then(|simple| replace(&simple))
+                .and_then(|command| serde_json::to_value(command).ok()),
+            _ => None,
+        };
+        if let Some(replacement) = replacement {
+            *value = replacement;
+            return;
+        }
+        match value {
+            Value::Object(map) => map
+                .iter_mut()
+                .for_each(|(key, child)| walk(child, in_function || key == "FuncDef", replace)),
+            Value::Array(items) => items
+                .iter_mut()
+                .for_each(|item| walk(item, in_function, replace)),
+            _ => {}
+        }
+    }
+    let mut value = serde_json::to_value(lists).ok()?;
+    walk(&mut value, false, replace);
+    serde_json::from_value(value).ok()
+}
 
 pub fn for_words(list: &ForList) -> Option<Vec<String>> {
     match list {

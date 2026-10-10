@@ -74,3 +74,125 @@ fn declared_names_are_found_in_unparsed_code() {
         vec!["fzf-file-widget".to_string(), "__fzf_select".to_string()]
     );
 }
+
+#[test]
+fn command_tests_name_one_plain_command() {
+    assert_eq!(
+        command_test(" $+commands[ack-grep] "),
+        Some(("ack-grep", false))
+    );
+    assert_eq!(command_test("${+commands[less]}"), Some(("less", false)));
+    assert_eq!(command_test(" ! $+commands[gh] "), Some(("gh", true)));
+    assert_eq!(command_test("!${+commands[fzf]}"), Some(("fzf", true)));
+    for other in [
+        "$+commands[$1]",
+        "$+commands[a/b]",
+        "$+commands[@]",
+        "$+commands[x] && $+commands[y]",
+        "${+commands[x]",
+        "$+functions[x]",
+        "! ! $+commands[x]",
+    ] {
+        assert_eq!(command_test(other), None, "{other}");
+    }
+}
+
+#[test]
+fn command_tests_read_the_parsed_arithmetic() {
+    let program = parse("(( ! ${+commands[fzf]} ))").unwrap();
+    let Some(ZshCommand::Arith(expr)) = sole(&program.lists[0]) else {
+        panic!("arithmetic expected");
+    };
+    assert_eq!(command_test(&text(expr)), Some(("fzf", true)));
+}
+
+#[test]
+fn only_a_lasting_emulation_other_than_zsh_changes_it() {
+    let changes =
+        |text: &str, in_function| changes_emulation_in(&parse(text).unwrap().lists, in_function);
+    for text in [
+        "emulate",
+        "emulate zsh",
+        "emulate -R zsh -o kshglob",
+        "emulate sh -c true",
+        "f() { emulate -L sh }",
+        "( emulate sh )",
+    ] {
+        assert!(!changes(text, false), "{text}");
+    }
+    for text in [
+        "emulate sh",
+        "emulate -L sh",
+        "emulate -o kshglob sh",
+        "'builtin' 'emulate' 'ksh'",
+        "f() { emulate sh }",
+        "eval 'emulate sh'",
+        "emulate $mode",
+    ] {
+        assert!(changes(text, false), "{text}");
+    }
+    assert!(!changes("emulate -L sh", true));
+}
+
+#[test]
+fn option_changes_are_found_outside_nested_functions() {
+    let sets = |text: &str| sets_options(&parse(text).unwrap().lists);
+    for text in [
+        "setopt shglob",
+        "if x; then unsetopt aliases; fi",
+        "options[aliases]=off",
+        "builtin emulate zsh",
+    ] {
+        assert!(sets(text), "{text}");
+    }
+    assert!(!sets("f() { setopt shglob }"));
+    assert!(!sets("print setopt"));
+}
+
+#[test]
+fn a_status_is_read_before_any_function_body() {
+    let first = |text: &str| parse(text).unwrap().lists.remove(0);
+    for text in [
+        "print $?",
+        "x=${?}",
+        "return",
+        "builtin exit",
+        "print $status",
+        "(( pipestatus[1] ))",
+    ] {
+        assert!(reads_status(&first(text)), "{text}");
+    }
+    for text in ["return 1", "f() { local s=$? }", "print ok"] {
+        assert!(!reads_status(&first(text)), "{text}");
+    }
+}
+
+#[test]
+fn top_level_text_leaves_out_function_bodies() {
+    let lists = parse("print $funcstack\nf() { print $LINENO }")
+        .unwrap()
+        .lists;
+    let text = top_level_text(&lists);
+    assert!(text.contains("$funcstack"), "{text}");
+    assert!(text.contains('f'), "{text}");
+    assert!(!text.contains("LINENO"), "{text}");
+}
+
+#[test]
+fn replacements_reach_only_function_bodies() {
+    let lists = parse("eval x\nf() { eval x; if true; then eval x; fi }")
+        .unwrap()
+        .lists;
+    let block = || ZshCommand::Cursh(Box::new(parse("y").unwrap()));
+    let replaced = replace_in_functions(&lists, &|simple| {
+        (words(simple) == ["eval", "x"]).then(block)
+    })
+    .unwrap();
+    let expected = parse("eval x\nf() { { y }; if true; then { y }; fi }")
+        .unwrap()
+        .lists;
+    assert_eq!(replaced.len(), expected.len());
+    for (left, right) in replaced.iter().zip(&expected) {
+        assert_eq!(crate::script::shape(left), crate::script::shape(right));
+    }
+}

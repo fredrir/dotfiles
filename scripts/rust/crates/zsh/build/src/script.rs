@@ -4,6 +4,7 @@
 //! so a statement owns the lines that, parsed alone, reproduce exactly that
 //! statement. Edits are only ever applied to owned lines.
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::ops::RangeInclusive;
 use std::panic::{self, AssertUnwindSafe};
@@ -13,10 +14,13 @@ use serde_json::Value;
 use zshrs_parse::lexer::untokenize_preserve_quotes;
 use zshrs_parse::parser::{ZshAssignValue, ZshCommand, ZshList, ZshParser, ZshProgram, ZshSimple};
 
+use crate::scan::scan;
+
 pub struct Script {
     pub text: String,
     line_starts: Vec<usize>,
     pub program: ZshProgram,
+    joined: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +31,7 @@ pub struct Segment {
 
 impl Script {
     pub fn parse(text: String) -> Result<Self, String> {
-        let program = parse(&text)?;
+        let (program, joined) = parse_either(&text)?;
         let mut line_starts = vec![0];
         line_starts.extend(
             text.bytes()
@@ -42,6 +46,7 @@ impl Script {
             text,
             line_starts,
             program,
+            joined,
         })
     }
 
@@ -110,10 +115,13 @@ impl Script {
         if *lines.end() > self.line_count() || lines.start() > lines.end() {
             return false;
         }
-        match parse(self.lines(lines)) {
-            Ok(program) => same_lists(&program.lists, lists),
-            Err(_) => false,
-        }
+        let text = self.lines(lines);
+        let parsed = if self.joined {
+            parse_complete(&join_array_lines(text))
+        } else {
+            parse_complete(text)
+        };
+        parsed.is_ok_and(|program| same_lists(&program.lists, lists))
     }
 }
 
@@ -139,9 +147,44 @@ thread_local! {
     static QUIET: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Parses complete input only. The parser accepts unterminated constructs,
-/// so a sentinel command must still parse as its own final statement.
+/// Parses complete input only, as written or else with its array lines joined.
 pub fn parse(text: &str) -> Result<ZshProgram, String> {
+    parse_either(text).map(|(program, _)| program)
+}
+
+/// The parser lexes a line inside `name=(...)` from command position, so
+/// a reserved word or `name=` there ends the array; line continuations don't.
+fn parse_either(text: &str) -> Result<(ZshProgram, bool), String> {
+    parse_complete(text)
+        .map(|program| (program, false))
+        .or_else(|error| match join_array_lines(text) {
+            Cow::Borrowed(_) => Err(error),
+            Cow::Owned(joined) => parse_complete(&joined)
+                .map(|program| (program, true))
+                .map_err(|_| error),
+        })
+}
+
+/// Same lines and array elements; zsh reads ` \<newline>` there as a newline.
+fn join_array_lines(text: &str) -> Cow<'_, str> {
+    let newlines = scan(text).array_newlines;
+    if newlines.is_empty() {
+        return Cow::Borrowed(text);
+    }
+    let mut joined = String::with_capacity(text.len() + 2 * newlines.len());
+    let mut position = 0;
+    for newline in newlines {
+        joined.push_str(&text[position..newline]);
+        joined.push_str(" \\");
+        position = newline;
+    }
+    joined.push_str(&text[position..]);
+    Cow::Owned(joined)
+}
+
+/// The parser accepts unterminated constructs, so a sentinel command must
+/// still parse as its own final statement.
+fn parse_complete(text: &str) -> Result<ZshProgram, String> {
     let mut program = parse_raw(&format!("{text}\n:\n"))?;
     let sentinel = program.lists.pop().is_some_and(|last| {
         !last.flags.async_

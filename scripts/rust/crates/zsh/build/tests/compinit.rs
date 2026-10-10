@@ -152,6 +152,33 @@ fn a_new_completion_function_appears_after_the_next_build() {
 }
 
 #[test]
+fn a_dump_rebuilt_without_the_bundle_takes_the_full_path() {
+    let root = fixture();
+    assert!(build(root.path()).success());
+    let (_, audits) = startup(root.path(), true);
+    let dump = root.path().join(".zcompdump-test");
+    let later = fs::metadata(root.path().join(".zcompdump-test.fpath"))
+        .unwrap()
+        .modified()
+        .unwrap()
+        + std::time::Duration::from_secs(1);
+    fs::File::options()
+        .write(true)
+        .open(&dump)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    assert_eq!(
+        startup(root.path(), true),
+        ("_fixturecmd:".to_string(), audits + 1)
+    );
+    assert_eq!(
+        startup(root.path(), true),
+        ("_fixturecmd:".to_string(), audits + 1)
+    );
+}
+
+#[test]
 fn a_changed_fpath_takes_the_full_path() {
     let root = fixture();
     assert!(build(root.path()).success());

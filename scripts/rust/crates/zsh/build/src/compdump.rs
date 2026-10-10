@@ -6,11 +6,19 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::git;
+
 /// Written next to a dump by the bundle: the `fpath` it was built for.
 const STAMP: &str = ".fpath";
 
-/// Removes stale dumps under `dir`; returns the removed dumps.
-pub fn refresh(dir: &Path, omz: Option<&Path>, dry_run: bool) -> Result<Vec<PathBuf>, String> {
+/// Removes stale dumps under `dir`, and dumps whose `fpath` holds a
+/// directory in `rebound`, whose files bind other commands now; returns the removed dumps.
+pub fn refresh(
+    dir: &Path,
+    omz: Option<&Path>,
+    rebound: &[&Path],
+    dry_run: bool,
+) -> Result<Vec<PathBuf>, String> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(_) => return Ok(Vec::new()),
@@ -29,7 +37,7 @@ pub fn refresh(dir: &Path, omz: Option<&Path>, dry_run: bool) -> Result<Vec<Path
     for stamp in stamps {
         let dump = PathBuf::from(stamp.to_string_lossy().trim_end_matches(STAMP).to_string());
         let exists = dump.is_file();
-        if exists && !is_stale(&dump, &stamp, omz) {
+        if exists && !is_stale(&dump, &stamp, omz, rebound) {
             continue;
         }
         if !dry_run {
@@ -58,11 +66,14 @@ fn remove(path: &Path) -> Result<(), String> {
 }
 
 /// compinit's own test (the number of completion files), plus renamed or
-/// removed functions and a changed oh-my-zsh revision.
-fn is_stale(dump: &Path, stamp: &Path, omz: Option<&Path>) -> bool {
+/// removed functions, rebound directories and a changed oh-my-zsh revision.
+fn is_stale(dump: &Path, stamp: &Path, omz: Option<&Path>, rebound: &[&Path]) -> bool {
     let (Ok(text), Ok(fpath)) = (fs::read(dump), fs::read_to_string(stamp)) else {
         return true;
     };
+    if fpath.lines().any(|dir| rebound.contains(&Path::new(dir))) {
+        return true;
+    }
     let text = String::from_utf8_lossy(&text);
     let Some(count) = text
         .lines()
@@ -87,7 +98,8 @@ fn is_stale(dump: &Path, stamp: &Path, omz: Option<&Path>) -> bool {
     let recorded = text
         .lines()
         .find_map(|line| line.strip_prefix("#omz revision: "));
-    match (recorded, omz.and_then(revision)) {
+    let current = omz.and_then(|omz| git::revision(&omz.join(".git")));
+    match (recorded, current) {
         (Some(recorded), Some(current)) => recorded.trim() != current,
         _ => false,
     }
@@ -129,26 +141,6 @@ fn dumped_functions(text: &str) -> Vec<&str> {
         }
     }
     names
-}
-
-/// The commit oh-my-zsh is checked out at, read from its git directory.
-fn revision(omz: &Path) -> Option<String> {
-    let git = omz.join(".git");
-    let head = fs::read_to_string(git.join("HEAD")).ok()?;
-    let head = head.trim();
-    let Some(reference) = head.strip_prefix("ref: ") else {
-        return Some(head.to_string());
-    };
-    if let Ok(commit) = fs::read_to_string(git.join(reference)) {
-        return Some(commit.trim().to_string());
-    }
-    fs::read_to_string(git.join("packed-refs"))
-        .ok()?
-        .lines()
-        .find_map(|line| {
-            line.strip_suffix(reference)
-                .map(|commit| commit.trim().to_string())
-        })
 }
 
 #[cfg(test)]

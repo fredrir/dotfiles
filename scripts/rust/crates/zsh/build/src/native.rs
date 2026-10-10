@@ -22,21 +22,31 @@ fn program(argv: &[String]) -> Option<&str> {
 pub struct Substitute {
     /// The command, by file name and arguments.
     pub argv: &'static [&'static str],
-    /// Defines `function`, a math function that sets `value` or empties it.
+    /// Loaded ahead of the bundle for `expansion`.
     pub helper: &'static str,
-    pub function: &'static str,
-    pub value: &'static str,
-    /// Whether the command's output has the form `helper` makes.
+    /// The native value, else the output of `original`, the substitution it replaces.
+    pub expansion: fn(&str) -> String,
+    /// Whether the command's output has the form `expansion` makes.
     pub matches: fn(&str) -> bool,
 }
 
-const SUBSTITUTES: &[Substitute] = &[Substitute {
-    argv: &["atuin", "uuid"],
-    helper: include_str!("../assets/uuid7.zsh"),
-    function: "_zsh_build_uuid7",
-    value: "_zsh_build_uuid",
-    matches: |output| is_uuid7(output, SystemTime::now()),
-}];
+const SUBSTITUTES: &[Substitute] = &[
+    Substitute {
+        argv: &["atuin", "uuid"],
+        helper: include_str!("../assets/uuid7.zsh"),
+        // No spaces in the math call: `sh_word_split` splits it inside `${:-...}`.
+        expansion: |original| {
+            format!("${{${{:-$((_zsh_build_uuid7()))}}:+${{_zsh_build_uuid:-{original}}}}}")
+        },
+        matches: |output| is_uuid7(output, SystemTime::now()),
+    },
+    Substitute {
+        argv: &["locale", "LC_CTYPE"],
+        helper: include_str!("../assets/langinfo.zsh"),
+        expansion: |original| format!("${{${{langinfo[CODESET]}}:-{original}}}"),
+        matches: is_codeset,
+    },
+];
 
 pub fn substitute(argv: &[String]) -> Option<&'static Substitute> {
     let name = program(argv)?;
@@ -45,16 +55,16 @@ pub fn substitute(argv: &[String]) -> Option<&'static Substitute> {
         .find(|substitute| substitute.argv[0] == name && substitute.argv[1..] == argv[1..])
 }
 
-impl Substitute {
-    /// The helper's value, else the output of `original`, the substitution it replaces.
-    pub fn expansion(&self, original: &str) -> String {
-        // No spaces in the math call: `sh_word_split` splits it inside `${:-...}`.
-        format!(
-            "${{${{:-$(({function}()))}}:+${{{value}:-{original}}}}}",
-            function = self.function,
-            value = self.value,
-        )
-    }
+/// `locale LC_CTYPE` output as macOS prints it: the codeset alone, as
+/// `nl_langinfo(CODESET)` names it, never a locale name.
+pub fn is_codeset(output: &str) -> bool {
+    output.strip_suffix('\n').is_some_and(|codeset| {
+        !codeset.is_empty()
+            && !matches!(codeset, "C" | "POSIX")
+            && codeset
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    })
 }
 
 /// `atuin uuid` output: a UUIDv7 made now, in simple form, with the `uuid`

@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use zshrs_parse::parser::{
     SublistOp, ZshAssign, ZshAssignValue, ZshCommand, ZshCond, ZshFor, ZshFuncDef, ZshIf, ZshList,
-    ZshProgram, ZshSimple,
+    ZshProgram, ZshSimple, ZshSublist,
 };
 
 use crate::expand::{self, Env, Mode as Expand, Var};
@@ -93,6 +93,10 @@ pub struct Compiler {
     ledger: Ledger,
     /// Above zero inside deferred code and loop bodies, where nothing more is deferred.
     defer_suspended: usize,
+    /// Above zero inside loop bodies, where build state may not hold on each pass.
+    loops: usize,
+    /// Whether compiled code may leave an emulation other than zsh.
+    emulation_changed: bool,
     stack: Vec<PathBuf>,
     line: usize,
     root: PathBuf,
@@ -132,6 +136,8 @@ impl Compiler {
             deferred: 0,
             ledger: Ledger::default(),
             defer_suspended: 0,
+            loops: 0,
+            emulation_changed: false,
             stack: Vec::new(),
             line: 0,
             root,
@@ -365,6 +371,8 @@ impl Compiler {
                         continue;
                     }
                     let before = edits.len();
+                    let bytes = script.byte_range(&segment.lines);
+                    let line = *segment.lines.start();
                     if range.len() == 1 {
                         let (replacement, ends) = self.statement(
                             script,
@@ -379,7 +387,7 @@ impl Compiler {
                                 edits.replace_lines(segment.lines.clone(), placeholder(text))
                             }
                             None if edits.len() == before => {
-                                self.text_layer(script, &segment, &lists[range], edits, cx)
+                                self.text_layer(script, bytes, line, &lists[range], edits, cx)
                             }
                             None => {}
                         }
@@ -387,7 +395,7 @@ impl Compiler {
                         for list in &lists[range.clone()] {
                             ended |= self.statement(script, list, None, edits, cx).1;
                         }
-                        self.text_layer(script, &segment, &lists[range], edits, cx);
+                        self.text_layer(script, bytes, line, &lists[range], edits, cx);
                     }
                 }
                 None => {
@@ -436,7 +444,7 @@ impl Compiler {
         let last = lines.map_or(0, |lines| *lines.end());
         match cmd {
             ZshCommand::Simple(simple) => self.simple(simple, lines.is_some(), cx),
-            ZshCommand::If(node) => (None, self.branch(script, node, lines, edits, cx)),
+            ZshCommand::If(node) => self.branch(script, node, lines, edits, cx),
             ZshCommand::For(node) => self.for_loop(script, node, lines, edits, cx),
             ZshCommand::Cursh(body) => (
                 None,
@@ -473,8 +481,11 @@ impl Compiler {
             return (None, false);
         };
         let truth = self
-            .truth(&sublist.pipe.cmd)
+            .truth(&sublist.pipe.cmd, Decide::State)
             .map(|truth| truth != sublist.flags.not);
+        let fixed = lines.filter(|_| {
+            self.eliminates(cx) && self.truth(&sublist.pipe.cmd, Decide::Commands).is_some()
+        });
         let runs = match (operator, truth) {
             (SublistOp::And, Some(truth)) => Some(truth),
             (SublistOp::Or, Some(truth)) => Some(!truth),
@@ -484,8 +495,25 @@ impl Compiler {
             self.forget(std::slice::from_ref(&list_of(sublist.pipe.cmd.clone())));
         }
         match runs {
-            Some(true) => self.command(script, &rest.pipe.cmd, lines, edits, cx),
-            Some(false) => (None, false),
+            Some(true) => {
+                let before = edits.len();
+                let (replacement, ends) = self.command(script, &rest.pipe.cmd, lines, edits, cx);
+                if let (None, Some(lines)) = (&replacement, fixed) {
+                    self.strip_test(script, list, lines, before, edits, cx);
+                }
+                (replacement, ends)
+            }
+            Some(false) => match fixed {
+                Some(lines) => {
+                    let dropped = list_of(rest.pipe.cmd.clone());
+                    let returns = walk::file_returns(std::slice::from_ref(&dropped));
+                    let range = script.byte_range(lines);
+                    drop_code(script, range, None, returns.unwrap_or_default(), edits);
+                    let status = if truth == Some(true) { ":\n" } else { "! :\n" };
+                    (Some(status.to_string()), false)
+                }
+                None => (None, false),
+            },
             None => {
                 let saved = self.state.clone();
                 let ends = self.command(script, &rest.pipe.cmd, None, edits, cx).1;
@@ -499,6 +527,7 @@ impl Compiler {
         }
     }
 
+    /// An `if` chain; only the arm that runs when the build decides which.
     fn branch(
         &mut self,
         script: &Script,
@@ -506,9 +535,14 @@ impl Compiler {
         lines: Option<&RangeInclusive<usize>>,
         edits: &mut Edits,
         cx: &Cx,
-    ) -> bool {
+    ) -> (Option<String>, bool) {
         let last = lines.map_or(0, |lines| *lines.end());
         let owned = lines.is_some();
+        // Conditions that run set what they assign before any arm.
+        let conds = std::iter::once(&*node.cond).chain(node.elif.iter().map(|(cond, _)| cond));
+        for cond in conds {
+            self.forget(&cond.lists);
+        }
         let saved = self.state.clone();
         let mut arms: Vec<(Option<&ZshProgram>, &ZshProgram)> =
             vec![(Some(&node.cond), &node.then)];
@@ -516,18 +550,21 @@ impl Compiler {
         if let Some(body) = &node.else_ {
             arms.push((None, body));
         }
+        let kept = lines
+            .filter(|_| self.eliminates(cx))
+            .and_then(|lines| self.kept_arm(script, &arms, *lines.end()));
         let mut exits = Vec::new();
         let mut decided = false;
-        for (cond, body) in arms {
+        for (cond, body) in &arms {
             self.state = saved.clone();
             let taken = match cond {
                 None => Some(true),
-                Some(cond) => self.program_truth(cond),
+                Some(cond) => self.program_truth(cond, Decide::State),
             };
             if decided || taken == Some(false) {
-                let mark = self.ledger.mark();
-                self.lists(script, &body.lists, last, owned, edits, cx);
-                self.ledger.reset(mark);
+                if kept.is_none() {
+                    self.dead_arm(script, body, last, owned, edits, cx);
+                }
                 continue;
             }
             if !self.lists(script, &body.lists, last, owned, edits, cx) {
@@ -538,14 +575,144 @@ impl Compiler {
         if !decided {
             exits.push(saved.clone());
         }
-        let Some((first, rest)) = exits.split_first() else {
-            self.state = saved;
-            return true;
+        let ends = match exits.split_first() {
+            None => {
+                self.state = saved.clone();
+                true
+            }
+            Some((first, rest)) => {
+                let mut joined = first.clone();
+                rest.iter().for_each(|state| joined.merge(state));
+                self.state = joined;
+                false
+            }
         };
-        let mut joined = first.clone();
-        rest.iter().for_each(|state| joined.merge(state));
-        self.state = joined;
-        false
+        let (Some(kept), Some(lines)) = (kept, lines) else {
+            return (None, ends);
+        };
+        let text = kept.body.as_ref().map_or_else(String::new, |body| {
+            edits.render_within(script, body.clone())
+        });
+        if script::parse(&text).is_err() {
+            let after = std::mem::replace(&mut self.state, saved.clone());
+            for (index, (_, body)) in arms.iter().enumerate() {
+                if kept.index != Some(index) {
+                    self.state = saved.clone();
+                    self.dead_arm(script, body, last, owned, edits, cx);
+                }
+            }
+            self.state = after;
+            return (None, ends);
+        }
+        let range = script.byte_range(lines);
+        drop_code(script, range, kept.body.as_ref(), kept.returns, edits);
+        (Some(text), ends)
+    }
+
+    /// An arm that never runs, compiled for what it rewrites only.
+    fn dead_arm(
+        &mut self,
+        script: &Script,
+        body: &ZshProgram,
+        last: usize,
+        owned: bool,
+        edits: &mut Edits,
+        cx: &Cx,
+    ) {
+        let mark = self.ledger.mark();
+        self.lists(script, &body.lists, last, owned, edits, cx);
+        self.ledger.reset(mark);
+    }
+
+    /// Whether decisions made here may drop code: they hold each time it runs.
+    fn eliminates(&self, cx: &Cx) -> bool {
+        !cx.analysis && self.loops == 0
+    }
+
+    /// The arm of an `if` chain ending at line `last` that runs, decided from
+    /// the search path and constants, when its body owns whole lines and
+    /// reads no status its test left.
+    fn kept_arm(
+        &self,
+        script: &Script,
+        arms: &[(Option<&ZshProgram>, &ZshProgram)],
+        last: usize,
+    ) -> Option<Kept> {
+        let mut index = None;
+        for (position, (cond, _)) in arms.iter().enumerate() {
+            if cond.map_or(Some(true), |cond| {
+                self.program_truth(cond, Decide::Commands)
+            })? {
+                index = Some(position);
+                break;
+            }
+        }
+        let body = match index {
+            None => None,
+            Some(position) => {
+                let lists = &arms[position].1.lists;
+                let segments = script.segments(lists, last);
+                let owned: Vec<&Segment> = segments.iter().flatten().collect();
+                let (first, end) = (owned.first()?, owned.last()?);
+                if owned.len() != segments.len() {
+                    return None;
+                }
+                let range = script.byte_range(&(*first.lines.start()..=*end.lines.end()));
+                if walk::reads_status(&lists[0]) {
+                    return None;
+                }
+                Some(range)
+            }
+        };
+        let returns = arms
+            .iter()
+            .enumerate()
+            .flat_map(|(position, (cond, body))| {
+                let body = (index != Some(position)).then_some(*body);
+                cond.iter().copied().chain(body)
+            })
+            .map(|program| walk::file_returns(&program.lists).unwrap_or_default())
+            .sum();
+        Some(Kept {
+            index,
+            body,
+            returns,
+        })
+    }
+
+    /// Drops a decided test from `list`, `test && command` or `test || command`,
+    /// keeping the command and folding its substitutions.
+    fn strip_test(
+        &mut self,
+        script: &Script,
+        list: &ZshList,
+        lines: &RangeInclusive<usize>,
+        before: usize,
+        edits: &mut Edits,
+        cx: &Cx,
+    ) {
+        let Some((_, rest)) = &list.sublist.next else {
+            return;
+        };
+        let range = script.byte_range(lines);
+        let text = &script.text[range.clone()];
+        let command = ZshList {
+            sublist: (**rest).clone(),
+            flags: list.flags,
+        };
+        let Some(split) = test_end(text, list, &command) else {
+            return;
+        };
+        if walk::reads_status(&command) {
+            return;
+        }
+        let start = range.start + split;
+        if edits.len() == before {
+            let line = *lines.start() + text[..split].matches('\n').count();
+            let commands = std::slice::from_ref(&command);
+            self.text_layer(script, start..range.end, line, commands, edits, cx);
+        }
+        edits.replace_bytes(range.start..start, String::new());
     }
 
     fn for_loop(
@@ -571,7 +738,9 @@ impl Compiler {
         self.state.forget(&node.var);
         let last = lines.map_or(0, |lines| *lines.end());
         self.defer_suspended += 1;
+        self.loops += 1;
         self.lists(script, &node.body.lists, last, lines.is_some(), edits, cx);
+        self.loops -= 1;
         self.defer_suspended -= 1;
         self.state.merge(&saved);
         self.state.forget(&node.var);
@@ -623,6 +792,7 @@ impl Compiler {
     ) {
         if node.auto_call_args.is_none() {
             self.check_aliases(script, node, cx);
+            self.emulation_changed |= walk::changes_emulation_in(&node.body.lists, true);
             let function = Function {
                 file: cx.origin.map(Path::to_path_buf).unwrap_or_default(),
                 fingerprint: walk::fingerprint(node),
@@ -673,6 +843,8 @@ impl Compiler {
         let rewrite = rewrite && simple.assigns.is_empty() && simple.redirs.is_empty();
         let args = &words[1..];
         self.record_command(&name, args);
+        let in_function = cx.mode == Mode::Function || self.state.in_function();
+        self.emulation_changed |= walk::sets_emulation(simple, in_function);
         match name.as_str() {
             "return" | "exit" => (None, true),
             "source" | "." if simple.assigns.is_empty() => rules::source(self, args, rewrite, cx),
@@ -841,29 +1013,51 @@ impl Compiler {
         for name in walk::assigned(lists) {
             self.state.forget(&name);
         }
+        self.emulation_changed |= walk::changes_emulation_in(lists, self.state.in_function());
     }
 
-    fn program_truth(&self, program: &ZshProgram) -> Option<bool> {
+    /// Whether a condition succeeds, when the build decides it from what `decide` allows.
+    fn program_truth(&self, program: &ZshProgram, decide: Decide) -> Option<bool> {
         let [list] = program.lists.as_slice() else {
             return None;
         };
-        if list.sublist.next.is_some() || list.sublist.pipe.next.is_some() {
+        if list.flags.async_ {
             return None;
         }
-        self.truth(&list.sublist.pipe.cmd)
-            .map(|truth| truth != list.sublist.flags.not)
+        let mut node = &list.sublist;
+        let mut status = self.pipe_truth(node, decide)?;
+        while let Some((operator, next)) = &node.next {
+            node = next;
+            if (*operator == SublistOp::And) == status {
+                status = self.pipe_truth(node, decide)?;
+            }
+        }
+        Some(status)
     }
 
-    fn truth(&self, cmd: &ZshCommand) -> Option<bool> {
+    fn pipe_truth(&self, node: &ZshSublist, decide: Decide) -> Option<bool> {
+        if node.pipe.next.is_some() || node.flags.coproc {
+            return None;
+        }
+        self.truth(&node.pipe.cmd, decide)
+            .map(|truth| truth != node.flags.not)
+    }
+
+    fn truth(&self, cmd: &ZshCommand, decide: Decide) -> Option<bool> {
         match cmd {
-            ZshCommand::Cond(cond) => self.cond(cond),
+            ZshCommand::Cond(cond) => self.cond(cond, decide),
+            ZshCommand::Arith(expr) => {
+                let expr = walk::text(expr);
+                let (name, negated) = walk::command_test(&expr)?;
+                Some(self.state.command(name)?.is_some() != negated)
+            }
             ZshCommand::Simple(simple) if simple.assigns.is_empty() && simple.redirs.is_empty() => {
                 let words = walk::words(simple);
                 match words.as_slice() {
                     [word] if word == "true" || word == ":" => Some(true),
                     [word] if word == "false" => Some(false),
                     [word, name] if word == "has_cmd" && self.helper_matches("has_cmd") => {
-                        let name = expand::scalar(name, &self.state)?;
+                        let name = expand::scalar(name, self.env(decide))?;
                         Some(self.state.command(&name)?.is_some())
                     }
                     _ => None,
@@ -873,23 +1067,24 @@ impl Compiler {
         }
     }
 
-    fn cond(&self, cond: &ZshCond) -> Option<bool> {
+    fn cond(&self, cond: &ZshCond, decide: Decide) -> Option<bool> {
+        let env = self.env(decide);
         match cond {
-            ZshCond::Not(inner) => self.cond(inner).map(|truth| !truth),
-            ZshCond::And(left, right) => match self.cond(left)? {
+            ZshCond::Not(inner) => self.cond(inner, decide).map(|truth| !truth),
+            ZshCond::And(left, right) => match self.cond(left, decide)? {
                 false => Some(false),
-                true => self.cond(right),
+                true => self.cond(right, decide),
             },
-            ZshCond::Or(left, right) => match self.cond(left)? {
+            ZshCond::Or(left, right) => match self.cond(left, decide)? {
                 true => Some(true),
-                false => self.cond(right),
+                false => self.cond(right, decide),
             },
             ZshCond::Unary(operator, operand) => {
-                let value = expand::scalar(&walk::text(operand), &self.state)?;
+                let value = expand::scalar(&walk::text(operand), env)?;
                 match walk::text(operator).as_str() {
                     "-n" => Some(!value.is_empty()),
                     "-z" => Some(value.is_empty()),
-                    _ if !value.starts_with('/') => None,
+                    _ if decide == Decide::Commands || !value.starts_with('/') => None,
                     "-e" | "-a" => Some(Path::new(&value).exists()),
                     "-f" => Some(Path::new(&value).is_file()),
                     "-d" => Some(Path::new(&value).is_dir()),
@@ -904,8 +1099,8 @@ impl Compiler {
                 if !matches!(operator.as_str(), "==" | "=" | "!=") {
                     return None;
                 }
-                let left = expand::scalar(&walk::text(left), &self.state)?;
-                let pattern = expand::pattern(&walk::text(right), &self.state)?;
+                let left = expand::scalar(&walk::text(left), env)?;
+                let pattern = expand::pattern(&walk::text(right), env)?;
                 let options = glob::MatchOptions {
                     case_sensitive: true,
                     require_literal_separator: false,
@@ -917,6 +1112,14 @@ impl Compiler {
         }
     }
 
+    /// The parameters a decision may read.
+    fn env(&self, decide: Decide) -> &dyn Env {
+        match decide {
+            Decide::State => &self.state,
+            Decide::Commands => &Unknown,
+        }
+    }
+
     pub(crate) fn helper_matches(&self, name: &str) -> bool {
         self.state
             .functions
@@ -925,11 +1128,13 @@ impl Compiler {
     }
 
     /// Folds substitutions and keeps `$0` and `return` meaning what they did
-    /// in the file this code came from, within one owned segment.
+    /// in the file this code came from, within `range`, whole statements
+    /// starting at line `line`.
     fn text_layer(
         &mut self,
         script: &Script,
-        segment: &Segment,
+        range: Range<usize>,
+        line: usize,
         lists: &[ZshList],
         edits: &mut Edits,
         cx: &Cx,
@@ -937,26 +1142,76 @@ impl Compiler {
         if cx.analysis {
             return;
         }
-        let range = script.byte_range(&segment.lines);
-        let text = &script.text[range.clone()];
         let definition =
             lists.len() == 1 && matches!(walk::sole(&lists[0]), Some(ZshCommand::FuncDef(_)));
         if definition {
             edits.functions.push(range.clone());
         }
+        let layer = Layer {
+            range,
+            line,
+            lists,
+            definition,
+        };
+        if !self.text_edits(script, &layer, edits, cx, true) {
+            self.text_edits(script, &layer, edits, cx, false);
+        }
+    }
+
+    /// The text layer's edits, with `eval` of folded output in function
+    /// bodies inlined when `inline`; false when inlined code did not check.
+    fn text_edits(
+        &mut self,
+        script: &Script,
+        layer: &Layer,
+        edits: &mut Edits,
+        cx: &Cx,
+        inline: bool,
+    ) -> bool {
+        let Layer {
+            range,
+            line,
+            lists,
+            definition,
+        } = layer;
+        let text = &script.text[range.clone()];
         let scan = scan::scan(text);
         if scan.unterminated {
-            return;
+            return true;
         }
+        let functions = *definition || walk::contains_function(lists);
+        let place = rules::Place {
+            current: !functions && self.loops == 0,
+            top_level: !functions
+                && cx.mode != Mode::Function
+                && !self.state.in_function()
+                && self.ledger.collecting.is_none(),
+        };
+        let body = match lists.first().and_then(walk::sole) {
+            Some(ZshCommand::FuncDef(node)) if *definition && node.auto_call_args.is_none() => {
+                Some(&node.body.lists)
+            }
+            _ => None,
+        };
         let mut local: Vec<(Range<usize>, String, Kind)> = Vec::new();
         let mut values = BTreeMap::new();
+        let mut inlined: Vec<(String, ZshProgram)> = Vec::new();
         for substitution in &scan.substitutions {
             let inner = &text[substitution.inner.clone()];
-            if let Some((replacement, value)) = self.fold(inner, substitution) {
+            let original = &text[substitution.range.clone()];
+            let evaluated = body
+                .filter(|_| inline)
+                .and_then(|body| self.inline_eval(text, substitution, body));
+            if let Some((statement, value, program)) = evaluated {
+                let code = format!("{{\n{value}\n}}");
+                values.insert(statement.start, value);
+                inlined.push((format!("\"{original}\""), program));
+                local.push((statement, code, Kind::Inline));
+            } else if let Some((replacement, value)) = self.fold(inner, substitution) {
                 values.insert(substitution.range.start, value);
                 local.push((substitution.range.clone(), replacement, Kind::Fold));
             } else if let Some((replacement, helper)) =
-                rules::substitute(self, inner, &text[substitution.range.clone()])
+                rules::substitute(self, inner, original, place)
             {
                 local.push((
                     substitution.range.clone(),
@@ -965,7 +1220,6 @@ impl Compiler {
                 ));
             }
         }
-        let functions = definition || walk::contains_function(lists);
         if let Some(origin) = cx.origin {
             for zero in &scan.zero_refs {
                 let ZeroForm::Prompt { file } = zero.form else {
@@ -995,7 +1249,7 @@ impl Compiler {
             }
         }
         if local.is_empty() {
-            return;
+            return true;
         }
         local.sort_by_key(|(range, _, _)| (range.start, std::cmp::Reverse(range.end)));
         let mut accepted = Vec::new();
@@ -1016,21 +1270,42 @@ impl Compiler {
             position = range.end;
         }
         edited.push_str(&text[position..]);
+        let replaced;
+        let expected = if inlined.is_empty() {
+            *lists
+        } else {
+            let evaluated = |simple: &ZshSimple| {
+                let words = walk::words(simple);
+                let [eval, arg] = words.as_slice() else {
+                    return None;
+                };
+                let plain = simple.assigns.is_empty() && simple.redirs.is_empty();
+                inlined
+                    .iter()
+                    .find(|(quoted, _)| plain && eval == "eval" && quoted == arg)
+                    .map(|(_, program)| ZshCommand::Cursh(Box::new(program.clone())))
+            };
+            let Some(lists) = walk::replace_in_functions(lists, &evaluated) else {
+                return false;
+            };
+            replaced = lists;
+            &replaced
+        };
         let same = script::parse(&edited).is_ok_and(|program| {
-            program.lists.len() == lists.len()
+            program.lists.len() == expected.len()
                 && program
                     .lists
                     .iter()
-                    .zip(lists)
+                    .zip(expected)
                     .all(|(left, right)| script::shape(left) == script::shape(right))
         });
         if !same {
-            return;
+            return inlined.is_empty();
         }
         let base = range.start;
         for zero in &scan.zero_refs {
             let folded = accepted.iter().any(|(range, _, kind)| {
-                *kind == Kind::Fold
+                matches!(kind, Kind::Fold | Kind::Inline)
                     && range.start <= zero.range.start
                     && zero.range.end <= range.end
             });
@@ -1039,16 +1314,16 @@ impl Compiler {
             }
         }
         for (range, replacement, kind) in accepted {
-            if kind == Kind::Fold
+            if matches!(kind, Kind::Fold | Kind::Inline)
                 && let Some(value) = values.get(&range.start)
             {
-                self.line = *segment.lines.start() + text[..range.start].matches('\n').count();
+                self.line = line + text[..range.start].matches('\n').count();
                 self.define_evaluated(value, cx);
             }
             match kind {
-                Kind::Fold => self.folded += 1,
+                Kind::Fold | Kind::Inline => self.folded += 1,
                 Kind::Zero => edits.zero_done.push(base + range.start),
-                Kind::Native(helper) if !self.helpers.contains(&helper) => {
+                Kind::Native(Some(helper)) if !self.helpers.contains(&helper) => {
                     self.helpers.push(helper)
                 }
                 Kind::Native(_) | Kind::Return => {}
@@ -1056,6 +1331,44 @@ impl Compiler {
             edits.replace_bytes(base + range.start..base + range.end, replacement);
         }
         edits.returns_rewritten += returns;
+        true
+    }
+
+    /// `eval "$(command)"` in the function body `body`, for a listed command:
+    /// the statement and the code to run in its place, parsed with the bundle
+    /// rather than on each call, when that code means the same either way.
+    fn inline_eval(
+        &mut self,
+        text: &str,
+        substitution: &scan::Substitution,
+        body: &[ZshList],
+    ) -> Option<(Range<usize>, String, ZshProgram)> {
+        if !substitution.quoted || substitution.in_param {
+            return None;
+        }
+        let statement = eval_statement(text, substitution)?;
+        let value = self.fold_output(&text[substitution.inner.clone()])?;
+        let program = script::parse(&value)
+            .ok()
+            .filter(|program| !program.lists.is_empty())?;
+        let top = walk::top_level_text(&program.lists);
+        let frames = EVAL_FRAMES.iter().any(|name| top.contains(name));
+        let aliased = walk::function_names(&program.lists)
+            .iter()
+            .any(|name| self.state.aliases.contains(name));
+        if frames || aliased || walk::sets_options(body) || self.parse_options_changed() {
+            return None;
+        }
+        self.emulation_changed |= walk::changes_emulation_in(&program.lists, true);
+        Some((statement, value, program))
+    }
+
+    /// Whether startup code before here may have changed how zsh parses code.
+    fn parse_options_changed(&self) -> bool {
+        self.emulation_changed
+            || self.ledger.events.iter().any(|(_, (kind, name))| {
+                *kind == "option" && (name == "*" || PARSE_OPTIONS.contains(&name.as_str()))
+            })
     }
 
     /// Functions a folded value defines when evaluated, reported where it is evaluated.
@@ -1072,6 +1385,19 @@ impl Compiler {
 
     /// `${__zbN}` and the value, for a listed command's output.
     fn fold(&mut self, inner: &str, substitution: &scan::Substitution) -> Option<(String, String)> {
+        let value = self.fold_output(inner)?;
+        if !substitution.quoted && !substitution.in_param && value.contains([' ', '\t', '\n', '\0'])
+        {
+            return None;
+        }
+        Some((
+            format!("${{{}}}", self.constants.name(value.clone())),
+            value,
+        ))
+    }
+
+    /// A listed command's output, as its substitution `inner` expands.
+    fn fold_output(&mut self, inner: &str) -> Option<String> {
         let program = script::parse(inner).ok()?;
         let [list] = program.lists.as_slice() else {
             return None;
@@ -1088,31 +1414,151 @@ impl Compiler {
         if !self.folder.applies(&argv, &self.state) {
             return None;
         }
-        let output = match self.folder.run(&argv, &self.state) {
-            Ok(output) => output,
+        match self.folder.run(&argv, &self.state) {
+            Ok(output) => Some(output.trim_end_matches('\n').to_string()),
             Err(error) => {
                 self.note(format!("fold {error}"));
-                return None;
+                None
             }
-        };
-        let value = output.trim_end_matches('\n').to_string();
-        if !substitution.quoted && !substitution.in_param && value.contains([' ', '\t', '\n', '\0'])
-        {
-            return None;
         }
-        Some((
-            format!("${{{}}}", self.constants.name(value.clone())),
-            value,
-        ))
     }
+}
+
+/// What `eval` changes about the code it runs: the call frames it adds and
+/// line numbers relative to its string.
+const EVAL_FRAMES: &[&str] = &[
+    "funcstack",
+    "functrace",
+    "funcfiletrace",
+    "funcsourcetrace",
+    "zsh_eval_context",
+    "ZSH_EVAL_CONTEXT",
+    "LINENO",
+    "%N",
+    "%i",
+    "%I",
+];
+
+/// Options that change how zsh parses code, as `option_name` spells them.
+const PARSE_OPTIONS: &[&str] = &[
+    "aliases",
+    "cshjunkieloops",
+    "cshjunkiequotes",
+    "ignorebraces",
+    "ignoreclosebraces",
+    "kshglob",
+    "multibyte",
+    "multifuncdef",
+    "posixaliases",
+    "posixidentifiers",
+    "rcquotes",
+    "shglob",
+    "shortloops",
+    "shortrepeat",
+];
+
+/// What a build-time decision may read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Decide {
+    /// Tracked state and files: enough to follow what code sets.
+    State,
+    /// The search path and constants: enough to drop code, as tracked
+    /// variables miss what functions, `read` and runtime code set.
+    Commands,
+}
+
+/// No parameter is known.
+struct Unknown;
+
+impl Env for Unknown {
+    fn var(&self, _: &str) -> Var {
+        Var::Unknown
+    }
+}
+
+/// Statements of one text layer pass.
+struct Layer<'a> {
+    range: Range<usize>,
+    line: usize,
+    lists: &'a [ZshList],
+    definition: bool,
+}
+
+/// The arm of a decided `if` chain that runs, if any, and the file-level
+/// returns of the code dropped with the rest.
+struct Kept {
+    index: Option<usize>,
+    body: Option<Range<usize>>,
+    returns: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Fold,
+    /// `eval` of folded output, as the code itself.
+    Inline,
     Zero,
     Return,
-    Native(&'static str),
+    Native(Option<&'static str>),
+}
+
+/// The `eval "$(...)"` statement around a quoted substitution.
+fn eval_statement(text: &str, substitution: &scan::Substitution) -> Option<Range<usize>> {
+    let before = text[..substitution.range.start].strip_suffix('"')?;
+    let head = before.trim_end_matches([' ', '\t']);
+    let start = head.strip_suffix("eval")?.len();
+    let bounded = text[..start]
+        .chars()
+        .next_back()
+        .is_none_or(|c| c.is_whitespace() || matches!(c, ';' | '{' | '(' | '&' | '|'));
+    let end = substitution.range.end;
+    (bounded && head.len() < before.len() && text[end..].starts_with('"')).then_some(start..end + 1)
+}
+
+/// Where `command` starts in `text`, the source of `list`: `test && command`
+/// or `test || command`, found where both halves parse back alone.
+fn test_end(text: &str, list: &ZshList, command: &ZshList) -> Option<usize> {
+    let mut test = list.clone();
+    test.sublist.next = None;
+    let (test, command) = (script::structure(&test), script::structure(command));
+    let reparses = |source: &str, expected: &serde_json::Value| {
+        script::parse(source)
+            .is_ok_and(|program| matches!(program.lists.as_slice(), [only] if script::structure(only) == *expected))
+    };
+    let split = text
+        .match_indices("&&")
+        .chain(text.match_indices("||"))
+        .map(|(at, _)| at + 2)
+        .find(|&at| reparses(&text[..at - 2], &test) && reparses(&text[at..], &command))?;
+    let mut rest = &text[split..];
+    loop {
+        let trimmed = rest
+            .trim_start_matches([' ', '\t', '\n'])
+            .trim_start_matches("\\\n");
+        if trimmed.len() == rest.len() {
+            break;
+        }
+        rest = trimmed;
+    }
+    Some(text.len() - rest.len())
+}
+
+/// Accounts for code in `range` a decided test drops, all but `kept`: its
+/// `returns` file-level returns and its `$0` references are gone.
+fn drop_code(
+    script: &Script,
+    range: Range<usize>,
+    kept: Option<&Range<usize>>,
+    returns: usize,
+    edits: &mut Edits,
+) {
+    edits.returns_omitted += returns;
+    for zero in scan::scan(&script.text[range.clone()]).zero_refs {
+        let start = range.start + zero.range.start;
+        if !kept.is_some_and(|kept| kept.contains(&start)) {
+            edits.zero_done.push(start);
+        }
+    }
 }
 
 fn list_of(cmd: ZshCommand) -> ZshList {

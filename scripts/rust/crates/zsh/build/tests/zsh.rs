@@ -209,28 +209,111 @@ fn an_unrecognized_helper_is_left_to_run() {
     );
 }
 
+fn wordcode_version(path: &Path) -> String {
+    let header = fs::read(path).unwrap();
+    let version = &header[8..];
+    String::from_utf8(version[..version.iter().position(|byte| *byte == 0).unwrap()].to_vec())
+        .unwrap()
+}
+
+fn shell_version() -> String {
+    Bin::new("zsh")
+        .args(["-fc", "print -r -- $ZSH_VERSION"])
+        .run()
+        .stdout
+        .trim()
+        .to_string()
+}
+
+fn modified(path: &Path) -> std::time::SystemTime {
+    fs::metadata(path).unwrap().modified().unwrap()
+}
+
 #[test]
-fn the_wordcode_is_compiled_in_the_background_and_used() {
+fn the_build_compiles_the_wordcode_the_bundle_uses() {
     let root = fixture();
-    assert!(build(root.path(), &[]).success());
     let bundle = root.path().join(".cache/build/zshrc.zsh");
     let wordcode = root.path().join(".cache/build/zshrc.zsh.zwc");
-    startup(root.path(), true, &[]);
-    for _ in 0..50 {
-        if wordcode.exists() {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    assert!(wordcode.exists());
+    assert!(build(root.path(), &["--dry-run"]).success());
+    assert!(!wordcode.exists());
+    assert!(build(root.path(), &[]).success());
+    assert!(modified(&wordcode) > modified(&bundle));
+    assert_eq!(wordcode_version(&wordcode), shell_version());
+    let compiled = fs::read(&wordcode).unwrap();
+    let staging = root.path().join("prelude.zwc");
     assert!(
-        fs::metadata(&wordcode).unwrap().modified().unwrap()
-            >= fs::metadata(&bundle).unwrap().modified().unwrap()
+        Bin::new("zsh")
+            .args(["-fc", "zcompile -U $1 $2", "zsh"])
+            .arg(&staging)
+            .arg(&bundle)
+            .run()
+            .success()
     );
+    assert_eq!(compiled, fs::read(&staging).unwrap());
+
+    let again = build(root.path(), &[]);
+    assert!(again.stdout.contains("current"), "{}", again.stdout);
+    fs::remove_file(&wordcode).unwrap();
+    let dry = build(root.path(), &["--dry-run"]);
+    assert!(dry.stdout.contains("would update"), "{}", dry.stdout);
+    assert!(!wordcode.exists());
+    let rebuilt = build(root.path(), &[]);
+    assert!(rebuilt.stdout.contains("updated"), "{}", rebuilt.stdout);
+    assert_eq!(fs::read(&wordcode).unwrap(), compiled);
+
+    startup(root.path(), true, &[]);
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert_eq!(fs::read(&wordcode).unwrap(), compiled);
     assert_eq!(
         startup(root.path(), true, &[]).stdout,
         startup(root.path(), false, &[]).stdout
     );
+}
+
+#[test]
+fn wordcode_from_another_zsh_version_is_recompiled_by_the_shell() {
+    let root = fixture();
+    assert!(build(root.path(), &[]).success());
+    let wordcode = root.path().join(".cache/build/zshrc.zsh.zwc");
+    let mut header = fs::read(&wordcode).unwrap();
+    header[8..11].copy_from_slice(b"0.0");
+    let stale = root.path().join("stale.zwc");
+    fs::write(&stale, &header).unwrap();
+    fs::rename(&stale, &wordcode).unwrap();
+    assert_eq!(wordcode_version(&wordcode), "0.0");
+
+    startup(root.path(), true, &[]);
+    for _ in 0..50 {
+        if wordcode_version(&wordcode) != "0.0" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert_eq!(wordcode_version(&wordcode), shell_version());
+    let rebuilt = build(root.path(), &[]);
+    assert!(rebuilt.stdout.contains("current"), "{}", rebuilt.stdout);
+}
+
+#[test]
+fn without_zsh_the_build_warns_and_leaves_the_wordcode_to_the_shell() {
+    let root = fixture();
+    let built = Bin::new(env!("CARGO_BIN_EXE_zsh-build"))
+        .arg("--root")
+        .arg(root.path())
+        .env("HOME", root.path())
+        .env("PATH", root.path().join("bin"))
+        .env_remove("SHELL")
+        .env("PROBE_LOG", root.path().join("build.log"))
+        .run();
+    assert!(built.success(), "{built:?}");
+    assert!(
+        built
+            .stderr
+            .contains("zsh not found; wordcode left to the shell"),
+        "{}",
+        built.stderr
+    );
+    assert!(!root.path().join(".cache/build/zshrc.zsh.zwc").exists());
 }
 
 #[test]
@@ -291,6 +374,7 @@ fn wordcode_compiled_from_an_older_bundle_is_discarded() {
     assert!(build(root.path(), &[]).success());
     let current = compile_line(&fs::read_to_string(&bundle).unwrap());
     assert_ne!(older, current);
+    fs::remove_file(&wordcode).unwrap();
 
     assert!(Bin::new("zsh").args(["-fc", &older]).run().code() != Some(127));
     assert!(!wordcode.exists());
@@ -523,4 +607,235 @@ fn atuin_uuid_is_left_to_run_when_it_prints_another_form_or_is_missing() {
         );
         assert!(!bundle.contains("_zsh_build_uuid"), "{bundle}");
     }
+}
+
+fn build_log(root: &Path) -> String {
+    fs::read_to_string(root.join("build.log")).unwrap_or_default()
+}
+
+#[test]
+fn command_output_is_kept_until_the_program_or_its_checkout_changes() {
+    let root = session_fixture(Some(ATUIN));
+    let log = root.path().join("build.log");
+    let head = root.path().join(".git/HEAD");
+    fs::create_dir_all(head.parent().unwrap()).unwrap();
+    fs::write(&head, "abc\n").unwrap();
+    assert!(build(root.path(), &["--dry-run"]).success());
+    assert!(!root.path().join(".cache/build/commands.json").exists());
+    fs::remove_file(&log).unwrap();
+    assert!(build(root.path(), &[]).success());
+    assert_eq!(build_log(root.path()), "probe\ntool\natuin\n");
+
+    fs::remove_file(&log).unwrap();
+    let again = build(root.path(), &[]);
+    assert!(again.stdout.contains("current"), "{}", again.stdout);
+    assert_eq!(build_log(root.path()), "atuin\n");
+
+    fs::remove_file(&log).unwrap();
+    executable(
+        &root.path().join("bin/tool"),
+        &TOOL.replace("tool_zero", "tool_zero2"),
+    );
+    let changed = build(root.path(), &[]);
+    assert!(changed.stdout.contains("updated"), "{}", changed.stdout);
+    assert_eq!(build_log(root.path()), "tool\natuin\n");
+
+    fs::remove_file(&log).unwrap();
+    fs::write(&head, "def\n").unwrap();
+    assert!(build(root.path(), &[]).success());
+    assert_eq!(build_log(root.path()), "probe\ntool\natuin\n");
+}
+
+fn bundle_text(root: &Path) -> String {
+    fs::read_to_string(root.join(".cache/build/zshrc.zsh")).unwrap()
+}
+
+/// `report` after startup from the bundle and from the sources, which must match.
+fn same(root: &Path, report: &str) -> String {
+    let sources = shell(root, false, report, &[]);
+    let bundle = shell(root, true, report, &[]);
+    assert!(
+        sources.success() && bundle.success(),
+        "{sources:?} {bundle:?}"
+    );
+    assert_eq!(bundle.stdout, sources.stdout);
+    bundle.stdout
+}
+
+const COMMANDS: &str = r#"if has_cmd absent; then
+  arm=absent
+elif (( $+commands[probe] )); then
+  arm=probe
+else
+  arm=none
+fi
+has_cmd absent && skipped=1
+skipped_status=$?
+(( ! ${+commands[probe]} )) ||
+  kept=1
+if has_cmd absent || has_cmd probe; then
+  either=1
+fi
+if (( $+commands[absent] )); then
+  dropped=1
+fi
+[[ -z $unset_var ]] && by_var=1
+"#;
+
+#[test]
+fn command_tests_decided_at_build_time_leave_only_the_code_that_runs() {
+    let root = fixture();
+    fs::write(root.path().join("zsh/parts/50-commands.zsh"), COMMANDS).unwrap();
+    let built = build(root.path(), &[]);
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    let bundle = bundle_text(root.path());
+    for gone in [
+        "has_cmd absent",
+        "commands[probe]",
+        "commands[absent]",
+        "arm=absent",
+        "arm=none",
+        "skipped=1",
+        "dropped=1",
+    ] {
+        assert!(!bundle.contains(gone), "{gone}: {bundle}");
+    }
+    for kept in [
+        "  arm=probe\n",
+        "! :\nskipped_status=$?\n",
+        "\nkept=1\n",
+        "  either=1\n",
+        "[[ -z $unset_var ]] && by_var=1\n",
+    ] {
+        assert!(bundle.contains(kept), "{kept}: {bundle}");
+    }
+    let report = same(
+        root.path(),
+        r#"print -r -- "arm=$arm skipped=${skipped-unset}:$skipped_status kept=$kept either=$either dropped=${dropped-unset} by_var=$by_var""#,
+    );
+    assert!(
+        report.contains("arm=probe skipped=unset:1 kept=1 either=1 dropped=unset by_var=1"),
+        "{report}"
+    );
+}
+
+const LOOKUPS: &str = "editor=\"$(command -v probe)\"\nmode=$(emulate)\n";
+
+#[test]
+fn command_paths_and_the_emulation_are_known_at_build_time() {
+    let root = fixture();
+    let part = root.path().join("zsh/parts/50-lookups.zsh");
+    let builtin = "printer=\"$(command -v printf)\"\n";
+    fs::write(&part, format!("{LOOKUPS}{builtin}")).unwrap();
+    assert!(build(root.path(), &[]).success());
+    let probe = root.path().join("bin/probe");
+    let expected = format!("editor=\"{}\"\nmode=zsh\n{builtin}", probe.display());
+    assert!(bundle_text(root.path()).contains(&expected), "{expected}");
+    let report = same(
+        root.path(),
+        r#"print -r -- "editor=$editor mode=$mode printer=$printer""#,
+    );
+    assert!(
+        report.contains(&format!(
+            "editor={} mode=zsh printer=printf",
+            probe.display()
+        )),
+        "{report}"
+    );
+}
+
+#[test]
+fn command_paths_and_the_emulation_stay_lookups_once_code_may_change_them() {
+    let root = fixture();
+    fs::write(
+        root.path().join("zsh/parts/50-lookups.zsh"),
+        format!("probe() {{ :; }}\nf() {{ emulate sh; }}\n{LOOKUPS}"),
+    )
+    .unwrap();
+    assert!(build(root.path(), &[]).success());
+    assert!(bundle_text(root.path()).contains(LOOKUPS));
+    let report = same(root.path(), r#"print -r -- "editor=$editor mode=$mode""#);
+    assert!(report.contains("editor=probe mode=zsh"), "{report}");
+}
+
+const INIT: &str = "#!/bin/sh\necho init >> \"$PROBE_LOG\"\ncase $1 in\n  --zsh) printf 'init_fn() { print -r -- initialized }\\ninit_ready=1\\n' ;;\n  --frames) printf 'init_frames=${#funcstack}\\n' ;;\nesac\n";
+
+const SETUP: &str = "setup() {\n  local ready=1\n  eval \"$(init --zsh)\"\n}\nframes() {\n  eval \"$(init --frames)\"\n}\nsetup\nframes\n";
+
+#[test]
+fn folded_code_a_function_evaluates_is_parsed_with_the_bundle() {
+    let root = fixture();
+    let config = root.path().join("config/zsh/build.toml");
+    let text = fs::read_to_string(&config).unwrap().replace(
+        "\"absent --value\"",
+        "\"absent --value\", \"init --zsh\", \"init --frames\"",
+    );
+    fs::write(&config, text).unwrap();
+    executable(&root.path().join("bin/init"), INIT);
+    let part = root.path().join("zsh/parts/50-setup.zsh");
+    fs::write(&part, SETUP).unwrap();
+    let built = build(root.path(), &[]);
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    let bundle = bundle_text(root.path());
+    assert!(
+        bundle.contains("  {\ninit_fn() { print -r -- initialized }\ninit_ready=1\n}\n}\n"),
+        "{bundle}"
+    );
+    assert!(!bundle.contains("$(init"), "{bundle}");
+    assert_eq!(bundle.matches("eval \"${__zb").count(), 1, "{bundle}");
+
+    let report = same(
+        root.path(),
+        r#"print -r -- "fn=$(init_fn) ready=$init_ready frames=$init_frames""#,
+    );
+    assert!(
+        report.starts_with("fn=initialized ready=1 frames="),
+        "{report}"
+    );
+    fs::remove_file(root.path().join("run.log")).unwrap();
+    shell(root.path(), true, ":", &[]);
+    assert_eq!(log(root.path()), "");
+
+    let located = build(root.path(), &["where", "init_fn"]);
+    assert!(
+        located
+            .stdout
+            .contains(&format!("init_fn  {}:3", part.display())),
+        "{}",
+        located.stdout
+    );
+}
+
+#[test]
+fn what_a_condition_reads_is_unknown_after_it() {
+    let root = fixture();
+    fs::create_dir_all(root.path().join("zsh/opt")).unwrap();
+    fs::write(root.path().join("zsh/opt/real.zsh"), "picked=real\n").unwrap();
+    fs::write(root.path().join("zsh/opt/missing.zsh"), "picked=missing\n").unwrap();
+    fs::write(root.path().join("choice"), "real\n").unwrap();
+    fs::write(
+        root.path().join("zsh/parts/50-choice.zsh"),
+        "choice=missing\nif ! read -r choice < \"$HOME/choice\"; then\n  :\nfi\nsource \"$CONF/opt/$choice.zsh\"\n",
+    )
+    .unwrap();
+    assert!(build(root.path(), &[]).success());
+    let report = same(root.path(), r#"print -r -- "picked=$picked""#);
+    assert!(report.contains("picked=real"), "{report}");
+}
+
+#[test]
+fn dropped_code_takes_its_returns_and_file_references_with_it() {
+    let root = fixture();
+    fs::write(
+        root.path().join("zsh/parts/50-drop.zsh"),
+        "(( $+commands[probe] )) || return\nif has_cmd absent; then\n  dropped_file=${(%):-%x}\n  return 1\nfi\nafter_drop=1\n",
+    )
+    .unwrap();
+    let built = build(root.path(), &[]);
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    let bundle = bundle_text(root.path());
+    assert!(bundle.contains(":\n:\nafter_drop=1\n"), "{bundle}");
+    assert!(!bundle.contains("dropped_file"), "{bundle}");
+    let report = same(root.path(), r#"print -r -- "after=$after_drop""#);
+    assert!(report.contains("after=1"), "{report}");
 }

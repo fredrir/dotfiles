@@ -2,25 +2,25 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use hostkit::process::{CaptureLimits, output};
-
+use crate::cache::{self, Cache, Key};
 use crate::state::State;
 
 pub struct Folder {
     allowed: Vec<Vec<String>>,
     timeout: Duration,
     runs: BTreeMap<Vec<String>, Result<String, String>>,
+    pub cache: Cache,
 }
 
 impl Folder {
-    pub fn new(allowed: Vec<Vec<String>>, timeout: Duration) -> Self {
+    pub fn new(allowed: Vec<Vec<String>>, timeout: Duration, cache: Cache) -> Self {
         Self {
             allowed,
             timeout,
             runs: BTreeMap::new(),
+            cache,
         }
     }
 
@@ -42,39 +42,41 @@ impl Folder {
         self.allows(argv) && matches!(state.command(&argv[0]), Some(Some(_)))
     }
 
-    /// Standard output of `argv`, found on the build-time search path.
+    /// Standard output of `argv`, found on the build-time search path; a
+    /// listed command's output is kept between builds.
     pub fn run(&mut self, argv: &[String], state: &State) -> Result<String, String> {
+        self.output(argv, state, self.allows(argv))
+    }
+
+    /// `run`, keeping the output between builds as `cached_eval` keeps it between shells.
+    pub fn run_cached(&mut self, argv: &[String], state: &State) -> Result<String, String> {
+        self.output(argv, state, true)
+    }
+
+    fn output(&mut self, argv: &[String], state: &State, keep: bool) -> Result<String, String> {
         if let Some(previous) = self.runs.get(argv) {
             return previous.clone();
         }
-        let result = self.execute(argv, state);
+        let result = self.execute(argv, state, keep);
         self.runs.insert(argv.to_vec(), result.clone());
         result
     }
 
-    fn execute(&self, argv: &[String], state: &State) -> Result<String, String> {
+    fn execute(&mut self, argv: &[String], state: &State, keep: bool) -> Result<String, String> {
         let program = match state.command(&argv[0]) {
             Some(Some(program)) => program,
             Some(None) => return Err(format!("{}: not found", argv[0])),
             None => return Err(format!("{}: search path unknown", argv[0])),
         };
-        let mut command = Command::new(&program);
-        command.args(&argv[1..]).stdin(Stdio::null());
-        if let Some(path) = state.path()
-            && let Ok(joined) = std::env::join_paths(path)
-        {
-            command.env("PATH", joined);
-        }
-        let captured = output(&mut command, CaptureLimits::default(), self.timeout)
-            .map_err(|error| format!("{}: {error}", argv.join(" ")))?;
-        if !captured.status.success() {
-            return Err(format!("{}: {}", argv.join(" "), captured.status));
-        }
-        if captured.stdout_truncated {
-            return Err(format!("{}: output too large", argv.join(" ")));
-        }
-        String::from_utf8(captured.stdout)
-            .map_err(|_| format!("{}: output not UTF-8", argv.join(" ")))
+        let path = state
+            .path()
+            .and_then(|path| std::env::join_paths(path).ok());
+        let key = keep
+            .then(|| Key::new(argv, &program, path.as_deref()))
+            .flatten();
+        let timeout = self.timeout;
+        self.cache
+            .get_or_run(key, || cache::run(argv, &program, path.as_deref(), timeout))
     }
 }
 

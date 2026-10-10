@@ -30,6 +30,7 @@ ambient = ["HOME", "USER"]
 compinit = true
 plugins = [
   "archlinux",
+  "brew",
   "bun",
   "colored-man-pages",
   "copyfile",

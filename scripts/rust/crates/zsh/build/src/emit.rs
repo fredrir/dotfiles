@@ -6,8 +6,9 @@ use crate::quote;
 /// `type` and `whence` that report where bundled functions were defined.
 const WHENCE: &str = include_str!("../assets/whence.zsh");
 
-/// The bundle: a background `zcompile` when its wordcode is stale, kept only
-/// if the bundle it compiled is still current, folded values, helpers, then the code.
+/// The bundle: a background `zcompile` when its wordcode is older or from
+/// another zsh version, kept only if the bundle it compiled is still current,
+/// folded values, helpers, then the code.
 pub fn bundle(
     path: &Path,
     source: &Path,
@@ -40,7 +41,7 @@ pub fn bundle(
     let expected = quote::word(&header);
     let prelude = format!(
         "{header}\n\
-         [[ {wordcode} -nt {bundle} ]] || {{ zcompile -U {staging} {bundle} && IFS= read -r __zb_head < {bundle} && [[ $__zb_head == {expected} ]] && command mv -f {staging} {wordcode} || command rm -f {staging} }} &!\n\
+         [[ {wordcode} -nt {bundle} ]] && zcompile -t {wordcode} >/dev/null 2>&1 || {{ zcompile -U {staging} {bundle} && IFS= read -r __zb_head < {bundle} && [[ $__zb_head == {expected} ]] && command mv -f {staging} {wordcode} || command rm -f {staging} }} &!\n\
          {declarations}",
     );
     crate::script::parse(&prelude).map_err(|error| format!("prelude does not parse: {error}"))?;

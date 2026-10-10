@@ -38,6 +38,8 @@ pub struct Scan {
     /// Zero references the rewriter cannot reproduce, such as `${0:#pattern}`.
     pub unsupported_zero: Vec<usize>,
     pub words: Vec<Word>,
+    /// Newlines between the elements of a closed `name=(...)`, outside comments.
+    pub array_newlines: Vec<usize>,
     pub unterminated: bool,
 }
 
@@ -85,16 +87,29 @@ impl Scanner<'_> {
     }
 
     fn at_word_start(&self) -> bool {
-        self.pos == 0
-            || matches!(
-                self.bytes[self.pos - 1],
-                b' ' | b'\t' | b'\n' | b';' | b'&' | b'|' | b'(' | b')' | b'{' | b'}'
-            )
+        word_start(self.bytes, self.pos)
+    }
+
+    /// Whether the `(` at the cursor opens `name=(` or `name+=(`.
+    fn opens_array(&self) -> bool {
+        let Some(head) = self.bytes[..self.pos].strip_suffix(b"=") else {
+            return false;
+        };
+        let head = head.strip_suffix(b"+").unwrap_or(head);
+        let name = head
+            .iter()
+            .rev()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'_')
+            .count();
+        let start = head.len() - name;
+        name > 0 && !head[start].is_ascii_digit() && word_start(head, start)
     }
 
     /// Unquoted shell text until `stop`; returns whether the stop was found.
     fn normal(&mut self, stop: Stop) -> bool {
         let mut parens = 0usize;
+        let mut array: Option<(usize, Vec<usize>)> = None;
+        let mut comment = false;
         while let Some(byte) = self.peek(0) {
             match byte {
                 b')' if stop == Stop::Paren && parens == 0 => {
@@ -103,9 +118,15 @@ impl Scanner<'_> {
                 }
                 b'(' => {
                     parens += 1;
+                    if stop == Stop::Eof && array.is_none() && self.opens_array() {
+                        array = Some((parens, Vec::new()));
+                    }
                     self.pos += 1;
                 }
                 b')' => {
+                    if let Some((_, newlines)) = array.take_if(|(depth, _)| *depth == parens) {
+                        self.out.array_newlines.extend(newlines);
+                    }
                     parens = parens.saturating_sub(1);
                     self.pos += 1;
                 }
@@ -115,6 +136,7 @@ impl Scanner<'_> {
                 b'`' => self.backtick(false),
                 b'$' => self.dollar(false),
                 b'#' if self.at_word_start() => {
+                    comment = true;
                     while let Some(byte) = self.peek(0) {
                         if byte == b'\n' {
                             break;
@@ -125,6 +147,13 @@ impl Scanner<'_> {
                 b'<' if self.starts_with(b"<<<") => self.pos += 3,
                 b'<' if self.starts_with(b"<<") => self.heredoc_start(),
                 b'\n' => {
+                    if let Some((depth, newlines)) = &mut array
+                        && *depth == parens
+                        && !comment
+                    {
+                        newlines.push(self.pos);
+                    }
+                    comment = false;
                     self.pos += 1;
                     self.heredoc_bodies();
                 }
@@ -417,6 +446,14 @@ impl Scanner<'_> {
             }
         }
     }
+}
+
+fn word_start(bytes: &[u8], pos: usize) -> bool {
+    pos == 0
+        || matches!(
+            bytes[pos - 1],
+            b' ' | b'\t' | b'\n' | b';' | b'&' | b'|' | b'(' | b')' | b'{' | b'}'
+        )
 }
 
 fn is_word_byte(byte: u8) -> bool {

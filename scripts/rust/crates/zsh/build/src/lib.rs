@@ -1,24 +1,30 @@
 #![forbid(unsafe_code)]
 
+pub mod cache;
 pub mod compdump;
 pub mod compile;
+pub mod completions;
 pub mod config;
 pub mod emit;
 pub mod expand;
 pub mod fold;
+pub mod git;
 pub mod native;
 pub mod quote;
 pub mod scan;
 pub mod script;
 pub mod state;
+pub mod wordcode;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use cache::Cache;
 use compile::Compiler;
 use compile::defer::Deferral;
 use compile::system::{Outcome, Startup};
+use completions::Completions;
 use config::Config;
 use expand::Env;
 use fold::Folder;
@@ -64,27 +70,34 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
         .iter()
         .map(|name| (name.clone(), std::env::var(name).ok()))
         .collect();
+    let mut cache = Cache::load(options.root.join(&config.output).join(cache::FILE));
+    let zsh = wordcode::shell(&State::new(BTreeMap::new(), host.clone(), path.clone()))
+        .ok_or_else(|| "zsh not found".to_string())
+        .and_then(|zsh| wordcode::shell_version(&zsh, &mut cache).map(|version| (zsh, version)));
     let mut built = Vec::new();
     for target in &config.targets {
         let state = State::new(ambient.clone(), host.clone(), path.clone());
         let folder = Folder::new(
             config.fold_commands(),
             Duration::from_millis(config.fold.timeout_ms),
+            std::mem::take(&mut cache),
         );
-        let mut compiler = Compiler::new(state, folder, options.root.clone());
-        compiler.path_helper_root = config.system.path_helper_root.clone();
-        compiler.deferral = Deferral::new(&config.defer, &options.root)?;
-        let env: Vec<PathBuf> = target
-            .env
-            .iter()
-            .map(|env| options.root.join(env))
-            .collect();
         let output = options
             .root
             .join(&config.output)
             .join(format!("{}.zsh", target.name));
         let guard_path = output.with_file_name(format!("{}.rcs.zsh", target.name));
         let origins = output.with_file_name(format!("{}.origins", target.name));
+        let mut compiler = Compiler::new(state, folder, options.root.clone());
+        compiler.path_helper_root = config.system.path_helper_root.clone();
+        compiler.deferral = Deferral::new(&config.defer, &options.root)?;
+        compiler.deferral.completions =
+            Completions::new(output.with_file_name(format!("{}.completions", target.name)));
+        let env: Vec<PathBuf> = target
+            .env
+            .iter()
+            .map(|env| options.root.join(env))
+            .collect();
         let system = if target.system {
             let startup = Startup {
                 dir: &config.system.dir,
@@ -117,7 +130,11 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
         if !compiler.redefined.is_empty() {
             return Err(compiler.redefined.join("\n"));
         }
-        let body = compiler.settle_deferral(section.to_string() + &body);
+        let completions = std::mem::take(&mut compiler.deferral.completions);
+        let body = place_completions(
+            &completions,
+            compiler.settle_deferral(section.to_string() + &body),
+        );
         let text = emit::bundle(
             &output,
             &target.source,
@@ -126,6 +143,7 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
             &compiler.helpers,
             &body,
         )?;
+        let written = completions.write(options.dry_run)?;
         let mut changed = std::fs::read_to_string(&output).map_or(true, |current| current != text);
         if guard.is_none() {
             changed |= emit::remove_guard(&guard_path, options.dry_run)?;
@@ -133,6 +151,8 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
         if changed && !options.dry_run {
             emit::write_atomic(&output, &text)?;
         }
+        changed |= written.changed;
+        changed |= compile_wordcode(&zsh, &output, options.dry_run, &mut compiler.warnings);
         changed |= emit::write_origins(&origins, &compiler.origins, options.dry_run)?;
         if let Some((text, sources)) = guard {
             changed |= emit::write_guard(&guard_path, text, sources, options.dry_run)?;
@@ -141,8 +161,14 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
             expand::Var::Scalar(omz) => Some(PathBuf::from(omz)),
             _ => None,
         };
-        let refreshed = compdump::refresh(&zdotdir()?, omz.as_deref(), options.dry_run)?;
+        let rebound: Vec<&Path> = completions
+            .dir()
+            .filter(|_| written.bindings)
+            .into_iter()
+            .collect();
+        let refreshed = compdump::refresh(&zdotdir()?, omz.as_deref(), &rebound, options.dry_run)?;
         changed |= !refreshed.is_empty();
+        cache = std::mem::take(&mut compiler.folder.cache);
         built.push(Built {
             name: target.name.clone(),
             path: output,
@@ -156,7 +182,41 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
             refreshed,
         });
     }
+    if !options.dry_run {
+        cache.save()?;
+    }
     Ok(built)
+}
+
+/// Keeps the completion `fpath` statement only when files were taken; one
+/// that a failed compile attempt lost goes ahead of everything else.
+fn place_completions(completions: &Completions, body: String) -> String {
+    match completions.fpath() {
+        Some(fpath) if completions.is_empty() => body.replace(&fpath, ""),
+        Some(fpath) if !body.contains(&fpath) => fpath + &body,
+        _ => body,
+    }
+}
+
+/// Compiles the bundle's wordcode unless it is current; returns whether it changed.
+fn compile_wordcode(
+    zsh: &Result<(PathBuf, String), String>,
+    bundle: &Path,
+    dry_run: bool,
+    warnings: &mut Vec<String>,
+) -> bool {
+    let compiled = match zsh {
+        Err(error) => Err(error.clone()),
+        Ok((_, version)) if wordcode::current(bundle, &wordcode::path(bundle), version) => {
+            return false;
+        }
+        Ok(_) if dry_run => return true,
+        Ok((zsh, _)) => wordcode::compile(zsh, bundle),
+    };
+    if let Err(error) = &compiled {
+        warnings.push(format!("{error}; wordcode left to the shell"));
+    }
+    compiled.is_ok()
 }
 
 enum System {

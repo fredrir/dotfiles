@@ -105,6 +105,17 @@ fn plain_words_are_located() {
 }
 
 #[test]
+fn array_newlines_are_located() {
+    let text = "a=( x\n  y # note\n  z\n)\nb+=(\n\"$(c\nd)\" (e|\nf)\n)\n$(h=(\ni))\ng=(\n";
+    let lines: Vec<usize> = scan(text)
+        .array_newlines
+        .iter()
+        .map(|&newline| text[..newline].lines().count())
+        .collect();
+    assert_eq!(lines, vec![1, 3, 5, 8]);
+}
+
+#[test]
 fn an_open_quote_is_reported() {
     assert!(scan("echo \"open").unterminated);
     assert!(scan("echo $(open").unterminated);
