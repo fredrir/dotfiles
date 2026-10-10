@@ -5,7 +5,6 @@ resolver = "2"
 members = [
   "crates/bench-workloads",
   "crates/dclip",
-  "crates/dcloud",
   "crates/dotfile",
   "crates/dotfmt/cli",
   "crates/dotfmt/core",

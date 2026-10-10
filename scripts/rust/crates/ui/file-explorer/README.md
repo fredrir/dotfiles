@@ -32,5 +32,5 @@ fn choose_file(start: PathBuf) -> Result<Option<PathBuf>, Box<dyn std::error::Er
 ```
 
 ```sh
-dotfile dev check -p ui-file-explorer,hcopy,dcloud
+dotfile dev check -p ui-file-explorer,hcopy
 ```
