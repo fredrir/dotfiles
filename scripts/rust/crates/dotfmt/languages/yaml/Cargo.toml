@@ -1,0 +1,14 @@
+[package]
+name              = "dotfmt-yaml"
+version.workspace = true
+description       = "Format YAML while preserving comments, scalars and values"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace = true
+saphyr-parser = "0.1"
+unicode-width.workspace = true

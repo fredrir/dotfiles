@@ -3,15 +3,15 @@
 ## Commands
 
 <!-- cli:commands:start -->
-| Command  | Description                                                                           |
-| -------- | ------------------------------------------------------------------------------------- |
-| `dotfmt` | Formats configured conf, JSON, Lua and Markdown files with one layered configuration. |
+| Command  | Description                                                                                 |
+| -------- | ------------------------------------------------------------------------------------------- |
+| `dotfmt` | Formats configured conf, JSON, Lua, Markdown and YAML files with one layered configuration. |
 <!-- cli:commands:end -->
 
 ```sh
 dotfmt .
 dotfmt --check .
-dotfmt -l json,markdown .
+dotfmt -l json,markdown,yaml .
 dotfmt -l lua --dialect luau script.luau
 dotfmt -l conf --stdin ~/.ssh/config < ~/.ssh/config
 dotfmt -e note.md < note.md
@@ -30,21 +30,21 @@ Selection uses filenames and `dotfmt.dotfile`, not the editor's filetype. For JS
 ## Flags
 
 <!-- cli:flags:start -->
-| Flag                      | Description                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------- |
-| `-l`, `--lang <LANGUAGE>` | Select configured languages; repeat or comma-separate conf, json, lua, markdown (md). |
-| `--check`                 | Report formatting differences without writing files.                                  |
-| `-a`, `--add`             | Offer dotfmt.dotfile to the target, asking before writing.                            |
-| `-s`, `--sync`            | Replace an existing target dotfmt.dotfile with the shared configuration.              |
-| `--dialect <DIALECT>`     | Override the dialect for one selected language.                                       |
-| `-e`, `--editor`          | Read standard input for an editor; JSON mode enables repairs.                         |
-| `--stdin <FILENAME>`      | Read standard input as the named file, using its configuration and dialect.           |
-| `--owns`                  | Read NUL-separated filenames and emit those selected by the effective configuration.  |
-| `-v`, `--verbose`         | Show detailed formatting results.                                                     |
-| `-q`, `--quiet`           | Report only failures.                                                                 |
-| `-h`, `--help`            | Shows help for the selected command and exits.                                        |
-| `--completions <SHELL>`   | Prints a shell completion script for the named shell and exits.                       |
-| `-V`, `--version`         | Prints the version and exits.                                                         |
+| Flag                      | Description                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------- |
+| `-l`, `--lang <LANGUAGE>` | Select configured languages; repeat or comma-separate conf, json, lua, markdown (md), yaml (yml). |
+| `--check`                 | Report formatting differences without writing files.                                              |
+| `-a`, `--add`             | Offer dotfmt.dotfile to the target, asking before writing.                                        |
+| `-s`, `--sync`            | Replace an existing target dotfmt.dotfile with the shared configuration.                          |
+| `--dialect <DIALECT>`     | Override the dialect for one selected language.                                                   |
+| `-e`, `--editor`          | Read standard input for an editor; JSON mode enables repairs.                                     |
+| `--stdin <FILENAME>`      | Read standard input as the named file, using its configuration and dialect.                       |
+| `--owns`                  | Read NUL-separated filenames and emit those selected by the effective configuration.              |
+| `-v`, `--verbose`         | Show detailed formatting results.                                                                 |
+| `-q`, `--quiet`           | Report only failures.                                                                             |
+| `-h`, `--help`            | Shows help for the selected command and exits.                                                    |
+| `--completions <SHELL>`   | Prints a shell completion script for the named shell and exits.                                   |
+| `-V`, `--version`         | Prints the version and exits.                                                                     |
 <!-- cli:flags:end -->
 
 ## Configuration
@@ -74,6 +74,7 @@ conf {
 
 markdown {}
 json {}
+yaml {}
 
 lua {
   width = 120
@@ -99,7 +100,7 @@ excluded_files {
 | Ambiguous mappings | Error; select the language explicitly |
 | Custom extensions | Must contain syntax understood by the assigned engine |
 
-The shipped config enables all four languages. `dotfile sync` installs it. `--add` and `--sync` use that single configuration file.
+The shipped config enables all five languages. `dotfile sync` installs it. `--add` and `--sync` use that single configuration file.
 
 ## Languages and settings
 
@@ -109,13 +110,14 @@ The shipped config enables all four languages. `dotfile sync` installs it. `--ad
 | `json` | `.json`, `.jsonc`, `.hujson`, `.jwcc` | `auto`, `json`, `jsonc`, `hujson` (`jwcc`) |
 | `lua` | `.lua`, `.luau` | `auto`, `all`, `lua51`–`lua54`, `luajit`, `luau` |
 | `markdown` (`md`) | `.md`, `.markdown`, `.mdown`, `.mkd` | `auto`, `commonmark`, `gfm` (`github`), `obsidian` |
+| `yaml` (`yml`) | `.yaml`, `.yml` | None |
 
 | Global setting | Application |
 | --- | --- |
 | `final_newline` | All languages |
-| `indent` | Conf blocks, JSON, Lua |
-| `width` | Lua line wrapping and Markdown table layout |
-| `quote_style` | Lua quote selection; JSON always emits double quotes; conf/Markdown preserve quoting |
+| `indent` | Conf blocks, JSON, Lua, YAML |
+| `width` | Lua line wrapping, Markdown table layout and YAML flow collections |
+| `quote_style` | Lua and YAML quote selection; JSON always emits double quotes; conf/Markdown preserve quoting |
 
 | Language | Additional settings |
 | --- | --- |
@@ -123,10 +125,11 @@ The shipped config enables all four languages. `dotfile sync` installs it. `--ad
 | JSON | `dialect`; `indent = -1` uses tabs, `0` emits compact JSON, `1`–`7` uses spaces |
 | Lua | `dialect`, `indent_type`, `line_endings`, `call_parentheses`, `collapse_simple_statement`, `space_after_function_names`, `block_newline_gaps`, `sort_requires`, `verify` |
 | Markdown | `dialect`, `table_style`, `autosize_table`, `heading_blank_lines`, `list_marker`, `trim_trailing_blank_lines` |
+| YAML | `line_endings`, `indent_sequences`, `trailing_comma`, `brace_spacing`, `bracket_spacing`, `dash_spacing`, `prefer_single_line`, `format_comments` |
 
 Markdown table dividers use three dashes by default, preserving alignment colons. Set `autosize_table = true` in the `markdown` block to size dividers to aligned columns; compact tables keep three dashes.
 
-Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; JSONC/HuJSON editor mode preserves comments.
+Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; JSONC/HuJSON editor mode preserves comments. YAML output must parse to the same values as its input, otherwise the file is left unchanged.
 
 | Result                                                      | Exit status |
 | --- | --- |

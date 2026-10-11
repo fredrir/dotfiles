@@ -26,9 +26,9 @@ impl Session {
             return Ok(Outcome::Owned(paths));
         };
         let needs_stack = !files.is_empty()
-            || buffer
-                .as_ref()
-                .is_some_and(|buffer| buffer.language == Some(Language::Lua));
+            || buffer.as_ref().is_some_and(|buffer| {
+                matches!(buffer.language, Some(Language::Lua | Language::Yaml))
+            });
         let execute = || {
             let buffer = buffer.map(format_buffer);
             let files = if parallel {

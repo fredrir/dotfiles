@@ -7,6 +7,7 @@ use dotfmt_core::language::Language;
 #[test]
 fn language_aliases_and_default_stdin_paths_agree_with_detection() {
     assert_eq!(Language::parse("md"), Ok(Language::Markdown));
+    assert_eq!(Language::parse("yml"), Ok(Language::Yaml));
     for language in Language::ALL {
         assert_eq!(Language::parse(language.name()), Ok(language));
         assert_eq!(Language::for_path(language.default_stdin()), Some(language));
@@ -26,6 +27,8 @@ fn native_dialects_and_case_insensitive_extensions_are_detected() {
         ("script.LUAU", Language::Lua),
         ("README.mdown", Language::Markdown),
         ("README.mkd", Language::Markdown),
+        ("config.yaml", Language::Yaml),
+        ("config.YML", Language::Yaml),
     ] {
         assert_eq!(Language::for_path(Path::new(path)), Some(language));
     }

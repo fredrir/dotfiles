@@ -1,7 +1,7 @@
 [package]
 name              = "dotfmt"
 version.workspace = true
-description       = "Unified configurable formatter for configuration files, JSON, Lua, and Markdown"
+description       = "Unified configurable formatter for configuration files, JSON, Lua, Markdown, and YAML"
 edition.workspace = true
 license.workspace = true
 
@@ -17,6 +17,7 @@ dotfmt-conf = { path = "../languages/conf" }
 dotfmt-json = { path = "../languages/json" }
 dotfmt-lua = { path = "../languages/lua" }
 dotfmt-markdown = { path = "../languages/markdown" }
+dotfmt-yaml = { path = "../languages/yaml" }
 
 [dev-dependencies]
 testkit.workspace  = true

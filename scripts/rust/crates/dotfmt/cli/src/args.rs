@@ -12,7 +12,7 @@ pub struct Cli {
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]
     pub targets: Vec<PathBuf>,
 
-    /// Select configured languages: json, lua, conf, md or markdown.
+    /// Select configured languages: json, lua, conf, md, markdown, yml or yaml.
     #[arg(short = 'l', long = "lang", value_delimiter = ',', value_parser = language(), value_name = "LANGUAGE")]
     pub languages: Vec<Language>,
 

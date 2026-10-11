@@ -67,12 +67,6 @@
   },
   "customLocalFormatters.formatters": [
     {
-      "command": "yamlfmt -",
-      "languages": [
-        "yaml"
-      ]
-    },
-    {
       "command": "sqlfluff format -",
       "languages": [
         "sql"
@@ -106,6 +100,12 @@
       "command": "dotfmt -l markdown -eq --stdin \"${file}\"",
       "languages": [
         "markdown"
+      ]
+    },
+    {
+      "command": "dotfmt -l yaml -eq --stdin \"${file}\"",
+      "languages": [
+        "yaml"
       ]
     }
   ],

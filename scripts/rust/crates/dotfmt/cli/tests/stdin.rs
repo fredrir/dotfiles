@@ -7,7 +7,7 @@ use std::fs;
 use testkit::tree_pairs;
 
 const CONFIG: &str =
-    "{\n indent = 2\n final_newline = false\n}\njson {}\nlua {}\nmarkdown {}\nconf {}\n";
+    "{\n indent = 2\n final_newline = false\n}\njson {}\nlua {}\nmarkdown {}\nconf {}\nyaml {}\n";
 
 #[test]
 fn stdin_aliases_and_extensionless_explicit_languages_work() {
@@ -35,6 +35,31 @@ fn stdin_aliases_and_extensionless_explicit_languages_work() {
     assert!(output.success(), "{output:?}");
     assert_eq!(output.stdout, "local x = 1");
     assert!(!root.path().join("new.lua").exists());
+}
+
+#[test]
+fn yaml_aliases_files_and_dialects_work() {
+    let root = tree_pairs(&[("dotfmt.dotfile", CONFIG), ("a.yml", "a:   1\n")]);
+    for language in ["yml", "yaml"] {
+        let output = dotfmt(root.path())
+            .args(["--editor", "-l", language])
+            .stdin("a:\n- 1\n")
+            .run();
+        assert!(output.success(), "{output:?}");
+        assert_eq!(output.stdout, "a:\n  - 1");
+    }
+    let output = dotfmt(root.path()).arg("a.yml").run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.yml")).unwrap(),
+        "a: 1"
+    );
+    let output = dotfmt(root.path())
+        .args(["--dialect", "strict", "--stdin", "a.yaml"])
+        .stdin("a: 1")
+        .run();
+    assert_eq!(output.code(), Some(1), "{output:?}");
+    assert!(output.stderr.contains("yaml has no"), "{output:?}");
 }
 
 #[test]

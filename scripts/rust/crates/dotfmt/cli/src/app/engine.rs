@@ -17,6 +17,7 @@ pub enum Engine {
         dotfmt_markdown::config::Config,
         dotfmt_markdown::dialect::Dialect,
     ),
+    Yaml(dotfmt_yaml::config::Config),
 }
 
 pub struct Formatted {
@@ -44,6 +45,7 @@ impl Engine {
                 dotfmt_markdown::config::Config::from_settings(settings)?,
                 dotfmt_markdown::dialect::Dialect::Auto,
             ),
+            Language::Yaml => Self::Yaml(dotfmt_yaml::config::Config::from_settings(settings)?),
         };
         engine.with_dialect(dialect)
     }
@@ -54,6 +56,11 @@ impl Engine {
             Self::Conf(_) => {
                 if !value.eq_ignore_ascii_case("auto") {
                     return Err(configuration(format!("conf has no {value:?} dialect")));
+                }
+            }
+            Self::Yaml(_) => {
+                if !value.eq_ignore_ascii_case("auto") {
+                    return Err(configuration(format!("yaml has no {value:?} dialect")));
                 }
             }
             Self::Json(_, dialect) => {
@@ -108,6 +115,7 @@ impl Engine {
                 config.dialect = dialect.resolve(config.dialect, detected);
                 dotfmt_markdown::format(utf8(input)?, &config)?
             }
+            Self::Yaml(config) => dotfmt_yaml::format(utf8(input)?, config)?,
         };
         Ok(Formatted { text, repairs })
     }

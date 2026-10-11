@@ -1,14 +1,10 @@
 {
   width          = 120
-  indent         = 2
   final_newline  = false
   quote_style    = double
 }
 
 conf {
-  align        = true
-  align_max    = 24
-  blank_lines  = 1
   included_files {
     **/ssh/config
     **/ssh/config.d/*
@@ -19,13 +15,7 @@ conf {
 }
 
 markdown {
-  width                     = 80
-  dialect                   = auto
-  table_style               = auto
-  autosize_table            = false
-  heading_blank_lines       = 1
-  list_marker               = -
-  trim_trailing_blank_lines = true
+  width  = 80
   excluded_files {
     AGENTS.md
     CLAUDE.md
@@ -36,18 +26,13 @@ json {
   final_newline  = true
 }
 
-lua {
-  dialect                   = auto
-  indent_type               = spaces
-  line_endings              = unix
-  call_parentheses          = none
-  collapse_simple_statement = never
-  space_after_function_names = never
-  block_newline_gaps        = never
-  sort_requires             = false
-  verify                    = false
+lua {}
+
+yaml {
+  excluded_files {
+    .sops.yaml
+    *.enc.yaml
+    *.enc.yml
+    **/gh/hosts.yml
+  }
 }
-
-included_files {}
-
-excluded_files {}

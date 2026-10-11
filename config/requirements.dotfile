@@ -49,7 +49,6 @@ shared {
   ?ruff
   ?stylua
   ?taplo
-  ?yamlfmt
   ?yamllint
   ?sqlfluff
 }

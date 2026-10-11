@@ -117,9 +117,10 @@ def test_sync_rewrites_a_drifted_sops_file(tool, repo):
     root, _home, env = repo
     secret(tool, env, "enroll", "archie", KEY_A)
     (root / ".sops.yaml").write_text("creation_rules: []\n")
-    assert (root / ".sops.yaml").read_text() != f"creation_rules:\n  - age: {KEY_A}\n"
+    policy = f"stores:\n  yaml:\n    indent: 2\ncreation_rules:\n  - age: {KEY_A}\n"
+    assert (root / ".sops.yaml").read_text() != policy
     assert secret(tool, env, "sync").returncode == 0
-    assert (root / ".sops.yaml").read_text() == f"creation_rules:\n  - age: {KEY_A}\n"
+    assert (root / ".sops.yaml").read_text() == policy
 
 
 def test_sync_leaves_a_formatted_file_byte_for_byte(tool, repo):

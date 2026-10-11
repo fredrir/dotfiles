@@ -6,10 +6,17 @@ pub enum Language {
     Json,
     Lua,
     Markdown,
+    Yaml,
 }
 
 impl Language {
-    pub const ALL: [Self; 4] = [Self::Conf, Self::Json, Self::Lua, Self::Markdown];
+    pub const ALL: [Self; 5] = [
+        Self::Conf,
+        Self::Json,
+        Self::Lua,
+        Self::Markdown,
+        Self::Yaml,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -17,6 +24,7 @@ impl Language {
             Self::Json => "json",
             Self::Lua => "lua",
             Self::Markdown => "markdown",
+            Self::Yaml => "yaml",
         }
     }
 
@@ -26,6 +34,7 @@ impl Language {
             Self::Json => &["json"],
             Self::Lua => &["lua"],
             Self::Markdown => &["markdown", "md"],
+            Self::Yaml => &["yaml", "yml"],
         }
     }
 
@@ -35,6 +44,7 @@ impl Language {
             Self::Json => &["json", "jsonc", "hujson", "jwcc"],
             Self::Lua => &["lua", "luau"],
             Self::Markdown => &["md", "markdown", "mdown", "mkd"],
+            Self::Yaml => &["yaml", "yml"],
         }
     }
 
@@ -44,6 +54,7 @@ impl Language {
             Self::Json => "stdin.json",
             Self::Lua => "stdin.lua",
             Self::Markdown => "stdin.md",
+            Self::Yaml => "stdin.yaml",
         })
     }
 
@@ -52,7 +63,9 @@ impl Language {
             .into_iter()
             .find(|language| language.aliases().contains(&value))
             .ok_or_else(|| {
-                format!("unknown language '{value}'; expected conf, json, lua, or markdown (md)")
+                format!(
+                    "unknown language '{value}'; expected conf, json, lua, markdown (md), or yaml (yml)"
+                )
             })
     }
 

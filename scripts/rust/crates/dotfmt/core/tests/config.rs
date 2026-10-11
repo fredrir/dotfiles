@@ -241,6 +241,7 @@ fn malformed_configuration_reports_source_and_line() {
         ("{ final_newline = maybe }", "true or false"),
         ("json {}\njson {}", "duplicate json block"),
         ("markdown {}\nmd {}", "duplicate markdown block"),
+        ("yaml {}\nyml {}", "duplicate yaml block"),
         ("lua { width = 80\nwidth = 90 }", "duplicate setting"),
         ("lua { enabled = perhaps }", "true or false"),
         (

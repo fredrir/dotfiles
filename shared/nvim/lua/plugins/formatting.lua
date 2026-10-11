@@ -27,7 +27,7 @@ return {
         toml = { "taplo" },
         typescript = { "biome" },
         typescriptreact = { "biome" },
-        yaml = { "yamlfmt" },
+        yaml = { "dotfmt" },
         conf = { "dotfmt" },
         dotfile = { "dotfmt" },
       },

@@ -465,10 +465,7 @@ fn secret_health(
     }
     if !recipients.is_empty() {
         outcome.checked += 1;
-        let expected = format!(
-            "creation_rules:\n  - age: {}\n",
-            recipients.values().cloned().collect::<Vec<_>>().join(",")
-        );
+        let expected = crate::secret::recipients::policy(&recipients);
         let sops_config = context.root.join(".sops.yaml");
         if fs::read_to_string(&sops_config).ok().as_deref() != Some(expected.as_str()) {
             health_issue(

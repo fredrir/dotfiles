@@ -32,7 +32,7 @@ fn recipients_parse_validate_and_format_stably() {
     );
     assert_eq!(
         recipients::policy(&parsed),
-        format!("creation_rules:\n  - age: {key}\n")
+        format!("stores:\n  yaml:\n    indent: 2\ncreation_rules:\n  - age: {key}\n")
     );
     assert!(recipients::policy(&BTreeMap::new()).is_empty());
     for invalid in [

@@ -1,6 +1,6 @@
 {
-  # width = 80                   # Lua lines / Markdown tables
-  # indent = 2                   # conf / JSON / Lua
+  # width = 80                   # Lua lines / Markdown tables / YAML flow collections
+  # indent = 2                   # conf / JSON / Lua / YAML
   # final_newline = false        # true | false
   # quote_style = double         # double | single | auto | auto-prefer-double | auto-prefer-single
 }
@@ -58,6 +58,25 @@ lua {
   sort_requires             = false              # true | false
   final_newline             = false              # true | false
   verify                    = false              # true | false; reparse formatted output
+
+  included_files {}
+  excluded_files {}
+}
+
+yaml {
+  enabled             = true               # true | false
+  width               = 80                 # 1..10000; wraps flow collections, never scalars
+  indent              = 2                  # 1..16 spaces
+  quote_style         = auto-prefer-double # auto-prefer-double | auto-prefer-single | double | single
+  line_endings        = unix               # unix | windows
+  indent_sequences    = true               # true | false; indent sequences inside mappings
+  trailing_comma      = false              # true | false; wrapped flow collections
+  brace_spacing       = false              # true | false; { a: 1 }
+  bracket_spacing     = false              # true | false; [ 1 ]
+  dash_spacing        = one-space          # one-space | indent
+  prefer_single_line  = false              # true | false; join multi-line flow collections that fit
+  format_comments     = false              # true | false; space after #
+  final_newline       = true               # true | false
 
   included_files {}
   excluded_files {}

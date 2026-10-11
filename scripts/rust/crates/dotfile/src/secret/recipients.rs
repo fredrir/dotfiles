@@ -111,7 +111,7 @@ pub fn policy(recipients: &Recipients) -> String {
         String::new()
     } else {
         format!(
-            "creation_rules:\n  - age: {}\n",
+            "stores:\n  yaml:\n    indent: 2\ncreation_rules:\n  - age: {}\n",
             recipients.values().cloned().collect::<Vec<_>>().join(",")
         )
     }
