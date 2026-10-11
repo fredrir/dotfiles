@@ -144,6 +144,7 @@ the mux. Peer-facing port is 8453.
 | Restart | `launchctl kickstart -k gui/$(id -u)/com.fredrir.dclip`, `systemctl --user restart dclip` |
 | nvim | `utils/clipboard.lua`, same modes as `dclip`; non-native copy is nvim's OSC 52 plus `~/.cache/nvim/clipboard` |
 | nvim paste | ssh and no clipboard: the cache; mux: the cache within 1 s of a yank, else `dclip -o` |
+| lazygit | `os.copyToClipboardCmd` and `os.readFromClipboardCmd` call `dclip` |
 
 ```
 macos/launchd/com.fredrir.dclip.plist

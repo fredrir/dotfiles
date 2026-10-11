@@ -350,5 +350,6 @@
       "json"
     ]
   },
-  "litellm-vscode-chat.commitGeneration.enabled": false
+  "litellm-vscode-chat.commitGeneration.enabled": false,
+  "redhat.telemetry.enabled": false
 }

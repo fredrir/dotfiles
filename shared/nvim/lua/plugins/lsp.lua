@@ -12,6 +12,7 @@ local servers = {
   "rust_analyzer",
   "tailwindcss",
   "ts_ls",
+  "yamlls",
 }
 if vim.fn.executable "go" == 1 then
   servers[#servers + 1] = "gopls"

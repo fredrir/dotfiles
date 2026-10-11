@@ -86,11 +86,7 @@ local bindings = {
   keybind(act.ActivatePaneDirection "Next", MOD.UNIQUE, "Tab"), -- Forward
   keybind(act.ActivatePaneDirection "Prev", MOD.UNIQUE, "Tab"), -- Backward
 
-  keybind(
-    clear_screen,
-    platform.is_mac and { MOD.PRIMARY, MOD.SECONDARY, MOD.UNIQUE } or { MOD.PRIMARY, MOD.UNIQUE },
-    "l"
-  ),
+  keybind(clear_screen, { "CTRL", MOD.PRIMARY, MOD.UNIQUE }, "l"),
 
   keybind(act.TogglePaneZoomState, MOD.SUPER_REV, "z"),
 
@@ -126,8 +122,9 @@ local bindings = {
   keybind(go_to "DOTFILES/shared/wezterm", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "w"),
   ----
   keybind(go_to "PYPARSER", { MOD.UNIQUE }, "p"),
-  keybind(go_to "LLUNDE", MOD.UNIQUE, "l"),
   keybind(go_to "HOME/infra", MOD.UNIQUE, "i"),
+  ----
+  keybind(go_to "LLUNDE", "SHIFT", "l"),
   ----
   keybind(go_to "CONFIG", MOD.SHIFT_RIGHT, "c"),
   keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),

@@ -1,3 +1,22 @@
 confirmOnQuit: false
 quitOnTopLevelReturn: true
-notARepository: never
+notARepository: quit
+disableStartupPopups: false
+
+gui:
+  fileTreeSortOrder: mixed
+  showRandomTip: false
+  commitGraphStyle: detailed
+  showDivergenceFromBaseBranch: arrowAndNumber
+  sidePanels:
+    - [files]
+    - [commits]
+    - [branches]
+
+git:
+  diffContextSize: 0
+
+os:
+  copyToClipboardCmd: printf '%s\n' {{text}} | dclip
+  readFromClipboardCmd: dclip -o
+
