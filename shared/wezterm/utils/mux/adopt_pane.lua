@@ -1,5 +1,4 @@
 local wezterm = require "wezterm" ---@type Wezterm
-local act = wezterm.action
 local dotfile = require "utils.dotfile"
 local hwire_session = require "utils.hwire-session"
 local str = require "utils.str"
@@ -45,17 +44,10 @@ local function mux(...)
     message ~= "" and message or ("localmux: unreachable; in %ds; run \nwez-restart"):format(MUX_TIMEOUT_SECONDS)
 end
 
----@return table?, string?
-local function mux_json(...)
-  local stdout, err = mux(...)
-  return stdout and wezterm.json_parse(stdout), err
-end
-
 ---@class AttachTarget
 ---@field domain string
 ---@field home string? home for the isolated login zsh; the domain's default shell when nil
 ---@field session string?
----@field adoptable boolean?
 
 ---@return AttachTarget?, string?
 local function resolve(target)
@@ -73,7 +65,7 @@ local function resolve(target)
     if not session then
       return nil, "mux-route: invalid domain"
     end
-    return { domain = domain, home = host.target.home, session = session, adoptable = true }
+    return { domain = domain, home = host.target.home, session = session }
   end
 
   local remote = ssh_mux.hosts[target]
@@ -81,7 +73,7 @@ local function resolve(target)
     if not ssh_mux.supported then
       return nil, target .. " needs a WezTerm build with unix local_pane_layout"
     end
-    return { domain = target, home = remote.home, adoptable = true }
+    return { domain = target, home = remote.home }
   end
 
   for _, name in ipairs(ssh_hosts()) do
@@ -218,77 +210,6 @@ local function new_tab(window, pane, source, target, done)
   done(activate_error)
 end
 
-local function describe(entry, place)
-  local cwd = (entry.cwd or ""):gsub("^file://[^/]*", "")
-  return ("%s  %s  (%s)"):format(entry.title, cwd, place)
-end
-
----@return string?
-local function show(choice, domain, window_id)
-  local kind, pane_id = choice:match "^(%a+):(%d+)$"
-  local detached = kind == "detached"
-  local args = detached and { "move-pane-to-new-tab", "--pane-id", pane_id, "--window-id", window_id }
-    or { "adopt-pane", "--domain-name", domain, "--remote-pane-id", pane_id, "--window-id", window_id }
-  local stdout, err = mux(table.unpack(args))
-  if not stdout then
-    return err
-  end
-  mux("activate-pane", "--pane-id", detached and pane_id or str.trim(stdout))
-end
-
----@param done fun(err: string?)
-local function adopt(window, pane, source, target, done)
-  local to, err = resolve(target)
-  if not to then
-    return done(err)
-  end
-  if not to.adoptable then
-    return done(target .. " has no mux to adopt from")
-  end
-  local remote, list_error = mux_json("adopt-pane", "--domain-name", to.domain, "--list", "--format", "json")
-  local panes, panes_error = mux_json("list", "--format", "json")
-  if not remote or not panes then
-    return done(list_error or panes_error)
-  end
-
-  local window_id
-  local choices = {}
-  for _, entry in ipairs(panes) do
-    if entry.pane_id == source then
-      window_id = entry.window_id
-    end
-    if entry.workspace == "__detached" and entry.is_active then
-      table.insert(choices, { id = "detached:" .. entry.pane_id, label = describe(entry, "detached") })
-    end
-  end
-  if not window_id then
-    return done("pane " .. source .. " is not in localmux")
-  end
-  for _, entry in ipairs(remote) do
-    local place = ("%s pane %d"):format(target, entry.pane_id)
-    table.insert(choices, { id = "remote:" .. entry.pane_id, label = describe(entry, place) })
-  end
-  if #choices == 0 then
-    return done("nothing to adopt from " .. target)
-  end
-
-  window:perform_action(
-    act.InputSelector {
-      title = "Adopt a pane",
-      fuzzy = true,
-      choices = choices,
-      action = wezterm.action_callback(function(_, _, choice)
-        local show_error = choice and show(choice, to.domain, window_id)
-        if show_error then
-          wezterm.log_error("attach_mux: " .. show_error)
-        end
-      end),
-    },
-    pane
-  )
-  done()
-end
-
 ---@param id string?
 ---@param message string?
 local function reply(pane, id, message)
@@ -327,7 +248,6 @@ end
 
 local requests = {
   ATTACH_MUX = once_per_pane(replace),
-  ADOPT_MUX = once_per_pane(adopt),
 }
 
 wezterm.on("user-var-changed", function(window, pane, name, value)
@@ -358,7 +278,12 @@ return {
   new_peer_tab = wezterm.action_callback(function(window, pane)
     open_peer_tab(window, pane, "peer")
   end),
-  adopt = wezterm.action_callback(function(window, pane)
-    requests.ADOPT_MUX(window, pane, "peer")
-  end),
+  ---@return string? domain localmux reaches the peer through
+  peer_domain = function()
+    local to, err = resolve(host.target.hostname)
+    if not to then
+      wezterm.log_error("peer_domain: " .. err)
+    end
+    return to and to.domain
+  end,
 }

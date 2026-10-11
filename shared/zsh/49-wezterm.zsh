@@ -12,12 +12,6 @@ attach_mux() {
     return
   fi
 
-  local request_name=ATTACH_MUX
-  if [[ $1 == (-a|--adopt) ]]; then
-    request_name=ADOPT_MUX
-    shift
-  fi
-
   if [[ -z $WEZTERM_PANE ]]; then
     print -ru2 'attach_mux: not a wezterm pane'
     return 1
@@ -34,11 +28,7 @@ attach_mux() {
   tty_state=$(stty -g </dev/tty) || return 1
   stty -echo -icanon </dev/tty
   {
-    if [[ $request_name == ATTACH_MUX ]]; then
-      set_user_var $request_name "v2:$target:$id"$'\0'"$HOME"$'\0'"$PWD"
-    else
-      set_user_var $request_name "v1:$target:$id"
-    fi
+    set_user_var ATTACH_MUX "v2:$target:$id"$'\0'"$HOME"$'\0'"$PWD"
     while IFS= read -r -t 60 -d $'\a' reply </dev/tty; do
       [[ $reply == "$id "* ]] || continue
       reply=${reply#"$id "}

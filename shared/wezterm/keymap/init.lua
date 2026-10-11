@@ -81,6 +81,7 @@ local bindings = {
     platform.is_mac and { "CTRL", MOD.PRIMARY } or MOD.PRIMARY,
     MOD.SPLITBELOW
   ),
+  keybind(act.SplitVertical { domain = "CurrentPaneDomain" }, MOD.PRIMARY, ";"),
   -- Cycle  --
   keybind(act.ActivatePaneDirection "Next", MOD.UNIQUE, "Tab"), -- Forward
   keybind(act.ActivatePaneDirection "Prev", MOD.UNIQUE, "Tab"), -- Backward
@@ -91,7 +92,6 @@ local bindings = {
     "l"
   ),
 
-  keybind(adopt_pane.adopt, MOD.SUPER_REV, "a"),
   keybind(act.TogglePaneZoomState, MOD.SUPER_REV, "z"),
 
   keybind(act.AdjustPaneSize { "Left", 3 }, MOD.UNIQUE_REV, "LeftArrow"),
@@ -104,27 +104,22 @@ local bindings = {
   keybind("ReloadConfiguration", MOD.SUPER_REV, "r"),
 
   -- Font size --
-  keybind(act.IncreaseFontSize, MOD.SUPER_REV, "phys:Minus"),
-  keybind(act.DecreaseFontSize, MOD.SUPER_REV, "phys:Slash"),
-  keybind(act.ResetFontSize, MOD.UNIQUE_REV, "phys:Slash"),
+  keybind(act.IncreaseFontSize, MOD.SUPER_REV, "+"),
+  keybind(act.DecreaseFontSize, MOD.SUPER_REV, "-"),
+  keybind(act.ResetFontSize, MOD.UNIQUE_REV, "?"),
 
   -- Mux --
   keybind(mux.detach_pane, MOD.SUPER_REV, "s"),
   keybind(adopt_pane.toggle_host, { MOD.PRIMARY, "CTRL" }, "."),
 
-  -- Domain and workspace launcher --
-  keybind(act.ShowLauncherArgs { flags = "DOMAINS|WORKSPACES" }, MOD.SUPER_REV, "d"),
-
-  -- Open Vscode --
+  -- Open Editors --
   keybind(open_vscode, MOD.SUPER_REV, "o"),
   keybind(open_jetbrains.pycharm, MOD.SUPER_REV, "p"),
   keybind(open_jetbrains.rustrover, MOD.UNIQUE_REV, "r"),
   keybind(open_jetbrains.intellij, MOD.UNIQUE_REV, "i"),
+  keybind(open_github, MOD.SUPER_REV, "g"),
 
   keybind(act.QuickSelect, MOD.SUPER_REV, "Space"),
-  keybind(act.SplitVertical { domain = "CurrentPaneDomain" }, MOD.PRIMARY, ";"),
-  keybind(open_github, MOD.SUPER_REV, "g"),
-  keybind(git_add, MOD.UNIQUE, "g"),
 
   ------ Directory Navigation ------
   ----
@@ -132,8 +127,9 @@ local bindings = {
   keybind(go_to "LLUNDE", MOD.UNIQUE, "l"),
   keybind(go_to "HOME/infra", MOD.UNIQUE, "i"),
   ----
+  keybind(go_to "CONFIG", MOD.SHIFT_RIGHT, "c"),
   keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),
-  keybind(go_to "PYPARSER", { MOD.SHIFT_RIGHT }, "e"),
+  keybind(go_to "PYPARSER", { MOD.SHIFT_RIGHT }, "a"),
   keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
   keybind(go_to "HOME/rif", MOD.SHIFT_RIGHT, "r"),
   keybind(go_to "HOME/projects/shucked", MOD.SHIFT_RIGHT, "v"),
@@ -141,12 +137,15 @@ local bindings = {
   ----
   keybind(go_to "DOTFILES/shared/wezterm", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "w"),
 
-  ------ Quick Actions ------
+  ------ Git & Quick Actions ------
+  keybind(git_add, MOD.UNIQUE, "g"),
+  ----
   keybind(
     vtabs.action { QuickTerminal = { args = { "zsh", "-lc", "lazygit" }, width = 0.9, height = 0.9 } },
     MOD.PRIMARY,
     "g"
   ),
+  ----
 }
 
 -- Go to tab 1..9
