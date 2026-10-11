@@ -131,6 +131,7 @@ if (($+functions[omz_termsupport_cwd])); then
     [[ -z "$KONSOLE_PROFILE_NAME" && -z "$KONSOLE_DBUS_SESSION" ]] || URL_HOST=""
     printf "\e]7;file://%s%s\e\\" "${URL_HOST}" "${URL_PATH}"
   }
+  chpwd_functions+=(omz_termsupport_cwd)
 fi
 
 [[ -o interactive ]] || return 0
@@ -149,6 +150,7 @@ fi
 
 _wezterm_reset_prompt() {
   (($+functions[_prompt_render_left])) && _prompt_render_left
+  (($+functions[omz_termsupport_precmd])) && omz_termsupport_precmd
   zle reset-prompt
 }
 

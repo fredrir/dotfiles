@@ -130,19 +130,21 @@ local bindings = {
   ----
   keybind(go_to "PYPARSER", { MOD.UNIQUE }, "p"),
   keybind(go_to "LLUNDE", MOD.UNIQUE, "l"),
+  keybind(go_to "HOME/infra", MOD.UNIQUE, "i"),
   ----
   keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),
   keybind(go_to "PYPARSER", { MOD.SHIFT_RIGHT }, "e"),
   keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
   keybind(go_to "HOME/rif", MOD.SHIFT_RIGHT, "r"),
-  keybind(go_to "HOME/projects/wez-plugins/vertical-tabs", MOD.SHIFT_RIGHT, "q"),
+  keybind(go_to "HOME/projects/shucked", MOD.SHIFT_RIGHT, "v"),
+  keybind(go_to "HOME/projects/wez-plugins/vertical-tabs", MOD.SHIFT_RIGHT, "v"),
   ----
   keybind(go_to "DOTFILES/shared/wezterm", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "w"),
 
   ------ Quick Actions ------
   keybind(
     vtabs.action { QuickTerminal = { args = { "zsh", "-lc", "lazygit" }, width = 0.9, height = 0.9 } },
-    MOD.SHIFT_RIGHT,
+    MOD.PRIMARY,
     "g"
   ),
 }
