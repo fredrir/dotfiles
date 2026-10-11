@@ -34,18 +34,18 @@
 
 ## Routes
 
-| Output                               | Runs                        |
+| Output | Runs |
 | --- | --- |
-| Piped, or `--color never`            | system cat                  |
-| Terminal                             | built-in bat, then swatches |
-| Terminal with `-b -e -E -l -t -T -v` | system cat, then swatches   |
-| `--filter`, `--pager`                | swatches only               |
+| Piped, or `--color never` | system cat |
+| Terminal | built-in bat, then swatches |
+| Terminal with `-b -e -E -l -t -T -v` | system cat, then swatches |
+| `--filter`, `--pager` | swatches only |
 
 ## Env
 
-| Env               | Default                                  |
+| Env | Default |
 | --- | --- |
-| `BAT_THEME`       | `auto`; asks the terminal for light/dark |
-| `BAT_THEME_DARK`  | `Monokai Extended`                       |
-| `BAT_THEME_LIGHT` | `Monokai Extended Light`                 |
-| `COLORTERM`       | unset; `truecolor` or `24bit` for 24-bit |
+| `BAT_THEME` | `auto`; asks the terminal for light/dark |
+| `BAT_THEME_DARK` | `Monokai Extended` |
+| `BAT_THEME_LIGHT` | `Monokai Extended Light` |
+| `COLORTERM` | unset; `truecolor` or `24bit` for 24-bit |

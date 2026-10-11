@@ -16,10 +16,6 @@ conf {
 
 markdown {
   width  = 80
-  excluded_files {
-    AGENTS.md
-    CLAUDE.md
-  }
 }
 
 json {

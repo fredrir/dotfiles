@@ -128,11 +128,11 @@ local bindings = {
   ----
   keybind(go_to "CONFIG", MOD.SHIFT_RIGHT, "c"),
   keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),
-  keybind(go_to "PYPARSER", { MOD.SHIFT_RIGHT }, "s"),
+  keybind(go_to "PYPARSER", { MOD.SHIFT_RIGHT }, "q"),
   keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
   keybind(go_to "HOME/rif", MOD.SHIFT_RIGHT, "r"),
   keybind(go_to "HOME/.agents/skills", { MOD.SHIFT_RIGHT }, "a"),
-  keybind(go_to "HOME/projects/shucked", MOD.SHIFT_RIGHT, "v"),
+  keybind(go_to "HOME/projects/shucked", MOD.SHIFT_RIGHT, "s"),
   keybind(go_to "HOME/projects/wez-plugins/vertical-tabs", MOD.SHIFT_RIGHT, "v"),
   ----
   keybind(go_to "DOTFILES/shared/wezterm", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "w"),

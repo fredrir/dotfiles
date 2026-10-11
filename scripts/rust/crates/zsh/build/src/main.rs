@@ -4,10 +4,15 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueHint};
+use similar::TextDiff;
 use workstation::{Completable, Completions};
+use zsh_build::verify::{self, compare};
 use zsh_build::{Options, build, default_root, origins};
 
 const PROGRAM: &str = "zsh-build";
+
+/// Characters of each value `verify` shows.
+const EXCERPT: usize = 60;
 
 #[derive(Parser)]
 #[command(version, about = "Compile the zsh startup config into one bundle")]
@@ -32,6 +37,12 @@ enum Command {
         #[arg(required = true)]
         names: Vec<String>,
     },
+    /// Compare a shell started from the bundle with one started from the sources
+    Verify {
+        /// Show differing values in full
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 impl Completable for Cli {
@@ -49,8 +60,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         .root
         .or_else(default_root)
         .ok_or("dotfiles root not found")?;
-    if let Some(Command::Where { names }) = cli.command {
-        return locate(&root, &names);
+    match cli.command {
+        Some(Command::Where { names }) => return locate(&root, &names),
+        Some(Command::Verify { verbose }) => return check(&root, verbose),
+        None => {}
     }
     let built = build(&Options {
         root,
@@ -98,4 +111,58 @@ fn locate(root: &std::path::Path, names: &[String]) -> Result<ExitCode, String> 
         }
     }
     Ok(code)
+}
+
+fn check(root: &std::path::Path, verbose: bool) -> Result<ExitCode, String> {
+    let verified = verify::verify(root)?;
+    for bundle in &verified.stale {
+        eprintln!("{PROGRAM}: {}: stale", bundle.display());
+    }
+    if verified.differences.is_empty() {
+        println!("bundle matches sources");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let mut table = None;
+    for difference in &verified.differences {
+        if table != Some(&difference.table) {
+            println!("{}", difference.table);
+            table = Some(&difference.table);
+        }
+        if verbose {
+            println!("  {}", difference.name);
+            print_full(difference);
+        } else {
+            let (bundle, sources) = difference.excerpt(EXCERPT);
+            println!(
+                "  {}  bundle: {bundle}  sources: {sources}",
+                difference.name
+            );
+        }
+    }
+    Ok(ExitCode::FAILURE)
+}
+
+fn print_full(difference: &compare::Difference) {
+    match (&difference.bundle, &difference.sources) {
+        (Some(bundle), Some(sources)) if bundle.contains('\n') || sources.contains('\n') => {
+            let diff = TextDiff::from_lines(bundle, sources);
+            for line in diff
+                .unified_diff()
+                .header("bundle", "sources")
+                .to_string()
+                .lines()
+            {
+                println!("    {}", compare::visible(line));
+            }
+        }
+        (bundle, sources) => {
+            let full = |value: &Option<String>| {
+                value
+                    .as_deref()
+                    .map_or("(none)".to_string(), compare::visible)
+            };
+            println!("    bundle: {}", full(bundle));
+            println!("    sources: {}", full(sources));
+        }
+    }
 }

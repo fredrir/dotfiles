@@ -14,6 +14,7 @@ pub mod quote;
 pub mod scan;
 pub mod script;
 pub mod state;
+pub mod verify;
 pub mod wordcode;
 
 use std::collections::BTreeMap;

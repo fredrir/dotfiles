@@ -21,12 +21,12 @@
 
 ## Domain
 
-| Name          | Value                                              |
+| Name | Value |
 | --- | --- |
-| Domain        | `<peer>-<route>`, such as `archie-cable`           |
+| Domain | `<peer>-<route>`, such as `archie-cable` |
 | Routes probed | `cable`, `wifi`, `lan`, `tailscale`, in that order |
-| Port          | 8443                                               |
-| `HOST`        | `macie` or `archie`; the peer when omitted         |
+| Port | 8443 |
+| `HOST` | `macie` or `archie`; the peer when omitted |
 
 The first route that answers is the one printed. Nothing answering is a
 failure, as is naming this machine: its panes are already in `localmux`.

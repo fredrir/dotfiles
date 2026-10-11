@@ -36,38 +36,38 @@
 
 ## Env
 
-| Env                           | Default                                    |
+| Env | Default |
 | --- | --- |
-| `ZCOMP_CACHE_DIR`             | `$XDG_CACHE_HOME/zcomp` (`~/.cache/zcomp`) |
-| `ZCOMP_OFFLINE`               | unset; `1` skips the network               |
-| `ZCOMP_FOREGROUND`            | unset; `1` rebuilds stale caches inline    |
-| `PI_CODING_AGENT_DIR`         | `~/.pi/agent`                              |
-| `PI_CODING_AGENT_SESSION_DIR` | settings `sessionDir`, then per-cwd dir    |
+| `ZCOMP_CACHE_DIR` | `$XDG_CACHE_HOME/zcomp` (`~/.cache/zcomp`) |
+| `ZCOMP_OFFLINE` | unset; `1` skips the network |
+| `ZCOMP_FOREGROUND` | unset; `1` rebuilds stale caches inline |
+| `PI_CODING_AGENT_DIR` | `~/.pi/agent` |
+| `PI_CODING_AGENT_SESSION_DIR` | settings `sessionDir`, then per-cwd dir |
 
 ## Search
 
-| Name    | Value                                                       |
+| Name | Value |
 | --- | --- |
-| Sources | npm registry search, npms.io prefix suggestions             |
-| Match   | Name contains the typed word; the pick replaces the word    |
-| Order   | Monthly downloads, highest first                            |
+| Sources | npm registry search, npms.io prefix suggestions |
+| Match | Name contains the typed word; the pick replaces the word |
+| Order | Monthly downloads, highest first |
 | Offline | Earlier answers for a shorter word, then `bun getcompletes` |
-| Bare    | Popular commands (`-g`, runners), popular libraries (local) |
+| Bare | Popular commands (`-g`, runners), popular libraries (local) |
 
 ## Colors
 
-| Part                            | Theme role                       |
+| Part | Theme role |
 | --- | --- |
-| Name                            | `accent`                         |
-| Package scope (`@scope`)        | `info`                           |
-| Scope marker (`@`)              | `ansi.bright.green`              |
-| Scope separator (`/`)           | `muted`                          |
-| Option, provider, source type   | `info`                           |
-| Downloads, provider column      | `info`                           |
-| Description, range, age         | `muted`                          |
-| `default`, dist-tag             | `success`                        |
-| Dependency kind (`dev`, `peer`) | `warning`                        |
-| Enabled                         | fzf-tab loaded; `NO_COLOR` unset |
+| Name | `accent` |
+| Package scope (`@scope`) | `info` |
+| Scope marker (`@`) | `ansi.bright.green` |
+| Scope separator (`/`) | `muted` |
+| Option, provider, source type | `info` |
+| Downloads, provider column | `info` |
+| Description, range, age | `muted` |
+| `default`, dist-tag | `success` |
+| Dependency kind (`dev`, `peer`) | `warning` |
+| Enabled | fzf-tab loaded; `NO_COLOR` unset |
 
 ## Cache
 

@@ -3,10 +3,11 @@
 ## Commands
 
 <!-- cli:commands:start -->
-| Command           | Description                                                                          |
-| ----------------- | ------------------------------------------------------------------------------------ |
-| `zsh-build`       | Compiles the zsh startup config into one bundle with fixed command output folded in. |
-| `zsh-build where` | Prints the file and line where bundled shell functions were defined.                 |
+| Command            | Description                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `zsh-build`        | Compiles the zsh startup config into one bundle with fixed command output folded in. |
+| `zsh-build where`  | Prints the file and line where bundled shell functions were defined.                 |
+| `zsh-build verify` | Compares the state a login shell reaches from the bundle and from the sources.       |
 <!-- cli:commands:end -->
 
 ## Flags
@@ -16,6 +17,7 @@
 | ----------------------- | ----------------------------------------------------------------------- |
 | `-n`, `--dry-run`       | Shows whether the bundle would change without writing it.               |
 | `--root <ROOT>`         | Sets the dotfiles checkout; defaults to `$DOTFILES`, then `~/dotfiles`. |
+| `-v`, `--verbose`       | Shows differing values in full; multi-line ones as a diff.              |
 | `-h`, `--help`          | Shows help for the selected command and exits.                          |
 | `--completions <SHELL>` | Prints a shell completion script for the named shell and exits.         |
 | `-V`, `--version`       | Prints the version and exits.                                           |
@@ -87,12 +89,12 @@
 | Newer than guard | Global dir, compiled files, `~/.zprofile` target, `path_helper` data |
 | `~/.zprofile` | Not the linked `profile` |
 
-| Left to zsh                        | Value                   |
+| Left to zsh | Value |
 | --- | --- |
-| `emulate`                          | Not modeled             |
-| Unrewritable `return`, parse error | Same as inlined files   |
-| `~/.zprofile`                      | Not linked to `profile` |
-| `zlogin`, `zlogout`                | Always read by zsh      |
+| `emulate` | Not modeled |
+| Unrewritable `return`, parse error | Same as inlined files |
+| `~/.zprofile` | Not linked to `profile` |
+| `zlogin`, `zlogout` | Always read by zsh |
 
 | Native | Value |
 | --- | --- |
@@ -112,6 +114,34 @@
 | Tests | `has_cmd name`, `(( $+commands[name] ))`, `true`, `false`, `[[ ]]` on constants; with `!`, `&&`, `\|\|` |
 | Function run once | Tests in its body, when only definitions lie between it, the statement it starts and its `unset -f` or `unfunction`, and its file names it nowhere else |
 | Kept | Variable and file tests, loop bodies, arms sharing lines or reading `$?` first |
+
+## Verify
+
+| Run | Value |
+| --- | --- |
+| Shells | `-zsh` on a pty, bundle then sources (`ZSH_BUILD_SKIP=1`); never rebuilds |
+| `ZDOTDIR`, cwd | Scratch dir: links to `~/.zshenv`, `~/.zprofile`, `~/.zlogin`, `~/.zlogout`; `.zshrc` sources `~/.zshrc`, then the dump hook |
+| Environment | Caller's terminal variables (`TERM`, `LANG`, `LC_*`, `WEZTERM_*`, ...) and `ambient`; `PATH=/usr/bin:/bin:/usr/sbin:/sbin`; no `WEZTERM_GO_TO`, `ZSH_COMPDUMP` |
+| Dump | At the first prompt once `_defer_queue` is empty; then `kill -KILL` |
+| Compared | Options, aliases (all kinds), functions, widgets, key bindings per keymap, keymaps, zstyles, named dirs, modules, disabled names, math functions, traps, global parameters and their types |
+| Not written | History (`HISTFILE` scratch after `~/.zshrc`), bundle, wordcode, `~/.zcompdump*`, zoxide data (`_ZO_DATA_DIR` scratch); startup's own cache refreshes still run |
+
+| Stops | Value |
+| --- | --- |
+| `.zwc` not current | The bundle would recompile it |
+| Bundle | Not built; not loaded by `~/.zshrc`; loaded with `ZSH_BUILD_SKIP=1` |
+| Stale bundle | `<bundle>: stale`; compared as built |
+
+| Tolerated | Value |
+| --- | --- |
+| zsh-build's own | `_zsh_build_*`, `__zb<N>`, `__zb0_<N>`, `__zb_head`, `__zbv_*`; the bundle's `type`, `whence` |
+| `ZSH_BUILD_SKIP` | Sources only |
+| `fpath` | Bundle's `<target>.completions` dropped |
+| `<target>.completions/` scripts | Sourced in the bundle shell before the dump, aliases off, as the first Tab loads them |
+| Function bodies | As zsh lists them; `${__zbN}` for a `$(cmd)`, a `{ }` block for `eval "$(cmd)"`, native expansions for their command |
+| `add-zle-hook-widget` indices | Order only |
+| Queue residue, bundle only | `add-zle-hook-widget`, `azhw:*`, `_defer_drain`, `_defer_typeahead`, `zle-*` dispatchers, `zle-hook types` |
+| Session values | `ATUIN_SESSION`; `$$`, `RANDOM`, `SECONDS`, `TTY`, `COLUMNS`, ... not dumped |
 
 ## Switches
 

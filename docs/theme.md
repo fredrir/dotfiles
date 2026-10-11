@@ -1,12 +1,12 @@
 # dotfile theme
 
-| Tool UI                   | Command / path                                 |
+| Tool UI | Command / path |
 | --- | --- |
-| Component gallery         | `dotfile theme gallery [PROFILE]`              |
-| Component preview         | `dotfile theme preview [PROFILE]`              |
-| Generated runtime palette | `shared/ui/theme.json`                         |
-| Installed runtime palette | `~/dotfile/config/ui/theme.json`               |
-| Shared libraries          | [Rust UI](../scripts/rust/crates/ui/README.md) |
+| Component gallery | `dotfile theme gallery [PROFILE]` |
+| Component preview | `dotfile theme preview [PROFILE]` |
+| Generated runtime palette | `shared/ui/theme.json` |
+| Installed runtime palette | `~/dotfile/config/ui/theme.json` |
+| Shared libraries | [Rust UI](../scripts/rust/crates/ui/README.md) |
 
 A theme profile is an immutable set of five UI primitives and sixteen ANSI colors. Semantic
 roles and application mappings live in the generator so every profile follows the same rules.
@@ -40,13 +40,13 @@ The tooling derives contextual roles such as `primary_fill`, `on_primary`,
 
 The literal semantic aliases are deterministic:
 
-| Alias                                 | Primitive                            |
+| Alias | Primitive |
 | --- | --- |
-| `background`                          | `ui.background`                      |
-| `primary`                             | `ui.primary`                         |
-| `accent`, `sidebar`                   | `ui.accent`                          |
-| `surface`, `border`                   | `ui.surface`                         |
-| `foreground`                          | `ui.foreground`                      |
+| `background` | `ui.background` |
+| `primary` | `ui.primary` |
+| `accent`, `sidebar` | `ui.accent` |
+| `surface`, `border` | `ui.surface` |
+| `foreground` | `ui.foreground` |
 | `error`, `warning`, `success`, `info` | ANSI normal red, yellow, green, blue |
 
 Application maps use the contextual variants, not those literal aliases, whenever a color is

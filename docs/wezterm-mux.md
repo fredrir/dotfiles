@@ -111,13 +111,13 @@ evidence. `hwire -iv` shows that evidence and the selected domain.
 
 Attached shells start under `env -i`; `attach-mux.lua` restores only:
 
-| Env             | Value                          |
+| Env | Value |
 | --- | --- |
-| `HOME`          | destination home               |
-| `TERM`          | `xterm-256color`               |
-| `COLORTERM`     | `truecolor`                    |
-| `PATH`          | `/usr/local/bin:/usr/bin:/bin` |
-| `HWIRE_SESSION` | validated route stamp          |
+| `HOME` | destination home |
+| `TERM` | `xterm-256color` |
+| `COLORTERM` | `truecolor` |
+| `PATH` | `/usr/local/bin:/usr/bin:/bin` |
+| `HWIRE_SESSION` | validated route stamp |
 
 `COLORTERM=truecolor` is required: without it `ui-theme` detects `Ansi256` and
 the `ui_indexed` fallback paints `#1c1c1c` instead of `#15152b`.
@@ -189,14 +189,14 @@ mtls doctor --probe 10.77.77.2:8443 --peer-name archie
 lsof -nP -iTCP -sTCP:LISTEN | grep 844          # exactly the intended addresses
 ```
 
-| Name          | Value                                                   |
+| Name | Value |
 | --- | --- |
-| Live          | `~/.local/share/wezterm/mtls/{ca,cert,private_key}.pem` |
-| Encrypted     | `linux/arch/wezterm-mtls/`, `macos/wezterm-mtls/`       |
-| Restored by   | `./setup.sh` / `dotfile sync`, through `op`             |
-| Age identity  | 1Password; `identities` in `config/keys.dotfile`        |
-| CA key        | offline; needed only to re-issue                        |
-| Leaves expire | 2036-09-19                                              |
+| Live | `~/.local/share/wezterm/mtls/{ca,cert,private_key}.pem` |
+| Encrypted | `linux/arch/wezterm-mtls/`, `macos/wezterm-mtls/` |
+| Restored by | `./setup.sh` / `dotfile sync`, through `op` |
+| Age identity | 1Password; `identities` in `config/keys.dotfile` |
+| CA key | offline; needed only to re-issue |
+| Leaves expire | 2036-09-19 |
 
 After a re-issue, replace the encrypted copy on that host:
 
@@ -209,12 +209,12 @@ done
 
 ## Reinstall
 
-| Step                      | Command                                        |
+| Step | Command |
 | --- | --- |
-| fresh install             | `./setup.sh`; reads the age identity via `op`  |
-| mux certificates          | restored by the same sync                      |
-| restart the mux on archie | `systemctl --user restart wezterm-mux`         |
-| check                     | `dotfile secret doctor`, `wezterm-mtls doctor` |
+| fresh install | `./setup.sh`; reads the age identity via `op` |
+| mux certificates | restored by the same sync |
+| restart the mux on archie | `systemctl --user restart wezterm-mux` |
+| check | `dotfile secret doctor`, `wezterm-mtls doctor` |
 
 ## Relevant files
 

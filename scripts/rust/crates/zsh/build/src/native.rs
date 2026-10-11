@@ -48,6 +48,10 @@ const SUBSTITUTES: &[Substitute] = &[
     },
 ];
 
+pub fn substitutes() -> &'static [Substitute] {
+    SUBSTITUTES
+}
+
 pub fn substitute(argv: &[String]) -> Option<&'static Substitute> {
     let name = program(argv)?;
     SUBSTITUTES

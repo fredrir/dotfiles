@@ -331,7 +331,8 @@
     "zcomp refresh": "Rebuilds one cached source; started in the background when a cache goes stale.",
     "zcomp warm": "Starts background rebuilds for missing or stale caches; run at shell start.",
     "zsh-build": "Compiles the zsh startup config into one bundle with fixed command output folded in.",
-    "zsh-build where": "Prints the file and line where bundled shell functions were defined."
+    "zsh-build where": "Prints the file and line where bundled shell functions were defined.",
+    "zsh-build verify": "Compares the state a login shell reaches from the bundle and from the sources."
   },
   "flags": {
     "count": {
@@ -569,7 +570,8 @@
     },
     "zsh-build": {
       "--dry-run": "Shows whether the bundle would change without writing it.",
-      "--root": "Sets the dotfiles checkout; defaults to `$DOTFILES`, then `~/dotfiles`."
+      "--root": "Sets the dotfiles checkout; defaults to `$DOTFILES`, then `~/dotfiles`.",
+      "--verbose": "Shows differing values in full; multi-line ones as a diff."
     }
   }
 }

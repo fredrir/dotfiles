@@ -1616,7 +1616,10 @@ enum Kind {
 }
 
 /// The `eval "$(...)"` statement around a quoted substitution.
-fn eval_statement(text: &str, substitution: &scan::Substitution) -> Option<Range<usize>> {
+pub(crate) fn eval_statement(
+    text: &str,
+    substitution: &scan::Substitution,
+) -> Option<Range<usize>> {
     let before = text[..substitution.range.start].strip_suffix('"')?;
     let head = before.trim_end_matches([' ', '\t']);
     let start = head.strip_suffix("eval")?.len();
