@@ -486,7 +486,7 @@ impl Compiler {
                     if definition(range.start) {
                         bodies.insert(range.start, self.alias_parse.clone());
                     } else if dead.is_none() {
-                        self.alias_segment(script, whole, mark, edits, cx);
+                        self.alias_segment(script, whole, mark, events, edits, cx);
                     }
                 }
                 None => {
@@ -576,7 +576,7 @@ impl Compiler {
             let lists = std::slice::from_ref(list);
             self.text_layer(script, range.clone(), *lines.start(), lists, edits, cx);
         }
-        self.alias_segment(script, range, mark, edits, cx);
+        self.alias_segment(script, range, mark, false, edits, cx);
         self.alias_parse = outer;
     }
 

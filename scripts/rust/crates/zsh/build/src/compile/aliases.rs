@@ -1,6 +1,7 @@
 //! Aliases as startup code sets them, in source order and deferred code's
 //! included, and their expansion in the statements zsh parses with them.
 
+use std::collections::BTreeSet;
 use std::ops::Range;
 
 use zshrs_parse::parser::{ZshCommand, ZshList};
@@ -8,11 +9,19 @@ use zshrs_parse::parser::{ZshCommand, ZshList};
 use super::edits::Edits;
 use super::ledger::{ANY, Key, Touch};
 use super::walk::{self, Visit};
-use super::{Compiler, Cx, Origin};
+use super::{Compiler, Cx, EVAL_FRAMES, Origin};
 use crate::alias::{self, Kind, Left};
 use crate::expand;
+use crate::scan;
 use crate::script::{self, Script};
 use crate::wordcode::{self, Expansion};
+
+/// Reasons a statement may be left that zsh settles when it parses the statement as it runs.
+const PATH_DEPENDENT: &[&str] = &[
+    "not known on every path",
+    "aliases option not known on every path",
+    "names a function",
+];
 
 /// What an alias expands to where a test shows zsh expanding one.
 const MARKER: &str = "__zbv_alias";
@@ -280,6 +289,7 @@ impl Compiler {
         script: &Script,
         range: Range<usize>,
         mark: (usize, usize, usize),
+        event: bool,
         edits: &mut Edits,
         cx: &Cx,
     ) {
@@ -307,15 +317,59 @@ impl Compiler {
                 .iter()
                 .any(|done| done.start < edit.end && edit.start < done.end)
         };
+        let replaced = edits.replaced_since(mark);
         match self.alias_rewrite(text, &nested, outside) {
             Ok(found) => edits
                 .aliases
                 .extend(found.iter().map(|edit| edit.shifted(range.start))),
+            Err(left) if event && !replaced && self.runtime_parse_fits(text, &left) => {
+                self.runtime_parse(text, range, edits);
+            }
             Err(left) => {
                 let line = script.text[..range.start].matches('\n').count() + 1;
                 self.alias_left(cx, line, left);
             }
         }
+    }
+
+    /// Whether a statement left for an alias that differs between paths may
+    /// run as `eval` of its text instead: in place, outside deferred code and
+    /// loops, and reading nothing `eval` changes.
+    fn runtime_parse_fits(&self, text: &str, left: &Left) -> bool {
+        if !PATH_DEPENDENT.contains(&left.reason) || self.defer_suspended > 0 || self.loops > 0 {
+            return false;
+        }
+        let (Ok(program), Some(_)) = (script::parse(text), alias::words(text)) else {
+            return false;
+        };
+        let scan = scan::scan(text);
+        if scan.unterminated || !scan.zero_refs.is_empty() || !scan.unsupported_zero.is_empty() {
+            return false;
+        }
+        if walk::file_returns(&program.lists) != Some(0) {
+            return false;
+        }
+        // A function defined by `eval` runs as one defined in place
+        let definition = matches!(program.lists.as_slice(), [list]
+            if matches!(walk::sole(list), Some(ZshCommand::FuncDef(node)) if node.auto_call_args.is_none()));
+        definition || !EVAL_FRAMES.iter().any(|name| text.contains(name))
+    }
+
+    /// The statement as `eval` of its text, which zsh parses when it runs,
+    /// with the aliases then in effect; deferred code that sets or removes an
+    /// alias named by a word of it stays in place.
+    fn runtime_parse(&mut self, text: &str, range: Range<usize>, edits: &mut Edits) {
+        let words: BTreeSet<String> = alias::words(text)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|word| word.plain)
+            .map(|word| text[word.range].to_string())
+            .collect();
+        for word in words {
+            self.touch(Touch::Call, ("alias", word));
+        }
+        let quoted = text.trim_end_matches('\n').replace('\'', r"'\''");
+        edits.replace_bytes(range, format!("\\builtin eval '{quoted}'\n"));
     }
 
     /// `text`, a statement generated from source words, with its aliases expanded.

@@ -38,6 +38,11 @@ impl Edits {
         (self.lines.len(), self.bytes.len(), self.alias_done.len())
     }
 
+    /// Whether code was replaced since `mark`, alias expansions aside.
+    pub fn replaced_since(&self, mark: (usize, usize, usize)) -> bool {
+        self.lines.len() > mark.0 || self.bytes.len() > mark.1
+    }
+
     /// Byte ranges replaced, or whose aliases were handled, since `mark`.
     pub fn handled_since(&self, script: &Script, mark: (usize, usize, usize)) -> Vec<Range<usize>> {
         let (lines, bytes, done) = mark;

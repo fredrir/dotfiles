@@ -76,14 +76,24 @@ fn build(root: &Path) -> Ran {
 
 /// The `f_*` functions startup leaves, from the bundle or the sources.
 fn functions(root: &Path, bundle: bool) -> String {
+    shell(root, bundle, None, DUMP)
+}
+
+/// `script` after startup, from the bundle or the sources, in VS Code's
+/// terminal when `terminal` says so.
+fn shell(root: &Path, bundle: bool, terminal: Option<&str>, script: &str) -> String {
     let mut command = Bin::new("zsh")
         .args([
             "-fc",
-            &format!("source zsh/env.zsh; source zsh/rc.zsh; {DUMP}"),
+            &format!("source zsh/env.zsh; source zsh/rc.zsh; {script}"),
         ])
         .current_dir(root)
         .env("HOME", root)
-        .env("PATH", "/usr/bin:/bin");
+        .env("PATH", "/usr/bin:/bin")
+        .env_remove("TERM_PROGRAM");
+    if let Some(terminal) = terminal {
+        command = command.env("TERM_PROGRAM", terminal);
+    }
     if !bundle {
         command = command.env("NO_BUNDLE", "1");
     }
@@ -141,21 +151,139 @@ fn a_bundle_from_wordcode_or_read_as_text_expands_aliases_as_the_sources() {
 }
 
 #[test]
-fn an_alias_not_known_on_every_path_is_left_and_reported() {
+fn a_statement_whose_alias_differs_between_paths_is_parsed_when_it_runs_or_reported() {
     let root = fixture();
     let use_file = root.path().join("zsh/use.zsh");
     let text = fs::read_to_string(&use_file).unwrap()
         + "if (( RANDOM % 2 )); then alias maybe='print -r -- yes'; fi\nf_maybe() { maybe }\n\
-           named() { alias \"$1\"=\"print -r -- $2\" }\nnamed by_arg ARG\nf_by_arg() { by_arg }\n";
+           named() { alias \"$1\"=\"print -r -- $2\" }\nnamed by_arg ARG\nf_by_arg() { by_arg }\n\
+           f_zero() { maybe; print -r -- $0 }\n";
     fs::write(&use_file, text).unwrap();
     let built = build(root.path());
-    for note in [
-        "zsh/use.zsh:17: alias maybe: not known on every path; not expanded",
-        "zsh/use.zsh:20: alias by_arg: not known on every path; not expanded",
-    ] {
-        assert!(built.stderr.contains(note), "{built:?}");
-    }
+    assert!(
+        built
+            .stderr
+            .contains("zsh/use.zsh:21: alias maybe: not known on every path; not expanded"),
+        "{built:?}"
+    );
     let bundle = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
-    assert!(bundle.contains("f_maybe() { maybe }"), "{bundle}");
-    assert!(bundle.contains("f_by_arg() { by_arg }"), "{bundle}");
+    for runtime in [
+        "\\builtin eval 'f_maybe() { maybe }'",
+        "\\builtin eval 'f_by_arg() { by_arg }'",
+    ] {
+        assert!(bundle.contains(runtime), "{bundle}");
+    }
+    assert!(
+        bundle.contains("\nf_zero() { maybe; print -r -- $0 }"),
+        "{bundle}"
+    );
+}
+
+const PATHS_RC: &str = r#"# zsh-build: omit
+if [[ -z $NO_BUNDLE && -r $HOME/.cache/build/zshrc.zsh ]]; then
+  source $HOME/.cache/build/zshrc.zsh
+  return
+fi
+source "$CONF/utils.zsh"
+source "$CONF/aliases.zsh"
+source "$CONF/late.zsh"
+source "$CONF/use.zsh"
+"#;
+
+/// Aliases set only outside VS Code's terminal, as `30-aliases.zsh` sets them.
+fn paths_fixture(late: &str, use_file: &str) -> tempfile::TempDir {
+    tree_pairs(&[
+        (
+            "config/zsh/build.toml",
+            "output = \".cache/build\"\nambient = [\"HOME\"]\n\n[[target]]\nname = \"zshrc\"\nsource = \"zsh/rc.zsh\"\nenv = [\"zsh/env.zsh\"]\n\n[defer]\nfiles = [\"zsh/late.zsh\"]\n",
+        ),
+        ("zsh/env.zsh", "export CONF=\"$HOME/zsh\"\n"),
+        ("zsh/rc.zsh", PATHS_RC),
+        ("zsh/utils.zsh", UTILS),
+        (
+            "zsh/aliases.zsh",
+            "[[ $TERM_PROGRAM == vscode ]] && return 0\nalias grep='grep --color=auto'\nalias ll='ls -l'\n",
+        ),
+        ("zsh/late.zsh", late),
+        ("zsh/use.zsh", use_file),
+    ])
+}
+
+#[test]
+fn a_function_using_an_alias_set_on_one_path_matches_the_sources_on_both() {
+    let root = paths_fixture(
+        "alias late='print -r -- LATE'\n",
+        "f_grep() { grep -q x \"$@\" }\nf_ll() { ll }\nf_plain() { print -r -- plain }\n",
+    );
+    let built = build(root.path());
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    let bundle = root.path().join(".cache/build/zshrc.zsh");
+    let text = fs::read_to_string(&bundle).unwrap();
+    assert!(
+        text.contains("\\builtin eval 'f_grep() { grep -q x \"$@\" }'"),
+        "{text}"
+    );
+    assert!(text.contains("\\builtin eval 'f_ll() { ll }'"), "{text}");
+    assert!(text.contains("\nf_plain() { print -r -- plain }"), "{text}");
+    assert!(text.contains("__zb_defer_1() {"), "{text}");
+
+    let typed = shell(root.path(), true, None, "type f_ll");
+    let origin = root.path().join("zsh/use.zsh");
+    assert_eq!(
+        typed,
+        format!("f_ll is a shell function from {}:2\n", origin.display())
+    );
+
+    let paths = [None, Some("vscode")];
+    let sources: Vec<String> = paths
+        .iter()
+        .map(|terminal| shell(root.path(), false, *terminal, DUMP))
+        .collect();
+    assert!(sources[0].contains("f_ll: \tls -l\n"), "{}", sources[0]);
+    assert!(sources[1].contains("f_ll: \tll\n"), "{}", sources[1]);
+    for (terminal, sources) in paths.iter().zip(&sources) {
+        assert_eq!(
+            &shell(root.path(), true, *terminal, DUMP),
+            sources,
+            "{terminal:?}"
+        );
+    }
+    fs::remove_file(bundle.with_extension("zsh.zwc")).unwrap();
+    for (terminal, sources) in paths.iter().zip(&sources) {
+        assert_eq!(
+            &shell(root.path(), true, *terminal, DUMP),
+            sources,
+            "text {terminal:?}"
+        );
+    }
+}
+
+#[test]
+fn deferred_code_setting_an_alias_a_statement_parsed_when_it_runs_uses_stays_in_place() {
+    let root = paths_fixture(
+        "[[ $TERM_PROGRAM == vscode ]] || alias maybe='print -r -- MAYBE'\n",
+        "f_maybe() { maybe }\n",
+    );
+    let built = build(root.path());
+    let late = root.path().join("zsh/late.zsh");
+    assert!(
+        built.stderr.contains(&format!(
+            "{}: alias maybe changed later; not deferred",
+            late.display()
+        )),
+        "{built:?}"
+    );
+    let text = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
+    assert!(!text.contains("__zb_defer_"), "{text}");
+    assert!(
+        text.contains("\\builtin eval 'f_maybe() { maybe }'"),
+        "{text}"
+    );
+    for terminal in [None, Some("vscode")] {
+        assert_eq!(
+            shell(root.path(), true, terminal, DUMP),
+            shell(root.path(), false, terminal, DUMP),
+            "{terminal:?}"
+        );
+    }
 }

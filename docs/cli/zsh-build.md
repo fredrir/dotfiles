@@ -29,7 +29,7 @@
 | Path | Value |
 | --- | --- |
 | `config/zsh/build.toml` | Targets, ambient variables, commands folded at build time, deferred code |
-| `.cache/zsh/build/zshrc.zsh` | Bundle; built by `dotfile sync` |
+| `.cache/zsh/build/zshrc.zsh` | Bundle; built by `dotfile sync`, which runs `zsh-build verify` after a change and warns per difference |
 | `.cache/zsh/build/zshrc.zsh.zwc` | Wordcode; compiled by the build with `$SHELL` if zsh, else `zsh` on `PATH`. A shell recompiles it in the background when older than the bundle or from another zsh version |
 | `.cache/zsh/build/zshrc.origins` | Function name to defining `file:line`; read by `zsh-build where` and the bundle's `type`/`whence` |
 | `.cache/zsh/build/zshrc.completions/` | `cached_eval` output that is an autoloadable `#compdef` script; first in `fpath` at a deferred `compinit`, loaded on the first Tab |
@@ -126,13 +126,21 @@
 | Spelled | A word a bundle read as text could expand again is quoted, as `\grep --color=auto` |
 | Checked | zsh reads the statement with its aliases as the expansion without them, and the quoted text the same either way; the parser reads the same shape |
 
+| Parsed when it runs | Value |
+| --- | --- |
+| Statement | Uses an alias `not known on every path`, the `aliases` option likewise, or such an alias names a function |
+| Emitted | `\builtin eval '...'` of its text: zsh expands with the aliases in effect, on whichever path ran |
+| Only when | Its own statement in a sourced file, outside deferred code and loops, with no other rewrite, `$0` or file-level `return`; a function definition, or code reading no `funcstack`, `zsh_eval_context`, `LINENO`, `%N` and the like |
+| Deferred code | Setting or removing an alias named by a word of it: kept in place, `alias NAME changed later` |
+| `type`, `whence`, `where` | Report the original `file:line` |
+
 | Left as written, with a warning | Value |
 | --- | --- |
-| `not known on every path` | Set on some paths only, to an unknown value, or by a function call |
+| `not known on every path` | As above, where it cannot be parsed when it runs |
 | `value is not one command of plain words` | Operators, redirections, assignments or reserved words in the value |
-| `names a function` | `name()` where `name` may be an alias |
+| `names a function` | `name()` where `name` may be an alias; as above |
 | `set by code the build does not follow` | Any alias may be set |
-| `aliases option not known on every path` | `setopt aliases` or `no_aliases` on some paths only |
+| `aliases option not known on every path` | `setopt aliases` or `no_aliases` on some paths only; as above |
 | `statement not read by the build` | Syntax the word reader does not follow, and zsh's check fails |
 | `zsh reads the expansion otherwise` | The check fails |
 | `zsh not found` | Nothing to check with |

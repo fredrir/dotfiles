@@ -55,7 +55,12 @@ fn fixture() -> tempfile::TempDir {
 }
 
 fn zsh_build(root: &Path, args: &[&str]) -> Ran {
-    Bin::new(env!("CARGO_BIN_EXE_zsh-build"))
+    in_terminal(root, args, None)
+}
+
+/// `zsh-build` run from a terminal that sets `TERM_PROGRAM`, if any.
+fn in_terminal(root: &Path, args: &[&str], terminal: Option<&str>) -> Ran {
+    let command = Bin::new(env!("CARGO_BIN_EXE_zsh-build"))
         .arg("--root")
         .arg(root)
         .args(args)
@@ -65,7 +70,11 @@ fn zsh_build(root: &Path, args: &[&str]) -> Ran {
             format!("{}:/usr/bin:/bin", root.join("bin").display()),
         )
         .env_remove("ZDOTDIR")
-        .run()
+        .env_remove("TERM_PROGRAM");
+    match terminal {
+        Some(terminal) => command.env("TERM_PROGRAM", terminal).run(),
+        None => command.run(),
+    }
 }
 
 fn built() -> tempfile::TempDir {
@@ -111,6 +120,30 @@ fn an_alias_the_build_expands_in_a_function_matches() {
     let verified = zsh_build(root.path(), &["verify"]);
     assert!(verified.success(), "{verified:?}");
     assert_eq!(verified.stdout, "bundle matches sources\n");
+}
+
+#[test]
+fn an_alias_set_on_one_path_matches_on_both() {
+    let root = fixture();
+    let rc = root.path().join("zsh/rc.zsh");
+    let text = fs::read_to_string(&rc).unwrap().replace(
+        "alias ll='ls -l'\n",
+        "source \"$CONF/aliases.zsh\"\nlsl() { ll \"$@\" }\n",
+    );
+    fs::write(&rc, text).unwrap();
+    fs::write(
+        root.path().join("zsh/aliases.zsh"),
+        "[[ $TERM_PROGRAM == vscode ]] && return 0\nalias ll='ls -l'\n",
+    )
+    .unwrap();
+    let built = zsh_build(root.path(), &[]);
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    assert!(bundle(root.path()).contains("\\builtin eval 'lsl() { ll \"$@\" }'"));
+    for terminal in [None, Some("vscode")] {
+        let verified = in_terminal(root.path(), &["verify"], terminal);
+        assert!(verified.success(), "{terminal:?} {verified:?}");
+        assert_eq!(verified.stdout, "bundle matches sources\n");
+    }
 }
 
 #[test]

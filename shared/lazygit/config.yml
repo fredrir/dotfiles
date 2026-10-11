@@ -1,0 +1,6 @@
+keybinding:
+  universal:
+    quit: "<esc>"
+
+confirmOnQuit: false
+notARepository: never

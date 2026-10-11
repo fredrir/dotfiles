@@ -3,6 +3,7 @@ shared/fastfetch = ~/.config/fastfetch
 shared/gh = ~/.config/gh
 shared/git = ~/.config/git
 shared/git/.gitconfig = ~/.gitconfig
+shared/lazygit = ~/.config/lazygit
 shared/nvim = ~/.config/nvim
 shared/op-bridge/op = ~/.local/bin/op
 shared/obsidian = ~/Documents/main/.obsidian

@@ -8,6 +8,7 @@ use crate::context::{Context, write_atomic};
 use crate::event::{Action, Event, EventSink, Phase};
 
 use crate::config::Configuration;
+use zsh_build::verify::compare::Difference;
 
 #[derive(Default)]
 pub struct IntegrationOutcome {
@@ -160,6 +161,7 @@ fn zsh_bundle(
             return Ok(());
         }
     };
+    let changed = built.iter().any(|target| target.changed);
     for target in built {
         outcome.checked += 1;
         if target.changed {
@@ -193,7 +195,35 @@ fn zsh_bundle(
             changed: target.changed,
         });
     }
+    // About 2s: two interactive shells, only for a bundle just written
+    if changed && !dry_run {
+        crate::cancel::check()?;
+        match zsh_build::verify::verify(&context.root, false) {
+            Ok(verified) => warnings.extend(verify_warnings(&verified.differences)),
+            Err(error) => warnings.push((
+                format!("zsh-build verify: {error}"),
+                Some("zsh-build verify".to_string()),
+            )),
+        }
+    }
     Ok(())
+}
+
+/// A warning per state the new bundle's shell reaches unlike the sources'.
+fn verify_warnings(differences: &[Difference]) -> Vec<(String, Option<String>)> {
+    differences
+        .iter()
+        .map(|difference| {
+            let (bundle, sources) = difference.excerpt(40);
+            (
+                format!(
+                    "zsh-build verify: {} {}: bundle {bundle}, sources {sources}",
+                    difference.table, difference.name
+                ),
+                Some("zsh-build verify -v".to_string()),
+            )
+        })
+        .collect()
 }
 
 fn user_units(
@@ -689,3 +719,7 @@ fn mode_of(path: &Path) -> Option<u32> {
 fn mode_of(_path: &Path) -> Option<u32> {
     None
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/sync/integrations_tests.rs"]
+mod tests;

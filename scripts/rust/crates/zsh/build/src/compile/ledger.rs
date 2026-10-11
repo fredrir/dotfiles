@@ -220,7 +220,7 @@ impl Compiler {
 
     /// A touch, and when it calls a function, what calling it touches; the
     /// functions it defines are known to later calls.
-    fn touch(&mut self, touch: Touch, key: Key) {
+    pub(super) fn touch(&mut self, touch: Touch, key: Key) {
         let called = match (touch, &key) {
             (Touch::Call, ("function", name)) => self.ledger.bodies.get(name),
             _ => None,

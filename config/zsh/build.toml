@@ -12,6 +12,7 @@ ambient = [
   "ZSH_CACHE_DIR",
   "ZSH_COMPDUMP",
   "ZOXIDE_CMD_OVERRIDE",
+  "ENABLE_CORRECTION",
 ]
 
 [[target]]
