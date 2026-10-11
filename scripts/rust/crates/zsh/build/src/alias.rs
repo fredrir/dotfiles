@@ -110,7 +110,7 @@ pub enum Kind {
 }
 
 impl Table {
-    pub fn define(&mut self, kind: Kind, name: &str, text: Option<String>, seen: &mut Seen) {
+    pub fn define(&mut self, kind: Kind, name: &str, text: Option<String>) {
         let global = kind == Kind::Global;
         let entry = text.map_or(
             Entry::Unknown {
@@ -118,7 +118,6 @@ impl Table {
             },
             |text| Entry::Known { text, global },
         );
-        seen.insert(kind, name);
         match kind {
             Kind::Suffix => self.suffixes.insert(name.to_string(), entry),
             _ => self.names.insert(name.to_string(), entry),
@@ -157,9 +156,7 @@ impl Table {
     }
 
     /// An alias set by code the build does not follow.
-    pub fn forget(&mut self, name: &str, seen: &mut Seen) {
-        seen.insert(Kind::Global, name);
-        seen.insert(Kind::Suffix, name);
+    pub fn forget(&mut self, name: &str) {
         self.names
             .insert(name.to_string(), Entry::Unknown { global: None });
         self.suffixes
@@ -167,9 +164,8 @@ impl Table {
     }
 
     /// Any alias may have been set or removed.
-    pub fn forget_all(&mut self, seen: &mut Seen) {
+    pub fn forget_all(&mut self) {
         self.any = true;
-        seen.any = true;
     }
 
     /// What holds on both paths.
@@ -179,6 +175,16 @@ impl Table {
         self.any |= other.any;
         if self.option != other.option {
             self.option = None;
+        }
+    }
+
+    /// What code changed from `before` to `after`, done here as well.
+    pub fn apply(&mut self, before: &Table, after: &Table) {
+        apply_entries(&mut self.names, &before.names, &after.names);
+        apply_entries(&mut self.suffixes, &before.suffixes, &after.suffixes);
+        self.any |= after.any && !before.any;
+        if before.option != after.option {
+            self.option = after.option;
         }
     }
 
@@ -237,9 +243,27 @@ fn merge_entries(left: &mut BTreeMap<String, Entry>, right: &BTreeMap<String, En
     }
 }
 
-/// Alias names that may be set by the time zsh parses a statement of a
-/// bundle read as text: those set when the bundle statement it is part of
-/// starts, and any set since.
+fn apply_entries(
+    target: &mut BTreeMap<String, Entry>,
+    before: &BTreeMap<String, Entry>,
+    after: &BTreeMap<String, Entry>,
+) {
+    let names: BTreeSet<&String> = before.keys().chain(after.keys()).collect();
+    for name in names {
+        match (before.get(name), after.get(name)) {
+            (old, new) if old == new => {}
+            (_, Some(entry)) => {
+                target.insert(name.clone(), entry.clone());
+            }
+            (_, None) => {
+                target.remove(name);
+            }
+        }
+    }
+}
+
+/// Alias names that may be set when zsh parses the bundle body, which it
+/// reads in one piece as text: those set before the body runs.
 #[derive(Debug, Clone, Default)]
 pub struct Seen {
     regular: BTreeSet<String>,
@@ -266,6 +290,13 @@ impl Seen {
             seen.insert(Kind::Suffix, name);
         }
         seen
+    }
+
+    pub fn extend(&mut self, other: Seen) {
+        self.regular.extend(other.regular);
+        self.global.extend(other.global);
+        self.suffixes.extend(other.suffixes);
+        self.any |= other.any;
     }
 
     fn insert(&mut self, kind: Kind, name: &str) {

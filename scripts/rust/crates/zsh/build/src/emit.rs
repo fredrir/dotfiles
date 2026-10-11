@@ -8,7 +8,8 @@ const WHENCE: &str = include_str!("../assets/whence.zsh");
 
 /// The bundle: a background `zcompile` when its wordcode is older or from
 /// another zsh version, kept only if the bundle it compiled is still current,
-/// folded values, helpers, then the code.
+/// folded values, helpers, then the code in one block, which zsh parses
+/// before any of it runs, read as text or as wordcode.
 pub fn bundle(
     path: &Path,
     source: &Path,
@@ -36,6 +37,12 @@ pub fn bundle(
         .replace("@BUNDLE@", bundle)
         .replace("@ORIGINS@", origins);
     let declarations = constants.declarations() + &helpers.concat() + &wrappers;
+    let newline = if body.is_empty() || body.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    let body = format!("{{\n{body}{newline}}}\n");
     let id = crate::script::hash(&format!("{declarations}{body}"));
     let header = format!("# zsh-build: {id:016x} generated from {}", source.display());
     let expected = quote::word(&header);
@@ -45,7 +52,7 @@ pub fn bundle(
          {declarations}",
     );
     crate::script::parse(&prelude).map_err(|error| format!("prelude does not parse: {error}"))?;
-    Ok(prelude + body)
+    Ok(prelude + &body)
 }
 
 /// Sourced by `.zshenv` in interactive shells: skips the global startup

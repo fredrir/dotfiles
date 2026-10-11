@@ -1,9 +1,11 @@
 //! The global startup files zsh reads before `.zshrc`, and the user's
 //! `.zprofile`, compiled to run from the bundle in zsh's order.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use super::{Compiler, Cx, Mode, Origin, placeholder};
+use crate::alias::{Seen, Table};
 use crate::script::Script;
 use crate::state::State;
 
@@ -14,6 +16,8 @@ pub const FLAG: &str = "_zsh_build_rcs";
 /// Global files zsh reads before `.zshrc`; `zlogin` and `zlogout` stay with zsh.
 const LOGIN: &str = "zprofile";
 const INTERACTIVE: &str = "zshrc";
+/// Read ahead of `.zshenv`; never compiled.
+const ENV: &str = "zshenv";
 
 pub struct Startup<'a> {
     pub dir: &'a Path,
@@ -41,6 +45,41 @@ pub struct Section {
     pub sources: Vec<PathBuf>,
     /// The repo file `~/.zprofile` links to; `None` when it must not exist.
     pub profile: Option<PathBuf>,
+}
+
+/// Aliases and the `aliases` option a run of startup files changed.
+pub struct AliasChange {
+    before: (Table, BTreeSet<String>),
+    after: (Table, BTreeSet<String>),
+}
+
+impl AliasChange {
+    fn new(before: &State, after: &State) -> Self {
+        let aliases = |state: &State| (state.alias_table.clone(), state.aliases.clone());
+        Self {
+            before: aliases(before),
+            after: aliases(after),
+        }
+    }
+
+    /// The same change made to `state`.
+    pub fn apply(&self, state: &mut State) {
+        state.alias_table.apply(&self.before.0, &self.after.0);
+        for name in self.before.1.difference(&self.after.1) {
+            state.aliases.remove(name);
+        }
+        state
+            .aliases
+            .extend(self.after.1.difference(&self.before.1).cloned());
+    }
+}
+
+/// The alias changes of zsh's own startup files, around the env files.
+pub struct StartupAliases {
+    /// `zshenv`, read before them.
+    pub zshenv: AliasChange,
+    /// `zprofile` and `~/.zprofile` in login shells only, then `zshrc`.
+    pub rcs: AliasChange,
 }
 
 impl Compiler {
@@ -75,6 +114,76 @@ impl Compiler {
         outcome
     }
 
+    /// What zsh's own startup files do to aliases, read with `state` in
+    /// zsh's order, whether the bundle or zsh runs them; the compiler is
+    /// left as it was, but for the names that may be aliases when zsh
+    /// parses the bundle.
+    pub fn startup_aliases(&mut self, state: State, startup: &Startup) -> StartupAliases {
+        let saved = std::mem::replace(&mut self.state, state);
+        let snapshot = self.snapshot();
+        let dependencies = self.dependencies.len();
+        let emulation_changed = self.emulation_changed;
+        let line = self.line;
+        self.state.forget("PATH");
+        let start = self.state.clone();
+        self.analyze_startup(&startup.dir.join(ENV));
+        let zshenv = AliasChange::new(&start, &self.state);
+        for env in startup.env {
+            if self.analyze(env).is_err() {
+                self.state.alias_table.forget_all();
+            }
+        }
+        let before = self.state.clone();
+        let login: Vec<PathBuf> = [startup.dir.join(LOGIN), startup.link.clone()]
+            .into_iter()
+            .filter(|path| path.exists())
+            .collect();
+        if !login.is_empty() {
+            for path in &login {
+                self.analyze_startup(path);
+            }
+            self.state.merge(&before);
+        }
+        self.analyze_startup(&startup.dir.join(INTERACTIVE));
+        let rcs = AliasChange::new(&before, &self.state);
+        // Set when zsh parses the bundle: with the guard current, the bundle runs the files after it
+        let mut seen = Seen::from_table(&before.alias_table);
+        seen.extend(Seen::from_table(&self.state.alias_table));
+        self.restore(snapshot);
+        self.dependencies.truncate(dependencies);
+        self.emulation_changed = emulation_changed;
+        self.line = line;
+        self.state = saved;
+        self.alias_seen.extend(seen);
+        StartupAliases { zshenv, rcs }
+    }
+
+    /// Follows a startup file zsh reads for its effect on state; any alias
+    /// may be set by one the build cannot read.
+    fn analyze_startup(&mut self, path: &Path) {
+        if !path.exists() {
+            return;
+        }
+        let Ok(script) = super::read_text(path).and_then(Script::parse) else {
+            self.state.alias_table.forget_all();
+            return;
+        };
+        self.stack.push(path.to_path_buf());
+        let result = self.compile(
+            &script,
+            &Cx {
+                mode: Mode::Startup,
+                origin: Some(path),
+                analysis: true,
+                source: None,
+            },
+        );
+        self.stack.pop();
+        if result.is_err() {
+            self.state.alias_table.forget_all();
+        }
+    }
+
     fn section(&mut self, startup: &Startup) -> Result<Outcome, String> {
         let global = |name: &str| {
             let path = startup.dir.join(name);
@@ -103,12 +212,18 @@ impl Compiler {
             return Ok(Outcome::Empty);
         }
         let mut login_text = String::new();
+        let before_login = (self.state.alias_table.clone(), self.state.aliases.clone());
         for path in login.iter().chain(profile.as_ref().map(|_| &startup.link)) {
             match self.startup_file(path) {
                 Ok(text) => login_text.push_str(&text),
                 Err(reason) => return Ok(kept(path, reason, *path == startup.link)),
             }
         }
+        // Login shells only set what these files set
+        self.state.alias_table.merge(&before_login.0);
+        self.state
+            .aliases
+            .retain(|name| before_login.1.contains(name));
         let mut interactive_text = String::new();
         if let Some(path) = &interactive {
             match self.startup_file(path) {

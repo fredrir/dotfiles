@@ -6,16 +6,16 @@ fn table(
     suffixes: &[(&str, &str)],
 ) -> (Table, Seen) {
     let mut table = Table::default();
-    let mut seen = Seen::default();
     for (kind, pairs) in [
         (Kind::Regular, aliases),
         (Kind::Global, globals),
         (Kind::Suffix, suffixes),
     ] {
         for (name, text) in pairs {
-            table.define(kind, name, Some(text.to_string()), &mut seen);
+            table.define(kind, name, Some(text.to_string()));
         }
     }
+    let seen = Seen::from_table(&table);
     (table, seen)
 }
 
@@ -171,17 +171,20 @@ fn aliases_expand_as_zsh_reads_them() {
 }
 
 #[test]
-fn a_word_a_bundle_read_as_text_could_expand_is_quoted() {
-    let (mut table, mut seen) = table(&[("x", "print X")], &[], &[]);
+fn a_word_an_alias_from_before_the_bundle_could_expand_is_quoted() {
+    let (mut table, _) = table(&[("x", "print X")], &[("y", "why")], &[]);
+    let seen = Seen::from_table(&table);
     table.remove(false, "x");
+    table.remove(false, "y");
     let (expanded, protected) = expanded("x; print x", &table, &seen).unwrap();
     assert_eq!(
         (expanded.as_str(), protected.as_str()),
         ("x; print x", "\\x; print x")
     );
-    table.define(Kind::Global, "y", Some("why".into()), &mut seen);
-    table.remove(false, "y");
     assert_eq!(expanded_protected("print y", &table, &seen), "print \\y");
+    table.define(Kind::Global, "z", Some("zed".into()));
+    table.remove(false, "z");
+    assert_eq!(expanded_protected("print z", &table, &seen), "print z");
 }
 
 fn expanded_protected(text: &str, table: &Table, seen: &Seen) -> String {
@@ -190,7 +193,7 @@ fn expanded_protected(text: &str, table: &Table, seen: &Seen) -> String {
 
 #[test]
 fn what_differs_between_paths_or_is_no_plain_command_is_left() {
-    let (mut table, mut seen) = table(
+    let (mut table, seen) = table(
         &[
             ("a", "print A"),
             ("pipe", "ls | cat"),
@@ -200,7 +203,7 @@ fn what_differs_between_paths_or_is_no_plain_command_is_left() {
         &[],
     );
     let mut other = table.clone();
-    other.define(Kind::Regular, "a", Some("print B".into()), &mut seen);
+    other.define(Kind::Regular, "a", Some("print B".into()));
     table.merge(&other);
     let reason = |text, table: &Table| expanded(text, table, &seen).unwrap_err().reason;
     assert_eq!(reason("a", &table), "not known on every path");
@@ -224,12 +227,12 @@ fn what_differs_between_paths_or_is_no_plain_command_is_left() {
 
 #[test]
 fn a_name_set_on_one_path_keeps_its_kind() {
-    let (mut table, mut seen) = table(&[], &[], &[]);
+    let (mut table, seen) = table(&[], &[], &[]);
     let mut other = table.clone();
-    other.define(Kind::Regular, "r", Some("x".into()), &mut seen);
+    other.define(Kind::Regular, "r", Some("x".into()));
     table.merge(&other);
     assert!(expanded("print r", &table, &seen).is_ok());
     assert!(expanded("r", &table, &seen).is_err());
-    table.forget("u", &mut seen);
+    table.forget("u");
     assert!(expanded("print u", &table, &seen).is_err());
 }

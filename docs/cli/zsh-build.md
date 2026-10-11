@@ -97,11 +97,17 @@
 | `~/.zprofile` | Not linked to `profile` |
 | `zlogin`, `zlogout` | Always read by zsh |
 
+| Their aliases | Value |
+| --- | --- |
+| `zshenv`, `zprofile`, `~/.zprofile`, `zshrc` | Expanded in the code after them, compiled or left to zsh; `system = true` target only |
+| `zprofile`, `~/.zprofile` | Login shells only, so not known on every path |
+| File that does not parse | Any alias may be set |
+
 | Native | Value |
 | --- | --- |
 | `eval` of `path_helper -s` | Native zsh; runs `path_helper` when `PATH`/`MANPATH` hold `$`, `` ` ``, `\`, `"`, tabs, newlines or double spaces |
 | `eval "$(cmd)"` | Output inlined when `cmd` is in `[fold] commands` |
-| `eval "$(cmd)"` in a function | Output inlined as a `{ }` block when it parses and reads no call frames or line numbers |
+| `eval "$(cmd)"` in a function | Output inlined as a `{ } always` block when it parses and reads no call frames or line numbers |
 | `((( a )) && b)` in output | Respelled `( (( a )) && b)` when zsh reads both alike |
 | `$(atuin uuid)` | Native UUIDv7; runs `atuin uuid` when `/dev/urandom` or `epochtime` fail; kept when its output changes form |
 | `$(locale LC_CTYPE)` | `${langinfo[CODESET]}`; runs `locale` when `zsh/langinfo` fails; kept when `locale` prints more than the codeset |
@@ -116,6 +122,17 @@
 | Function run once | Tests in its body, when only definitions lie between it, the statement it starts and its `unset -f` or `unfunction`, and its file names it nowhere else |
 | Kept | Variable and file tests, loop bodies, arms sharing lines or reading `$?` first |
 
+## Errors
+
+| Error in | Value |
+| --- | --- |
+| Inlined file, `cached_eval`, `_omz_source` | Stops that file, as `source` does; in a `{ } always` block that records it for `_zsh_build_status` after it |
+| Global startup file | Stops that file, as zsh does; in a `{ } always { TRY_BLOCK_ERROR=0 }` block |
+| `eval "$(cmd)"` output, in a function too | Stops that output, as `eval` does; same block |
+| `$?` after | 126 for a file, 1 for `eval` output, as zsh gives |
+| `$0` | Restored in the `always` block |
+| Statement parsed when it runs | Stops its file, as in the sources: `_zsh_build_raise` raises the error `eval` cleared |
+
 ## Aliases
 
 | Expanded | Value |
@@ -123,13 +140,14 @@
 | Where | As zsh parses the sources: a sourced file one statement at a time, `eval` output at once, a function body with its definition; not in `$(...)` |
 | Which | Regular in command position, and the next word after a value ending in a space; global anywhere; suffix on a command word; never quoted or escaped words, nor the alias being expanded |
 | Aliases | Set before in source order on every path, deferred code's included; a `return` from a file or function is a path; `aliases` option honored |
-| Spelled | A word a bundle read as text could expand again is quoted, as `\grep --color=auto` |
+| Bundle | Code in one block, which zsh parses in one piece, as text and as wordcode, before it sets any alias |
+| Spelled | A word an alias set before the bundle could expand again is quoted, as `\grep --color=auto`; `.zshenv` and global startup files |
 | Checked | zsh reads the statement with its aliases as the expansion without them, and the quoted text the same either way; the parser reads the same shape |
 
 | Parsed when it runs | Value |
 | --- | --- |
 | Statement | Uses an alias `not known on every path`, the `aliases` option likewise, or such an alias names a function |
-| Emitted | `\builtin eval '...'` of its text: zsh expands with the aliases in effect, on whichever path ran |
+| Emitted | `\builtin eval '{ ... } always { ... }'` of its text, then `_zsh_build_raise`: zsh expands with the aliases in effect, on whichever path ran |
 | Only when | Its own statement in a sourced file, outside deferred code and loops, with no other rewrite, `$0` or file-level `return`; a function definition, or code reading no `funcstack`, `zsh_eval_context`, `LINENO`, `%N` and the like |
 | Deferred code | Setting or removing an alias named by a word of it: kept in place, `alias NAME changed later` |
 | `type`, `whence`, `where` | Report the original `file:line` |
@@ -169,7 +187,7 @@
 | `ZSH_BUILD_SKIP` | Sources only |
 | `fpath` | Bundle's `<target>.completions` dropped |
 | `<target>.completions/` scripts | Sourced in the bundle shell before the dump, aliases off, as the first Tab loads them |
-| Function bodies | As zsh lists them; `${__zbN}` for a `$(cmd)`, a `{ }` block for `eval "$(cmd)"`, native expansions for their command; a backslash before a word, which the build adds against a second alias expansion |
+| Function bodies | As zsh lists them; `${__zbN}` for a `$(cmd)`, a `{ } always` block for `eval "$(cmd)"`, native expansions for their command; a backslash before a word, which the build adds against a second alias expansion |
 | `add-zle-hook-widget` indices | Order only |
 | Queue residue, bundle only | `add-zle-hook-widget`, `azhw:*`, `_defer_drain`, `_defer_typeahead`, `zle-*` dispatchers, `zle-hook types` |
 | `menu-select` | Completion widget in the bundle, complist's builtin in the sources: deferred `compinit` runs after `zmodload zsh/complist`; with zsh-autosuggestions' copy |

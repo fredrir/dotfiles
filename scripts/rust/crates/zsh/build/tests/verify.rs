@@ -116,7 +116,7 @@ fn an_alias_the_build_expands_in_a_function_matches() {
     );
     fs::write(&rc, text).unwrap();
     assert!(zsh_build(root.path(), &[]).success());
-    assert!(bundle(root.path()).contains("lsl() { \\ls -F -l \"$@\" }"));
+    assert!(bundle(root.path()).contains("lsl() { ls -F -l \"$@\" }"));
     let verified = zsh_build(root.path(), &["verify"]);
     assert!(verified.success(), "{verified:?}");
     assert_eq!(verified.stdout, "bundle matches sources\n");
@@ -138,7 +138,7 @@ fn an_alias_set_on_one_path_matches_on_both() {
     .unwrap();
     let built = zsh_build(root.path(), &[]);
     assert!(built.success() && built.stderr.is_empty(), "{built:?}");
-    assert!(bundle(root.path()).contains("\\builtin eval 'lsl() { ll \"$@\" }'"));
+    assert!(bundle(root.path()).contains("\\builtin eval '{ lsl() { ll \"$@\" }\n} always"));
     for terminal in [None, Some("vscode")] {
         let verified = in_terminal(root.path(), &["verify"], terminal);
         assert!(verified.success(), "{terminal:?} {verified:?}");

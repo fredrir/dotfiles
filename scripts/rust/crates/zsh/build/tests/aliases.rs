@@ -82,6 +82,12 @@ fn functions(root: &Path, bundle: bool) -> String {
 /// `script` after startup, from the bundle or the sources, in VS Code's
 /// terminal when `terminal` says so.
 fn shell(root: &Path, bundle: bool, terminal: Option<&str>, script: &str) -> String {
+    let ran = run(root, bundle, terminal, script);
+    assert!(ran.success(), "{ran:?}");
+    ran.stdout
+}
+
+fn run(root: &Path, bundle: bool, terminal: Option<&str>, script: &str) -> Ran {
     let mut command = Bin::new("zsh")
         .args([
             "-fc",
@@ -97,9 +103,7 @@ fn shell(root: &Path, bundle: bool, terminal: Option<&str>, script: &str) -> Str
     if !bundle {
         command = command.env("NO_BUNDLE", "1");
     }
-    let ran = command.run();
-    assert!(ran.success(), "{ran:?}");
-    ran.stdout
+    command.run()
 }
 
 /// `text` without a backslash before a plain word, which the build adds so a
@@ -127,10 +131,10 @@ fn a_bundle_from_wordcode_or_read_as_text_expands_aliases_as_the_sources() {
     let text = fs::read_to_string(&bundle).unwrap();
     assert!(text.contains("__zb_defer_1() {"), "{text}");
     assert!(
-        text.contains("f_grep() { \\grep --color=auto -q x \"$@\" }"),
+        text.contains("f_grep() { grep --color=auto -q x \"$@\" }"),
         "{text}"
     );
-    assert!(text.contains("if \\grep --color=auto -q inner"), "{text}");
+    assert!(text.contains("if grep --color=auto -q inner"), "{text}");
 
     let sources = functions(root.path(), false);
     assert!(
@@ -151,6 +155,29 @@ fn a_bundle_from_wordcode_or_read_as_text_expands_aliases_as_the_sources() {
 }
 
 #[test]
+fn a_function_named_after_an_alias_removed_before_it_is_defined_read_as_text_too() {
+    let root = fixture();
+    let aliases = root.path().join("zsh/aliases.zsh");
+    let text = fs::read_to_string(&aliases).unwrap() + "alias gx='print -r -- aliased'\n";
+    fs::write(&aliases, text).unwrap();
+    let use_file = root.path().join("zsh/use.zsh");
+    let text =
+        fs::read_to_string(&use_file).unwrap() + "unalias gx\ngx() { print -r -- function }\n";
+    fs::write(&use_file, text).unwrap();
+    let built = build(root.path());
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+
+    let sources = run(root.path(), false, None, "gx");
+    let wordcode = run(root.path(), true, None, "gx");
+    fs::remove_file(root.path().join(".cache/build/zshrc.zsh.zwc")).unwrap();
+    let read_as_text = run(root.path(), true, None, "gx");
+    for ran in [sources, wordcode, read_as_text] {
+        assert_eq!(ran.stdout, "function\n", "{ran:?}");
+        assert!(ran.stderr.is_empty(), "{ran:?}");
+    }
+}
+
+#[test]
 fn a_statement_whose_alias_differs_between_paths_is_parsed_when_it_runs_or_reported() {
     let root = fixture();
     let use_file = root.path().join("zsh/use.zsh");
@@ -168,8 +195,8 @@ fn a_statement_whose_alias_differs_between_paths_is_parsed_when_it_runs_or_repor
     );
     let bundle = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
     for runtime in [
-        "\\builtin eval 'f_maybe() { maybe }'",
-        "\\builtin eval 'f_by_arg() { by_arg }'",
+        "\\builtin eval '{ f_maybe() { maybe }\n} always",
+        "\\builtin eval '{ f_by_arg() { by_arg }\n} always",
     ] {
         assert!(bundle.contains(runtime), "{bundle}");
     }
@@ -220,10 +247,13 @@ fn a_function_using_an_alias_set_on_one_path_matches_the_sources_on_both() {
     let bundle = root.path().join(".cache/build/zshrc.zsh");
     let text = fs::read_to_string(&bundle).unwrap();
     assert!(
-        text.contains("\\builtin eval 'f_grep() { grep -q x \"$@\" }'"),
+        text.contains("\\builtin eval '{ f_grep() { grep -q x \"$@\" }\n} always"),
         "{text}"
     );
-    assert!(text.contains("\\builtin eval 'f_ll() { ll }'"), "{text}");
+    assert!(
+        text.contains("\\builtin eval '{ f_ll() { ll }\n} always"),
+        "{text}"
+    );
     assert!(text.contains("\nf_plain() { print -r -- plain }"), "{text}");
     assert!(text.contains("__zb_defer_1() {"), "{text}");
 
@@ -276,7 +306,7 @@ fn deferred_code_setting_an_alias_a_statement_parsed_when_it_runs_uses_stays_in_
     let text = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
     assert!(!text.contains("__zb_defer_"), "{text}");
     assert!(
-        text.contains("\\builtin eval 'f_maybe() { maybe }'"),
+        text.contains("\\builtin eval '{ f_maybe() { maybe }\n} always"),
         "{text}"
     );
     for terminal in [None, Some("vscode")] {
@@ -284,6 +314,43 @@ fn deferred_code_setting_an_alias_a_statement_parsed_when_it_runs_uses_stays_in_
             shell(root.path(), true, terminal, DUMP),
             shell(root.path(), false, terminal, DUMP),
             "{terminal:?}"
+        );
+    }
+}
+
+#[test]
+fn a_statement_parsed_when_it_runs_stops_its_file_on_an_error_as_in_the_sources() {
+    let root = paths_fixture(
+        "alias late='print -r -- LATE'\n",
+        "before=1\nll -d / >/dev/null 2>&1 && : $(( 1 / 0 ))\nstatement=$?\nafter=1\n",
+    );
+    let built = build(root.path());
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    let bundle = root.path().join(".cache/build/zshrc.zsh");
+    let text = fs::read_to_string(&bundle).unwrap();
+    assert!(
+        text.contains("\\builtin eval '{ ll -d / >/dev/null 2>&1 && : $(( 1 / 0 ))\n} always")
+            && text.contains("_zsh_build_raise\n"),
+        "{text}"
+    );
+    let report = r#"print -r -- "before=$before statement=${statement-unset} after=${after-unset} stopped=${_zsh_build_stopped-unset}""#;
+    let expected = [
+        (None, "before=1 statement=unset after=unset stopped=unset\n"),
+        (
+            Some("vscode"),
+            "before=1 statement=127 after=1 stopped=unset\n",
+        ),
+    ];
+    for (terminal, report_text) in expected {
+        assert_eq!(shell(root.path(), false, terminal, report), report_text);
+        assert_eq!(shell(root.path(), true, terminal, report), report_text);
+    }
+    fs::remove_file(bundle.with_extension("zsh.zwc")).unwrap();
+    for (terminal, report_text) in expected {
+        assert_eq!(
+            shell(root.path(), true, terminal, report),
+            report_text,
+            "text {terminal:?}"
         );
     }
 }

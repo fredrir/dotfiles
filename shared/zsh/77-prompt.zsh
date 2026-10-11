@@ -4,7 +4,7 @@ setopt prompt_subst
 
 PROMPT='${_prompt_left}'
 RPROMPT='${_prompt_right}'
-PROMPT2=$'%{\e[90m%}\u2219%{\e[0m%} '
+PROMPT2=$'%{\e[90m%}\xe2\x88\x99%{\e[0m%} '
 PROMPT_EOL_MARK=''
 
 typeset -g _prompt_dir_color=$THEME_DIR _prompt_char_color=$THEME_CHAR

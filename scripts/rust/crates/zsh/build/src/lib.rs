@@ -112,22 +112,27 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
                 env: &env,
             };
             let state = State::new(system_ambient.clone(), host.clone(), Vec::new());
-            Some(system(
-                &mut compiler,
-                state,
-                &startup,
-                &output,
-                &guard_path,
-            )?)
+            let aliases = compiler.startup_aliases(state.clone(), &startup);
+            let mut state = state;
+            aliases.zshenv.apply(&mut state);
+            let system = system(&mut compiler, state, &startup, &output, &guard_path)?;
+            Some((system, aliases))
         } else {
             None
         };
+        let (system, aliases) = system.unzip();
         let (section, guard) = match &system {
             Some(System::Compiled { section, guard }) => (section.as_str(), Some(guard)),
             _ => ("", None),
         };
+        if let Some(aliases) = &aliases {
+            aliases.zshenv.apply(&mut compiler.state);
+        }
         for env in &env {
             compiler.analyze(env)?;
+        }
+        if let Some(aliases) = &aliases {
+            aliases.rcs.apply(&mut compiler.state);
         }
         let body = compiler.root(&options.root.join(&target.source))?;
         if !compiler.redefined.is_empty() {

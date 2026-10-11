@@ -166,6 +166,63 @@ fn a_return_still_leaves_only_its_file() {
 }
 
 #[test]
+fn an_error_still_stops_only_its_file() {
+    let root = fixture();
+    fs::write(
+        root.path().join("zsh/parts/15-error.zsh"),
+        "erred=1\n: $(( 1 / 0 ))\nunreached=1\n",
+    )
+    .unwrap();
+    let built = build(root.path(), &[]);
+    assert!(built.success(), "{built:?}");
+    let report = r#"print -r -- "erred=$erred unreached=${unreached-unset} folded=$folded fn=$(tool_completion)""#;
+    let sources = shell(root.path(), false, report, &[]);
+    let bundle = shell(root.path(), true, report, &[]);
+    assert_eq!(bundle.stdout, sources.stdout);
+    assert!(
+        bundle
+            .stdout
+            .contains("erred=1 unreached=unset folded=folded value fn=completed"),
+        "{}",
+        bundle.stdout
+    );
+}
+
+#[test]
+fn the_status_after_a_file_is_what_source_gives() {
+    let root = fixture();
+    let files = [
+        (
+            "zsh/inner-error.zsh",
+            "inner_zero=${0:t}\n: $(( 1 / 0 ))\ninner_late=1\n",
+        ),
+        ("zsh/inner-ok.zsh", "inner_ok=1\nfalse\n"),
+        (
+            "zsh/parts/15-status.zsh",
+            "source \"$CONF/inner-error.zsh\"\nerror_status=$?\nouter_zero=${0:t}\nsource \"$CONF/inner-ok.zsh\"\nok_status=$?\n",
+        ),
+    ];
+    for (path, text) in files {
+        fs::write(root.path().join(path), text).unwrap();
+    }
+    let built = build(root.path(), &[]);
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    let bundle = bundle_text(root.path());
+    assert!(
+        bundle.contains("inner_late=1") && bundle.contains("_zsh_build_status\n"),
+        "{bundle}"
+    );
+    let report = same(
+        root.path(),
+        r#"print -r -- "error=$error_status ok=$ok_status zero=$inner_zero,$outer_zero late=${inner_late-unset} stopped=${_zsh_build_stopped-unset}""#,
+    );
+    assert_eq!(
+        report,
+        "error=126 ok=1 zero=inner-error.zsh,15-status.zsh late=unset stopped=unset\n"
+    );
+}
+
+#[test]
 fn folded_commands_do_not_run_at_startup() {
     let root = fixture();
     assert!(build(root.path(), &[]).success());
@@ -778,7 +835,9 @@ fn folded_code_a_function_evaluates_is_parsed_with_the_bundle() {
     assert!(built.success() && built.stderr.is_empty(), "{built:?}");
     let bundle = bundle_text(root.path());
     assert!(
-        bundle.contains("  {\ninit_fn() { print -r -- initialized }\ninit_ready=1\n}\n}\n"),
+        bundle.contains(
+            "  {\ninit_fn() { print -r -- initialized }\ninit_ready=1\n} always { TRY_BLOCK_ERROR=0 }\n}\n"
+        ),
         "{bundle}"
     );
     assert!(!bundle.contains("$(init"), "{bundle}");

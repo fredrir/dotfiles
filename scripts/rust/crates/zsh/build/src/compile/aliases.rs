@@ -9,7 +9,7 @@ use zshrs_parse::parser::{ZshCommand, ZshList};
 use super::edits::Edits;
 use super::ledger::{ANY, Key, Touch};
 use super::walk::{self, Visit};
-use super::{Compiler, Cx, EVAL_FRAMES, Origin};
+use super::{Compiler, Cx, EVAL_FRAMES, Origin, RAISE, STOPPED};
 use crate::alias::{self, Kind, Left};
 use crate::expand;
 use crate::scan;
@@ -60,7 +60,6 @@ impl Compiler {
             .map(|operand| expand::scalar(operand, &self.state))
             .collect();
         let table = &mut self.state.alias_table;
-        let seen = &mut self.alias_seen;
         match command {
             "alias" if !flags.contains('L') => {
                 let kind = match (suffix, flags.contains('g')) {
@@ -72,12 +71,12 @@ impl Compiler {
                     match value {
                         Some(value) => {
                             if let Some((name, text)) = value.split_once('=') {
-                                table.define(kind, name, Some(text.to_string()), seen);
+                                table.define(kind, name, Some(text.to_string()));
                             }
                         }
                         None => match literal_name(operand) {
-                            Some(name) => table.define(kind, name, None, seen),
-                            None => table.forget_all(seen),
+                            Some(name) => table.define(kind, name, None),
+                            None => table.forget_all(),
                         },
                     }
                 }
@@ -88,18 +87,18 @@ impl Compiler {
                     match (value, flags.contains('m')) {
                         (Some(pattern), true) => match glob::Pattern::new(&pattern) {
                             Ok(pattern) => table.remove_where(suffix, |name| pattern.matches(name)),
-                            Err(_) => table.forget_all(seen),
+                            Err(_) => table.forget_all(),
                         },
                         (Some(name), false) => table.remove(suffix, &name),
-                        (None, _) => table.forget_all(seen),
+                        (None, _) => table.forget_all(),
                     }
                 }
             }
             "disable" | "enable" if flags.contains('a') => {
                 for value in values {
                     match value {
-                        Some(name) => table.forget(&name, seen),
-                        None => table.forget_all(seen),
+                        Some(name) => table.forget(&name),
+                        None => table.forget_all(),
                     }
                 }
             }
@@ -143,7 +142,7 @@ impl Compiler {
         if !commands.is_empty()
             && !self.alias_effects(&commands, |raw, state| expand::scalar(raw, state))
         {
-            self.state.alias_table.forget_all(&mut self.alias_seen);
+            self.state.alias_table.forget_all();
         }
     }
 
@@ -192,7 +191,7 @@ impl Compiler {
         for (alias, kind) in names {
             let table = &mut self.state.alias_table;
             match kind {
-                Ok(kind) => table.define(kind, &alias, None, &mut self.alias_seen),
+                Ok(kind) => table.define(kind, &alias, None),
                 Err(suffix) => table.maybe_remove(suffix, &alias),
             }
         }
@@ -263,10 +262,10 @@ impl Compiler {
             let table = &mut self.state.alias_table;
             match *kind {
                 "alias" if self.alias_call_handled => {}
-                "alias" if name == ANY => table.forget_all(&mut self.alias_seen),
-                "alias" => table.forget(name, &mut self.alias_seen),
+                "alias" if name == ANY => table.forget_all(),
+                "alias" => table.forget(name),
                 "option" if name == ANY || name == "aliases" => table.option = None,
-                "var" if TABLES.contains(&name.as_str()) => table.forget_all(&mut self.alias_seen),
+                "var" if TABLES.contains(&name.as_str()) => table.forget_all(),
                 "var" if name == "options" => table.option = None,
                 _ => {}
             }
@@ -356,8 +355,9 @@ impl Compiler {
     }
 
     /// The statement as `eval` of its text, which zsh parses when it runs,
-    /// with the aliases then in effect; deferred code that sets or removes an
-    /// alias named by a word of it stays in place.
+    /// with the aliases then in effect, and an error in it stopping its file
+    /// as in the sources; deferred code that sets or removes an alias named
+    /// by a word of it stays in place.
     fn runtime_parse(&mut self, text: &str, range: Range<usize>, edits: &mut Edits) {
         let words: BTreeSet<String> = alias::words(text)
             .unwrap_or_default()
@@ -368,8 +368,17 @@ impl Compiler {
         for word in words {
             self.touch(Touch::Call, ("alias", word));
         }
-        let quoted = text.trim_end_matches('\n').replace('\'', r"'\''");
-        edits.replace_bytes(range, format!("\\builtin eval '{quoted}'\n"));
+        // On the first line of the `eval`, so an error in it reports `(eval):1`
+        let statement = format!(
+            "{{ {}\n}} always {{ {STOPPED} }}",
+            text.trim_end_matches('\n')
+        );
+        let quoted = statement.replace('\'', r"'\''");
+        self.use_helper(RAISE);
+        edits.replace_bytes(
+            range,
+            format!("\\builtin eval '{quoted}'\n_zsh_build_raise\n"),
+        );
     }
 
     /// `text`, a statement generated from source words, with its aliases expanded.

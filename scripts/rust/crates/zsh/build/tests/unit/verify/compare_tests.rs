@@ -214,17 +214,21 @@ fn folded_output_stands_for_its_command_substitution() {
 fn an_inlined_eval_is_a_block_where_the_eval_stood() {
     let sources =
         "\tlocal ready=1 \n\t[[ -n $x ]] && eval \"$(init --zsh)\" || print no\n\tdone=1 ";
-    let bundle = "\tlocal ready=1 \n\t[[ -n $x ]] && {\n\t\tinit_fn () {\n\t\t\tprint -r -- initialized\n\t\t}\n\t\tinit_ready=1 \n\t} || print no\n\tdone=1 ";
+    let bundle = "\tlocal ready=1 \n\t[[ -n $x ]] && {\n\t\tinit_fn () {\n\t\t\tprint -r -- initialized\n\t\t}\n\t\tinit_ready=1 \n\t} always {\n\t\tTRY_BLOCK_ERROR=0 \n\t} || print no\n\tdone=1 ";
     assert!(rewritten(bundle, sources));
     assert!(rewritten(
-        "\t{\n\t\ta=1 \n\t}\n\t{\n\t\tb=1 \n\t}",
+        "\t{\n\t\ta=1 \n\t} always {\n\t\tTRY_BLOCK_ERROR=0 \n\t}\n\t{\n\t\tb=1 \n\t} always {\n\t\tTRY_BLOCK_ERROR=0 \n\t}",
         "\teval \"$(one)\"\n\teval \"$(two)\""
     ));
     assert!(!rewritten(
-        "\t[[ -n $x ]] && {\n\t\ta=1 \n\t} || print yes",
+        "\t[[ -n $x ]] && {\n\t\ta=1 \n\t} always {\n\t\tTRY_BLOCK_ERROR=0 \n\t} || print yes",
         "\t[[ -n $x ]] && eval \"$(init)\" || print no"
     ));
-    assert!(!rewritten("\t{\n\t\ta=1 \n\t}", "\teval $(init)"));
+    assert!(!rewritten(
+        "\t{\n\t\ta=1 \n\t} always {\n\t\tTRY_BLOCK_ERROR=0 \n\t}",
+        "\teval $(init)"
+    ));
+    assert!(!rewritten("\t{\n\t\ta=1 \n\t}", "\teval \"$(init)\""));
 }
 
 #[test]

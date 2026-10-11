@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use zshrs_parse::parser::{
     SublistOp, ZshAssign, ZshAssignValue, ZshCommand, ZshCond, ZshFor, ZshFuncDef, ZshIf, ZshList,
-    ZshProgram, ZshSimple, ZshSublist,
+    ZshProgram, ZshSimple, ZshSublist, ZshTry,
 };
 
 use crate::alias;
@@ -33,6 +33,31 @@ use edits::Edits;
 use ledger::Ledger;
 
 const OMIT: &str = "# zsh-build: omit";
+
+/// Clears the error that stopped a `{ } always` block, as `source` and
+/// `eval` clear one that stopped their code, so what follows still runs.
+pub(crate) const RESUME: &str = "TRY_BLOCK_ERROR=0";
+
+/// Records whether an error stopped a `{ } always` block, for the helper after it.
+const STOPPED: &str = "typeset -g _zsh_build_stopped=$TRY_BLOCK_ERROR";
+
+/// Called after a block that stands for `source`: its status.
+const STATUS: &str = include_str!("../../assets/status.zsh");
+
+/// Called after `eval` of a statement: stops what runs it, as an error does.
+const RAISE: &str = include_str!("../../assets/raise.zsh");
+
+/// `code` in a block an error stops no further than, as it stops a file
+/// zsh sources or code it evaluates.
+fn contained(code: &str) -> String {
+    block(code, RESUME)
+}
+
+/// `code` as a `{ } always` block running `always` after it.
+fn block(code: &str, always: &str) -> String {
+    let newline = if code.ends_with('\n') { "" } else { "\n" };
+    format!("{{\n{code}{newline}}} always {{ {always} }}")
+}
 
 /// How inlined code keeps the meaning of `return` and local declarations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,10 +137,9 @@ pub struct Compiler {
     refusals: Vec<String>,
     /// The aliases zsh parses the statement being compiled with.
     alias_parse: alias::Table,
-    /// Alias names a bundle read as text may have set by the statement being compiled.
+    /// Alias names that may be set when zsh parses the bundle body, in one
+    /// piece, as text: those set by the startup code that runs before it.
     alias_seen: alias::Seen,
-    /// Above zero inside a statement of the bundle that holds others.
-    alias_depth: usize,
     /// The alias table at each `return` of each file or function being compiled.
     alias_exits: Vec<Vec<alias::Table>>,
     /// The next `lists` starts statements zsh parses one at a time.
@@ -176,7 +200,6 @@ impl Compiler {
             refusals: Vec::new(),
             alias_parse: alias::Table::default(),
             alias_seen: alias::Seen::default(),
-            alias_depth: 0,
             alias_exits: Vec::new(),
             events: false,
             eval_parse: false,
@@ -204,6 +227,8 @@ impl Compiler {
 
     pub fn root(&mut self, path: &Path) -> Result<String, String> {
         let script = read(path)?;
+        self.alias_seen
+            .extend(alias::Seen::from_table(&self.state.alias_table));
         self.stack.push(path.to_path_buf());
         let result = self.compile(
             &script,
@@ -293,15 +318,7 @@ impl Compiler {
             self.alias_parse = self.state.alias_table.clone();
         }
         self.alias_exits.push(Vec::new());
-        // In the bundle, these run inside a wrapper statement, which zsh parses at once
-        let wrapped = match cx.mode {
-            Mode::Root => false,
-            Mode::Plain => walk::file_returns(&script.program.lists) != Some(0),
-            Mode::Function | Mode::Startup => true,
-        } || self.defer_suspended > 0;
-        self.alias_depth += usize::from(wrapped);
         self.compile_lists(script, &mut edits, cx, !whole);
-        self.alias_depth -= usize::from(wrapped);
         self.join_alias_exits();
         self.alias_parse = outer;
         self.loop_floor = floor;
@@ -354,14 +371,38 @@ impl Compiler {
         if returns > 0 {
             text = format!("repeat 1 do\n{text}done\n");
         }
-        Ok(match (zero, cx.mode) {
-            (Some(origin), Mode::Function) => format!("0={origin}\n{text}"),
-            (Some(origin), _) => {
-                let saved = format!("__zb0_{}", self.stack.len());
-                format!("{saved}=$0 0={origin}\n{text}0=${saved}\n")
+        let saved = (zero.is_some() && cx.mode != Mode::Function)
+            .then(|| format!("__zb0_{}", self.stack.len()));
+        let restore = saved.as_ref().map(|saved| format!("0=${saved}"));
+        // `eval` gives 1 after an error, as the block does; `source` gives 126
+        let sourced = matches!(cx.mode, Mode::Plain | Mode::Function) && !whole;
+        if cx.mode != Mode::Root && !text.trim().is_empty() {
+            let always: Vec<&str> = restore
+                .iter()
+                .map(String::as_str)
+                .chain(sourced.then_some(STOPPED))
+                .chain([RESUME])
+                .collect();
+            text = block(&text, &always.join("; ")) + "\n";
+            if sourced {
+                self.use_helper(STATUS);
+                text.push_str("_zsh_build_status\n");
             }
+        } else if let Some(restore) = &restore {
+            text = format!("{text}{restore}\n");
+        }
+        Ok(match (zero, saved) {
+            (Some(origin), Some(saved)) => format!("{saved}=$0 0={origin}\n{text}"),
+            (Some(origin), None) => format!("0={origin}\n{text}"),
             (None, _) => text,
         })
+    }
+
+    /// Emits `helper` ahead of the bundle, once.
+    pub(crate) fn use_helper(&mut self, helper: &'static str) {
+        if !self.helpers.contains(&helper) {
+            self.helpers.push(helper);
+        }
     }
 
     /// The script's statements; `events` when zsh parses them one at a time.
@@ -413,7 +454,6 @@ impl Compiler {
         let mut ended = false;
         let mut index = 0;
         let events = std::mem::take(&mut self.events);
-        self.alias_depth += usize::from(!events);
         // Run-once bodies are parsed with their definition
         let mut bodies: BTreeMap<usize, alias::Table> = BTreeMap::new();
         for (position, segment) in segments.into_iter().enumerate() {
@@ -432,9 +472,6 @@ impl Compiler {
             }
             if events {
                 self.alias_parse = self.state.alias_table.clone();
-            }
-            if events && self.alias_depth == 0 {
-                self.alias_seen = alias::Seen::from_table(&self.state.alias_table);
             }
             let dead = ended.then(|| (self.state.clone(), self.ledger.mark()));
             let start = segment
@@ -499,7 +536,6 @@ impl Compiler {
                 self.ledger.reset(mark);
             }
         }
-        self.alias_depth -= usize::from(!events);
         ended
     }
 
@@ -1405,7 +1441,7 @@ impl Compiler {
                 .filter(|_| inline)
                 .and_then(|body| self.inline_eval(text, substitution, body));
             if let Some((statement, value, program)) = evaluated {
-                let code = format!("{{\n{value}\n}}");
+                let code = contained(&value);
                 values.insert(statement.start, value);
                 inlined.push((format!("\"{original}\""), program));
                 local.push((statement, code, Kind::Inline));
@@ -1477,6 +1513,9 @@ impl Compiler {
         let expected = if inlined.is_empty() {
             *lists
         } else {
+            let Ok(resume) = script::parse(RESUME) else {
+                return false;
+            };
             let evaluated = |simple: &ZshSimple| {
                 let words = walk::words(simple);
                 let [eval, arg] = words.as_slice() else {
@@ -1486,7 +1525,12 @@ impl Compiler {
                 inlined
                     .iter()
                     .find(|(quoted, _)| plain && eval == "eval" && quoted == arg)
-                    .map(|(_, program)| ZshCommand::Cursh(Box::new(program.clone())))
+                    .map(|(_, program)| {
+                        ZshCommand::Try(ZshTry {
+                            try_block: Box::new(program.clone()),
+                            always: Box::new(resume.clone()),
+                        })
+                    })
             };
             let Some(lists) = walk::replace_in_functions(lists, &evaluated) else {
                 return false;

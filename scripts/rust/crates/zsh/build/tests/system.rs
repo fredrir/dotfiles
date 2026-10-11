@@ -255,6 +255,66 @@ fn a_global_file_changed_since_the_build_is_read_by_zsh_again() {
     assert!(bundle_text(root.path()).contains("order+=(zshrc2)"));
 }
 
+fn append(path: &Path, text: &str) {
+    let current = fs::read_to_string(path).unwrap();
+    fs::write(path, current + text).unwrap();
+}
+
+/// `same` with the bundle read as text, its wordcode gone.
+fn same_as_text(root: &Path, flags: &str) -> String {
+    let _ = fs::remove_file(root.join(".cache/build/zshrc.zsh.zwc"));
+    same(root, flags, &[])
+}
+
+#[test]
+fn aliases_a_global_file_sets_expand_as_zsh_reads_the_sources() {
+    let root = fixture();
+    append(
+        &root.path().join("sys/zshrc"),
+        "alias greet='print -r -- greeted'\n",
+    );
+    append(&root.path().join("zsh/rc.zsh"), "greet\n");
+    let built = build(root.path());
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    assert!(guard(root.path()).exists());
+    for flags in ["-fic", "-filc"] {
+        assert!(same(root.path(), flags, &[]).contains("greeted\n"));
+        assert!(same_as_text(root.path(), flags).contains("greeted\n"));
+    }
+
+    fs::write(
+        root.path().join("sys/zprofile"),
+        "emulate sh -c true\norder+=(zprofile)\n",
+    )
+    .unwrap();
+    let kept = build(root.path());
+    assert!(
+        kept.stderr.contains("global startup files left to zsh"),
+        "{kept:?}"
+    );
+    assert!(!guard(root.path()).exists());
+    for flags in ["-fic", "-filc"] {
+        assert!(same(root.path(), flags, &[]).contains("greeted\n"));
+        assert!(same_as_text(root.path(), flags).contains("greeted\n"));
+    }
+}
+
+#[test]
+fn an_alias_only_login_files_set_expands_in_login_shells_only() {
+    let root = fixture();
+    let zprofile = root.path().join("sys/zprofile");
+    let text = fs::read_to_string(&zprofile).unwrap();
+    fs::write(&zprofile, format!("alias hello='print -r -- hi'\n{text}")).unwrap();
+    append(&root.path().join("sys/zshrc"), "hello\n");
+    append(&root.path().join("zsh/rc.zsh"), "hello\n");
+    let built = build(root.path());
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    assert!(same(root.path(), "-filc", &[]).contains("hi\nhi\n"));
+    assert!(same_as_text(root.path(), "-filc").contains("hi\nhi\n"));
+    assert!(!same(root.path(), "-fic", &[]).contains("hi\n"));
+    assert!(!same_as_text(root.path(), "-fic").contains("hi\n"));
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn the_path_helper_emulation_matches_path_helper() {

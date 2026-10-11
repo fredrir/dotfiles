@@ -20,7 +20,7 @@ pub struct Script {
     pub text: String,
     line_starts: Vec<usize>,
     pub program: ZshProgram,
-    joined: bool,
+    reading: Reading,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,7 +31,7 @@ pub struct Segment {
 
 impl Script {
     pub fn parse(text: String) -> Result<Self, String> {
-        let (program, joined) = parse_either(&text)?;
+        let (program, reading) = parse_either(&text)?;
         let mut line_starts = vec![0];
         line_starts.extend(
             text.bytes()
@@ -46,7 +46,7 @@ impl Script {
             text,
             line_starts,
             program,
-            joined,
+            reading,
         })
     }
 
@@ -115,13 +115,8 @@ impl Script {
         if *lines.end() > self.line_count() || lines.start() > lines.end() {
             return false;
         }
-        let text = self.lines(lines);
-        let parsed = if self.joined {
-            parse_complete(&join_array_lines(text))
-        } else {
-            parse_complete(text)
-        };
-        parsed.is_ok_and(|program| same_lists(&program.lists, lists))
+        parse_as(self.lines(lines), self.reading)
+            .is_ok_and(|program| same_lists(&program.lists, lists))
     }
 }
 
@@ -147,22 +142,269 @@ thread_local! {
     static QUIET: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Parses complete input only, as written or else with its array lines joined.
+/// Parses complete input only, as written or else read around the parser's misreadings.
 pub fn parse(text: &str) -> Result<ZshProgram, String> {
     parse_either(text).map(|(program, _)| program)
 }
 
-/// The parser lexes a line inside `name=(...)` from command position, so
-/// a reserved word or `name=` there ends the array; line continuations don't.
-fn parse_either(text: &str) -> Result<(ZshProgram, bool), String> {
-    parse_complete(text)
-        .map(|program| (program, false))
-        .or_else(|error| match join_array_lines(text) {
-            Cow::Borrowed(_) => Err(error),
-            Cow::Owned(joined) => parse_complete(&joined)
-                .map(|program| (program, true))
-                .map_err(|_| error),
+/// What the parser needed to read a text as zsh does.
+#[derive(Clone, Copy, Default)]
+struct Reading {
+    /// The parser lexes a line inside `name=(...)` from command position, so
+    /// a reserved word or `name=` there ends the array; line continuations don't.
+    joined: bool,
+    /// The parser reads `else {` as the brace form, which zsh only takes
+    /// after `if ... {`; a command marked in between keeps `{` in the body.
+    else_blocks: bool,
+}
+
+const READINGS: [Reading; 3] = [
+    Reading {
+        joined: true,
+        else_blocks: false,
+    },
+    Reading {
+        joined: false,
+        else_blocks: true,
+    },
+    Reading {
+        joined: true,
+        else_blocks: true,
+    },
+];
+
+/// Stands between `else` and a `{` block while the parser reads them.
+const ELSE_MARK: &str = "__zb_else";
+
+fn parse_either(text: &str) -> Result<(ZshProgram, Reading), String> {
+    let error = match parse_complete(text) {
+        Ok(program) => return Ok((program, Reading::default())),
+        Err(error) => error,
+    };
+    READINGS
+        .into_iter()
+        .find_map(|reading| {
+            parse_as(text, reading)
+                .ok()
+                .map(|program| (program, reading))
         })
+        .ok_or(error)
+}
+
+fn parse_as(text: &str, reading: Reading) -> Result<ZshProgram, String> {
+    let text = if reading.joined {
+        join_array_lines(text)
+    } else {
+        Cow::Borrowed(text)
+    };
+    match parse_complete(&text) {
+        Err(error) if reading.else_blocks => parse_else_blocks(&text).ok_or(error),
+        parsed => parsed,
+    }
+}
+
+/// Ambiguous `else`s past which only marking all or none of them is tried.
+const MAX_UNSURE: usize = 8;
+
+/// Where an `else` in reserved-word position stands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ElseAfter {
+    /// First on its line or after `;`, where zsh reads only the then form.
+    Separator,
+    /// Right after `}` on its line: the brace form, or a then body ending in a block.
+    Brace,
+}
+
+/// `text` parsed with `ELSE_MARK` after each then-form `else` a `{` block
+/// follows, then without the marks; an `else` right after `}` is marked as
+/// its `if` reads, then as the parser needs, fewest marks first.
+fn parse_else_blocks(text: &str) -> Option<ZshProgram> {
+    let bytes = text.as_bytes();
+    let reserved: Vec<(&str, usize)> = scan(text)
+        .words
+        .into_iter()
+        .map(|word| (&text[word.range.clone()], word.range))
+        .filter(|(word, range)| {
+            matches!(*word, "if" | "then" | "elif" | "else" | "fi")
+                && command_position(bytes, range.start)
+        })
+        .map(|(word, range)| (word, range.end))
+        .collect();
+    let mut sure = Vec::new();
+    let mut unsure = Vec::new();
+    let mut guess = Vec::new();
+    for (index, &(word, end)) in reserved.iter().enumerate() {
+        if word != "else" || !opens_block(bytes, end) {
+            continue;
+        }
+        match else_after(bytes, end - word.len()) {
+            Some(ElseAfter::Separator) => sure.push(end),
+            Some(ElseAfter::Brace) => {
+                unsure.push(end);
+                guess.push(takes_then(&reserved[..index]));
+            }
+            None => {}
+        }
+    }
+    let rest = mark_choices(unsure.len())
+        .into_iter()
+        .filter(|chosen| *chosen != guess);
+    std::iter::once(guess.clone())
+        .chain(rest)
+        .find_map(|chosen| {
+            let mut ends: Vec<usize> = unsure
+                .iter()
+                .zip(chosen)
+                .filter_map(|(end, chosen)| chosen.then_some(*end))
+                .chain(sure.iter().copied())
+                .collect();
+            ends.sort_unstable();
+            parse_marked(text, &ends)
+        })
+}
+
+/// `text` parsed with `ELSE_MARK` after each of `ends`, then without the marks.
+fn parse_marked(text: &str, ends: &[usize]) -> Option<ZshProgram> {
+    if ends.is_empty() {
+        return None;
+    }
+    let mark = format!(" {ELSE_MARK};");
+    let mut marked = String::with_capacity(text.len() + ends.len() * mark.len());
+    let mut position = 0;
+    for &end in ends {
+        marked.push_str(&text[position..end]);
+        marked.push_str(&mark);
+        position = end;
+    }
+    marked.push_str(&text[position..]);
+    let program = parse_complete(&marked).ok()?;
+    unmark(program, &mark, ends.len())
+}
+
+/// The `else` at `start` by what precedes it on its line; `None` when it is a word
+/// after others, not the reserved word.
+fn else_after(bytes: &[u8], start: usize) -> Option<ElseAfter> {
+    match bytes[..start]
+        .iter()
+        .rev()
+        .find(|byte| !matches!(byte, b' ' | b'\t'))
+    {
+        None | Some(b'\n' | b';') => Some(ElseAfter::Separator),
+        Some(b'}') => Some(ElseAfter::Brace),
+        Some(_) => None,
+    }
+}
+
+/// Whether a word at `start` may be a reserved word: first on its line, after
+/// an operator or brace, or after a reserved word that a command follows.
+fn command_position(bytes: &[u8], start: usize) -> bool {
+    let before = bytes[..start]
+        .iter()
+        .rposition(|byte| !matches!(byte, b' ' | b'\t'));
+    let Some(last) = before else {
+        return true;
+    };
+    if matches!(
+        bytes[last],
+        b'\n' | b';' | b'&' | b'|' | b'!' | b'{' | b'}' | b'(' | b')'
+    ) {
+        return true;
+    }
+    let word_start = bytes[..=last]
+        .iter()
+        .rposition(|byte| !(byte.is_ascii_alphanumeric() || *byte == b'_'))
+        .map_or(0, |at| at + 1);
+    matches!(
+        &bytes[word_start..=last],
+        b"if" | b"then" | b"elif" | b"else" | b"do" | b"while" | b"until"
+    )
+}
+
+/// Whether the `if` an `else` after `reserved` belongs to took `then`: a
+/// `then` before that `if`, walking back past whole nested `if ... fi`s.
+fn takes_then(reserved: &[(&str, usize)]) -> bool {
+    let mut depth = 0usize;
+    for &(word, _) in reserved.iter().rev() {
+        match word {
+            "fi" => depth += 1,
+            "if" if depth == 0 => return false,
+            "if" => depth -= 1,
+            "then" if depth == 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Which of `count` ambiguous `else`s to mark, per attempt: fewest marks first,
+/// or past `MAX_UNSURE` none and then all.
+fn mark_choices(count: usize) -> Vec<Vec<bool>> {
+    if count > MAX_UNSURE {
+        return vec![vec![false; count], vec![true; count]];
+    }
+    let mut masks: Vec<u32> = (0..1u32 << count).collect();
+    masks.sort_by_key(|mask| mask.count_ones());
+    masks
+        .into_iter()
+        .map(|mask| (0..count).map(|index| mask & (1 << index) != 0).collect())
+        .collect()
+}
+
+/// Whether a `{` token follows `end` past blanks, separators and comments.
+fn opens_block(bytes: &[u8], end: usize) -> bool {
+    let mut position = end;
+    while let Some(byte) = bytes.get(position) {
+        match byte {
+            b' ' | b'\t' | b'\n' | b';' => position += 1,
+            b'#' => {
+                while bytes.get(position).is_some_and(|byte| *byte != b'\n') {
+                    position += 1;
+                }
+            }
+            b'{' => {
+                return bytes
+                    .get(position + 1)
+                    .is_none_or(|next| matches!(next, b' ' | b'\t' | b'\n'));
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// `program` without its `marks` mark commands, each the first of a body.
+fn unmark(program: ZshProgram, mark: &str, marks: usize) -> Option<ZshProgram> {
+    fn walk(value: &mut Value, mark: &str, removed: &mut usize) {
+        match value {
+            Value::Object(map) => {
+                if let Some(Value::Array(lists)) = map.get_mut("lists")
+                    && lists.first().is_some_and(|first| {
+                        serde_json::from_value::<ZshList>(first.clone())
+                            .is_ok_and(|list| sole_word(&list, ELSE_MARK))
+                    })
+                {
+                    lists.remove(0);
+                    *removed += 1;
+                }
+                if let Some(Value::String(source)) = map.get_mut("body_source") {
+                    *source = source.replace(mark, "");
+                }
+                map.values_mut()
+                    .for_each(|value| walk(value, mark, removed));
+            }
+            Value::Array(items) => items
+                .iter_mut()
+                .for_each(|value| walk(value, mark, removed)),
+            _ => {}
+        }
+    }
+    let mut value = serde_json::to_value(program).ok()?;
+    let mut removed = 0;
+    walk(&mut value, mark, &mut removed);
+    if removed != marks {
+        return None;
+    }
+    serde_json::from_value(value).ok()
 }
 
 /// Same lines and array elements; zsh reads ` \<newline>` there as a newline.
@@ -186,19 +428,25 @@ fn join_array_lines(text: &str) -> Cow<'_, str> {
 /// still parse as its own final statement.
 fn parse_complete(text: &str) -> Result<ZshProgram, String> {
     let mut program = parse_raw(&format!("{text}\n:\n"))?;
-    let sentinel = program.lists.pop().is_some_and(|last| {
-        !last.flags.async_
-            && last.sublist.next.is_none()
-            && last.sublist.pipe.next.is_none()
-            && matches!(&last.sublist.pipe.cmd, ZshCommand::Simple(simple)
-                if simple.assigns.is_empty() && simple.redirs.is_empty()
-                    && simple.words.len() == 1 && untokenize_preserve_quotes(&simple.words[0]) == ":")
-    });
+    let sentinel = program
+        .lists
+        .pop()
+        .is_some_and(|last| sole_word(&last, ":"));
     if sentinel {
         Ok(program)
     } else {
         Err("incomplete input".to_string())
     }
+}
+
+/// Whether `list` is the command `word` alone.
+fn sole_word(list: &ZshList, word: &str) -> bool {
+    !list.flags.async_
+        && list.sublist.next.is_none()
+        && list.sublist.pipe.next.is_none()
+        && matches!(&list.sublist.pipe.cmd, ZshCommand::Simple(simple)
+            if simple.assigns.is_empty() && simple.redirs.is_empty()
+                && simple.words.len() == 1 && untokenize_preserve_quotes(&simple.words[0]) == word)
 }
 
 /// Parses with the parser's panics on malformed input turned into errors.

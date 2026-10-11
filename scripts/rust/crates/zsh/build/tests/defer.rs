@@ -276,7 +276,10 @@ fn a_file_with_top_level_declarations_stays_in_place() {
         built.stderr
     );
     let bundle = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
-    assert!(bundle.contains("__zb_defer_4() {\nmark late"), "{bundle}");
+    assert!(
+        bundle.contains("__zb_defer_4() {\n{\nmark late"),
+        "{bundle}"
+    );
     assert!(!bundle.contains("__zb_defer_5"), "{bundle}");
 }
 
@@ -430,7 +433,7 @@ fn a_unit_whose_key_bindings_later_code_changes_stays_in_place() {
     );
     let bundle = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
     assert!(
-        bundle.contains("plugin=alpha\n() {\nmark alpha"),
+        bundle.contains("plugin=alpha\n() {\n{\nmark alpha"),
         "{bundle}"
     );
 }

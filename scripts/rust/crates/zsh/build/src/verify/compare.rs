@@ -7,7 +7,7 @@ use std::ops::Range;
 
 use similar::{Algorithm, DiffTag, capture_diff_slices};
 
-use crate::compile::eval_statement;
+use crate::compile::{RESUME, eval_statement};
 use crate::native;
 use crate::scan::{self, Substitution};
 
@@ -407,9 +407,9 @@ fn substitution_at(substitutions: &[Substitution], start: usize) -> Option<usize
         .max()
 }
 
-/// Lines of the `{ }` block opening `old` that stands for the `eval "$(cmd)"`
-/// in `line`: it opens where the `eval` stood and closes at the same indent,
-/// ahead of what followed it.
+/// Lines of the `{ } always` block opening `old` that stands for the
+/// `eval "$(cmd)"` in `line`: it opens where the `eval` stood and closes at
+/// the same indent, ahead of what followed it.
 fn inlined(old: &[&str], line: &Line, text: &str, substitutions: &[Substitution]) -> Option<usize> {
     let end = line.start + line.text.len();
     substitutions
@@ -422,13 +422,18 @@ fn inlined(old: &[&str], line: &Line, text: &str, substitutions: &[Substitution]
             let head = &text[line.start..statement.start];
             let tail = &text[statement.end..end];
             let indent = &head[..head.len() - head.trim_start().len()];
-            let (open, close) = (format!("{head}{{"), format!("{indent}}}{tail}"));
+            let open = format!("{head}{{");
+            let close = [
+                format!("{indent}}} always {{"),
+                format!("{indent}\t{RESUME} "),
+                format!("{indent}}}{tail}"),
+            ];
             (old.first().copied() == Some(open.as_str())).then_some(())?;
             let last = old
-                .iter()
+                .windows(close.len())
                 .skip(1)
-                .position(|candidate| *candidate == close)?;
-            Some(last + 2)
+                .position(|candidate| candidate.iter().eq(close.iter()))?;
+            Some(last + 1 + close.len())
         })
 }
 
