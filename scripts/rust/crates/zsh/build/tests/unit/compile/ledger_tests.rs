@@ -179,7 +179,11 @@ fn what_a_callee_sets_in_its_callers_locals_stays_local() {
         let body = read_body(&parse(text).unwrap().lists, true);
         ledger.bodies.insert(name.to_string(), body);
     }
-    let run = |text: &str| ledger.running(&read_body(&parse(text).unwrap().lists, true));
+    let run = |text: &str| {
+        ledger
+            .running(&read_body(&parse(text).unwrap().lists, true))
+            .0
+    };
     let reply = define("var", "REPLY");
     assert!(!run("scoped").contains(&reply));
     assert!(run("scoped").contains(&define("alias", "h")));
@@ -207,4 +211,105 @@ fn declarations_set_what_they_assign_unless_it_is_local() {
     assert!(top.names.defined.contains(&("var", "scoped".into())));
     assert!(top.names.defined.contains(&("var", "own".into())));
     assert!(top.names.defined.contains(&("option", "autocd".into())));
+}
+
+#[test]
+fn assignments_to_table_entries_define_what_they_name() {
+    let names = body(
+        "functions[f]='print x'\naliases[ll]='ls -l'\ngaliases[G]='| grep'\nsaliases[pdf]=open\n_comps[gh]=_gh\nmap[key]=1\nfpath[1,0]=(/x)\ntypeset -g 'cache[k]=v'",
+    );
+    for key in [
+        ("function", "f"),
+        ("alias", "ll"),
+        ("alias", "G"),
+        ("alias", "pdf"),
+        ("completion", "gh"),
+        ("var", "map"),
+        ("var", "fpath"),
+        ("var", "cache"),
+    ] {
+        assert!(names.defined.contains(&(key.0, key.1.into())), "{key:?}");
+    }
+    assert!(names.called.contains(&("var", COMPS.into())));
+    let runtime = body("aliases[$name]=x\n_comps=()");
+    assert!(runtime.defined.contains(&("alias", "*".into())));
+    assert!(runtime.defined.contains(&("completion", "*".into())));
+    assert_eq!(
+        touches("unset", &["functions[f]", "map[key]"]),
+        vec![define("function", "f"), define("var", "map")]
+    );
+}
+
+#[test]
+fn builtins_that_assign_define_their_targets() {
+    let vars = |name: &str, values: &[&str]| -> Vec<String> {
+        touches(name, values)
+            .into_iter()
+            .map(|(_, (kind, name))| format!("{kind} {name}"))
+            .collect()
+    };
+    assert_eq!(
+        vars("read", &["-r", "-d", ":", "-t", "5", "line", "rest"]),
+        ["var line", "var rest"]
+    );
+    assert_eq!(vars("read", &["-rA"]), ["var reply"]);
+    assert_eq!(vars("read", &["-k1"]), ["var REPLY"]);
+    assert_eq!(vars("read", &["answer?Continue? "]), ["var answer"]);
+    assert_eq!(vars("print", &["-f", "%s", "-v", "out", "x"]), ["var out"]);
+    assert_eq!(vars("printf", &["-v", "out", "%s", "x"]), ["var out"]);
+    assert_eq!(
+        vars("getopts", &["ab:", "opt"]),
+        ["var opt", "var OPTARG", "var OPTIND"]
+    );
+    assert_eq!(
+        vars(
+            "zparseopts",
+            &[
+                "-D",
+                "-a",
+                "flags",
+                "-Aopts",
+                "h=help",
+                "v+:=verbose",
+                "q",
+                "$spec"
+            ]
+        ),
+        ["var flags", "var opts", "var help", "var verbose", "var *"]
+    );
+    assert_eq!(vars("let", &["x = 1", "y++", "z == 2"]), ["var x", "var y"]);
+}
+
+#[test]
+fn arithmetic_assignments_name_their_parameters() {
+    assert_eq!(
+        arithmetic_assigned(
+            "x = 1, y += 2, z == 3, w <= 4, ++a, b--, c[i] = 5, $name = 6, 16#ff, s <<= 1"
+        ),
+        ["x", "y", "a", "b", "c[i]", "*", "s"]
+    );
+}
+
+#[test]
+fn loops_and_expansions_assign_their_parameters() {
+    let names = body(
+        "for k v in a b; do :; done\nfor old new (\n  a b\n); do :; done\nfor ((i = 0; i < 3; i++)); do :; done\n(( total += 1 ))\n: ${cache:=x} ${keep:-w}\nprint $(( n++ ))\nx=$(: ${sub:=1})",
+    );
+    for name in ["k", "v", "old", "new", "i", "total", "cache", "n"] {
+        assert!(names.defined.contains(&("var", name.into())), "{name}");
+    }
+    for name in ["keep", "sub", "a", "b", "*"] {
+        assert!(!names.defined.contains(&("var", name.into())), "{name}");
+    }
+}
+
+#[test]
+fn functions_a_called_function_defines_are_known_to_later_calls() {
+    let mut ledger = Ledger::default();
+    let outer = read_body(&parse("inner() { REPLY=1 }\ninner").unwrap().lists, true);
+    ledger.bodies.insert("outer".to_string(), outer);
+    let call = read_body(&parse("outer").unwrap().lists, true);
+    let (touches, functions) = ledger.running(&call);
+    assert!(touches.contains(&define("var", "REPLY")));
+    assert!(functions.contains_key("inner"));
 }

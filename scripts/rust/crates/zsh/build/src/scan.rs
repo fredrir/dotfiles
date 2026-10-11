@@ -42,6 +42,11 @@ pub struct Scan {
     pub array_newlines: Vec<usize>,
     /// Each `(` of a `(((` zsh reads as a subshell around `((`, as in `((( a )) && b)`.
     pub subshell_parens: Vec<usize>,
+    /// Parameters `${name=word}`, `${name:=word}` and `${name::=word}`
+    /// assign, subscripts kept; outside command substitutions.
+    pub assigned: Vec<String>,
+    /// The text inside each `$(( ))`, outside command substitutions.
+    pub arithmetic: Vec<Range<usize>>,
     pub unterminated: bool,
 }
 
@@ -52,6 +57,7 @@ pub fn scan(text: &str) -> Scan {
         out: Scan::default(),
         pending_heredocs: Vec::new(),
         param_depth: 0,
+        substitution_depth: 0,
     };
     scanner.normal(Stop::Eof);
     scanner.out
@@ -75,6 +81,8 @@ struct Scanner<'a> {
     out: Scan,
     pending_heredocs: Vec<Heredoc>,
     param_depth: usize,
+    /// Command substitutions around the cursor, which run in a subshell.
+    substitution_depth: usize,
 }
 
 const MODIFIERS: &[u8] = b"AahtreQlu";
@@ -284,7 +292,9 @@ impl Scanner<'_> {
             Some(b'(') => {
                 self.pos += 2;
                 let depth = std::mem::take(&mut self.param_depth);
+                self.substitution_depth += 1;
                 let closed = self.normal(Stop::Paren);
+                self.substitution_depth -= 1;
                 self.param_depth = depth;
                 if closed {
                     self.out.substitutions.push(Substitution {
@@ -348,6 +358,9 @@ impl Scanner<'_> {
             }
             self.out.unsupported_zero.push(start);
         }
+        if let Some(name) = self.assigning().filter(|_| self.substitution_depth == 0) {
+            self.out.assigned.push(name);
+        }
         self.param_depth += 1;
         while let Some(byte) = self.peek(0) {
             match byte {
@@ -368,8 +381,40 @@ impl Scanner<'_> {
         self.out.unterminated = true;
     }
 
+    /// The parameter a `${...}` past its brace assigns: flags, then a name
+    /// and subscript followed by `=`, `:=` or `::=`.
+    fn assigning(&self) -> Option<String> {
+        let rest = &self.bytes[self.pos..];
+        let mut index = match rest.first() {
+            Some(b'(') => rest.iter().position(|byte| *byte == b')')? + 1,
+            _ => 0,
+        };
+        while matches!(rest.get(index), Some(b'^' | b'=' | b'~')) {
+            index += 1;
+        }
+        let start = index;
+        while rest
+            .get(index)
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        {
+            index += 1;
+        }
+        if index == start || rest[start].is_ascii_digit() {
+            return None;
+        }
+        if rest.get(index) == Some(&b'[') {
+            index += rest[index..].iter().position(|byte| *byte == b']')? + 1;
+        }
+        let operator = &rest[index..];
+        [&b"="[..], b":=", b"::="]
+            .iter()
+            .any(|assign| operator.starts_with(assign))
+            .then(|| String::from_utf8_lossy(&rest[start..index]).into_owned())
+    }
+
     fn arithmetic(&mut self) {
         self.pos += 3;
+        let start = self.pos;
         let mut depth = 2usize;
         while let Some(byte) = self.peek(0) {
             self.pos += 1;
@@ -378,6 +423,9 @@ impl Scanner<'_> {
                 b')' => {
                     depth -= 1;
                     if depth == 0 {
+                        if self.substitution_depth == 0 {
+                            self.out.arithmetic.push(start..self.pos - 2);
+                        }
                         return;
                     }
                 }

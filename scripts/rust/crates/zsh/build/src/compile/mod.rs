@@ -808,6 +808,7 @@ impl Compiler {
         edits: &mut Edits,
         cx: &Cx,
     ) -> (Option<String>, bool) {
+        self.record_loop(node);
         if lines.is_some() && !node.is_select {
             let values = walk::for_words(&node.list).and_then(|words| {
                 words
@@ -917,7 +918,7 @@ impl Compiler {
     }
 
     fn simple(&mut self, simple: &ZshSimple, rewrite: bool, cx: &Cx) -> (Option<String>, bool) {
-        self.record_reads(simple);
+        self.record_expansions(simple);
         if simple.words.is_empty() {
             for assign in &simple.assigns {
                 self.assign(assign, false);

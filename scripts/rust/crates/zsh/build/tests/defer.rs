@@ -486,3 +486,83 @@ fn what_a_unit_sets_in_its_own_locals_does_not_keep_it_in_place() {
     assert!(built.stdout.contains("4 deferred"), "{built:?}");
     assert!(!built.stderr.contains("REPLY"), "{}", built.stderr);
 }
+
+#[test]
+fn a_function_set_through_the_functions_table_keeps_its_unit_in_place_when_called_later() {
+    let root = fixture();
+    append(
+        &root.path().join("zsh/late.zsh"),
+        "functions[late_table_fn]='print late'\n",
+    );
+    append(&root.path().join("zsh/after.zsh"), "late_table_fn\n");
+    let built = build(root.path());
+    assert!(built.success(), "{built:?}");
+    assert!(
+        built
+            .stderr
+            .contains("zsh/late.zsh: function late_table_fn changed later; not deferred"),
+        "{}",
+        built.stderr
+    );
+}
+
+#[test]
+fn completion_table_writes_in_place_keep_a_deferred_compinit_in_place() {
+    let root = fixture();
+    let plugin = root.path().join("omz/plugins/alpha/alpha.plugin.zsh");
+    append(&plugin, "_comps[alpha-cmd]=_alpha\n");
+    let built = build(root.path());
+    assert!(built.stdout.contains("4 deferred"), "{built:?}");
+    append(
+        &root.path().join("zsh/after.zsh"),
+        "_comps[after-cmd]=_after\n",
+    );
+    let built = build(root.path());
+    assert!(built.success(), "{built:?}");
+    assert!(
+        built
+            .stderr
+            .contains("omz/oh-my-zsh.sh: var _comps changed later; not deferred"),
+        "{}",
+        built.stderr
+    );
+}
+
+#[test]
+fn what_loops_builtins_and_expansions_assign_keeps_a_unit_in_place() {
+    for (late, name) in [
+        ("for late_loop in a; do :; done", "late_loop"),
+        (": ${late_default:=1}", "late_default"),
+        ("print $(( late_math = 1 ))", "late_math"),
+        ("(( late_arith = 1 ))", "late_arith"),
+        ("read -r late_read <<< x", "late_read"),
+        ("printf -v late_out %s x", "late_out"),
+    ] {
+        let root = fixture();
+        append(&root.path().join("zsh/late.zsh"), &format!("{late}\n"));
+        append(&root.path().join("zsh/after.zsh"), &format!("{name}=2\n"));
+        let built = build(root.path());
+        assert!(built.success(), "{built:?}");
+        let note = format!("zsh/late.zsh: var {name} changed later; not deferred");
+        assert!(built.stderr.contains(&note), "{late}: {}", built.stderr);
+    }
+}
+
+#[test]
+fn functions_a_called_function_defines_are_known_to_later_calls() {
+    let root = fixture();
+    append(&root.path().join("zsh/late.zsh"), "late_var=1\n");
+    append(
+        &root.path().join("zsh/after.zsh"),
+        "_after_outer() { _after_inner() { late_var=2 } }\n_after_outer\n_after_inner\n",
+    );
+    let built = build(root.path());
+    assert!(built.success(), "{built:?}");
+    assert!(
+        built
+            .stderr
+            .contains("zsh/late.zsh: var late_var changed later; not deferred"),
+        "{}",
+        built.stderr
+    );
+}

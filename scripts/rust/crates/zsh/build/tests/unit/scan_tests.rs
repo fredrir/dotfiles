@@ -126,3 +126,17 @@ fn triple_parens_zsh_reads_as_a_subshell_are_found() {
     let text = "if ((( a )) && [[ b ]]) ||\n  ((( ! a )) && [[ c ]]); then :; fi\n(((x + 1) * 2 > 3)) && :\n((( ! a )))\n$(((1)))\n'((( a )) x)'\n";
     assert_eq!(scan(text).subshell_parens, [3, 29]);
 }
+
+#[test]
+fn parameters_assigned_outside_substitutions_are_found() {
+    let text = ": ${a:=1} ${b::=2} ${c=3} ${(f)d:=4} ${map[k]:=5} ${e:-6} ${#f} ${=g} '${h:=7}' $(: ${i:=8}) \"${j:=9}\"";
+    assert_eq!(scan(text).assigned, ["a", "b", "c", "d", "map[k]", "j"]);
+}
+
+#[test]
+fn arithmetic_outside_substitutions_is_located() {
+    let text = "print $(( n++ )) $(print $(( m = 1 )))";
+    let found = scan(text).arithmetic;
+    let inner: Vec<&str> = found.iter().map(|range| &text[range.clone()]).collect();
+    assert_eq!(inner, [" n++ "]);
+}
