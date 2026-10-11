@@ -1,6 +1,7 @@
 //! Walks startup code in execution order, tracking build-time state, and
 //! rewrites what that state decides: sources, helpers and folded commands.
 
+mod aliases;
 mod bindkey;
 mod compinit;
 pub mod defer;
@@ -19,6 +20,7 @@ use zshrs_parse::parser::{
     ZshProgram, ZshSimple, ZshSublist,
 };
 
+use crate::alias;
 use crate::expand::{self, Env, Mode as Expand, Var};
 use crate::fold::{Constants, Folder};
 use crate::quote;
@@ -108,6 +110,26 @@ pub struct Compiler {
     root: PathBuf,
     startup: bool,
     refusals: Vec<String>,
+    /// The aliases zsh parses the statement being compiled with.
+    alias_parse: alias::Table,
+    /// Alias names a bundle read as text may have set by the statement being compiled.
+    alias_seen: alias::Seen,
+    /// Above zero inside a statement of the bundle that holds others.
+    alias_depth: usize,
+    /// The alias table at each `return` of each file or function being compiled.
+    alias_exits: Vec<Vec<alias::Table>>,
+    /// The next `lists` starts statements zsh parses one at a time.
+    events: bool,
+    /// The next script compiled is `eval` output, which zsh parses at once.
+    eval_parse: bool,
+    /// Above zero inside code that never runs.
+    dead: usize,
+    /// Alias problems reported, by name or place and reason.
+    alias_notes: BTreeSet<(String, &'static str)>,
+    /// `alias` and `unalias` commands in function bodies, by function.
+    alias_bodies: BTreeMap<String, Vec<Vec<String>>>,
+    /// The call being recorded set its aliases by name already.
+    alias_call_handled: bool,
 }
 
 struct Snapshot {
@@ -121,6 +143,7 @@ struct Snapshot {
     ledger: (usize, usize, usize),
     origins: BTreeMap<String, String>,
     helpers: usize,
+    alias_exits: usize,
 }
 
 impl Compiler {
@@ -151,6 +174,16 @@ impl Compiler {
             root,
             startup: false,
             refusals: Vec::new(),
+            alias_parse: alias::Table::default(),
+            alias_seen: alias::Seen::default(),
+            alias_depth: 0,
+            alias_exits: Vec::new(),
+            events: false,
+            eval_parse: false,
+            dead: 0,
+            alias_notes: BTreeSet::new(),
+            alias_bodies: BTreeMap::new(),
+            alias_call_handled: false,
         }
     }
 
@@ -217,6 +250,7 @@ impl Compiler {
             ledger: self.ledger.len(),
             origins: self.origins.clone(),
             helpers: self.helpers.len(),
+            alias_exits: self.alias_exits.last().map_or(0, Vec::len),
         }
     }
 
@@ -231,6 +265,9 @@ impl Compiler {
         self.ledger.truncate(snapshot.ledger);
         self.origins = snapshot.origins;
         self.helpers.truncate(snapshot.helpers);
+        if let Some(exits) = self.alias_exits.last_mut() {
+            exits.truncate(snapshot.alias_exits);
+        }
     }
 
     /// The `file:line` of the statement being compiled.
@@ -250,7 +287,23 @@ impl Compiler {
     pub fn compile(&mut self, script: &Script, cx: &Cx) -> Result<String, String> {
         let mut edits = Edits::default();
         let floor = std::mem::replace(&mut self.loop_floor, self.loops);
-        self.compile_lists(script, &mut edits, cx);
+        let whole = std::mem::take(&mut self.eval_parse);
+        let outer = self.alias_parse.clone();
+        if whole {
+            self.alias_parse = self.state.alias_table.clone();
+        }
+        self.alias_exits.push(Vec::new());
+        // In the bundle, these run inside a wrapper statement, which zsh parses at once
+        let wrapped = match cx.mode {
+            Mode::Root => false,
+            Mode::Plain => walk::file_returns(&script.program.lists) != Some(0),
+            Mode::Function | Mode::Startup => true,
+        } || self.defer_suspended > 0;
+        self.alias_depth += usize::from(wrapped);
+        self.compile_lists(script, &mut edits, cx, !whole);
+        self.alias_depth -= usize::from(wrapped);
+        self.join_alias_exits();
+        self.alias_parse = outer;
         self.loop_floor = floor;
         if cx.analysis {
             return Ok(String::new());
@@ -311,20 +364,25 @@ impl Compiler {
         })
     }
 
-    fn compile_lists(&mut self, script: &Script, edits: &mut Edits, cx: &Cx) {
+    /// The script's statements; `events` when zsh parses them one at a time.
+    fn compile_lists(&mut self, script: &Script, edits: &mut Edits, cx: &Cx, events: bool) {
         let lists = &script.program.lists;
         match (self.compinit_window(script, cx), cx.origin) {
             (Some(window), Some(origin)) => {
                 let (start, end) = (*window.lines.start(), *window.lines.end());
                 let before = &lists[..window.lists.start];
+                self.events = events;
                 self.lists(script, before, start - 1, true, edits, cx);
                 self.open_window();
+                self.events = events;
                 self.lists(script, &lists[window.lists.clone()], end, true, edits, cx);
                 self.wrap_window(script, &window, edits, origin);
                 let rest = &lists[window.lists.end..];
+                self.events = events;
                 self.lists(script, rest, script.line_count(), true, edits, cx);
             }
             _ => {
+                self.events = events;
                 self.lists(script, lists, script.line_count(), true, edits, cx);
             }
         }
@@ -354,6 +412,10 @@ impl Compiler {
         let definition = |index: usize| single.iter().any(|(definition, ..)| *definition == index);
         let mut ended = false;
         let mut index = 0;
+        let events = std::mem::take(&mut self.events);
+        self.alias_depth += usize::from(!events);
+        // Run-once bodies are parsed with their definition
+        let mut bodies: BTreeMap<usize, alias::Table> = BTreeMap::new();
         for (position, segment) in segments.into_iter().enumerate() {
             if let Some(section) = section
                 .as_ref()
@@ -368,12 +430,21 @@ impl Compiler {
                 index = section.lists.end;
                 continue;
             }
+            if events {
+                self.alias_parse = self.state.alias_table.clone();
+            }
+            if events && self.alias_depth == 0 {
+                self.alias_seen = alias::Seen::from_table(&self.state.alias_table);
+            }
             let dead = ended.then(|| (self.state.clone(), self.ledger.mark()));
             let start = segment
                 .as_ref()
                 .map_or(index, |segment| segment.lists.start);
             for (definition, _, lines) in single.iter().filter(|(_, call, _)| *call == start) {
-                self.single_call(script, &lists[*definition], lines, edits, cx);
+                let parse = bodies
+                    .remove(definition)
+                    .unwrap_or_else(|| self.alias_parse.clone());
+                self.single_call(script, &lists[*definition], lines, parse, edits, cx);
             }
             match segment {
                 Some(segment) => {
@@ -385,7 +456,9 @@ impl Compiler {
                         continue;
                     }
                     let before = edits.len();
+                    let mark = edits.mark();
                     let bytes = script.byte_range(&segment.lines);
+                    let whole = bytes.clone();
                     let line = *segment.lines.start();
                     if range.len() == 1 {
                         let (replacement, ends) = self.statement(
@@ -400,16 +473,20 @@ impl Compiler {
                             Some(text) => {
                                 edits.replace_lines(segment.lines.clone(), placeholder(text))
                             }
-                            None if edits.len() == before && !definition(range.start) => {
-                                self.text_layer(script, bytes, line, &lists[range], edits, cx)
-                            }
+                            None if edits.len() == before && !definition(range.start) => self
+                                .text_layer(script, bytes, line, &lists[range.clone()], edits, cx),
                             None => {}
                         }
                     } else {
                         for list in &lists[range.clone()] {
                             ended |= self.statement(script, list, None, edits, cx).1;
                         }
-                        self.text_layer(script, bytes, line, &lists[range], edits, cx);
+                        self.text_layer(script, bytes, line, &lists[range.clone()], edits, cx);
+                    }
+                    if definition(range.start) {
+                        bodies.insert(range.start, self.alias_parse.clone());
+                    } else if dead.is_none() {
+                        self.alias_segment(script, whole, mark, edits, cx);
                     }
                 }
                 None => {
@@ -422,6 +499,7 @@ impl Compiler {
                 self.ledger.reset(mark);
             }
         }
+        self.alias_depth -= usize::from(!events);
         ended
     }
 
@@ -470,6 +548,7 @@ impl Compiler {
         script: &Script,
         list: &ZshList,
         lines: &RangeInclusive<usize>,
+        parse: alias::Table,
         edits: &mut Edits,
         cx: &Cx,
     ) {
@@ -478,8 +557,10 @@ impl Compiler {
         };
         let range = script.byte_range(lines);
         let before = edits.len();
+        let mark = edits.mark();
         edits.functions.push(range.clone());
         let saved = self.state.clone();
+        let outer = std::mem::replace(&mut self.alias_parse, parse);
         let body = Cx {
             mode: Mode::Function,
             origin: None,
@@ -487,12 +568,16 @@ impl Compiler {
             source: cx.source,
         };
         self.state.push_frame();
+        self.alias_exits.push(Vec::new());
         self.lists(script, &node.body.lists, *lines.end(), true, edits, &body);
+        self.alias_exits.pop();
         self.state = saved;
         if edits.len() == before {
             let lists = std::slice::from_ref(list);
-            self.text_layer(script, range, *lines.start(), lists, edits, cx);
+            self.text_layer(script, range.clone(), *lines.start(), lists, edits, cx);
         }
+        self.alias_segment(script, range, mark, edits, cx);
+        self.alias_parse = outer;
     }
 
     fn statement(
@@ -704,7 +789,13 @@ impl Compiler {
         cx: &Cx,
     ) {
         let mark = self.ledger.mark();
+        let exits = self.alias_exits.last().map_or(0, Vec::len);
+        self.dead += 1;
         self.lists(script, &body.lists, last, owned, edits, cx);
+        self.dead -= 1;
+        if let Some(exits_now) = self.alias_exits.last_mut() {
+            exits_now.truncate(exits);
+        }
         self.ledger.reset(mark);
     }
 
@@ -852,7 +943,7 @@ impl Compiler {
                 let (replacement, ends) = self.simple(simple, true, cx);
                 let piece = match (ends, replacement) {
                     (false, Some(piece)) => Some(piece),
-                    (false, None) => script::reprint(simple),
+                    (false, None) => script::reprint(simple).map(|text| self.alias_piece(text, cx)),
                     (true, _) => None,
                 };
                 let Some(piece) = piece else {
@@ -883,8 +974,9 @@ impl Compiler {
                 file: cx.origin.map(Path::to_path_buf).unwrap_or_default(),
                 fingerprint: walk::fingerprint(node),
             };
-            for name in &node.names {
-                let name = walk::text(name);
+            let names: Vec<String> = node.names.iter().map(|name| walk::text(name)).collect();
+            self.record_alias_body(&names, &node.body.lists);
+            for name in names {
                 self.record_function(&name, &node.body.lists);
                 self.state.functions.insert(name, function.clone());
             }
@@ -905,6 +997,8 @@ impl Compiler {
             source: cx.source,
         };
         self.state.push_frame();
+        self.alias_exits.push(Vec::new());
+        let option = self.state.alias_table.option;
         let last = lines.map_or(0, |lines| *lines.end());
         self.lists(
             script,
@@ -914,6 +1008,10 @@ impl Compiler {
             edits,
             &body,
         );
+        self.join_alias_exits();
+        if walk::sets_local_options(&node.body.lists) {
+            self.state.alias_table.option = option;
+        }
         self.state.pop_frame();
     }
 
@@ -929,11 +1027,21 @@ impl Compiler {
         let name = expand::scalar(&words[0], &self.state).unwrap_or_else(|| words[0].clone());
         let rewrite = rewrite && simple.assigns.is_empty() && simple.redirs.is_empty();
         let args = &words[1..];
+        self.alias_call_handled = self.alias_call(&name, args);
         self.record_command(&name, args);
+        self.alias_call_handled = false;
         let in_function = cx.mode == Mode::Function || self.state.in_function();
         self.emulation_changed |= walk::sets_emulation(simple, in_function);
+        self.alias_option(&name, args);
         match name.as_str() {
-            "return" | "exit" => (None, true),
+            "return" => {
+                let table = self.state.alias_table.clone();
+                if let Some(exits) = self.alias_exits.last_mut() {
+                    exits.push(table);
+                }
+                (None, true)
+            }
+            "exit" => (None, true),
             "source" | "." if simple.assigns.is_empty() => rules::source(self, args, rewrite, cx),
             "cached_eval" => rules::cached_eval(self, args, rewrite, cx),
             "eval" => rules::eval(self, simple, args, rewrite, cx),
@@ -945,8 +1053,12 @@ impl Compiler {
                 rules::helper(self, &name, args, rewrite)
             }
             "_omz_source" => rules::omz_source(self, args, rewrite, cx),
-            "alias" | "unalias" if self.ledger.collecting.is_none() => {
-                self.track_aliases(&name, args);
+            "alias" | "unalias" | "disable" | "enable" => {
+                self.alias_command(&name, args);
+                if matches!(name.as_str(), "alias" | "unalias") && self.ledger.collecting.is_none()
+                {
+                    self.track_aliases(&name, args);
+                }
                 (None, false)
             }
             "unset" => {
@@ -1099,6 +1211,7 @@ impl Compiler {
     /// Code that runs here without the compiler following it.
     fn forget(&mut self, lists: &[ZshList]) {
         self.record_unfollowed(lists);
+        self.alias_unfollowed(lists);
         for name in walk::assigned(lists) {
             self.state.forget(&name);
         }
@@ -1450,7 +1563,11 @@ impl Compiler {
         let frames = EVAL_FRAMES.iter().any(|name| top.contains(name));
         let aliased = walk::function_names(&program.lists)
             .iter()
-            .any(|name| self.state.aliases.contains(name));
+            .any(|name| self.state.aliases.contains(name))
+            // zsh expands aliases in it when the function runs
+            || alias::words(&value).is_none_or(|words| {
+                alias::mentioned(&value, &words, &self.state.alias_table, &self.alias_seen)
+            });
         if frames || aliased || walk::sets_options(body) || self.parse_options_changed() {
             return None;
         }

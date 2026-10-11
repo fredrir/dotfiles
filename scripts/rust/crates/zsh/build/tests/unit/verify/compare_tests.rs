@@ -134,6 +134,60 @@ fn the_queue_machinery_only_the_bundle_loaded_is_no_difference() {
 }
 
 #[test]
+fn menu_select_wrapped_by_the_deferred_compinit_is_no_difference() {
+    let wrapped = "completion:.menu-select:_main_complete";
+    assert!(
+        compare(
+            &[("widgets", "autosuggest-orig-1-menu-select", wrapped)],
+            &[
+                (
+                    "widgets",
+                    "autosuggest-orig-1-menu-select",
+                    "user:_zsh_autosuggest_orig_menu-select"
+                ),
+                (
+                    "functions",
+                    "_zsh_autosuggest_orig_menu-select",
+                    "\tzle .menu-select"
+                ),
+            ],
+        )
+        .is_empty()
+    );
+    assert!(
+        compare(
+            &[("widgets", "menu-select", wrapped)],
+            &[("widgets", "menu-select", "builtin")]
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        compare(
+            &[
+                ("widgets", "menu-complete", wrapped),
+                ("widgets", "menu-select", wrapped)
+            ],
+            &[
+                ("widgets", "menu-complete", "builtin"),
+                ("widgets", "menu-select", "user:_mine")
+            ],
+        ),
+        ["widgets menu-complete", "widgets menu-select"]
+    );
+    assert_eq!(
+        compare(
+            &[],
+            &[(
+                "functions",
+                "_zsh_autosuggest_orig_menu-select",
+                "\tzle .other"
+            )]
+        ),
+        ["functions _zsh_autosuggest_orig_menu-select"]
+    );
+}
+
+#[test]
 fn a_type_without_its_parameter_shows_only_as_the_parameter() {
     let found = compare(&[("parameters", "X", "1"), ("types", "X", "scalar")], &[]);
     assert_eq!(found, ["parameters X"]);
@@ -183,6 +237,16 @@ fn native_expansions_stand_for_the_command_they_replace() {
         "\tid=${${:-$((_zsh_build_uuid7()))}:+${_zsh_build_uuid:-$(atuin uuid)}} ",
         "\tid=$(atuin uuid) "
     ));
+}
+
+#[test]
+fn a_backslash_the_build_puts_before_a_word_runs_the_same() {
+    assert!(rewritten(
+        "\t\\grep --color=auto x | \\ls -F -l",
+        "\tgrep --color=auto x | ls -F -l"
+    ));
+    assert!(!rewritten("\t\\grep x", "\tgrep --color=auto x"));
+    assert!(!rewritten("\tprint \\*", "\tprint *"));
 }
 
 #[test]

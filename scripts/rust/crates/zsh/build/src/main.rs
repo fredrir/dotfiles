@@ -42,6 +42,10 @@ enum Command {
         /// Show differing values in full
         #[arg(short, long)]
         verbose: bool,
+
+        /// Source the bundle in place of ~/.zshrc
+        #[arg(short, long)]
+        direct: bool,
     },
 }
 
@@ -62,7 +66,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         .ok_or("dotfiles root not found")?;
     match cli.command {
         Some(Command::Where { names }) => return locate(&root, &names),
-        Some(Command::Verify { verbose }) => return check(&root, verbose),
+        Some(Command::Verify { verbose, direct }) => return check(&root, verbose, direct),
         None => {}
     }
     let built = build(&Options {
@@ -113,8 +117,8 @@ fn locate(root: &std::path::Path, names: &[String]) -> Result<ExitCode, String> 
     Ok(code)
 }
 
-fn check(root: &std::path::Path, verbose: bool) -> Result<ExitCode, String> {
-    let verified = verify::verify(root)?;
+fn check(root: &std::path::Path, verbose: bool, direct: bool) -> Result<ExitCode, String> {
+    let verified = verify::verify(root, direct)?;
     for bundle in &verified.stale {
         eprintln!("{PROGRAM}: {}: stale", bundle.display());
     }

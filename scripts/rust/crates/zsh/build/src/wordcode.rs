@@ -19,6 +19,62 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 const SAME_CODE: &str = "eval \"__zb_left() {\n$1\n}\" && eval \"__zb_right() {\n$2\n}\" && \
 [[ $functions[__zb_left] == \"$functions[__zb_right]\" ]] && print same";
 
+/// Prints `same` when zsh reads `$2` with the aliases `$1` sets as it reads
+/// `$3` without aliases, and reads `$5` alike with the aliases `$4` sets.
+const SAME_EXPANSION: &str = "eval \"$1\" && eval \"__zb_left() {\n$2\n}\" && setopt no_aliases && \
+eval \"__zb_right() {\n$3\n}\" && [[ $functions[__zb_left] == \"$functions[__zb_right]\" ]] || exit\n\
+unalias -m '*' 2>/dev/null; unalias -s -m '*' 2>/dev/null; setopt aliases\n\
+eval \"$4\" && eval \"__zb_text() {\n$5\n}\" && setopt no_aliases && \
+eval \"__zb_code() {\n$5\n}\" && [[ $functions[__zb_text] == \"$functions[__zb_code]\" ]] && print same";
+
+/// What zsh is asked to confirm about one statement's alias expansion.
+pub struct Expansion<'a> {
+    /// `alias` commands for the aliases zsh parses the statement with.
+    pub aliases: &'a str,
+    pub original: &'a str,
+    /// The statement with its expansions, unquoted.
+    pub expanded: &'a str,
+    /// `alias` commands for every name a bundle read as text may have set.
+    pub seen: &'a str,
+    /// The statement as the bundle spells it.
+    pub protected: &'a str,
+}
+
+/// Whether zsh expands `original` as `expanded`, and reads `protected` the
+/// same with or without the aliases in `seen`; kept between builds.
+pub fn same_expansion(zsh: &Path, expansion: &Expansion, cache: &mut Cache) -> bool {
+    let program = zsh.to_string_lossy().into_owned();
+    let parts = [
+        expansion.aliases,
+        expansion.original,
+        expansion.expanded,
+        expansion.seen,
+        expansion.protected,
+    ];
+    let identity: Vec<String> = [program.clone(), "alias-expansion".to_string()]
+        .into_iter()
+        .chain(
+            parts
+                .iter()
+                .map(|part| format!("{:016x}", script::hash(part))),
+        )
+        .collect();
+    let argv: Vec<String> = [
+        program,
+        "-fc".to_string(),
+        SAME_EXPANSION.to_string(),
+        "zsh".to_string(),
+    ]
+    .into_iter()
+    .chain(parts.iter().map(|part| part.to_string()))
+    .collect();
+    cache
+        .get_or_run(Key::new(&identity, zsh, None), || {
+            cache::run(&argv, zsh, None, TIMEOUT)
+        })
+        .is_ok_and(|output| output.trim() == "same")
+}
+
 /// `$SHELL` when it is a zsh, else the first `zsh` on the search path.
 pub fn shell(search: &State) -> Option<PathBuf> {
     std::env::var_os("SHELL")

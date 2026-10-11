@@ -98,20 +98,42 @@ fn a_bundle_that_rewrites_function_bodies_matches_its_sources() {
 }
 
 #[test]
-fn an_alias_in_a_function_defined_after_it_is_reported() {
+fn an_alias_the_build_expands_in_a_function_matches() {
     let root = fixture();
     let rc = root.path().join("zsh/rc.zsh");
     let text = fs::read_to_string(&rc).unwrap().replace(
         "alias ll='ls -l'\n",
-        "alias ll='ls -l'\nlsl() { ll \"$@\" }\n",
+        "alias ls='ls -F'\nalias ll='ls -l'\nlsl() { ll \"$@\" }\n",
     );
     fs::write(&rc, text).unwrap();
     assert!(zsh_build(root.path(), &[]).success());
+    assert!(bundle(root.path()).contains("lsl() { \\ls -F -l \"$@\" }"));
+    let verified = zsh_build(root.path(), &["verify"]);
+    assert!(verified.success(), "{verified:?}");
+    assert_eq!(verified.stdout, "bundle matches sources\n");
+}
+
+#[test]
+fn an_alias_the_build_leaves_in_a_function_is_reported() {
+    let root = fixture();
+    let rc = root.path().join("zsh/rc.zsh");
+    let text = fs::read_to_string(&rc).unwrap().replace(
+        "alias ll='ls -l'\n",
+        "alias ll='ls -l | cat'\nlsl() { ll \"$@\" }\n",
+    );
+    fs::write(&rc, text).unwrap();
+    let built = zsh_build(root.path(), &[]);
+    assert!(
+        built
+            .stderr
+            .contains("alias ll: value is not one command of plain words; not expanded"),
+        "{built:?}"
+    );
     let verified = zsh_build(root.path(), &["verify"]);
     assert_eq!(verified.code(), Some(1), "{verified:?}");
     assert_eq!(
         verified.stdout,
-        "functions\n  lsl  bundle: ll \"$@\"  sources: ls -l \"$@\"\n"
+        "functions\n  lsl  bundle: ll \"$@\"  sources: ls -l | cat \"$@\"\n"
     );
 }
 

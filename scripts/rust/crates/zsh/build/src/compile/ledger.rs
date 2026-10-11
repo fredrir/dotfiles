@@ -228,7 +228,11 @@ impl Compiler {
         let (touches, functions) = called
             .map(|body| self.ledger.running(body))
             .unwrap_or_default();
-        self.record(std::iter::once((touch, key)).chain(touches).collect());
+        // An `alias` or `setopt` run here is read in full by the compiler
+        let assigned = key.0 == "var";
+        let touches: Vec<(Touch, Key)> = std::iter::once((touch, key)).chain(touches).collect();
+        self.alias_touches(&touches[usize::from(!assigned)..]);
+        self.record(touches);
         for (name, body) in functions {
             self.ledger.set_body(&name, Some(body));
         }
@@ -276,6 +280,7 @@ impl Compiler {
     pub(super) fn record_unfollowed(&mut self, lists: &[ZshList]) {
         let body = read_body(lists, self.state.in_function());
         let (touches, functions) = self.ledger.running(&body);
+        self.alias_touches(&touches);
         self.record(touches);
         for (name, body) in functions {
             self.ledger.set_body(&name, Some(body));

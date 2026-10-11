@@ -452,6 +452,25 @@ pub fn changes_emulation_in(lists: &[ZshList], in_function: bool) -> bool {
     })
 }
 
+/// Whether running `lists` makes the options it sets revert when the
+/// function running it returns.
+pub fn sets_local_options(lists: &[ZshList]) -> bool {
+    let mut visits = Vec::new();
+    visit(lists, 0, &mut visits);
+    visits.iter().any(|(_, visit)| match visit {
+        Visit::Command(ZshCommand::Simple(simple)) => match command_words(simple).split_first() {
+            Some((name, args)) if name == "emulate" => args
+                .iter()
+                .any(|arg| arg.starts_with('-') && !arg.starts_with("--") && arg.contains('L')),
+            Some((name, args)) if name == "setopt" => {
+                args.iter().any(|arg| super::ledger::local_option(arg))
+            }
+            _ => false,
+        },
+        _ => false,
+    })
+}
+
 /// Whether running `lists` may change an option, outside nested function bodies.
 pub fn sets_options(lists: &[ZshList]) -> bool {
     let mut visits = Vec::new();

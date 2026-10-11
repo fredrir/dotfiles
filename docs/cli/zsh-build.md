@@ -13,14 +13,15 @@
 ## Flags
 
 <!-- cli:flags:start -->
-| Flag                    | Description                                                             |
-| ----------------------- | ----------------------------------------------------------------------- |
-| `-n`, `--dry-run`       | Shows whether the bundle would change without writing it.               |
-| `--root <ROOT>`         | Sets the dotfiles checkout; defaults to `$DOTFILES`, then `~/dotfiles`. |
-| `-v`, `--verbose`       | Shows differing values in full; multi-line ones as a diff.              |
-| `-h`, `--help`          | Shows help for the selected command and exits.                          |
-| `--completions <SHELL>` | Prints a shell completion script for the named shell and exits.         |
-| `-V`, `--version`       | Prints the version and exits.                                           |
+| Flag                    | Description                                                              |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `-n`, `--dry-run`       | Shows whether the bundle would change without writing it.                |
+| `--root <ROOT>`         | Sets the dotfiles checkout; defaults to `$DOTFILES`, then `~/dotfiles`.  |
+| `-v`, `--verbose`       | Shows differing values in full; multi-line ones as a diff.               |
+| `-d`, `--direct`        | Sources the bundle in place of `~/.zshrc`, for one built under `--root`. |
+| `-h`, `--help`          | Shows help for the selected command and exits.                           |
+| `--completions <SHELL>` | Prints a shell completion script for the named shell and exits.          |
+| `-V`, `--version`       | Prints the version and exits.                                            |
 <!-- cli:flags:end -->
 
 ## Files
@@ -115,11 +116,33 @@
 | Function run once | Tests in its body, when only definitions lie between it, the statement it starts and its `unset -f` or `unfunction`, and its file names it nowhere else |
 | Kept | Variable and file tests, loop bodies, arms sharing lines or reading `$?` first |
 
+## Aliases
+
+| Expanded | Value |
+| --- | --- |
+| Where | As zsh parses the sources: a sourced file one statement at a time, `eval` output at once, a function body with its definition; not in `$(...)` |
+| Which | Regular in command position, and the next word after a value ending in a space; global anywhere; suffix on a command word; never quoted or escaped words, nor the alias being expanded |
+| Aliases | Set before in source order on every path, deferred code's included; a `return` from a file or function is a path; `aliases` option honored |
+| Spelled | A word a bundle read as text could expand again is quoted, as `\grep --color=auto` |
+| Checked | zsh reads the statement with its aliases as the expansion without them, and the quoted text the same either way; the parser reads the same shape |
+
+| Left as written, with a warning | Value |
+| --- | --- |
+| `not known on every path` | Set on some paths only, to an unknown value, or by a function call |
+| `value is not one command of plain words` | Operators, redirections, assignments or reserved words in the value |
+| `names a function` | `name()` where `name` may be an alias |
+| `set by code the build does not follow` | Any alias may be set |
+| `aliases option not known on every path` | `setopt aliases` or `no_aliases` on some paths only |
+| `statement not read by the build` | Syntax the word reader does not follow, and zsh's check fails |
+| `zsh reads the expansion otherwise` | The check fails |
+| `zsh not found` | Nothing to check with |
+
 ## Verify
 
 | Run | Value |
 | --- | --- |
 | Shells | `-zsh` on a pty, bundle then sources (`ZSH_BUILD_SKIP=1`); never rebuilds |
+| `--direct` | The bundle shell sources the `--root` target's bundle in place of `~/.zshrc` |
 | `ZDOTDIR`, cwd | Scratch dir: links to `~/.zshenv`, `~/.zprofile`, `~/.zlogin`, `~/.zlogout`; `.zshrc` sources `~/.zshrc`, then the dump hook |
 | Environment | Caller's terminal variables (`TERM`, `LANG`, `LC_*`, `WEZTERM_*`, ...) and `ambient`; `PATH=/usr/bin:/bin:/usr/sbin:/sbin`; no `WEZTERM_GO_TO`, `ZSH_COMPDUMP` |
 | Dump | At the first prompt once `_defer_queue` is empty; then `kill -KILL` |
@@ -138,9 +161,10 @@
 | `ZSH_BUILD_SKIP` | Sources only |
 | `fpath` | Bundle's `<target>.completions` dropped |
 | `<target>.completions/` scripts | Sourced in the bundle shell before the dump, aliases off, as the first Tab loads them |
-| Function bodies | As zsh lists them; `${__zbN}` for a `$(cmd)`, a `{ }` block for `eval "$(cmd)"`, native expansions for their command |
+| Function bodies | As zsh lists them; `${__zbN}` for a `$(cmd)`, a `{ }` block for `eval "$(cmd)"`, native expansions for their command; a backslash before a word, which the build adds against a second alias expansion |
 | `add-zle-hook-widget` indices | Order only |
 | Queue residue, bundle only | `add-zle-hook-widget`, `azhw:*`, `_defer_drain`, `_defer_typeahead`, `zle-*` dispatchers, `zle-hook types` |
+| `menu-select` | Completion widget in the bundle, complist's builtin in the sources: deferred `compinit` runs after `zmodload zsh/complist`; with zsh-autosuggestions' copy |
 | Session values | `ATUIN_SESSION`; `$$`, `RANDOM`, `SECONDS`, `TTY`, `COLUMNS`, ... not dumped |
 
 ## Switches

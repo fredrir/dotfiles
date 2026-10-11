@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod alias;
 pub mod cache;
 pub mod compdump;
 pub mod compile;

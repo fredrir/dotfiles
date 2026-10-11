@@ -227,6 +227,8 @@ fn same(table: &str, name: &str, bundle: Option<&String>, sources: Option<&Strin
         // Present in both, new in each shell
         (Some(_), Some(_)) if table == "parameters" && SESSION.contains(&name) => true,
         (Some(bundle), None) if queue_residue(table, name, bundle) => true,
+        // Deferred compinit runs after `zsh/complist` loads, so it wraps `menu-select` too
+        _ if complist_wrapped(table, name, bundle, sources) => true,
         (Some(bundle), Some(sources)) if table == "functions" => rewritten(bundle, sources),
         _ => false,
     }
@@ -247,12 +249,41 @@ fn queue_residue(table: &str, name: &str, value: &str) -> bool {
     }
 }
 
+/// `menu-select`, or zsh-autosuggestions' copy of it, as the completion widget
+/// compinit makes in the bundle and as complist's builtin in the sources.
+fn complist_wrapped(
+    table: &str,
+    name: &str,
+    bundle: Option<&String>,
+    sources: Option<&String>,
+) -> bool {
+    let copy = name
+        .strip_prefix("autosuggest-orig-")
+        .and_then(|rest| rest.strip_suffix("-menu-select"))
+        .is_some_and(|count| !count.is_empty() && count.bytes().all(|byte| byte.is_ascii_digit()));
+    match (
+        table,
+        bundle.map(String::as_str),
+        sources.map(String::as_str),
+    ) {
+        ("widgets", Some("completion:.menu-select:_main_complete"), Some(sources)) => {
+            (name == "menu-select" && sources == "builtin")
+                || (copy && sources == "user:_zsh_autosuggest_orig_menu-select")
+        }
+        ("functions", None, Some("\tzle .menu-select")) => {
+            name == "_zsh_autosuggest_orig_menu-select"
+        }
+        _ => false,
+    }
+}
+
 /// Whether a function body from the bundle is the sources' as the build
 /// rewrites it: native expansions, folded `$(cmd)` and `eval "$(cmd)"`
 /// inlined as a block. Both are zsh's own listing, so layout and quoting
 /// alike; what zsh read as aliases in the sources stays a difference.
 fn rewritten(bundle: &str, sources: &str) -> bool {
-    let bundle = unwrap_natives(bundle);
+    let (bundle, sources) = (unquoted(&unwrap_natives(bundle)), unquoted(sources));
+    let sources = sources.as_str();
     let substitutions = scan::scan(sources).substitutions;
     let old: Vec<&str> = lines(&bundle).iter().map(|line| line.text).collect();
     let new: Vec<Line> = lines(sources);
@@ -399,6 +430,28 @@ fn inlined(old: &[&str], line: &Line, text: &str, substitutions: &[Substitution]
                 .position(|candidate| *candidate == close)?;
             Some(last + 2)
         })
+}
+
+/// `body` without a backslash before a plain character starting a word, which
+/// the build adds so a bundle read as text expands no alias twice; a parsed
+/// body runs the same either way.
+fn unquoted(body: &str) -> String {
+    let bytes = body.as_bytes();
+    let mut out = String::with_capacity(body.len());
+    for (index, character) in body.char_indices() {
+        let starts = index == 0
+            || matches!(
+                bytes[index - 1],
+                b' ' | b'\t' | b'\n' | b';' | b'|' | b'&' | b'(' | b'{'
+            );
+        let plain = bytes
+            .get(index + 1)
+            .is_some_and(|next| next.is_ascii_alphanumeric() || b"_-.+@:/%,".contains(next));
+        if !(character == '\\' && starts && plain) {
+            out.push(character);
+        }
+    }
+    out
 }
 
 /// `body` with each native expansion back to the substitution it stands for.

@@ -571,7 +571,8 @@
     "zsh-build": {
       "--dry-run": "Shows whether the bundle would change without writing it.",
       "--root": "Sets the dotfiles checkout; defaults to `$DOTFILES`, then `~/dotfiles`.",
-      "--verbose": "Shows differing values in full; multi-line ones as a diff."
+      "--verbose": "Shows differing values in full; multi-line ones as a diff.",
+      "--direct": "Sources the bundle in place of `~/.zshrc`, for one built under `--root`."
     }
   }
 }

@@ -66,6 +66,8 @@ pub struct State {
     pub functions: BTreeMap<String, Function>,
     /// Names that are aliases on every path here; `name()` after one fails to parse.
     pub aliases: BTreeSet<String>,
+    /// Alias values and the `aliases` option, deferred code's included.
+    pub alias_table: crate::alias::Table,
     pub omz_alias_styles: bool,
     frames: Vec<BTreeMap<String, Var>>,
 }
@@ -83,6 +85,7 @@ impl State {
             path: Some(path),
             functions: BTreeMap::new(),
             aliases: BTreeSet::new(),
+            alias_table: crate::alias::Table::default(),
             omz_alias_styles: false,
             frames: Vec::new(),
         }
@@ -173,6 +176,7 @@ impl State {
         self.functions
             .retain(|name, function| other.functions.get(name) == Some(function));
         self.aliases.retain(|name| other.aliases.contains(name));
+        self.alias_table.merge(&other.alias_table);
         self.omz_alias_styles |= other.omz_alias_styles;
     }
 }

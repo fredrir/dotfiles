@@ -23,7 +23,9 @@ pub struct Verified {
     pub differences: Vec<Difference>,
 }
 
-pub fn verify(root: &Path) -> Result<Verified, String> {
+/// Verifies the bundles under `root`; `direct` sources the first one in place
+/// of `~/.zshrc`, for a bundle built elsewhere.
+pub fn verify(root: &Path, direct: bool) -> Result<Verified, String> {
     let config = Config::load(&root.join(config::RELATIVE_PATH))?;
     let output = root.join(&config.output);
     let bundles: Vec<PathBuf> = config
@@ -69,7 +71,13 @@ pub fn verify(root: &Path) -> Result<Verified, String> {
     let mut ambient = config.ambient.clone();
     ambient.extend(config.system.ambient.iter().cloned());
     let env = shell::environment(&ambient);
-    let bundle = shell::run(&zsh, scratch.path(), &env, &Startup::Bundle(&completions))?;
+    let sourced = bundles.first().filter(|_| direct).map(PathBuf::as_path);
+    let bundle = shell::run(
+        &zsh,
+        scratch.path(),
+        &env,
+        &Startup::Bundle(&completions, sourced),
+    )?;
     let sources = shell::run(&zsh, scratch.path(), &env, &Startup::Sources)?;
     if stamps(&bundles) != before {
         return Err("bundle changed while verifying".to_string());

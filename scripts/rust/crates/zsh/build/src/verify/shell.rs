@@ -83,8 +83,9 @@ pub fn environment(ambient: &[String]) -> BTreeMap<OsString, OsString> {
 
 /// Which startup `~/.zshrc` takes.
 pub enum Startup<'a> {
-    /// The bundle; its completion directories, loaded before the dump.
-    Bundle(&'a [String]),
+    /// The bundle; its completion directories, loaded before the dump, and
+    /// the bundle to source in place of `~/.zshrc`, if any.
+    Bundle(&'a [String], Option<&'a Path>),
     /// The sources, through `ZSH_BUILD_SKIP=1`.
     Sources,
 }
@@ -92,7 +93,7 @@ pub enum Startup<'a> {
 impl Startup<'_> {
     fn label(&self) -> &'static str {
         match self {
-            Startup::Bundle(_) => "bundle",
+            Startup::Bundle(..) => "bundle",
             Startup::Sources => "sources",
         }
     }
@@ -174,7 +175,7 @@ fn prepare(
     }
     let word = |path: &Path| quote::word(&path.to_string_lossy());
     let completions = match startup {
-        Startup::Bundle(dirs) => dirs
+        Startup::Bundle(dirs, _) => dirs
             .iter()
             .map(|dir| quote::word(dir))
             .collect::<Vec<_>>()
@@ -187,7 +188,10 @@ fn prepare(
         .replace("@DUMP@", &word(&dump))
         .replace("@COMPLETIONS@", &completions);
     write(&hook, &text)?;
-    let rc = home.join(".zshrc");
+    let rc = match startup {
+        Startup::Bundle(_, Some(bundle)) => bundle.to_path_buf(),
+        _ => home.join(".zshrc"),
+    };
     let zshrc = format!(
         "__zbv_load() {{ \\builtin emulate -L zsh -o no_aliases; \\builtin source {hook} }}\n\
          [[ -r {rc} ]] && \\builtin source {rc}\n\

@@ -55,7 +55,7 @@ pub fn discards_stderr(redir: &ZshRedir) -> bool {
 }
 
 impl Compiler {
-    fn helper_ok(&mut self, name: &str) -> bool {
+    pub(super) fn helper_ok(&mut self, name: &str) -> bool {
         let Some(function) = self.state.functions.get(name) else {
             return false;
         };
@@ -237,7 +237,10 @@ pub fn eval(
     let text = output(compiler, &argv)
         // A `return` in eval'd code leaves the caller, not the code.
         .filter(|script| walk::file_returns(&script.program.lists) == Some(0))
-        .and_then(|script| compiler.inline_generated(&script, Mode::Plain, rewrite, cx));
+        .and_then(|script| {
+            compiler.eval_parse = true;
+            compiler.inline_generated(&script, Mode::Plain, rewrite, cx)
+        });
     (text, false)
 }
 
