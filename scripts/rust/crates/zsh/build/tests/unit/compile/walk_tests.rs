@@ -196,3 +196,30 @@ fn replacements_reach_only_function_bodies() {
         assert_eq!(crate::script::shape(left), crate::script::shape(right));
     }
 }
+
+fn single(text: &str) -> Vec<(usize, usize)> {
+    single_calls(&parse(text).unwrap().lists, text)
+}
+
+#[test]
+fn a_function_called_once_then_removed_runs_only_there() {
+    let text = "use_a() { a }\nuse_b() { b }\nuse_a || use_b\nunset -f -m 'use_*'\nafter\n";
+    assert_eq!(single(text), [(0, 2)]);
+    assert_eq!(single("f() { a }\nf\nunfunction f\n"), [(0, 1)]);
+}
+
+#[test]
+fn a_function_that_may_run_again_is_not_run_once() {
+    for text in [
+        "f() { a }\nf\n",
+        "f() { a }\nx=1\nf\nunset -f f\n",
+        "f() { a }\nf\ng\nunset -f f\n",
+        "f() { a }\nf || return\nunset -f f\n",
+        "f() { a }\nf\nunset f\n",
+        "f() { f }\nf\nunset -f f\n",
+        "f() { a }\nf\nunset -f -m 'g*'\n",
+        "f() { a }\n# f\nf\nunset -f f\n",
+    ] {
+        assert!(single(text).is_empty(), "{text}");
+    }
+}

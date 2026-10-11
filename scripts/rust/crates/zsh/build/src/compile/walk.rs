@@ -241,6 +241,101 @@ pub fn contains_loop_control(lists: &[ZshList]) -> bool {
         .any(|word| contains_word(lists, word))
 }
 
+/// Functions whose only run is one call: `(definition, call)` statement
+/// indices where only definitions lie between a function's definition, a
+/// statement starting with its call, and its removal by `unset -f` or
+/// `unfunction`, and `source` names it nowhere else.
+pub fn single_calls(lists: &[ZshList], source: &str) -> Vec<(usize, usize)> {
+    let next_run =
+        |from: usize| (from..lists.len()).find(|&index| defined(&lists[index]).is_none());
+    let mut out = Vec::new();
+    for (definition, list) in lists.iter().enumerate() {
+        let Some(node) = defined(list).filter(|node| node.auto_call_args.is_none()) else {
+            continue;
+        };
+        let [name] = node.names.as_slice() else {
+            continue;
+        };
+        let name = text(name);
+        let Some(call) = next_run(definition + 1) else {
+            continue;
+        };
+        let Some(removal) = next_run(call + 1) else {
+            continue;
+        };
+        let redefined = lists[definition + 1..removal]
+            .iter()
+            .filter_map(defined)
+            .any(|node| node.names.iter().any(|other| text(other) == name));
+        let Some(removed) = removal_mentions(&lists[removal], &name) else {
+            continue;
+        };
+        let leaves = contains_loop_control(&lists[call..=call])
+            || contains_word(&lists[call..=call], "exit");
+        if !redefined
+            && !leaves
+            && first_command(&lists[call]).as_deref() == Some(name.as_str())
+            && source.matches(name.as_str()).count() == 2 + removed
+        {
+            out.push((definition, call));
+        }
+    }
+    out
+}
+
+fn defined(list: &ZshList) -> Option<&ZshFuncDef> {
+    match sole(list)? {
+        ZshCommand::FuncDef(node) => Some(node),
+        _ => None,
+    }
+}
+
+/// The command a statement runs first, outside a pipeline.
+fn first_command(list: &ZshList) -> Option<String> {
+    let pipe = &list.sublist.pipe;
+    match &pipe.cmd {
+        ZshCommand::Simple(simple)
+            if !list.flags.async_ && pipe.next.is_none() && simple.assigns.is_empty() =>
+        {
+            simple.words.first().map(|word| text(word))
+        }
+        _ => None,
+    }
+}
+
+/// How often a statement removing function `name` names it; `None` when it
+/// does not remove it.
+fn removal_mentions(list: &ZshList, name: &str) -> Option<usize> {
+    let simple = sole_simple(list).filter(|simple| simple.assigns.is_empty())?;
+    let words = words(simple);
+    let (command, args) = words.split_first()?;
+    let flags: String = args
+        .iter()
+        .filter(|arg| arg.starts_with('-'))
+        .flat_map(|arg| arg.chars().skip(1))
+        .collect();
+    if !(command == "unfunction" || command == "unset" && flags.contains('f')) {
+        return None;
+    }
+    let matches = |arg: &String| {
+        let Some(value) = crate::expand::scalar(arg, &super::Unknown) else {
+            return false;
+        };
+        let plain = |c: char| c.is_ascii_alphanumeric() || "_-.:+*?[]!".contains(c);
+        match flags.contains('m') {
+            true => {
+                value.chars().all(plain)
+                    && glob::Pattern::new(&value).is_ok_and(|pattern| pattern.matches(name))
+            }
+            false => value == name,
+        }
+    };
+    args.iter()
+        .filter(|arg| !arg.starts_with('-'))
+        .any(matches)
+        .then(|| words.iter().map(|word| word.matches(name).count()).sum())
+}
+
 /// Names a statement may assign, for constructs the compiler does not model.
 pub fn assigned(lists: &[ZshList]) -> Vec<String> {
     let mut visits = Vec::new();

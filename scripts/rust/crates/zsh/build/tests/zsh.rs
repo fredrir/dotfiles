@@ -839,3 +839,75 @@ fn dropped_code_takes_its_returns_and_file_references_with_it() {
     let report = same(root.path(), r#"print -r -- "after=$after_drop""#);
     assert!(report.contains("after=1"), "{report}");
 }
+
+#[test]
+fn a_return_inside_a_loop_still_leaves_only_its_file() {
+    let root = fixture();
+    fs::write(
+        root.path().join("zsh/parts/50-loop.zsh"),
+        "for word in a b; do\n  [[ $word == a ]] && return\n  looped=$word\ndone\nafter_loop=1\n",
+    )
+    .unwrap();
+    let built = build(root.path(), &[]);
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    let bundle = bundle_text(root.path());
+    assert!(bundle.contains("[[ $word == a ]] && break 2\n"), "{bundle}");
+    let report = same(
+        root.path(),
+        r#"print -r -- "looped=${looped-unset} after=${after_loop-unset}""#,
+    );
+    assert!(report.contains("looped=unset after=unset"), "{report}");
+}
+
+const ONCE: &str = "setup_probe() {\n  (( ${+commands[probe]} )) || return 1\n  has_cmd absent && return 1\n  setup_by=probe\n}\nsetup_fallback() {\n  (( $+commands[probe] )) || return 1\n  setup_by=fallback\n}\nsetup_probe || setup_fallback\nunset -f -m 'setup_*'\n() {\n  has_cmd absent && return\n  anonymous=1\n}\n";
+
+#[test]
+fn command_tests_in_a_function_run_once_at_startup_are_decided() {
+    let root = fixture();
+    fs::write(root.path().join("zsh/parts/50-once.zsh"), ONCE).unwrap();
+    let built = build(root.path(), &[]);
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    let bundle = bundle_text(root.path());
+    assert!(!bundle.contains("${+commands[probe]}"), "{bundle}");
+    assert!(
+        bundle.contains("  (( $+commands[probe] )) || return 1\n  setup_by=fallback\n"),
+        "{bundle}"
+    );
+    let report = same(
+        root.path(),
+        r#"print -r -- "by=$setup_by left=${(k)functions[(I)setup_*]} anonymous=$anonymous""#,
+    );
+    assert!(report.contains("by=probe left= anonymous=1"), "{report}");
+}
+
+const SUBSHELL: &str = "#!/bin/sh\necho subshell >> \"$PROBE_LOG\"\nprintf 'sub_fn() {\\n  if ((( $# )) && [[ $1 == x ]]); then print -r -- matched; else print -r -- other; fi\\n}\\n'\n";
+
+#[test]
+fn folded_code_zsh_reads_as_a_subshell_is_respelled_to_parse() {
+    let root = fixture();
+    let config = root.path().join("config/zsh/build.toml");
+    let text = fs::read_to_string(&config).unwrap().replace(
+        "\"absent --value\"",
+        "\"absent --value\", \"subshell --zsh\"",
+    );
+    fs::write(&config, text).unwrap();
+    executable(&root.path().join("bin/subshell"), SUBSHELL);
+    fs::write(
+        root.path().join("zsh/parts/50-subshell.zsh"),
+        "load() {\n  eval \"$(subshell --zsh)\"\n}\nload\n",
+    )
+    .unwrap();
+    let built = build(root.path(), &[]);
+    assert!(built.success() && built.stderr.is_empty(), "{built:?}");
+    let bundle = bundle_text(root.path());
+    assert!(
+        bundle.contains("if ( (( $# )) && [[ $1 == x ]]); then"),
+        "{bundle}"
+    );
+    assert!(!bundle.contains("$(subshell"), "{bundle}");
+    let report = same(root.path(), r#"print -r -- "$(sub_fn x) $(sub_fn)""#);
+    assert!(report.contains("matched other"), "{report}");
+    fs::remove_file(root.path().join("run.log")).unwrap();
+    shell(root.path(), true, ":", &[]);
+    assert_eq!(log(root.path()), "");
+}

@@ -123,7 +123,8 @@ impl Compiler {
         result
     }
 
-    /// Code generated at the current statement, reported as defined there.
+    /// Code generated at the current statement, reported as defined there,
+    /// nested definitions the compiler does not follow included.
     fn inline_generated(
         &mut self,
         script: &Script,
@@ -133,7 +134,11 @@ impl Compiler {
     ) -> Option<String> {
         let location = self.location(cx);
         let source = location.as_deref().map(Origin::Fixed);
-        self.inline(script, None, source, mode, rewrite, cx)
+        let text = self.inline(script, None, source, mode, rewrite, cx)?;
+        if let Some(location) = location {
+            self.define(walk::function_names(&script.program.lists), &location);
+        }
+        Some(text)
     }
 
     fn inline_file(&mut self, path: &Path, mode: Mode, rewrite: bool, cx: &Cx) -> Option<String> {
@@ -261,7 +266,7 @@ fn output(compiler: &mut Compiler, argv: &[String]) -> Option<Script> {
             return None;
         }
     };
-    Script::parse(output).ok()
+    compiler.parse_generated(output).ok()
 }
 
 /// The command in `$(...)`, `"$(...)"` or backquotes, and whether it is quoted.
@@ -449,7 +454,7 @@ pub fn cached_eval(
     let Ok(output) = compiler.folder.run_cached(command, &compiler.state) else {
         return (rewrite.then(|| ":\n".to_string()), false);
     };
-    let Ok(script) = Script::parse(output) else {
+    let Ok(script) = compiler.parse_generated(output) else {
         compiler.note(format!(
             "cached_eval {}: output does not parse",
             command.join(" ")

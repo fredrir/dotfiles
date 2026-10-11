@@ -10,9 +10,14 @@ use std::time::Duration;
 use hostkit::process::{CaptureLimits, output};
 
 use crate::cache::{self, Cache, Key};
+use crate::script;
 use crate::state::State;
 
 const TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Prints `same` when `$1` and `$2`, as function bodies, print back alike.
+const SAME_CODE: &str = "eval \"__zb_left() {\n$1\n}\" && eval \"__zb_right() {\n$2\n}\" && \
+[[ $functions[__zb_left] == \"$functions[__zb_right]\" ]] && print same";
 
 /// `$SHELL` when it is a zsh, else the first `zsh` on the search path.
 pub fn shell(search: &State) -> Option<PathBuf> {
@@ -41,6 +46,31 @@ pub fn shell_version(zsh: &Path, cache: &mut Cache) -> Result<String, String> {
         "" => Err(format!("{}: version unknown", zsh.display())),
         version => Ok(version.to_string()),
     }
+}
+
+/// Whether `zsh` reads `left` and `right` as the same code; kept between
+/// builds by the texts' hashes.
+pub fn same_code(zsh: &Path, left: &str, right: &str, cache: &mut Cache) -> bool {
+    let program = zsh.to_string_lossy().into_owned();
+    let identity = [
+        program.clone(),
+        "same-code".to_string(),
+        format!("{:016x}", script::hash(left)),
+        format!("{:016x}", script::hash(right)),
+    ];
+    let argv = [
+        program,
+        "-fc".to_string(),
+        SAME_CODE.to_string(),
+        "zsh".to_string(),
+        left.to_string(),
+        right.to_string(),
+    ];
+    cache
+        .get_or_run(Key::new(&identity, zsh, None), || {
+            cache::run(&argv, zsh, None, TIMEOUT)
+        })
+        .is_ok_and(|output| output.trim() == "same")
 }
 
 pub fn path(source: &Path) -> PathBuf {

@@ -30,7 +30,7 @@
 | `.cache/zsh/build/zshrc.zsh.zwc` | Wordcode; compiled by the build with `$SHELL` if zsh, else `zsh` on `PATH`. A shell recompiles it in the background when older than the bundle or from another zsh version |
 | `.cache/zsh/build/zshrc.origins` | Function name to defining `file:line`; read by `zsh-build where` and the bundle's `type`/`whence` |
 | `.cache/zsh/build/zshrc.completions/` | `cached_eval` output that is an autoloadable `#compdef` script; first in `fpath` at a deferred `compinit`, loaded on the first Tab |
-| `.cache/zsh/build/commands.json` | `[fold] commands` and `cached_eval` output kept between builds; reused until the program (symlinks resolved, mtime, size) or its `PATH` changes; a `#!` script also until its git checkout's commit changes, and outside one is not kept |
+| `.cache/zsh/build/commands.json` | `[fold] commands` and `cached_eval` output kept between builds; reused until the program (symlinks resolved, mtime, size) or its `PATH` changes; a `#!` script also until its git checkout's commit changes, and outside one is not kept; zsh's check of respelled generated code, until zsh changes |
 | `~/.zcompdump-*.fpath` | `fpath` the completion dump was built for; while it matches and the dump is not newer, the bundle runs `compinit -C`. A build removes a dump whose completion functions changed |
 | `.cache/zsh/build/zshrc.rcs.zsh` | Guard sourced by `~/.zshenv`; only when every global startup file compiled |
 | `shared/zsh/00-profile.zsh` | `~/.zprofile` (macOS) |
@@ -72,7 +72,7 @@
 | --- | --- |
 | Top level | `typeset`, `local`, `trap`, `emulate -L`, local options, `return`, loop control |
 | compinit section | `$0`; sets `fpath`; shares lines |
-| Later startup code | Changes or calls an alias, function, widget, zstyle, option, variable or completion it sets |
+| Later startup code | Changes or calls an alias, function, widget, zstyle, option, variable, completion or key binding it sets; changes a key binding it reads |
 | Any unit | Adds a precmd hook; `defer` unrecognized |
 
 ## Global startup files
@@ -99,6 +99,7 @@
 | `eval` of `path_helper -s` | Native zsh; runs `path_helper` when `PATH`/`MANPATH` hold `$`, `` ` ``, `\`, `"`, tabs, newlines or double spaces |
 | `eval "$(cmd)"` | Output inlined when `cmd` is in `[fold] commands` |
 | `eval "$(cmd)"` in a function | Output inlined as a `{ }` block when it parses and reads no call frames or line numbers |
+| `((( a )) && b)` in output | Respelled `( (( a )) && b)` when zsh reads both alike |
 | `$(atuin uuid)` | Native UUIDv7; runs `atuin uuid` when `/dev/urandom` or `epochtime` fail; kept when its output changes form |
 | `$(locale LC_CTYPE)` | `${langinfo[CODESET]}`; runs `locale` when `zsh/langinfo` fails; kept when `locale` prints more than the codeset |
 | `$(emulate)` | `zsh` at top level; kept once compiled code may change the emulation |
@@ -109,6 +110,7 @@
 | `if` chain | Only the arm that runs; `:` when none does |
 | `test && cmd`, `test \|\| cmd` | `cmd`; `:` or `! :` (same status) when it never runs |
 | Tests | `has_cmd name`, `(( $+commands[name] ))`, `true`, `false`, `[[ ]]` on constants; with `!`, `&&`, `\|\|` |
+| Function run once | Tests in its body, when only definitions lie between it, the statement it starts and its `unset -f` or `unfunction`, and its file names it nowhere else |
 | Kept | Variable and file tests, loop bodies, arms sharing lines or reading `$?` first |
 
 ## Switches

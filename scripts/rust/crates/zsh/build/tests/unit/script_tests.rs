@@ -79,3 +79,13 @@ fn incomplete_input_is_an_error() {
     assert!(parse("echo $(").is_err());
     assert!(parse("a\n# trailing").is_ok());
 }
+
+#[test]
+fn subshells_around_double_parens_are_respelled_with_a_space() {
+    let text = "if ((( a )) && [[ $s == x ]]); then :; fi\n";
+    assert!(parse(text).is_err());
+    let respelled = respace(text).unwrap();
+    assert_eq!(respelled, "if ( (( a )) && [[ $s == x ]]); then :; fi\n");
+    assert!(parse(&respelled).is_ok());
+    assert_eq!(respace("(((a + 1) * 2)) && :\n"), None);
+}

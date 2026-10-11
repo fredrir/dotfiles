@@ -144,3 +144,26 @@ fn compdef_after_a_deferred_compinit_is_queued_behind_it() {
     assert_eq!(ledger.events[0].0, Touch::Queued(0));
     assert_eq!(ledger.events[1].0, Touch::Define);
 }
+
+#[test]
+fn builtin_runs_the_command_it_names() {
+    assert_eq!(
+        touches("builtin", &["setopt", "no_aliases"]),
+        vec![define("option", "aliases")]
+    );
+}
+
+#[test]
+fn bindkey_in_a_substitution_reads_the_binding() {
+    let names = body("binding=$(builtin bindkey '^I')\nbindkey '^T' widget\n");
+    assert!(names.called.contains(&("bindkey", "main ^I".to_string())));
+    assert!(names.defined.contains(&("bindkey", "main ^T".to_string())));
+}
+
+#[test]
+fn a_runtime_key_binding_conflicts_with_any_key_of_its_keymap() {
+    let names = body("bindkey -M vicmd \"$1\" widget\n");
+    let later = |name: &str| ("bindkey", name.to_string());
+    assert!(names.conflict(Touch::Define, &later("vicmd ^R")).is_some());
+    assert!(names.conflict(Touch::Define, &later("main ^R")).is_none());
+}

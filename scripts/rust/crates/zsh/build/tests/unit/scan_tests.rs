@@ -120,3 +120,9 @@ fn an_open_quote_is_reported() {
     assert!(scan("echo \"open").unterminated);
     assert!(scan("echo $(open").unterminated);
 }
+
+#[test]
+fn triple_parens_zsh_reads_as_a_subshell_are_found() {
+    let text = "if ((( a )) && [[ b ]]) ||\n  ((( ! a )) && [[ c ]]); then :; fi\n(((x + 1) * 2 > 3)) && :\n((( ! a )))\n$(((1)))\n'((( a )) x)'\n";
+    assert_eq!(scan(text).subshell_parens, [3, 29]);
+}

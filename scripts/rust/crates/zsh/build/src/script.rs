@@ -225,6 +225,24 @@ fn parse_raw(text: &str) -> Result<ZshProgram, String> {
     }
 }
 
+/// `text` with a space after each `(` zsh reads as a subshell around `((`, a
+/// spelling the parser rejects; `None` when there is none.
+pub fn respace(text: &str) -> Option<String> {
+    let opens = scan(text).subshell_parens;
+    if opens.is_empty() {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len() + opens.len());
+    let mut position = 0;
+    for open in opens {
+        out.push_str(&text[position..=open]);
+        out.push(' ');
+        position = open + 1;
+    }
+    out.push_str(&text[position..]);
+    Some(out)
+}
+
 /// FNV-1a: stable across builds and platforms, unlike `std`'s hasher.
 pub fn hash(text: &str) -> u64 {
     text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {

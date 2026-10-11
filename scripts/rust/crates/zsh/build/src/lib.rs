@@ -90,6 +90,7 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
         let origins = output.with_file_name(format!("{}.origins", target.name));
         let mut compiler = Compiler::new(state, folder, options.root.clone());
         compiler.path_helper_root = config.system.path_helper_root.clone();
+        compiler.zsh = zsh.as_ref().ok().map(|(zsh, _)| zsh.clone());
         compiler.deferral = Deferral::new(&config.defer, &options.root)?;
         compiler.deferral.completions =
             Completions::new(output.with_file_name(format!("{}.completions", target.name)));

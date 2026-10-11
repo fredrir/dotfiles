@@ -40,6 +40,8 @@ pub struct Scan {
     pub words: Vec<Word>,
     /// Newlines between the elements of a closed `name=(...)`, outside comments.
     pub array_newlines: Vec<usize>,
+    /// Each `(` of a `(((` zsh reads as a subshell around `((`, as in `((( a )) && b)`.
+    pub subshell_parens: Vec<usize>,
     pub unterminated: bool,
 }
 
@@ -105,6 +107,27 @@ impl Scanner<'_> {
         name > 0 && !head[start].is_ascii_digit() && word_start(head, start)
     }
 
+    /// Whether the `(` at the cursor starts `(((` at a word, where zsh reads
+    /// `((` as math only when the paren closing it is followed by another.
+    fn opens_subshell(&self) -> bool {
+        if !self.starts_with(b"(((")
+            || !self.at_word_start()
+            || self.bytes[..self.pos].ends_with(b"(")
+        {
+            return false;
+        }
+        let mut depth = 0usize;
+        for (offset, byte) in self.bytes[self.pos + 2..].iter().enumerate() {
+            match byte {
+                b'(' => depth += 1,
+                b')' if depth > 0 => depth -= 1,
+                b')' => return self.bytes.get(self.pos + 3 + offset) != Some(&b')'),
+                _ => {}
+            }
+        }
+        false
+    }
+
     /// Unquoted shell text until `stop`; returns whether the stop was found.
     fn normal(&mut self, stop: Stop) -> bool {
         let mut parens = 0usize;
@@ -117,6 +140,9 @@ impl Scanner<'_> {
                     return true;
                 }
                 b'(' => {
+                    if self.opens_subshell() {
+                        self.out.subshell_parens.push(self.pos);
+                    }
                     parens += 1;
                     if stop == Stop::Eof && array.is_none() && self.opens_array() {
                         array = Some((parens, Vec::new()));

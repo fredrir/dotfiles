@@ -407,3 +407,25 @@ fn line_init_hooks_added_after_deferral_run_on_the_first_prompt() {
         "ok"
     );
 }
+
+#[test]
+fn a_unit_whose_key_bindings_later_code_changes_stays_in_place() {
+    let root = fixture();
+    let after = root.path().join("zsh/after.zsh");
+    let text = fs::read_to_string(&after).unwrap() + "bindkey -r '^Xa'\n";
+    fs::write(&after, text).unwrap();
+    let built = build(root.path());
+    assert!(built.success(), "{built:?}");
+    assert!(
+        built
+            .stderr
+            .contains("alpha.plugin.zsh: bindkey main ^Xa changed later; not deferred"),
+        "{}",
+        built.stderr
+    );
+    let bundle = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
+    assert!(
+        bundle.contains("plugin=alpha\n() {\nmark alpha"),
+        "{bundle}"
+    );
+}

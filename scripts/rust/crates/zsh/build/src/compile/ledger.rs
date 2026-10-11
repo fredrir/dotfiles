@@ -4,14 +4,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use zshrs_parse::parser::{ZshCommand, ZshList, ZshSimple};
+use zshrs_parse::parser::{ZshAssignValue, ZshCommand, ZshList, ZshSimple};
 
-use super::Compiler;
 use super::walk::{self, Visit};
+use super::{Compiler, bindkey};
 use crate::expand::{self, Env, Var};
+use crate::{scan, script};
 
 /// Any name of a kind, for names only known at runtime.
-const ANY: &str = "*";
+pub(super) const ANY: &str = "*";
 
 /// Filled by `compinit`, read by completion code that runs after it.
 pub(crate) const COMPS: &str = "_comps";
@@ -43,7 +44,7 @@ impl Names {
     pub fn conflict(&self, touch: Touch, (kind, name): &Key) -> Option<String> {
         let found = |set: &BTreeSet<Key>| {
             set.iter()
-                .find(|own| own.0 == *kind && (own.1 == *name || own.1 == ANY))
+                .find(|own| own.0 == *kind && covers(kind, &own.1, name))
                 .map(|own| match own.1 == ANY {
                     true => format!("{kind} names set at runtime, {kind} {name} changed later"),
                     false => format!("{kind} {name} changed later"),
@@ -159,10 +160,20 @@ impl Compiler {
     }
 
     fn touch(&mut self, touch: Touch, key: Key) {
+        let touches = self.through_calls(touch, key);
+        self.record(touches);
+    }
+
+    /// A touch, and when it calls a function, what calling it touches.
+    fn through_calls(&self, touch: Touch, key: Key) -> Vec<(Touch, Key)> {
         let mut touches = vec![(touch, key)];
         if let (Touch::Call, ("function", name)) = (touches[0].0, &touches[0].1) {
             touches.extend(self.ledger.calling(name));
         }
+        touches
+    }
+
+    fn record(&mut self, touches: Vec<(Touch, Key)>) {
         for (touch, key) in touches {
             match &mut self.ledger.collecting {
                 Some(names) if touch == Touch::Call => {
@@ -187,6 +198,24 @@ impl Compiler {
     pub(super) fn record_assign(&mut self, name: &str, local: bool) {
         if !local && !self.state.is_local(name) {
             self.touch(Touch::Define, ("var", var_name(name)));
+        }
+    }
+
+    /// Key bindings of code the compiler does not follow, read from its text.
+    pub(super) fn record_unfollowed(&mut self, lists: &[ZshList]) {
+        let names = body_names(lists);
+        let touches = names
+            .touches()
+            .flat_map(|(touch, key)| self.through_calls(touch, key.clone()))
+            .filter(|(_, key)| key.0 == bindkey::KIND)
+            .collect();
+        self.record(touches);
+    }
+
+    /// Key bindings that `$(bindkey ...)` in a simple command reads.
+    pub(super) fn record_reads(&mut self, simple: &ZshSimple) {
+        for key in substitution_reads(simple) {
+            self.touch(Touch::Call, key);
         }
     }
 
@@ -269,6 +298,11 @@ pub(crate) fn command_touches(name: &str, values: &[String]) -> Vec<(Touch, Key)
             .take(1)
             .map(|hook| define("var", &format!("{hook}_functions")))
             .collect(),
+        "bindkey" => bindkey::touches(values),
+        "builtin" => values
+            .split_first()
+            .map(|(name, rest)| command_touches(name, rest))
+            .unwrap_or_default(),
         _ if static_name(name) == ANY => Vec::new(),
         _ => vec![(Touch::Call, ("function", name.to_string()))],
     }
@@ -286,8 +320,57 @@ fn helper_vars(name: &str) -> &'static [&'static str] {
     }
 }
 
+/// Whether a name of this code stands for `name` of `kind`.
+fn covers(kind: &str, own: &str, name: &str) -> bool {
+    own == name || own == ANY || (kind == bindkey::KIND && bindkey::covers(own, name))
+}
+
+/// Key bindings that `$(bindkey ...)` substitutions in a simple command read.
+pub(crate) fn substitution_reads(simple: &ZshSimple) -> Vec<Key> {
+    let assigned = simple
+        .assigns
+        .iter()
+        .flat_map(|assign| match &assign.value {
+            ZshAssignValue::Scalar(value) => vec![walk::text(value)],
+            ZshAssignValue::Array(values) => values.iter().map(|value| walk::text(value)).collect(),
+        });
+    let mut out = Vec::new();
+    for text in walk::words(simple).into_iter().chain(assigned) {
+        for substitution in scan::scan(&text).substitutions {
+            let inner = &text[substitution.inner];
+            let Some(program) = inner
+                .contains("bindkey")
+                .then(|| script::parse(inner).ok())
+                .flatten()
+            else {
+                continue;
+            };
+            let mut visits = Vec::new();
+            walk::visit(&program.lists, 0, &mut visits);
+            for (_, visit) in visits {
+                let Visit::Command(ZshCommand::Simple(command)) = visit else {
+                    continue;
+                };
+                let values: Vec<String> = walk::words(command)
+                    .iter()
+                    .map(|word| expand::scalar(word, &Opaque).unwrap_or_else(|| word.clone()))
+                    .collect();
+                if let Some((name, args)) = values.split_first() {
+                    out.extend(
+                        command_touches(name, args)
+                            .into_iter()
+                            .filter_map(|(_, key)| (key.0 == bindkey::KIND).then_some(key)),
+                    );
+                }
+                out.extend(substitution_reads(command));
+            }
+        }
+    }
+    out
+}
+
 /// A name whose value is unknown until it runs stands for every name of its kind.
-fn static_name(name: &str) -> String {
+pub(super) fn static_name(name: &str) -> String {
     if name.is_empty() || name.contains(['$', '`', '"', '\'', '(']) {
         ANY.to_string()
     } else {
@@ -377,6 +460,11 @@ pub(crate) fn body_names(lists: &[ZshList]) -> Names {
         if serde_json::to_string(simple).is_ok_and(|json| json.contains(COMPS)) {
             touches.push((Touch::Call, ("var", COMPS.to_string())));
         }
+        touches.extend(
+            substitution_reads(simple)
+                .into_iter()
+                .map(|key| (Touch::Call, key)),
+        );
         if let Some((name, args)) = values.split_first() {
             touches.extend(command_touches(name, args));
         }
