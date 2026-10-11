@@ -140,11 +140,7 @@ local bindings = {
   ------ Git & Quick Actions ------
   keybind(git_add, MOD.UNIQUE, "g"),
   ----
-  keybind(
-    vtabs.action { QuickTerminal = { args = { "zsh", "-lc", "lazygit" }, width = 0.9, height = 0.9 } },
-    MOD.PRIMARY,
-    "g"
-  ),
+  keybind(vtabs.action { QuickTerminal = { args = { "zsh", "-lc", "lazygit" } } }, MOD.PRIMARY, "g"),
   ----
 }
 
