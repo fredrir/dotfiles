@@ -51,7 +51,7 @@ http://localhost:5173  → 127.0.0.1, [::1]:5173 ┴─ ssh master ─→ localh
 
 ## Config
 
-| Name   | Value                     |
+| Name   | Value                      |
 | --- | --- |
 | Source | `config/hport/config.toml` |
 | Reload | restart the daemon         |

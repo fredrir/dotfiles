@@ -131,9 +131,9 @@ Markdown table dividers use three dashes by default, preserving alignment colons
 
 Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; JSONC/HuJSON editor mode preserves comments. YAML output must parse to the same values as its input, otherwise the file is left unchanged.
 
-| Result                                                      | Exit status |
+| Result | Exit status |
 | --- | --- |
-| Successful format / clean check                             | `0`         |
+| Successful format / clean check | `0` |
 | Editor formatting/configuration failure, without `--verbose` or `--check` | `0` (original input) |
-| Formatting, configuration, I/O failure or check differences | `1`         |
-| CLI usage error                                             | `2`         |
+| Formatting, configuration, I/O failure or check differences | `1` |
+| CLI usage error | `2` |

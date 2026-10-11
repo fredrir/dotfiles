@@ -87,12 +87,12 @@
 | Newer than guard | Global dir, compiled files, `~/.zprofile` target, `path_helper` data |
 | `~/.zprofile` | Not the linked `profile` |
 
-| Left to zsh | Value |
+| Left to zsh                        | Value                   |
 | --- | --- |
-| `emulate` | Not modeled |
-| Unrewritable `return`, parse error | Same as inlined files |
-| `~/.zprofile` | Not linked to `profile` |
-| `zlogin`, `zlogout` | Always read by zsh |
+| `emulate`                          | Not modeled             |
+| Unrewritable `return`, parse error | Same as inlined files   |
+| `~/.zprofile`                      | Not linked to `profile` |
+| `zlogin`, `zlogout`                | Always read by zsh      |
 
 | Native | Value |
 | --- | --- |
@@ -115,7 +115,7 @@
 
 ## Switches
 
-| Name                | Value                                          |
+| Name | Value |
 | --- | --- |
-| `ZSH_BUILD_SKIP=1`  | Loads the `shared/zsh` sources and lets zsh read the global startup files |
+| `ZSH_BUILD_SKIP=1` | Loads the `shared/zsh` sources and lets zsh read the global startup files |
 | `# zsh-build: omit` | Drops the statement that follows from a bundle |
