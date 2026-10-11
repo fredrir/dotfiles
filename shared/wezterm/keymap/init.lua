@@ -22,6 +22,8 @@ local close_window = require "utils.close_window"
 local copy_selection = require "utils.copy-selection"
 local clear_screen = require "utils.keymap.clear_screen"
 local adopt_pane = require "utils.mux.adopt_pane"
+local vtabs = require "plugins.vtabs"
+local font_size = require("ui.fonts.fonts").font_size
 
 local act = wezterm.action
 
@@ -101,6 +103,11 @@ local bindings = {
 
   keybind("ReloadConfiguration", MOD.SUPER_REV, "r"),
 
+  -- Font size --
+  keybind(act.IncreaseFontSize, MOD.SUPER_REV, "phys:Minus"),
+  keybind(act.DecreaseFontSize, MOD.SUPER_REV, "phys:Slash"),
+  keybind(act.ResetFontSize, MOD.UNIQUE_REV, "phys:Slash"),
+
   -- Mux --
   keybind(mux.detach_pane, MOD.SUPER_REV, "s"),
   keybind(adopt_pane.toggle_host, { MOD.PRIMARY, "CTRL" }, "."),
@@ -120,15 +127,24 @@ local bindings = {
   keybind(git_add, MOD.UNIQUE, "g"),
 
   ------ Directory Navigation ------
-  ------ SHIFT_RIGHT for left side of the keyboard, and OPT for the right side of the keyboard
   ----
-  keybind(go_to "PYPARSER", MOD.UNIQUE, "p"),
+  keybind(go_to "PYPARSER", { MOD.UNIQUE }, "p"),
   keybind(go_to "LLUNDE", MOD.UNIQUE, "l"),
   ----
   keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),
+  keybind(go_to "PYPARSER", { MOD.SHIFT_RIGHT }, "e"),
   keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
+  keybind(go_to "HOME/rif", MOD.SHIFT_RIGHT, "r"),
+  keybind(go_to "HOME/projects/wez-plugins/vertical-tabs", MOD.SHIFT_RIGHT, "q"),
   ----
   keybind(go_to "DOTFILES/shared/wezterm", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "w"),
+
+  ------ Quick Actions ------
+  keybind(
+    vtabs.action { QuickTerminal = { args = { "zsh", "-lc", "lazygit" }, width = 0.9, height = 0.9 } },
+    MOD.SHIFT_RIGHT,
+    "g"
+  ),
 }
 
 -- Go to tab 1..9

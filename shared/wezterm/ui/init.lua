@@ -9,6 +9,7 @@ require "ui.maximize"
 local ui_config = {
   font = wezterm.font_with_fallback { { family = fonts.nerd_family, weight = "Medium" } },
   font_size = fonts.font_size,
+  adjust_window_size_when_changing_font_size = false,
 
   window_padding = {
     bottom = 0,
