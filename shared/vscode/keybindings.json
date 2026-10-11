@@ -387,5 +387,15 @@
     "key": "f12",
     "command": "-editor.gotoNextSymbolFromResult",
     "when": "hasSymbols"
+  },
+  {
+    "key": "shift+alt+e",
+    "command": "editor.action.marker.prev",
+    "when": "editorFocus"
+  },
+  {
+    "key": "shift+alt+f8",
+    "command": "-editor.action.marker.prev",
+    "when": "editorFocus"
   }
 ]

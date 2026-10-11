@@ -44,7 +44,9 @@
 | <code>f12</code> | [<code>-goToNextReference</code>](../../shared/vscode/keybindings.json#L376) | Go To Next Reference<br><code>inReferenceSearchEditor &#124;&#124; referenceSearchVisible; remove binding</code> |
 | <code>shift+alt+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"command":"workbench.action.tasks.runTask","args":"Copy active file content"}&#93;}</code>](../../shared/vscode/keybindings.json#L157) | Run Commands<br><code>editorFocus</code> |
 | <code>shift+alt+b</code> | [<code>workbench.action.tasks.build</code>](../../shared/vscode/keybindings.json#L311) | Tasks build<br><code>taskCommandsRegistered</code> |
+| <code>shift+alt+e</code> | [<code>editor.action.marker.prev</code>](../../shared/vscode/keybindings.json#L391) | Editor action marker prev<br><code>editorFocus</code> |
 | <code>shift+alt+f5</code> | [<code>-workbench.action.compareEditor.previousChange</code>](../../shared/vscode/keybindings.json#L206) | Compare Editor previous Change<br><code>textCompareEditorVisible; remove binding</code> |
+| <code>shift+alt+f8</code> | [<code>-editor.action.marker.prev</code>](../../shared/vscode/keybindings.json#L396) | Editor action marker prev<br><code>editorFocus; remove binding</code> |
 
 ## Mac Keybinds
 

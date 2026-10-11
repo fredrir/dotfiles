@@ -14,9 +14,13 @@ gui:
     - [branches]
 
 git:
-  diffContextSize: 0
+  diffContextSize: 3
+  diffRenderers:
+    - name: Delta
+      command: delta --{{colorScheme}} --paging=never
+    - type: rawGit
+      name: Git
 
 os:
   copyToClipboardCmd: printf '%s\n' {{text}} | dclip
   readFromClipboardCmd: dclip -o
-

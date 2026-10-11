@@ -8,7 +8,7 @@
 
 [rerere]
 	enabled = true
-	
+
 [core]
 	editor = nvim
 	pager = delta
@@ -26,8 +26,10 @@
 	diffFilter = delta --color-only
 [delta]
 	navigate = true
-	line-numbers = true
 	light = false
+	line-numbers = true
+	line-numbers-left-format = ""
+
 [merge]
 	conflictStyle = zdiff3
 [diff]
