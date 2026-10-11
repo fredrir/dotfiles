@@ -118,7 +118,7 @@ struct Snapshot {
     redefined: usize,
     inlined: usize,
     folded: usize,
-    ledger: (usize, usize),
+    ledger: (usize, usize, usize),
     origins: BTreeMap<String, String>,
     helpers: usize,
 }

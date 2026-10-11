@@ -566,3 +566,65 @@ fn functions_a_called_function_defines_are_known_to_later_calls() {
         built.stderr
     );
 }
+
+#[test]
+fn a_unit_whose_zstyle_reads_or_defines_later_code_changes_stays_in_place() {
+    for (late, after, note) in [
+        (
+            "zstyle -s ':late:tool' mode late_mode",
+            "zstyle ':late:*' mode fast",
+            "zsh/late.zsh: zstyle :late:* mode changed later; not deferred",
+        ),
+        (
+            "zstyle ':late:*' mode fast",
+            "zstyle -t ':late:tool' mode",
+            "zsh/late.zsh: zstyle :late:tool mode changed later; not deferred",
+        ),
+    ] {
+        let root = fixture();
+        append(&root.path().join("zsh/late.zsh"), &format!("{late}\n"));
+        append(&root.path().join("zsh/after.zsh"), &format!("{after}\n"));
+        let built = build(root.path());
+        assert!(built.success(), "{built:?}");
+        assert!(built.stderr.contains(note), "{late}: {}", built.stderr);
+    }
+}
+
+#[test]
+fn a_function_removed_or_replaced_by_name_no_longer_runs_its_old_body() {
+    for removal in [
+        "functions[_after_set]=':'",
+        "unfunction _after_set",
+        "unset -f _after_set",
+        "unset 'functions[_after_set]'",
+    ] {
+        let root = fixture();
+        append(&root.path().join("zsh/late.zsh"), "late_var=1\n");
+        append(
+            &root.path().join("zsh/after.zsh"),
+            &format!("_after_set() {{ late_var=2 }}\n{removal}\n_after_set\n"),
+        );
+        let built = build(root.path());
+        assert!(built.success(), "{built:?}");
+        assert!(built.stdout.contains("4 deferred"), "{removal}: {built:?}");
+    }
+}
+
+#[test]
+fn a_removal_in_code_that_never_runs_keeps_the_function_body() {
+    let root = fixture();
+    append(&root.path().join("zsh/late.zsh"), "late_var=1\n");
+    append(
+        &root.path().join("zsh/after.zsh"),
+        "_after_flag=\n_after_set() { late_var=2 }\nif [[ -n $_after_flag ]]; then\n  unfunction _after_set\nfi\n_after_set\n",
+    );
+    let built = build(root.path());
+    assert!(built.success(), "{built:?}");
+    assert!(
+        built
+            .stderr
+            .contains("zsh/late.zsh: var late_var changed later; not deferred"),
+        "{}",
+        built.stderr
+    );
+}

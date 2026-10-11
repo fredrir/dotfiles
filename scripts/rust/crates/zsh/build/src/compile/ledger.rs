@@ -17,6 +17,8 @@ pub(super) const ANY: &str = "*";
 /// Filled by `compinit`, read by completion code that runs after it.
 pub(crate) const COMPS: &str = "_comps";
 
+const ZSTYLE: &str = "zstyle";
+
 /// Option names that make settings made in a function revert when it returns.
 const LOCAL_OPTIONS: &[&str] = &["localoptions", "localpatterns", "localtraps"];
 
@@ -40,19 +42,29 @@ pub(crate) struct Names {
 
 impl Names {
     /// Why a later touch changes what this code defines or relies on; a name
-    /// the code only knows at runtime may be any name of its kind.
+    /// the code only knows at runtime may be any name of its kind, and a
+    /// zstyle read depends on each define whose pattern matches its context.
     pub fn conflict(&self, touch: Touch, (kind, name): &Key) -> Option<String> {
-        let found = |set: &BTreeSet<Key>| {
+        let found = |set: &BTreeSet<Key>, covers: &dyn Fn(&str) -> bool| {
             set.iter()
-                .find(|own| own.0 == *kind && covers(kind, &own.1, name))
+                .find(|own| own.0 == *kind && covers(&own.1))
                 .map(|own| match own.1 == ANY {
                     true => format!("{kind} names set at runtime, {kind} {name} changed later"),
                     false => format!("{kind} {name} changed later"),
                 })
         };
-        found(&self.defined).or_else(|| {
+        let styles = *kind == ZSTYLE;
+        let defined = |own: &str| match styles && touch == Touch::Call {
+            true => own == ANY || style_applies(own, name),
+            false => covers(kind, own, name),
+        };
+        let called = |own: &str| match styles {
+            true => own == ANY || style_applies(name, own),
+            false => covers(kind, own, name),
+        };
+        found(&self.defined, &defined).or_else(|| {
             (touch != Touch::Call)
-                .then(|| found(&self.called))
+                .then(|| found(&self.called, &called))
                 .flatten()
         })
     }
@@ -99,39 +111,57 @@ pub(crate) struct Ledger {
     pub units: Vec<Unit>,
     /// What calling each function defined so far touches.
     bodies: BTreeMap<String, Body>,
+    /// Each change to `bodies` with the body it replaced, to roll back.
+    replaced: Vec<(String, Option<Body>)>,
     /// The deferred `compinit` that `compdef` calls queue behind.
     pub compinit: Option<usize>,
 }
 
 /// A ledger position to roll back to after code that never runs.
 pub(crate) struct Mark {
-    events: usize,
-    units: usize,
+    len: (usize, usize, usize),
     collecting: Option<Names>,
 }
 
 impl Ledger {
     pub fn mark(&self) -> Mark {
         Mark {
-            events: self.events.len(),
-            units: self.units.len(),
+            len: self.len(),
             collecting: self.collecting.clone(),
         }
     }
 
     pub fn reset(&mut self, mark: Mark) {
-        self.truncate((mark.events, mark.units));
+        self.truncate(mark.len);
         self.collecting = mark.collecting;
     }
 
-    pub fn len(&self) -> (usize, usize) {
-        (self.events.len(), self.units.len())
+    pub fn len(&self) -> (usize, usize, usize) {
+        (self.events.len(), self.units.len(), self.replaced.len())
     }
 
-    pub fn truncate(&mut self, (events, units): (usize, usize)) {
+    pub fn truncate(&mut self, (events, units, replaced): (usize, usize, usize)) {
         self.events.truncate(events);
         self.units.truncate(units);
         self.compinit = self.compinit.filter(|unit| *unit < units);
+        while self.replaced.len() > replaced {
+            let Some((name, body)) = self.replaced.pop() else {
+                break;
+            };
+            match body {
+                Some(body) => self.bodies.insert(name, body),
+                None => self.bodies.remove(&name),
+            };
+        }
+    }
+
+    /// Sets or forgets the body known for function `name`.
+    fn set_body(&mut self, name: &str, body: Option<Body>) {
+        let previous = match body {
+            Some(body) => self.bodies.insert(name.to_string(), body),
+            None => self.bodies.remove(name),
+        };
+        self.replaced.push((name.to_string(), previous));
     }
 
     pub fn event(&mut self, touch: Touch, key: Key) {
@@ -199,14 +229,23 @@ impl Compiler {
             .map(|body| self.ledger.running(body))
             .unwrap_or_default();
         self.record(std::iter::once((touch, key)).chain(touches).collect());
-        self.ledger.bodies.extend(functions);
+        for (name, body) in functions {
+            self.ledger.set_body(&name, Some(body));
+        }
     }
 
-    /// Records touches, but for variables local to the function being compiled.
+    /// Records touches, but for variables local to the function being
+    /// compiled; a function defined or removed by name loses the body known
+    /// for it until a definition is read.
     fn record(&mut self, touches: Vec<(Touch, Key)>) {
         for (touch, key) in touches {
             if key.0 == "var" && self.state.is_local(&key.1) {
                 continue;
+            }
+            if (touch, key.0) == (Touch::Define, "function")
+                && self.ledger.bodies.contains_key(&key.1)
+            {
+                self.ledger.set_body(&key.1, None);
             }
             match &mut self.ledger.collecting {
                 Some(names) if touch == Touch::Call => {
@@ -221,10 +260,8 @@ impl Compiler {
     }
 
     pub(super) fn record_function(&mut self, name: &str, body: &[ZshList]) {
-        self.ledger
-            .bodies
-            .insert(name.to_string(), read_body(body, true));
         self.touch(Touch::Define, ("function", name.to_string()));
+        self.ledger.set_body(name, Some(read_body(body, true)));
     }
 
     /// A global assignment, unless the name is local to a function being compiled.
@@ -240,7 +277,9 @@ impl Compiler {
         let body = read_body(lists, self.state.in_function());
         let (touches, functions) = self.ledger.running(&body);
         self.record(touches);
-        self.ledger.bodies.extend(functions);
+        for (name, body) in functions {
+            self.ledger.set_body(&name, Some(body));
+        }
     }
 
     /// The parameters a `for` or `select` loop the compiler follows assigns.
@@ -323,17 +362,7 @@ pub(crate) fn command_touches(name: &str, values: &[String]) -> Vec<(Touch, Key)
         "setopt" | "unsetopt" => operands
             .map(|option| define("option", &option_name(option)))
             .collect(),
-        "zstyle" => {
-            let styled = match values.first().map(String::as_str) {
-                Some("-e") => values.get(1..3),
-                Some(value) if value.starts_with('-') => None,
-                _ => values.get(..2),
-            };
-            styled
-                .map(|pair| define("zstyle", &pair.join(" ")))
-                .into_iter()
-                .collect()
-        }
+        "zstyle" => zstyle_touches(values),
         "zle" => {
             let widget = match values.first().map(String::as_str) {
                 Some("-N" | "-C" | "-D") => values.get(1),
@@ -363,6 +392,70 @@ pub(crate) fn command_touches(name: &str, values: &[String]) -> Vec<(Touch, Key)
         _ if static_name(name) == ANY => Vec::new(),
         _ => vec![(Touch::Call, ("function", name.to_string()))],
     }
+}
+
+/// What `zstyle` with these argument values defines, reads or sets: styles
+/// as `PATTERN STYLE` or `CONTEXT STYLE`, `*` when only known at runtime.
+fn zstyle_touches(values: &[String]) -> Vec<(Touch, Key)> {
+    let style = |touch, pair: &[String]| (touch, (ZSTYLE, static_name(&pair.join(" "))));
+    let any = |touch| (touch, (ZSTYLE, ANY.to_string()));
+    let set = |name: &String| (Touch::Define, assigned(name));
+    let Some((option, rest)) = values.split_first() else {
+        return Vec::new();
+    };
+    let pair = rest.get(..2);
+    match option.as_str() {
+        "-e" | "-" | "--" => pair
+            .map(|pair| style(Touch::Define, pair))
+            .into_iter()
+            .collect(),
+        "-s" | "-b" | "-a" => {
+            let read = pair.map(|pair| style(Touch::Call, pair));
+            read.into_iter().chain(rest.get(2).map(set)).collect()
+        }
+        "-t" | "-T" | "-m" => pair
+            .map(|pair| style(Touch::Call, pair))
+            .into_iter()
+            .collect(),
+        "-g" => {
+            let read = rest
+                .get(1..3)
+                .map_or_else(|| any(Touch::Call), |pair| style(Touch::Call, pair));
+            rest.first().map(set).into_iter().chain([read]).collect()
+        }
+        "-d" => match rest.split_first() {
+            Some((pattern, styles)) if !styles.is_empty() => styles
+                .iter()
+                .map(|name| style(Touch::Define, &[pattern.clone(), name.clone()]))
+                .collect(),
+            _ => vec![any(Touch::Define)],
+        },
+        option if option.starts_with('-') => Vec::new(),
+        _ => values
+            .get(..2)
+            .map(|pair| style(Touch::Define, pair))
+            .into_iter()
+            .collect(),
+    }
+}
+
+/// Whether the zstyle define `PATTERN STYLE` applies to the read `CONTEXT
+/// STYLE`: the same style, its pattern matching the context; a pattern
+/// that cannot be read is taken to match.
+fn style_applies(define: &str, read: &str) -> bool {
+    let (Some((pattern, style)), Some((context, wanted))) =
+        (define.rsplit_once(' '), read.rsplit_once(' '))
+    else {
+        return define == read;
+    };
+    let options = glob::MatchOptions {
+        case_sensitive: true,
+        require_literal_separator: false,
+        require_literal_leading_dot: false,
+    };
+    style == wanted
+        && expand::pattern(pattern, &Opaque)
+            .is_none_or(|pattern| pattern.matches_with(context, options))
 }
 
 /// Options of a builtin and its operands: options in `takes` take an

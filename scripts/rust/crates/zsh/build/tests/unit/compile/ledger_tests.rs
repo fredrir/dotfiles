@@ -36,7 +36,13 @@ fn commands_define_names_in_the_shell_tables() {
         touches("zstyle", &[":completion:*", "menu", "select"]),
         vec![define("zstyle", ":completion:* menu")]
     );
-    assert!(touches("zstyle", &["-s", ":x", "style", "var"]).is_empty());
+    assert_eq!(
+        touches("zstyle", &["-s", ":x", "style", "var"]),
+        vec![
+            (Touch::Call, ("zstyle", ":x style".to_string())),
+            define("var", "var")
+        ]
+    );
     assert_eq!(
         touches("zle", &["-N", "widget", "fn"]),
         vec![define("widget", "widget")]
@@ -312,4 +318,96 @@ fn functions_a_called_function_defines_are_known_to_later_calls() {
     let (touches, functions) = ledger.running(&call);
     assert!(touches.contains(&define("var", "REPLY")));
     assert!(functions.contains_key("inner"));
+}
+
+#[test]
+fn zstyle_lookups_read_the_style_and_set_their_variable() {
+    let read = |name: &str| (Touch::Call, ("zstyle", name.to_string()));
+    assert_eq!(
+        touches("zstyle", &["-a", ":omz:plugins:nvm", "lazy-cmd", "cmds"]),
+        vec![read(":omz:plugins:nvm lazy-cmd"), define("var", "cmds")]
+    );
+    for option in ["-t", "-T", "-m"] {
+        assert_eq!(
+            touches("zstyle", &[option, ":omz:update", "mode", "x"]),
+            vec![read(":omz:update mode")]
+        );
+    }
+    assert_eq!(
+        touches("zstyle", &["-g", "styles", ":completion:*"]),
+        vec![define("var", "styles"), read("*")]
+    );
+    assert_eq!(
+        touches(
+            "zstyle",
+            &["-s", ":completion:$curcontext:", "cache-path", "dir"]
+        ),
+        vec![read("*"), define("var", "dir")]
+    );
+    assert_eq!(
+        touches("zstyle", &["-d", ":x", "a", "b"]),
+        vec![define("zstyle", ":x a"), define("zstyle", ":x b")]
+    );
+    assert_eq!(touches("zstyle", &["-d"]), vec![define("zstyle", "*")]);
+}
+
+#[test]
+fn a_zstyle_read_depends_on_each_define_whose_pattern_matches_its_context() {
+    let key = |name: &str| ("zstyle", name.to_string());
+    let mut defines = Names::default();
+    defines.defined.insert(key(":completion:* menu"));
+    defines.defined.insert(key(":x:^y list"));
+    assert!(
+        defines
+            .conflict(Touch::Call, &key(":completion:complete:git menu"))
+            .is_some()
+    );
+    assert!(
+        defines
+            .conflict(Touch::Call, &key(":completion:complete:git other"))
+            .is_none()
+    );
+    assert!(
+        defines
+            .conflict(Touch::Call, &key(":omz:update menu"))
+            .is_none()
+    );
+    assert!(
+        defines
+            .conflict(Touch::Define, &key(":completion:complete:* menu"))
+            .is_none()
+    );
+    assert!(defines.conflict(Touch::Call, &key(":x:z list")).is_some());
+    let mut reads = Names::default();
+    reads
+        .called
+        .insert(key(":omz:plugins:docker legacy-completion"));
+    assert!(
+        reads
+            .conflict(Touch::Define, &key(":omz:plugins:* legacy-completion"))
+            .is_some()
+    );
+    assert!(
+        reads
+            .conflict(Touch::Define, &key(":omz:* other"))
+            .is_none()
+    );
+    assert!(
+        reads
+            .conflict(Touch::Call, &key(":omz:plugins:docker legacy-completion"))
+            .is_none()
+    );
+}
+
+#[test]
+fn rolling_back_restores_the_function_bodies_dead_code_changed() {
+    let mut ledger = Ledger::default();
+    let body = |text: &str| read_body(&parse(text).unwrap().lists, true);
+    ledger.set_body("kept", Some(body("alias k=x")));
+    let mark = ledger.mark();
+    ledger.set_body("kept", None);
+    ledger.set_body("dead", Some(body("alias d=x")));
+    ledger.reset(mark);
+    assert!(ledger.bodies.contains_key("kept"));
+    assert!(!ledger.bodies.contains_key("dead"));
 }

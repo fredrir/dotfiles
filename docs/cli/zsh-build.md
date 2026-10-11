@@ -72,7 +72,7 @@
 | --- | --- |
 | Top level | `typeset`, `local`, `trap`, `emulate -L`, local options, `return`, loop control |
 | compinit section | `$0`; sets `fpath`; shares lines |
-| Later startup code | Changes or calls an alias, function, widget, zstyle, option, variable, completion or key binding it sets; changes a key binding it reads |
+| Later startup code | Changes or calls an alias, function, widget, zstyle, option, variable, completion or key binding it sets; changes a key binding or zstyle it reads |
 | Any unit | Adds a precmd hook; `defer` unrecognized |
 
 ## Global startup files
