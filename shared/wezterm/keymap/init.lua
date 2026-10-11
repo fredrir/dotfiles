@@ -122,6 +122,9 @@ local bindings = {
 
   ------ Directory Navigation ------
   ----
+  keybind(go_to "HOME", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "h"),
+  keybind(go_to "DOTFILES/shared/wezterm", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "w"),
+  ----
   keybind(go_to "PYPARSER", { MOD.UNIQUE }, "p"),
   keybind(go_to "LLUNDE", MOD.UNIQUE, "l"),
   keybind(go_to "HOME/infra", MOD.UNIQUE, "i"),
@@ -134,8 +137,6 @@ local bindings = {
   keybind(go_to "HOME/.agents/skills", { MOD.SHIFT_RIGHT }, "a"),
   keybind(go_to "HOME/projects/shucked", MOD.SHIFT_RIGHT, "s"),
   keybind(go_to "HOME/projects/wez-plugins/vertical-tabs", MOD.SHIFT_RIGHT, "v"),
-  ----
-  keybind(go_to "DOTFILES/shared/wezterm", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "w"),
 
   ------ Git & Quick Actions ------
   keybind(git_add, MOD.UNIQUE, "g"),
