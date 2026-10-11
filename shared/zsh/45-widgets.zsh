@@ -19,8 +19,7 @@ elif has_cmd fzf; then
 fi
 
 if has_cmd atuin; then
-  export ATUIN_NOBIND=true
-  cached_eval atuin-init-no-bind atuin init zsh --disable-ctrl-r --disable-up-arrow
+  cached_eval atuin-init-no-bind atuin init zsh --disable-ctrl-r --disable-up-arrow --disable-ai
   (($+functions[_zsh_autosuggest_strategy_atuin])) && export ZSH_AUTOSUGGEST_STRATEGY=(history atuin)
 
   if [[ ${__atuin_pty_proxy_owns_tty:-0} != 1 && $functions[_atuin_preexec] == *'atuin history start --hook'* ]]; then
