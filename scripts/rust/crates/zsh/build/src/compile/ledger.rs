@@ -67,6 +67,16 @@ impl Names {
     }
 }
 
+/// What running code touches, and the variables it keeps local, which the
+/// functions it calls see as its own.
+#[derive(Debug, Clone)]
+pub(crate) struct Body {
+    pub names: Names,
+    pub locals: BTreeSet<String>,
+    /// Anonymous functions it runs, each with locals of its own.
+    pub anonymous: Vec<Body>,
+}
+
 /// Deferred code: its wrapper text and what it touches.
 #[derive(Debug)]
 pub(crate) struct Unit {
@@ -86,7 +96,7 @@ pub(crate) struct Ledger {
     pub events: Vec<(Touch, Key)>,
     pub units: Vec<Unit>,
     /// What calling each function defined so far touches.
-    bodies: BTreeMap<String, Names>,
+    bodies: BTreeMap<String, Body>,
     /// The deferred `compinit` that `compdef` calls queue behind.
     pub compinit: Option<usize>,
 }
@@ -130,20 +140,26 @@ impl Ledger {
         self.events.push((touch, key));
     }
 
-    /// The touches of calling `name`, through the functions its body calls.
-    fn calling(&self, name: &str) -> Vec<(Touch, Key)> {
-        let mut seen = BTreeSet::from([name.to_string()]);
-        let mut pending = vec![name.to_string()];
+    /// What running `body` touches, through the functions it calls, which
+    /// also see its locals.
+    fn running(&self, body: &Body) -> Vec<(Touch, Key)> {
+        let mut seen = BTreeSet::new();
+        let mut pending = vec![(body, BTreeSet::new())];
         let mut out = Vec::new();
-        while let Some(name) = pending.pop() {
-            let Some(names) = self.bodies.get(&name) else {
-                continue;
-            };
-            for (touch, key) in names.touches() {
-                if let (Touch::Call, ("function", callee)) = (touch, key)
-                    && seen.insert(callee.clone())
-                {
-                    pending.push(callee.clone());
+        while let Some((body, locals)) = pending.pop() {
+            let inner: BTreeSet<String> = locals.union(&body.locals).cloned().collect();
+            pending.extend(body.anonymous.iter().map(|body| (body, inner.clone())));
+            for (touch, key) in body.names.touches() {
+                match (touch, key) {
+                    (_, ("var", var)) if locals.contains(var) => continue,
+                    (Touch::Call, ("function", callee)) => {
+                        if let Some(called) = self.bodies.get(callee)
+                            && seen.insert((callee, inner.clone()))
+                        {
+                            pending.push((called, inner.clone()));
+                        }
+                    }
+                    _ => {}
                 }
                 out.push((touch, key.clone()));
             }
@@ -159,22 +175,25 @@ impl Compiler {
         }
     }
 
+    /// A touch, and when it calls a function, what calling it touches.
     fn touch(&mut self, touch: Touch, key: Key) {
-        let touches = self.through_calls(touch, key);
+        let called = match (touch, &key) {
+            (Touch::Call, ("function", name)) => self.ledger.bodies.get(name),
+            _ => None,
+        };
+        let mut touches = vec![(touch, key)];
+        if let Some(body) = called {
+            touches.extend(self.ledger.running(body));
+        }
         self.record(touches);
     }
 
-    /// A touch, and when it calls a function, what calling it touches.
-    fn through_calls(&self, touch: Touch, key: Key) -> Vec<(Touch, Key)> {
-        let mut touches = vec![(touch, key)];
-        if let (Touch::Call, ("function", name)) = (touches[0].0, &touches[0].1) {
-            touches.extend(self.ledger.calling(name));
-        }
-        touches
-    }
-
+    /// Records touches, but for variables local to the function being compiled.
     fn record(&mut self, touches: Vec<(Touch, Key)>) {
         for (touch, key) in touches {
+            if key.0 == "var" && self.state.is_local(&key.1) {
+                continue;
+            }
             match &mut self.ledger.collecting {
                 Some(names) if touch == Touch::Call => {
                     names.called.insert(key);
@@ -190,7 +209,7 @@ impl Compiler {
     pub(super) fn record_function(&mut self, name: &str, body: &[ZshList]) {
         self.ledger
             .bodies
-            .insert(name.to_string(), body_names(body));
+            .insert(name.to_string(), read_body(body, true));
         self.touch(Touch::Define, ("function", name.to_string()));
     }
 
@@ -201,14 +220,23 @@ impl Compiler {
         }
     }
 
-    /// Key bindings of code the compiler does not follow, read from its text.
+    /// What code the compiler does not follow touches, read from its text,
+    /// with the functions it defines known to later calls.
     pub(super) fn record_unfollowed(&mut self, lists: &[ZshList]) {
-        let names = body_names(lists);
-        let touches = names
-            .touches()
-            .flat_map(|(touch, key)| self.through_calls(touch, key.clone()))
-            .filter(|(_, key)| key.0 == bindkey::KIND)
-            .collect();
+        let mut visits = Vec::new();
+        walk::visit(lists, 0, &mut visits);
+        for (_, visit) in visits {
+            if let Visit::Command(ZshCommand::FuncDef(node)) = visit
+                && node.auto_call_args.is_none()
+            {
+                let body = read_body(&node.body.lists, true);
+                for name in &node.names {
+                    self.ledger.bodies.insert(walk::text(name), body.clone());
+                }
+            }
+        }
+        let body = read_body(lists, self.state.in_function());
+        let touches = self.ledger.running(&body);
         self.record(touches);
     }
 
@@ -410,8 +438,9 @@ impl Env for Opaque {
     }
 }
 
-/// What running a function body touches, read from its text.
-pub(crate) fn body_names(lists: &[ZshList]) -> Names {
+/// What running `lists` touches, read from its text; in a function, the
+/// variables and options it declares local stay its own.
+pub(crate) fn read_body(lists: &[ZshList], in_function: bool) -> Body {
     let mut visits = Vec::new();
     walk::visit(lists, 0, &mut visits);
     let simples: Vec<&ZshSimple> = visits
@@ -424,26 +453,32 @@ pub(crate) fn body_names(lists: &[ZshList]) -> Names {
     let words: Vec<Vec<String>> = simples.iter().map(|simple| walk::words(simple)).collect();
     let locals: BTreeSet<String> = words
         .iter()
-        .filter(|words| declares_local(words))
+        .filter(|words| in_function && declares_local(words))
         .flat_map(|words| words.iter().skip(1))
         .filter(|word| !word.starts_with(['-', '+']))
         .map(|word| word.split('=').next().unwrap_or(word).to_string())
         .collect();
-    let local_options = words.iter().any(|words| match words.split_first() {
-        Some((name, args)) if name == "emulate" => args
-            .iter()
-            .any(|arg| arg.starts_with('-') && arg.contains('L')),
-        Some((name, args)) if name == "setopt" => args.iter().any(|arg| local_option(arg)),
-        _ => false,
-    });
+    let local_options = in_function
+        && words.iter().any(|words| match words.split_first() {
+            Some((name, args)) if name == "emulate" => args
+                .iter()
+                .any(|arg| arg.starts_with('-') && arg.contains('L')),
+            Some((name, args)) if name == "setopt" => args.iter().any(|arg| local_option(arg)),
+            _ => false,
+        });
     let mut names = Names::default();
+    let mut anonymous = Vec::new();
     for (_, visit) in &visits {
-        if let Visit::Command(ZshCommand::FuncDef(node)) = visit
-            && node.auto_call_args.is_none()
-        {
-            for name in &node.names {
-                names.defined.insert(("function", walk::text(name)));
+        match visit {
+            Visit::Command(ZshCommand::FuncDef(node)) if node.auto_call_args.is_some() => {
+                anonymous.push(read_body(&node.body.lists, true));
             }
+            Visit::Command(ZshCommand::FuncDef(node)) => {
+                for name in &node.names {
+                    names.defined.insert(("function", walk::text(name)));
+                }
+            }
+            _ => {}
         }
     }
     for (simple, words) in simples.iter().zip(&words) {
@@ -457,6 +492,18 @@ pub(crate) fn body_names(lists: &[ZshList]) -> Names {
             .flatten()
             .map(|assign| (Touch::Define, ("var", var_name(&assign.name))))
             .collect();
+        if words
+            .first()
+            .is_some_and(|name| walk::DECLARATIONS.contains(&name.as_str()))
+        {
+            touches.extend(
+                words[1..]
+                    .iter()
+                    .filter(|word| !word.starts_with(['-', '+']))
+                    .filter_map(|word| word.split_once('='))
+                    .map(|(name, _)| (Touch::Define, ("var", var_name(&static_name(name))))),
+            );
+        }
         if serde_json::to_string(simple).is_ok_and(|json| json.contains(COMPS)) {
             touches.push((Touch::Call, ("var", COMPS.to_string())));
         }
@@ -481,7 +528,11 @@ pub(crate) fn body_names(lists: &[ZshList]) -> Names {
             }
         }
     }
-    names
+    Body {
+        names,
+        locals,
+        anonymous,
+    }
 }
 
 fn declares_local(words: &[String]) -> bool {

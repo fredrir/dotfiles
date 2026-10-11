@@ -11,7 +11,7 @@ fn define(kind: &'static str, name: &str) -> (Touch, Key) {
 }
 
 fn body(text: &str) -> Names {
-    body_names(&parse(text).unwrap().lists)
+    read_body(&parse(text).unwrap().lists, true).names
 }
 
 #[test]
@@ -166,4 +166,45 @@ fn a_runtime_key_binding_conflicts_with_any_key_of_its_keymap() {
     let later = |name: &str| ("bindkey", name.to_string());
     assert!(names.conflict(Touch::Define, &later("vicmd ^R")).is_some());
     assert!(names.conflict(Touch::Define, &later("main ^R")).is_none());
+}
+
+#[test]
+fn what_a_callee_sets_in_its_callers_locals_stays_local() {
+    let mut ledger = Ledger::default();
+    for (name, text) in [
+        ("helper", "REPLY=1\nalias h=x"),
+        ("scoped", "local REPLY\nhelper"),
+        ("both", "scoped\nhelper"),
+    ] {
+        let body = read_body(&parse(text).unwrap().lists, true);
+        ledger.bodies.insert(name.to_string(), body);
+    }
+    let run = |text: &str| ledger.running(&read_body(&parse(text).unwrap().lists, true));
+    let reply = define("var", "REPLY");
+    assert!(!run("scoped").contains(&reply));
+    assert!(run("scoped").contains(&define("alias", "h")));
+    assert!(run("both").contains(&reply));
+    assert!(!run("() { local REPLY; helper }").contains(&reply));
+    assert!(run("() { local REPLY }\nhelper").contains(&reply));
+}
+
+#[test]
+fn declarations_set_what_they_assign_unless_it_is_local() {
+    let names = body(
+        "typeset -g kept=1\nexport EXPORTED=1\nlocal own=1\ntypeset scoped=1\nexport \"$1=$2\"",
+    );
+    assert!(names.defined.contains(&("var", "kept".into())));
+    assert!(names.defined.contains(&("var", "EXPORTED".into())));
+    assert!(names.defined.contains(&("var", "*".into())));
+    assert!(!names.defined.contains(&("var", "own".into())));
+    assert!(!names.defined.contains(&("var", "scoped".into())));
+    let top = read_body(
+        &parse("typeset scoped=1\nlocal own\nown=1\nsetopt localoptions autocd")
+            .unwrap()
+            .lists,
+        false,
+    );
+    assert!(top.names.defined.contains(&("var", "scoped".into())));
+    assert!(top.names.defined.contains(&("var", "own".into())));
+    assert!(top.names.defined.contains(&("option", "autocd".into())));
 }

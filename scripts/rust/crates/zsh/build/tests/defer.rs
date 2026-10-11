@@ -120,6 +120,11 @@ fn fixture() -> tempfile::TempDir {
     root
 }
 
+fn append(path: &Path, text: &str) {
+    let text = fs::read_to_string(path).unwrap() + text;
+    fs::write(path, text).unwrap();
+}
+
 fn path(root: &Path) -> String {
     format!("{}:/usr/bin:/bin", root.join("bin").display())
 }
@@ -428,4 +433,56 @@ fn a_unit_whose_key_bindings_later_code_changes_stays_in_place() {
         bundle.contains("plugin=alpha\n() {\nmark alpha"),
         "{bundle}"
     );
+}
+
+#[test]
+fn names_set_in_code_the_compiler_does_not_follow_keep_a_unit_in_place() {
+    let root = fixture();
+    append(
+        &root.path().join("zsh/late.zsh"),
+        "case $TERM in\n  *) late_var=1 ;;\nesac\n",
+    );
+    append(&root.path().join("zsh/after.zsh"), "late_var=2\n");
+    let built = build(root.path());
+    assert!(built.success(), "{built:?}");
+    assert!(
+        built
+            .stderr
+            .contains("zsh/late.zsh: var late_var changed later; not deferred"),
+        "{}",
+        built.stderr
+    );
+}
+
+#[test]
+fn functions_defined_in_code_the_compiler_does_not_follow_are_known_to_later_calls() {
+    let root = fixture();
+    append(&root.path().join("zsh/late.zsh"), "late_var=1\n");
+    append(
+        &root.path().join("zsh/after.zsh"),
+        "{\n  _late_set() { late_var=2 }\n} always {\n  :\n}\n_late_set\n",
+    );
+    let built = build(root.path());
+    assert!(built.success(), "{built:?}");
+    assert!(
+        built
+            .stderr
+            .contains("zsh/late.zsh: var late_var changed later; not deferred"),
+        "{}",
+        built.stderr
+    );
+}
+
+#[test]
+fn what_a_unit_sets_in_its_own_locals_does_not_keep_it_in_place() {
+    let root = fixture();
+    append(
+        &root.path().join("zsh/late.zsh"),
+        "_late_reply() { REPLY=late }\n() {\n  local REPLY\n  _late_reply || REPLY=unset\n  while false; do REPLY=loop; done\n}\n",
+    );
+    append(&root.path().join("zsh/after.zsh"), "REPLY=after\n");
+    let built = build(root.path());
+    assert!(built.success(), "{built:?}");
+    assert!(built.stdout.contains("4 deferred"), "{built:?}");
+    assert!(!built.stderr.contains("REPLY"), "{}", built.stderr);
 }
