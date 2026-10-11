@@ -116,7 +116,6 @@ local bindings = {
   keybind(open_vscode, MOD.SUPER_REV, "o"),
   keybind(open_jetbrains.pycharm, MOD.SUPER_REV, "p"),
   keybind(open_jetbrains.rustrover, MOD.UNIQUE_REV, "r"),
-  keybind(open_jetbrains.intellij, MOD.UNIQUE_REV, "i"),
   keybind(open_github, MOD.SUPER_REV, "g"),
 
   keybind(act.QuickSelect, MOD.SUPER_REV, "Space"),

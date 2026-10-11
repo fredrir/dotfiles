@@ -13,10 +13,11 @@ if platform.is_mac then
     EDGE = "CMD",
     ---
     UNIQUE = "OPT",
-    SHIFT_RIGHT = "CTRL|ALT|CMD|SHIFT", -- Macos Right Shift Key remapped with Karabiner
+    SHIFT_RIGHT = "CTRL|ALT|CMD", -- Macos Right Shift Key remapped with Karabiner
     ---
     SUPER_REV = "CMD|SHIFT",
     UNIQUE_REV = "OPT|SHIFT",
+    SHIFT_RIGHT_REV = "CTRL|ALT|CMD|SHIFT",
     ---
     SPLITBELOW = "'",
   }
@@ -35,5 +36,11 @@ else
     SPLITBELOW = "§",
   }
 end
+
+-- Mods for a binding's peer host action
+MOD.REV = platform.is_mac and {
+  [MOD.UNIQUE] = MOD.UNIQUE_REV,
+  [MOD.SHIFT_RIGHT] = MOD.SHIFT_RIGHT_REV,
+} or {}
 
 return MOD ---@ type Mods

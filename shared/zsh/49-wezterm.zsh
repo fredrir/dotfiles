@@ -182,16 +182,29 @@ _wezterm_cd() {
   _wezterm_reset_prompt
 }
 
+_wezterm_go_to_dir() {
+  local target=$1 name=${1%%/*}
+  [[ -n $name && $name != *[^[:IDENT:]]* ]] || return 1
+  REPLY=${(P)name}${target#"$name"}
+}
+
 _wezterm_go_to() {
-  local target='' char
+  local target='' char REPLY
   while read -rs -t 1 -k 1 char && [[ $char != $'\a' ]]; do target+=$char; done
 
-  local name=${target%%/*}
-  if [[ -z $name || $name == *[^[:IDENT:]]* ]]; then
+  if ! _wezterm_go_to_dir "$target"; then
     zle -M "Invalid target: $target"
     return 1
   fi
-  _wezterm_cd "${(P)name}${target#"$name"}"
+  _wezterm_cd "$REPLY"
 }
 
 zle -N wezterm-go-to _wezterm_go_to
+
+if [[ -n $WEZTERM_GO_TO ]]; then
+  () {
+    local REPLY
+    _wezterm_go_to_dir "$WEZTERM_GO_TO" && builtin cd -- "$REPLY"
+  }
+  unset WEZTERM_GO_TO
+fi

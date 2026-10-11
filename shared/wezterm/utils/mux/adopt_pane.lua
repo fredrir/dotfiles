@@ -118,8 +118,9 @@ local function mirrored_cwd(pane, to, location)
 end
 
 ---@param to AttachTarget
+---@param go_to string?
 ---@return string[]
-local function spawn_args(to, wait_for_ready, cwd)
+local function spawn_args(to, wait_for_ready, cwd, go_to)
   if not to.home then
     return { "--domain-name", to.domain }
   end
@@ -140,6 +141,7 @@ local function spawn_args(to, wait_for_ready, cwd)
     "PATH=/usr/local/bin:/usr/bin:/bin",
     "HWIRE_SESSION=" .. (to.session or ""),
     "WEZTERM_PANE_READY=" .. (wait_for_ready and "1" or ""),
+    "WEZTERM_GO_TO=" .. (go_to or ""),
     "zsh",
     "-l",
   }
@@ -156,7 +158,7 @@ local function localmux_pane(pane)
 end
 
 ---@param done fun(err: string?)
-local function replace(_, pane, source, target, done, location)
+local function replace(_, pane, source, target, done, location, go_to)
   if target == "toggle" then
     target = is_remote(pane) and host.origin.hostname or host.target.hostname
   end
@@ -173,7 +175,7 @@ local function replace(_, pane, source, target, done, location)
   if target == host.origin.hostname or target == host.target.hostname then
     cwd = mirrored_cwd(pane, to, location)
   end
-  for _, arg in ipairs(spawn_args(to, to.home ~= nil, cwd)) do
+  for _, arg in ipairs(spawn_args(to, to.home ~= nil, cwd, go_to)) do
     table.insert(args, arg)
   end
   local stdout, replace_error = mux(table.unpack(args))
@@ -218,9 +220,9 @@ local function reply(pane, id, message)
   end
 end
 
----@param action fun(window, pane, source: integer, target: string, done: fun(err: string?), location: AttachLocation?)
+---@param action fun(window, pane, source: integer, target: string, done: fun(err: string?), location: AttachLocation?, go_to: string?)
 local function once_per_pane(action)
-  return function(window, pane, target, id, location)
+  return function(window, pane, target, id, location, go_to)
     target = target == "peer" and host.target.hostname or target
     local pane_id = pane:pane_id()
     if pending[pane_id] then
@@ -239,7 +241,7 @@ local function once_per_pane(action)
     if not source then
       return done(source_error)
     end
-    local ok, err = pcall(action, window, pane, source, target, done, location)
+    local ok, err = pcall(action, window, pane, source, target, done, location, go_to)
     if not ok then
       done(tostring(err))
     end
@@ -278,6 +280,10 @@ return {
   new_peer_tab = wezterm.action_callback(function(window, pane)
     open_peer_tab(window, pane, "peer")
   end),
+  ---@param go_to string resolved by the peer's shell
+  go_to_peer = function(window, pane, go_to)
+    requests.ATTACH_MUX(window, pane, "peer", nil, nil, go_to)
+  end,
   ---@return string? domain localmux reaches the peer through
   peer_domain = function()
     local to, err = resolve(host.target.hostname)
