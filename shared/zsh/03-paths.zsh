@@ -6,10 +6,11 @@ add_path \
   "/Applications/PyCharm.app/Contents/MacOS" \
   "/opt/IntelliJ/bin" \
   "/opt/pycharm/bin" \
-  "/nix/var/nix/profiles/default/bin" \
+  "/opt/homebrew/opt/lua@5.4/bin" \
   "/opt/homebrew/bin" \
   "/opt/homebrew/opt/make/libexec/gnubin" \
   "/opt/homebrew/lib/ruby/gems/4.0.0/bin" \
+  "/nix/var/nix/profiles/default/bin" \
   "$HOME/.bun/bin" \
   "$HOME/go/bin" \
   "$HOME/Library/pnpm" \

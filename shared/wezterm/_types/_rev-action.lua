@@ -1,0 +1,3 @@
+---@class RevAction
+---@field action Action
+---@field rev Action
