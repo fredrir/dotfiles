@@ -21,12 +21,12 @@ dotfile dev check --pkg sysinfo --lang rust
 
 ## Scopes and probes
 
-| Scope     | Flags             | Enrichment | Identity probes | CPU load    |
+| Scope | Flags | Enrichment | Identity probes | CPU load |
 | --- | --- | --- | --- | --- |
-| Dashboard | `-p`              | no         | no              | sampled     |
-| Summary   | default, `--json` | no         | yes             | not shown   |
-| Full      | `-f`, `--full`    | optional   | yes             | sampled     |
-| Processes | `-s`, `--system`  | no         | no              | per process |
+| Dashboard | `-p` | no | no | sampled |
+| Summary | default, `--json` | no | yes | not shown |
+| Full | `-f`, `--full` | optional | yes | sampled |
+| Processes | `-s`, `--system` | no | no | per process |
 
 | Name | Value |
 | --- | --- |
@@ -37,12 +37,12 @@ dotfile dev check --pkg sysinfo --lang rust
 
 ## Processes
 
-| Column  | Value                                            |
+| Column | Value |
 | --- | --- |
-| CPU     | Share of all logical cores, then cores in use    |
-| MEM     | Share of physical memory, then size              |
-| GPU     | Share of all GPUs; `—` without GPU work          |
-| TIME    | Running time: `s`, `m`, `h`, `d`, `w`, `y`       |
+| CPU | Share of all logical cores, then cores in use |
+| MEM | Share of physical memory, then size |
+| GPU | Share of all GPUs; `—` without GPU work |
+| TIME | Running time: `s`, `m`, `h`, `d`, `w`, `y` |
 | COMMAND | Program and arguments; `App ×N` for a group of N |
 
 | Name | Value |

@@ -15,7 +15,8 @@ conf {
 }
 
 markdown {
-  width  = 80
+  width        = 80
+  table_style  = compact
 }
 
 json {

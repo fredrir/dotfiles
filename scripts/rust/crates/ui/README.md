@@ -13,15 +13,15 @@
 | [diff-view](diff-view/) | `ui-diff-view` | Bounded text comparison, line/hunk navigation, unified/split views |
 | [gallery](gallery/) | `ui-gallery` | Interactive component gallery and rendered theme previews |
 
-| Boundary                                 | Owner                   |
+| Boundary | Owner |
 | --- | --- |
-| Terminal lifecycle                       | `ui-terminal`           |
-| Batch listing and confirmation           | `ui-batch`              |
-| Theme generation and contrast resolution | `dotfile::theme`        |
-| Runtime palette contract                 | `ui-theme`              |
-| Git operations and merge decisions       | Consumer                |
-| File/remote identity and transport       | Consumer/source adapter |
-| CLI convenience imports                  | `workstation` reexports |
+| Terminal lifecycle | `ui-terminal` |
+| Batch listing and confirmation | `ui-batch` |
+| Theme generation and contrast resolution | `dotfile::theme` |
+| Runtime palette contract | `ui-theme` |
+| Git operations and merge decisions | Consumer |
+| File/remote identity and transport | Consumer/source adapter |
+| CLI convenience imports | `workstation` reexports |
 
 ## Commands
 
@@ -75,15 +75,15 @@ match result {
 }
 ```
 
-| Picker key           | Action                               |
+| Picker key | Action |
 | --- | --- |
-| `↑` / `↓`, `j` / `k` | Move focus                           |
-| `/` or typing        | Search                               |
-| `Space` / `Tab`      | Toggle focused item in multiple mode |
-| `*`                  | Toggle all matching enabled items    |
-| `Enter`              | Accept                               |
-| `Esc`                | Leave search or cancel               |
-| `?`                  | Contextual help                      |
+| `↑` / `↓`, `j` / `k` | Move focus |
+| `/` or typing | Search |
+| `Space` / `Tab` | Toggle focused item in multiple mode |
+| `*` | Toggle all matching enabled items |
+| `Enter` | Accept |
+| `Esc` | Leave search or cancel |
+| `?` | Contextual help |
 
 Native pickers and explorers use `ui_terminal::Surface` and `ScriptedSurface`.
 
@@ -91,12 +91,12 @@ Selections survive filtering; disabled items remain inspectable. Search input ha
 
 ## Comparison
 
-| Key                       | Action                                     |
+| Key | Action |
 | --- | --- |
-| `j` / `k`, Page Up / Down | Scroll                                     |
-| `[` / `]`                 | Previous/next changed block                |
-| `h` / `l`                 | Horizontal scroll in the standalone viewer |
-| `v`                       | Unified / side-by-side                     |
+| `j` / `k`, Page Up / Down | Scroll |
+| `[` / `]` | Previous/next changed block |
+| `h` / `l` | Horizontal scroll in the standalone viewer |
+| `v` | Unified / side-by-side |
 
 Dotfile merge prompts retain their decision shortcuts; diff navigation uses `j/k`, paging, brackets, and `v`. Narrow layouts display unified text. Binary inputs and bounded previews are labeled; the source values and merge operations stay with the caller.
 

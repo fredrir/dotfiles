@@ -61,6 +61,9 @@
   "[markdown]": {
     "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
+  "[skill][chatagent][instructions][prompt]": {
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+  },
   "[nix]": {
     "editor.insertSpaces": true,
     "editor.tabSize": 2
@@ -99,7 +102,11 @@
     {
       "command": "dotfmt -l markdown -eq --stdin \"${file}\"",
       "languages": [
-        "markdown"
+        "markdown",
+        "skill",
+        "chatagent",
+        "instructions",
+        "prompt"
       ]
     },
     {
