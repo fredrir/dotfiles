@@ -21,6 +21,11 @@ run = [
 desc = "Yank and copy paths to the system clipboard"
 
 [[mgr.prepend_keymap]]
+on   = "<Esc>"
+run  = "plugin lua.smart-esc"
+desc = "Cancel visual mode, selection, filter, find or search, otherwise quit"
+
+[[mgr.prepend_keymap]]
 on   = "f"
 run  = "plugin lua.smart-filter"
 desc = "Filter continuously and enter a unique directory"

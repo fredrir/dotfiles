@@ -1,3 +1,30 @@
+--- a/pkg/gui/controllers/list_controller.go
++++ b/pkg/gui/controllers/list_controller.go
+@@ -45,11 +45,22 @@
+ }
+ 
+ func (self *ListController) HandlePrevLine() error {
+-	return self.handleLineChange(-1)
++	return self.handleLineChange(self.wrappingChange(-1))
+ }
+ 
+ func (self *ListController) HandleNextLine() error {
+-	return self.handleLineChange(1)
++	return self.handleLineChange(self.wrappingChange(1))
++}
++
++// Range selections never wrap, as that would select the whole list.
++func (self *ListController) wrappingChange(change int) int {
++	list := self.context.GetList()
++	length := list.Len()
++	if length == 0 || list.IsSelectingRange() {
++		return change
++	}
++	selected := list.GetSelectedLineIdx()
++	return (selected+change+length)%length - selected
+ }
+ 
+ func (self *ListController) HandleScrollLeft() error {
 --- a/pkg/gui/presentation/files.go
 +++ b/pkg/gui/presentation/files.go
 @@ -131,13 +131,7 @@
