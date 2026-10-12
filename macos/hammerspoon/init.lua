@@ -22,6 +22,7 @@ key.openApp({ "fn" }, "b", "Zen")
 
 -- Wezterm --
 key.openApp({ "fn" }, ".", "Wezterm")
+key.openApp({ "fn" }, "padenter", "Wezterm")
 key.openApp({ "fn" }, "t", "Wezterm")
 
 -- Obsidian --

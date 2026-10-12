@@ -1,13 +1,14 @@
-local wezterm = require "wezterm" ---@type Wezterm
+local wezterm = require "wezterm"
+local act = wezterm.action
 
----@param delta number
----@return Action
-local function resize_window(delta)
-  return wezterm.action_callback(function(window, _pane)
-    local dimensions = window:get_dimensions()
-
-    window:set_inner_size(dimensions.pixel_width + delta, dimensions.pixel_height + delta)
+return function(grow)
+  return wezterm.action_callback(function(window, pane)
+    local tab = pane:tab()
+    local function direction(forward, back)
+      local edge = tab ~= nil and tab:get_pane_direction(forward) == nil and tab:get_pane_direction(back) ~= nil
+      return grow ~= edge and forward or back
+    end
+    window:perform_action(act.AdjustPaneSize { direction("Right", "Left"), 3 }, pane)
+    window:perform_action(act.AdjustPaneSize { direction("Down", "Up"), 1 }, pane)
   end)
 end
-
-return resize_window

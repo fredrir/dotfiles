@@ -9,7 +9,7 @@ return {
     keybinds = {
       commands = { "Super+p" },
       new_tab = { "Super+t" },
-      quick_terminal = { "Super+-", "Ctrl+-", "Super+Enter" },
+      quick_terminal = { "Super+Enter" },
     },
     keyboard_shortcuts = true,
     muted = "#98a8be",

@@ -19,12 +19,13 @@ local git_add = require "utils.keymap.git-add"
 local open_yazi = require "utils.keymap.open-yazi"
 local quick_yazi = require "utils.keymap.quick-yazi"
 local go_to = require "utils.keymap.go-to"
+local cd_git_root = require "utils.keymap.cd-git-root"
 local close_window = require "utils.close_window"
 local copy_selection = require "utils.copy-selection"
 local clear_screen = require "utils.keymap.clear_screen"
 local adopt_pane = require "utils.mux.adopt_pane"
 local vtabs = require "plugins.vtabs"
-local font_size = require("ui.fonts.fonts").font_size
+local resize_window = require "utils.resize-window"
 
 local act = wezterm.action
 
@@ -59,8 +60,8 @@ local bindings = {
   keybind(act.ActivateTab(-1), MOD.PRIMARY, "0"),
 
   -- Go to next/prev Tab --
-  keybind(act.ActivateTabRelative(1), "CTRL", "Tab"),
-  keybind(act.ActivateTabRelative(-1), "CTRL|SHIFT", "Tab"),
+  keybind(act.ActivateTabRelative(1), { "CTRL" }, "Tab"),
+  keybind(act.ActivateTabRelative(-1), { "CTRL|SHIFT", MOD.SHIFT_RIGHT }, "Tab"),
 
   keybind(act.PaneSelect { mode = "MoveToNewTab" }, MOD.PRIMARY, "m"),
 
@@ -91,10 +92,8 @@ local bindings = {
 
   keybind(act.TogglePaneZoomState, MOD.SUPER_REV, "z"),
 
-  keybind(act.AdjustPaneSize { "Left", 3 }, MOD.UNIQUE_REV, "LeftArrow"),
-  keybind(act.AdjustPaneSize { "Right", 3 }, MOD.UNIQUE_REV, "RightArrow"),
-  keybind(act.AdjustPaneSize { "Up", 3 }, MOD.UNIQUE_REV, "UpArrow"),
-  keybind(act.AdjustPaneSize { "Down", 3 }, MOD.UNIQUE_REV, "DownArrow"),
+  keybind(resize_window(true), MOD.PRIMARY, "+"),
+  keybind(resize_window(false), MOD.PRIMARY, "-"),
 
   ------ Wezterm ------
 
@@ -125,11 +124,11 @@ local bindings = {
   ----
   keybind(go_to "PYPARSER", { MOD.UNIQUE }, "p"),
   keybind(go_to "HOME/infra", MOD.UNIQUE, "i"),
-  ----
-  keybind(go_to "LLUNDE", "SHIFT", "l"),
+  keybind(go_to "LLUNDE", MOD.UNIQUE, "l"),
   ----
   keybind(go_to "CONFIG", MOD.SHIFT_RIGHT, "c"),
   keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),
+  keybind(cd_git_root, MOD.SHIFT_RIGHT, "g"),
   keybind(go_to "PYPARSER", { MOD.SHIFT_RIGHT }, "q"),
   keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
   keybind(go_to "HOME/rif", MOD.SHIFT_RIGHT, "r"),
@@ -141,7 +140,9 @@ local bindings = {
   keybind(git_add, MOD.UNIQUE, "g"),
   ----
   keybind(
-    vtabs.action { QuickTerminal = { args = { "zsh", "-lc", "lazygit" }, width = 0.95, height = 0.95 } },
+    vtabs.action {
+      QuickTerminal = { args = { "zsh", "-lc", "$DOTFILES_COMPILED/lazygit" }, width = 0.94, height = 0.94 },
+    },
     MOD.PRIMARY,
     "g"
   ),
