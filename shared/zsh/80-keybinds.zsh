@@ -21,7 +21,7 @@ vikey $'\e[5;30021~' wezterm-cd-git-root
 
 # Motion
 key '^W' motion-backward-kill-shell-word
-key '^X' motion-kill-to-line-start
+key '^U' motion-kill-to-line-start
 key '^[^?' motion-backward-kill-word
 key $'\e[1;5H' motion-document-start
 key $'\e[1;5F' motion-document-end

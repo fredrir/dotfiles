@@ -72,7 +72,10 @@ if [[ -n $WEZTERM_PANE ]]; then
       done
     }
     __wezterm_user_vars_precmd() {
-      local REPLY
+      local REPLY git=0
+      _git_root && git=1
+      _wezterm_user_var WEZTERM_GIT "$git"
+      print -rn -- "$REPLY"
       _wezterm_user_var WEZTERM_JOBS "${#jobstates}"
       print -rn -- "$REPLY"
       print -rn -- "$_wezterm_prompt_vars"

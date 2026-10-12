@@ -18,13 +18,13 @@ local open_github = require "utils.keymap.open-github"
 local git_add = require "utils.keymap.git-add"
 local open_yazi = require "utils.keymap.open-yazi"
 local quick_yazi = require "utils.keymap.quick-yazi"
+local lazygit = require "utils.keymap.lazygit"
 local go_to = require "utils.keymap.go-to"
 local cd_git_root = require "utils.keymap.cd-git-root"
 local close_window = require "utils.close_window"
 local copy_selection = require "utils.copy-selection"
 local clear_screen = require "utils.keymap.clear_screen"
 local adopt_pane = require "utils.mux.adopt_pane"
-local vtabs = require "plugins.vtabs"
 local resize_window = require "utils.resize-window"
 
 local act = wezterm.action
@@ -139,14 +139,8 @@ local bindings = {
   ------ Git & Quick Actions ------
   keybind(git_add, MOD.UNIQUE, "g"),
   ----
-  keybind(
-    vtabs.action {
-      QuickTerminal = { args = { "zsh", "-lc", "$DOTFILES_COMPILED/lazygit" }, width = 0.94, height = 0.94 },
-    },
-    MOD.PRIMARY,
-    "g"
-  ),
-  keybind(quick_yazi, MOD.SUPER_REV, "y"),
+  keybind(lazygit, MOD.PRIMARY, "g"),
+  keybind(quick_yazi, MOD.PRIMARY, "y"),
   ----
 }
 
