@@ -6,7 +6,7 @@ local plugin_root = wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs"
 local package_path = plugin_root .. "/plugin/init.lua"
 
 package.path = plugin_root .. "/plugin/?.lua;" .. plugin_root .. "/plugin/?/init.lua;" .. package.path
-local vtabs = dofile(package_path)
+local vtabs = dofile(package_path) --[[@as TabsPlugin]]
 
 local M = { plugin = vtabs, action = vtabs.action }
 

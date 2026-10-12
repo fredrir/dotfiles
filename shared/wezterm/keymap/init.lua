@@ -17,6 +17,7 @@ local open_jetbrains = require "utils.keymap.open-jetbrains"
 local open_github = require "utils.keymap.open-github"
 local git_add = require "utils.keymap.git-add"
 local open_yazi = require "utils.keymap.open-yazi"
+local quick_yazi = require "utils.keymap.quick-yazi"
 local go_to = require "utils.keymap.go-to"
 local close_window = require "utils.close_window"
 local copy_selection = require "utils.copy-selection"
@@ -38,7 +39,7 @@ local bindings = {
 
   ---- Application ----
   -- Quit Application --
-  keybind(act.QuitApplication, MOD.PRIMARY, { "q", "å" }),
+  keybind(act.QuitApplication, MOD.PRIMARY, "q"),
 
   ---- Window ----
   -- Close Window
@@ -107,9 +108,10 @@ local bindings = {
   -- Mux --
   keybind(mux.detach_pane, MOD.SUPER_REV, "s"),
   keybind(adopt_pane.toggle_host, { MOD.PRIMARY, "CTRL" }, "."),
+  keybind(adopt_pane.toggle_host, MOD.UNIQUE, "Enter"),
 
   -- Open Editors --
-  keybind(open_vscode, MOD.SUPER_REV, "o"),
+  keybind(open_vscode.cwd, MOD.SUPER_REV, "o"),
   keybind(open_jetbrains.pycharm, MOD.SUPER_REV, "p"),
   keybind(open_jetbrains.rustrover, MOD.UNIQUE_REV, "r"),
   keybind(open_github, MOD.SUPER_REV, "g"),
@@ -138,7 +140,12 @@ local bindings = {
   ------ Git & Quick Actions ------
   keybind(git_add, MOD.UNIQUE, "g"),
   ----
-  keybind(vtabs.action { QuickTerminal = { args = { "zsh", "-lc", "lazygit" } } }, MOD.PRIMARY, "g"),
+  keybind(
+    vtabs.action { QuickTerminal = { args = { "zsh", "-lc", "lazygit" }, width = 0.95, height = 0.95 } },
+    MOD.PRIMARY,
+    "g"
+  ),
+  keybind(quick_yazi, MOD.SUPER_REV, "y"),
   ----
 }
 

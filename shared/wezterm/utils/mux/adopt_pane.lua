@@ -2,6 +2,7 @@ local wezterm = require "wezterm" ---@type Wezterm
 local dotfile = require "utils.dotfile"
 local hwire_session = require "utils.hwire-session"
 local str = require "utils.str"
+local runtime = require "utils.runtime"
 local is_remote = require("utils.remote").is_remote
 local host = require "domain.hosts"
 local ssh_hosts = require "domain.ssh-hosts"
@@ -275,6 +276,9 @@ local open_peer_tab = once_per_pane(new_tab)
 
 return {
   toggle_host = wezterm.action_callback(function(window, pane)
+    if runtime.pane_has_running_process(pane) then
+      return
+    end
     requests.ATTACH_MUX(window, pane, "toggle")
   end),
   new_peer_tab = wezterm.action_callback(function(window, pane)

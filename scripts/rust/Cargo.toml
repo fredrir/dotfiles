@@ -14,6 +14,7 @@ members = [
   "crates/dotfmt/languages/markdown",
   "crates/dotfmt/languages/yaml",
   "crates/git/gdd",
+  "crates/git/gdelta",
   "crates/git/gget",
   "crates/git/gitkit",
   "crates/git/gppf",

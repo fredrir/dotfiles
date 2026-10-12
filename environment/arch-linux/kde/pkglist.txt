@@ -11,6 +11,7 @@ breeze-gtk
 breeze-plymouth
 bun
 cuda
+difftastic
 direnv
 discover
 docker

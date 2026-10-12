@@ -5,7 +5,12 @@ return {
   settings = {
     accent = "#a9c7f5",
     background = "#101020",
-    keybinds = { commands = { "Super+p" }, new_tab = { "Super+t" }, quick_terminal = { "Super+-", "Ctrl+-" } },
+    glyph_size = 0.7,
+    keybinds = {
+      commands = { "Super+p" },
+      new_tab = { "Super+t" },
+      quick_terminal = { "Super+-", "Ctrl+-", "Super+Enter" },
+    },
     keyboard_shortcuts = true,
     muted = "#98a8be",
     quick_terminal_blur = 0,

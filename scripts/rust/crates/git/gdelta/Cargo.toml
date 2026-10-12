@@ -1,0 +1,17 @@
+[package]
+name              = "gdelta"
+version.workspace = true
+description       = "Render a diff with delta, side by side only for files changed on both sides"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anstream              = { version = "1", default-features = false }
+clap.workspace        = true
+workstation.workspace = true
+
+[dev-dependencies]
+testkit.workspace = true

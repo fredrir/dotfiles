@@ -1896,6 +1896,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gdelta"
+version = "0.1.0"
+dependencies = [
+ "anstream",
+ "clap 4.6.6",
+ "testkit",
+ "workstation",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

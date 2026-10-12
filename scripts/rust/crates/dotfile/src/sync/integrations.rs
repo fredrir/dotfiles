@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::context::{Context, write_atomic};
 use crate::event::{Action, Event, EventSink, Phase};
@@ -48,6 +48,7 @@ pub fn synchronize(
         user_units(context, dry_run, events, &mut outcome, &mut warnings)?;
     }
     zsh_bundle(context, dry_run, events, &mut outcome, &mut warnings)?;
+    bat_themes(context, dry_run, events, &mut outcome, &mut warnings)?;
     let mut git_configs = git_config.join().unwrap_or_default();
     git_settings(
         context,
@@ -207,6 +208,95 @@ fn zsh_bundle(
         }
     }
     Ok(())
+}
+
+fn bat_themes(
+    context: &Context,
+    dry_run: bool,
+    events: &dyn EventSink,
+    outcome: &mut IntegrationOutcome,
+    warnings: &mut Vec<(String, Option<String>)>,
+) -> Result<(), String> {
+    let source = context.root.join("shared/bat");
+    let Some(newest) = newest_change(&source.join("themes"))? else {
+        return Ok(());
+    };
+    if !command_exists("bat") {
+        return Ok(());
+    }
+    crate::cancel::check()?;
+    let cache = bat_cache_dir(context);
+    let themes = cache.join("themes.bin");
+    outcome.checked += 1;
+    let stale = modified(&themes)?.is_none_or(|built| built < newest);
+    if stale && !dry_run {
+        let built = context
+            .command("bat")
+            .args(["cache", "--build", "--source"])
+            .arg(&source)
+            .arg("--target")
+            .arg(&cache)
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|error| format!("bat cache: {error}"))?;
+        if !built.status.success() {
+            warnings.push((
+                format!(
+                    "bat cache: {}",
+                    String::from_utf8_lossy(&built.stderr).trim()
+                ),
+                Some("bat cache --build".to_string()),
+            ));
+            return Ok(());
+        }
+    }
+    if stale {
+        outcome.changed += 1;
+        outcome.generated += 1;
+    }
+    events.emit(Event::Item {
+        action: Action::Generate,
+        path: themes,
+        detail: if stale { "bat theme cache" } else { "current" }.to_string(),
+        changed: stale,
+    });
+    Ok(())
+}
+
+// Where delta reads bat's cache from; unlike bat, it ignores BAT_CACHE_PATH.
+fn bat_cache_dir(context: &Context) -> PathBuf {
+    context
+        .env("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| context.home.join(".cache"))
+        .join("bat")
+}
+
+// The directory's own time covers themes that were removed.
+fn newest_change(directory: &Path) -> Result<Option<SystemTime>, String> {
+    let Some(mut newest) = modified(directory)? else {
+        return Ok(None);
+    };
+    let entries = fs::read_dir(directory)
+        .map_err(|error| format!("read {}: {error}", directory.display()))?;
+    for entry in entries {
+        let path = entry
+            .map_err(|error| format!("read {}: {error}", directory.display()))?
+            .path();
+        if let Some(changed) = modified(&path)? {
+            newest = newest.max(changed);
+        }
+    }
+    Ok(Some(newest))
+}
+
+fn modified(path: &Path) -> Result<Option<SystemTime>, String> {
+    match fs::metadata(path).and_then(|metadata| metadata.modified()) {
+        Ok(time) => Ok(Some(time)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("read {}: {error}", path.display())),
+    }
 }
 
 /// A warning per state the new bundle's shell reaches unlike the sources'.

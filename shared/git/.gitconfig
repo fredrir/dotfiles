@@ -25,10 +25,25 @@
 [interactive]
 	diffFilter = delta --color-only
 [delta]
+	features = unified
 	navigate = true
 	light = false
 	line-numbers = true
+	syntax-theme = Fredrir
+	max-line-distance = 0.8
+	minus-style = syntax "#7a2936"
+	minus-emph-style = syntax "#b3596b"
+	plus-style = syntax "#225c2b"
+	plus-emph-style = syntax "#38a660"
+	line-numbers-minus-style = "#dc5a5a"
+	line-numbers-plus-style = "#50c850"
+	hunk-header-style = file line-number syntax
+[delta "unified"]
 	line-numbers-left-format = ""
+[delta "split"]
+	side-by-side = true
+	line-numbers-left-format = "{nm:^4}│"
+	wrap-max-lines = unlimited
 
 [merge]
 	conflictStyle = zdiff3

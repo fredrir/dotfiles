@@ -17,6 +17,11 @@ git:
   diffContextSize: 3
   diffRenderers:
     - name: Delta
+      command: ~/dotfiles/.bin/gdelta --{{colorScheme}} --paging=never --width={{width}}
+    - type: extDiff
+      name: Difftastic
+      command: difft --color=always --background={{colorScheme}} --context={{diffContext}}
+    - name: Delta unified
       command: delta --{{colorScheme}} --paging=never
     - type: rawGit
       name: Git

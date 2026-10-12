@@ -2,10 +2,10 @@ local wezterm = require "wezterm"
 local platform = require "utils.platform"
 local host = require "domain.hosts" ---@type Hosts
 
----@param cwd Url
+---@param path string
 ---@param pane Pane
 ---@return boolean
-local function open_remote(cwd, pane)
+local function open_remote(path, pane)
   if not platform.is_remote(pane) then
     return false
   end
@@ -14,11 +14,6 @@ local function open_remote(cwd, pane)
   local hostname = host.target.hostname
   assert(type(hostname) == "string")
   local authority = "ssh-remote+" .. hostname
-
-  local path = cwd.file_path
-  if not path then
-    return false
-  end
 
   if path:sub(-1) ~= "/" then
     path = path .. "/"
@@ -35,24 +30,20 @@ local function open_remote(cwd, pane)
   return true
 end
 
-local open_vscode = wezterm.action_callback(function(_, pane)
-  local cwd = pane:get_current_working_dir()
-
-  if not cwd or cwd.scheme ~= "file" then
-    return
-  end
-
-  if open_remote(cwd, pane) then
+---@param path string
+---@param pane Pane
+local function open(path, pane)
+  if open_remote(path, pane) then
     return
   elseif platform.is_mac then
     wezterm.background_child_process {
       "/usr/bin/open",
       "-a",
       "Visual Studio Code",
-      cwd.file_path,
+      path,
     }
   elseif platform.is_linux then
-    local command = "cd " .. wezterm.shell_quote_arg(cwd.file_path) .. " && code ."
+    local command = "cd " .. wezterm.shell_quote_arg(path) .. " && code ."
 
     wezterm.background_child_process {
       "/bin/zsh",
@@ -60,6 +51,19 @@ local open_vscode = wezterm.action_callback(function(_, pane)
       command,
     }
   end
+end
+
+local open_cwd = wezterm.action_callback(function(_, pane)
+  local cwd = pane:get_current_working_dir()
+
+  if not cwd or cwd.scheme ~= "file" or not cwd.file_path then
+    return
+  end
+
+  open(cwd.file_path, pane)
 end)
 
-return open_vscode
+return {
+  cwd = open_cwd,
+  open = open,
+}

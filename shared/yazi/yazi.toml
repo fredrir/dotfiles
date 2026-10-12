@@ -5,7 +5,11 @@
 
 [opener]
 edit = [
-  { run = "${EDITOR:-nvim} %s", desc = "$EDITOR", for = "unix", block = true },
+  { run = '''
+      [ -z "$YAZI_OPEN_VSCODE" ] && exec ${EDITOR:-nvim} %s
+      cd %s1 2>/dev/null
+      printf "\033]1337;SetUserVar=OPEN_VSCODE=$(pwd | tr -d "\n" | base64 | tr -d "\n")\007"
+    ''', desc = "$EDITOR", for = "unix", block = true },
   { run = "code %s", desc = "code", for = "windows", orphan = true },
   { run = "code -w %s", desc = "code (block)", for = "windows", block = true },
 ]
