@@ -1,4 +1,5 @@
 # shared
+shared/bat = ~/.config/bat
 shared/fastfetch = ~/.config/fastfetch
 shared/gh = ~/.config/gh
 shared/git = ~/.config/git
@@ -68,6 +69,7 @@ linux/arch/macie-usb/usr/lib = /usr/lib
 linux/arch/nvidia/etc = /etc
 linux/arch/rapl/etc = /etc
 linux/arch/ssh = ~/.ssh
+linux/arch/timesyncd/etc = /etc
 linux/arch/tuning-sysctl/etc = /etc
 linux/arch/wezterm-mtls = ~/.local/share/wezterm/mtls
 linux/arch/wezterm-mux = ~/.config/systemd/user
