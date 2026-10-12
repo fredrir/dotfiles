@@ -1,7 +1,23 @@
+_git_status() {
+  if [[ ! -t 1 ]]; then
+    command git status "$@"
+    return
+  fi
+
+  local e=$'\e' t=$'\t'
+  command git -c color.ui=always status "$@" | sed -E \
+    -e "s/^$t($e\[[0-9;]*m)(modified:)/$t${e}[33m\2\1/" \
+    -e "s/^$t($e\[[0-9;]*m)(deleted:)/$t${e}[31m\2\1/" \
+    -e "s/^$t($e\[[0-9;]*m)(new file:)/$t${e}[32m\2\1/" \
+    -e "s/^$t($e\[[0-9;]*m)(renamed:)/$t${e}[34m\2\1/"
+  return ${pipestatus[1]}
+}
+
 git() {
   case "$1:$#" in
   diff:1) command lazygit ;;
   log:1) command lazygit log ;;
+  status:*) _git_status "${@:2}" ;;
   *) command git "$@" ;;
   esac
 }

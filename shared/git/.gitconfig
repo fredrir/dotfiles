@@ -9,6 +9,9 @@
 [rerere]
 	enabled = true
 
+[advice]
+	statusHints = false
+
 [core]
 	editor = nvim
 	pager = delta
