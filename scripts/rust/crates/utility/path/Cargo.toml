@@ -1,7 +1,7 @@
 [package]
 name              = "path"
 version.workspace = true
-description       = "Repository-relative or home-relative path of a target"
+description       = "Home-relative or repository-relative path of a target"
 edition.workspace = true
 license.workspace = true
 

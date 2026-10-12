@@ -7,10 +7,10 @@ fn described(target: &str, root: Option<&str>, home: Option<&str>) -> String {
 
 #[test]
 fn inside_a_repository_the_root_is_the_top() {
-    assert_eq!(described("/w/repo", Some("/w/repo"), None), "/");
+    assert_eq!(described("/w/repo", Some("/w/repo"), None), "");
     assert_eq!(
         described("/w/repo/sub/file", Some("/w/repo"), None),
-        "/sub/file"
+        "sub/file"
     );
 }
 
@@ -18,7 +18,7 @@ fn inside_a_repository_the_root_is_the_top() {
 fn a_repository_wins_over_the_home_directory() {
     assert_eq!(
         described("/home/u/repo/src", Some("/home/u/repo"), Some("/home/u")),
-        "/src"
+        "src"
     );
 }
 

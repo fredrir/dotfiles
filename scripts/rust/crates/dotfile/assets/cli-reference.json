@@ -281,7 +281,7 @@
     "op-bridge reload": "Clears the daemon's memory and refetches every `Dev` reference; run after rotating a key.",
     "op-bridge setup": "Installs the signed `~/Applications/op-bridge.app` on macie and restarts its launchd agent.",
     "op-bridge op": "Runs as `op`: reads go to the daemon, everything else to the real `op`.",
-    "path": "Prints the repository-relative or home-relative path of a target.",
+    "path": "Prints the home-relative or repository-relative path of a target.",
     "rm-emptydirs": "Deletes empty directories below the given targets.",
     "size": "Reports sizes and line counts for files and directories.",
     "sysinfo": "Summarizes the current machine's environment and hardware.",
@@ -476,7 +476,8 @@
     },
     "path": {
       "--full": "Prints the full path instead of a relative one.",
-      "--relative": "Prints the path relative to the home directory, or the full path outside it."
+      "--relative": "Prints the path relative to the home directory, or the full path outside it. This is the default.",
+      "--git": "Prints the path relative to the repository root, or the `--relative` path outside one."
     },
     "rm-emptydirs": {
       "--dry": "Shows what would go without deleting anything.",

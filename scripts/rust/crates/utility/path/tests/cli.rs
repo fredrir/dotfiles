@@ -11,35 +11,47 @@ fn line(output: &Output) -> String {
 }
 
 #[test]
-fn a_repository_root_prints_a_slash() {
+fn git_at_the_repository_root_prints_an_empty_line() {
     let root = tree(&[".git/", "sub/file.txt"]);
     let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .arg("-g")
         .current_dir(root.path())
         .env("HOME", "/nowhere")
         .output();
-    assert_eq!(line(&output), "/");
+    assert_eq!(line(&output), "");
 }
 
 #[test]
-fn paths_inside_a_repository_are_relative_to_its_root() {
+fn git_paths_are_relative_to_the_repository_root() {
     let root = tree(&[".git/", "sub/file.txt"]);
     let output = Bin::new(env!("CARGO_BIN_EXE_path"))
-        .arg("sub/file.txt")
-        .current_dir(root.path())
+        .args(["--git", "file.txt"])
+        .current_dir(root.path().join("sub"))
         .env("HOME", "/nowhere")
         .output();
-    assert_eq!(line(&output), "/sub/file.txt");
+    assert_eq!(line(&output), "sub/file.txt");
 }
 
 #[test]
 fn a_target_that_does_not_exist_still_describes_itself() {
     let root = tree(&[".git/", "sub/file.txt"]);
     let output = Bin::new(env!("CARGO_BIN_EXE_path"))
-        .arg("missing/deep.txt")
+        .args(["-g", "missing/deep.txt"])
         .current_dir(root.path())
         .env("HOME", "/nowhere")
         .output();
-    assert_eq!(line(&output), "/missing/deep.txt");
+    assert_eq!(line(&output), "missing/deep.txt");
+}
+
+#[test]
+fn git_outside_a_repository_falls_back_to_the_home_directory() {
+    let home = tree(&["docs/"]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .args(["-g", "docs"])
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .output();
+    assert_eq!(line(&output), "~/docs");
 }
 
 #[test]
@@ -58,15 +70,18 @@ fn full_prints_the_resolved_path() {
 }
 
 #[test]
-fn relative_forces_the_home_directory_even_inside_a_repository() {
+fn the_home_directory_is_used_even_inside_a_repository() {
     let home = tree(&[".git/", "dotfiles/sub/file.txt"]);
     let repo = home.path().join("dotfiles");
-    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
-        .args(["-r", "sub/file.txt"])
-        .current_dir(&repo)
-        .env("HOME", home.path())
-        .output();
-    assert_eq!(line(&output), "~/dotfiles/sub/file.txt");
+    for flags in [&[][..], &["-r"], &["--relative"]] {
+        let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+            .args(flags)
+            .arg("sub/file.txt")
+            .current_dir(&repo)
+            .env("HOME", home.path())
+            .output();
+        assert_eq!(line(&output), "~/dotfiles/sub/file.txt");
+    }
 }
 
 #[test]
@@ -81,14 +96,16 @@ fn relative_outside_home_prints_the_full_path() {
 }
 
 #[test]
-fn full_and_relative_conflict() {
+fn full_relative_and_git_conflict() {
     let home = tree(&[]);
-    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
-        .args(["-f", "-r"])
-        .current_dir(home.path())
-        .env("HOME", home.path())
-        .output();
-    assert_eq!(output.status.code(), Some(2));
+    for flags in [["-f", "-r"], ["-f", "-g"], ["-r", "-g"]] {
+        let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+            .args(flags)
+            .current_dir(home.path())
+            .env("HOME", home.path())
+            .output();
+        assert_eq!(output.status.code(), Some(2));
+    }
 }
 
 #[test]
@@ -151,6 +168,6 @@ fn help_describes_this_tool() {
         .output();
     assert!(
         stdout(&output)
-            .starts_with("Print the repository-relative or home-relative path of a target")
+            .starts_with("Print the home-relative or repository-relative path of a target")
     );
 }

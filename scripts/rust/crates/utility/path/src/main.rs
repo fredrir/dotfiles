@@ -12,7 +12,7 @@ const PROGRAM: &str = "path";
 #[derive(Parser)]
 #[command(
     version,
-    about = "Print the repository-relative or home-relative path of a target"
+    about = "Print the home-relative or repository-relative path of a target"
 )]
 struct Cli {
     #[arg(value_hint = ValueHint::AnyPath, default_value = ".")]
@@ -23,6 +23,9 @@ struct Cli {
 
     #[arg(short = 'r', long = "relative", conflicts_with = "full")]
     relative: bool,
+
+    #[arg(short = 'g', long = "git", conflicts_with_all = ["full", "relative"])]
+    git: bool,
 
     #[command(flatten)]
     completions: Completions,
@@ -45,11 +48,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
     let home = std::env::var_os("HOME").map(|home| real_path(Path::new(&home)));
-    let output = if cli.relative {
-        home_relative(&resolved, home.as_deref())
-    } else {
+    let output = if cli.git {
         let root = repository_root(&resolved);
         describe(&resolved, root.as_deref(), home.as_deref())
+    } else {
+        home_relative(&resolved, home.as_deref())
     };
     println!("{output}");
     Ok(ExitCode::SUCCESS)
@@ -57,7 +60,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
 
 fn describe(resolved: &Path, root: Option<&Path>, home: Option<&Path>) -> String {
     if let Some(inside) = root.and_then(|root| relative(resolved, root)) {
-        return format!("/{inside}");
+        return inside;
     }
     home_relative(resolved, home)
 }

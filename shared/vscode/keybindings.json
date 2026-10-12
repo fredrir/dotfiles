@@ -359,7 +359,7 @@
     "when": "editorFocus"
   },
   {
-    "key": "ctrl+[Backslash]",
+    "key": "alt+enter",
     "command": "editor.action.revealDefinition",
     "when": "editorHasDefinitionProvider && editorTextFocus"
   },
@@ -379,7 +379,7 @@
     "when": "inReferenceSearchEditor || referenceSearchVisible"
   },
   {
-    "key": "ctrl+[Backslash]",
+    "key": "alt+enter",
     "command": "editor.gotoNextSymbolFromResult",
     "when": "hasSymbols"
   },
