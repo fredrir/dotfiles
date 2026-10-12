@@ -3,32 +3,9 @@
 # Keep only local overrides here; all other bindings are inherited from Yazi.
 
 [[mgr.prepend_keymap]]
-on   = "M"
-run  = "plugin lua.mount"
-desc = "Open mount manager"
-
-[[mgr.prepend_keymap]]
-on   = "<Right>"
-run  = "plugin lua.smart-enter"
-desc = "Enter directory or open file"
-
-[[mgr.prepend_keymap]]
-on = "y"
-run = [
-  'shell -- if [ -n "$WAYLAND_DISPLAY" ]; then for path in "$@"; do echo "file://$path"; done | wl-copy -t text/uri-list; else printf "%s\n" "$@" | dclip; fi',
-  "yank",
-]
-desc = "Yank and copy paths to the system clipboard"
-
-[[mgr.prepend_keymap]]
 on   = "<Esc>"
 run  = "plugin lua.smart-esc"
 desc = "Cancel visual mode, selection, filter, find or search, otherwise quit"
-
-[[mgr.prepend_keymap]]
-on   = "f"
-run  = "plugin lua.smart-filter"
-desc = "Filter continuously and enter a unique directory"
 
 [[mgr.prepend_keymap]]
 on   = ["g", "p"]

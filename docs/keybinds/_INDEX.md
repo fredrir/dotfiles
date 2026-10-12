@@ -27,5 +27,5 @@
 | [nvim](./nvim.md) | 86 | 2 |
 | [vscode](./vscode.md) | 82 | 0 |
 | [wezterm](./wezterm.md) | 54 | 1 |
-| [yazi](./yazi.md) | 9 | 0 |
+| [yazi](./yazi.md) | 5 | 0 |
 | [zsh](./zsh.md) | 5 | 2 |
