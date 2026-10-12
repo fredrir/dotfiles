@@ -3,12 +3,12 @@
 ## Commands
 
 <!-- cli:commands:start -->
-| Command  | Description                                                                                                                                      |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `gdd`    | Discards tracked and untracked working-tree changes while preserving ignored files and nested repositories.                                      |
-| `gdelta` | Renders a diff with delta, side by side only for files with both removed and added lines, and without the code context git adds to hunk headers. |
-| `gget`   | Downloads a file or directory from a GitHub repository into the current directory.                                                               |
-| `gppf`   | Stages everything, commits with the supplied message, and pushes the commit.                                                                     |
+| Command  | Description                                                                                                 |
+| -------- | ----------------------------------------------------------------------------------------------------------- |
+| `gdd`    | Discards tracked and untracked working-tree changes while preserving ignored files and nested repositories. |
+| `gdelta` | Renders a diff with delta, side by side only for files with both removed and added lines.                   |
+| `gget`   | Downloads a file or directory from a GitHub repository into the current directory.                          |
+| `gppf`   | Stages everything, commits with the supplied message, and pushes the commit.                                |
 <!-- cli:commands:end -->
 
 ## Flags

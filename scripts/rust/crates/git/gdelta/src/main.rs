@@ -10,10 +10,9 @@ use std::process::{Child, ChildStdin, Command, ExitCode, ExitStatus, Stdio};
 use clap::Parser;
 use workstation::{Completable, Completions};
 
-use sections::{Layout, Sections};
+use sections::{Layout, Section, Sections, Status};
 
 const PROGRAM: &str = "gdelta";
-const SPLIT_FEATURE: &str = "--features=split";
 
 #[derive(Parser)]
 #[command(
@@ -51,7 +50,7 @@ fn stream(delta: &[OsString], input: impl BufRead) -> io::Result<ExitStatus> {
     let mut runs = Runs::new(delta);
     for section in Sections::new(input) {
         let section = section?;
-        if closed(runs.write(section.layout, &section.text))? {
+        if closed(runs.write(&section))? {
             break;
         }
     }
@@ -67,7 +66,7 @@ fn closed(written: io::Result<()>) -> io::Result<bool> {
     }
 }
 
-// Neighbouring files with the same layout share one delta process.
+// Neighbouring files with the same layout and status share one delta process.
 struct Runs<'a> {
     delta: &'a [OsString],
     current: Option<Run>,
@@ -85,32 +84,34 @@ impl<'a> Runs<'a> {
         }
     }
 
-    fn write(&mut self, layout: Option<Layout>, text: &[u8]) -> io::Result<()> {
-        let layout = match (layout, &self.current) {
-            (Some(layout), _) => layout,
-            (None, Some(run)) => run.layout,
-            (None, None) => {
-                self.unplaced.extend_from_slice(text);
+    fn write(&mut self, section: &Section) -> io::Result<()> {
+        let run = match self.current.take() {
+            Some(run) if run.fits(section) => self.current.insert(run),
+            None if section.layout.is_none() && section.status.is_none() => {
+                self.unplaced.extend_from_slice(&section.text);
                 return Ok(());
             }
-        };
-        let run = match self.current.take() {
-            Some(run) if run.layout == layout => self.current.insert(run),
             previous => {
-                if let Some(run) = previous {
-                    self.settle(run)?;
-                }
-                let run = self.current.insert(Run::spawn(self.delta, layout)?);
-                run.stdin.write_all(&mem::take(&mut self.unplaced))?;
-                run
+                self.current = previous;
+                let layout = section.layout.unwrap_or(Layout::Unified);
+                self.start(layout, section.status)?
             }
         };
-        run.stdin.write_all(text)
+        run.stdin.write_all(&section.text)
+    }
+
+    fn start(&mut self, layout: Layout, status: Option<Status>) -> io::Result<&mut Run> {
+        if let Some(run) = self.current.take() {
+            self.settle(run)?;
+        }
+        let run = self.current.insert(Run::spawn(self.delta, layout, status)?);
+        run.stdin.write_all(&mem::take(&mut self.unplaced))?;
+        Ok(run)
     }
 
     fn finish(mut self) -> io::Result<ExitStatus> {
         if self.current.is_none() {
-            closed(self.write(Some(Layout::Unified), &[]))?;
+            closed(self.start(Layout::Unified, None).map(|_| ()))?;
         }
         if let Some(run) = self.current.take() {
             self.settle(run)?;
@@ -129,24 +130,32 @@ impl<'a> Runs<'a> {
 
 struct Run {
     layout: Layout,
+    status: Option<Status>,
     child: Child,
     stdin: ChildStdin,
 }
 
 impl Run {
-    fn spawn(delta: &[OsString], layout: Layout) -> io::Result<Run> {
-        let mut command = Command::new("delta");
-        command.args(delta).stdin(Stdio::piped());
-        if layout == Layout::Split {
-            command.arg(SPLIT_FEATURE);
-        }
-        let mut child = command.spawn()?;
+    fn spawn(delta: &[OsString], layout: Layout, status: Option<Status>) -> io::Result<Run> {
+        let mut child = Command::new("delta")
+            .args(delta)
+            .arg(features(layout, status))
+            .stdin(Stdio::piped())
+            .spawn()?;
         let stdin = child.stdin.take().expect("stdin is piped");
         Ok(Run {
             layout,
+            status,
             child,
             stdin,
         })
+    }
+
+    fn fits(&self, section: &Section) -> bool {
+        section.layout.is_none_or(|layout| layout == self.layout)
+            && section
+                .status
+                .is_none_or(|status| Some(status) == self.status)
     }
 
     fn wait(self) -> io::Result<ExitStatus> {
@@ -156,4 +165,19 @@ impl Run {
         drop(stdin);
         child.wait()
     }
+}
+
+// The gitconfig styles each layout and status in a `[delta "<feature>"]` section.
+fn features(layout: Layout, status: Option<Status>) -> String {
+    let layout = match layout {
+        Layout::Unified => "unified",
+        Layout::Split => "split",
+    };
+    let status = match status {
+        Some(Status::Added) => " added",
+        Some(Status::Modified) => " modified",
+        Some(Status::Deleted) => " deleted",
+        None => "",
+    };
+    format!("--features={layout}{status}")
 }

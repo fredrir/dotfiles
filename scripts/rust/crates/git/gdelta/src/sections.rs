@@ -8,11 +8,20 @@ pub enum Layout {
     Split,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Status {
+    Added,
+    Modified,
+    Deleted,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Section {
     pub text: Vec<u8>,
     // `None` when nothing changed, so the section can join either layout.
     pub layout: Option<Layout>,
+    // `None` for the text before the first file, such as a commit message.
+    pub status: Option<Status>,
 }
 
 pub struct Sections<R> {
@@ -52,28 +61,16 @@ impl<R: BufRead> Iterator for Sections<R> {
                 break;
             }
             changes.read(&visible);
-            match hunk_range(&visible) {
-                Some(range) => {
-                    text.extend_from_slice(range);
-                    text.push(b'\n');
-                }
-                None => text.extend_from_slice(&line),
-            }
+            text.extend_from_slice(&line);
         }
         (!text.is_empty()).then(|| {
             Ok(Section {
                 layout: changes.layout(),
+                status: changes.status(),
                 text,
             })
         })
     }
-}
-
-// git follows the range with the enclosing code, as in `@@ -1,2 +1,3 @@ fn main() {`.
-fn hunk_range(line: &[u8]) -> Option<&[u8]> {
-    let ranges = line.strip_prefix(b"@@ ")?;
-    let end = ranges.windows(3).position(|window| window == b" @@")?;
-    Some(&line[..b"@@ ".len() + end + b" @@".len()])
 }
 
 fn starts_file(line: &[u8]) -> bool {
@@ -86,6 +83,9 @@ fn is_combined(line: &[u8]) -> bool {
 
 #[derive(Default)]
 struct Changes {
+    file: bool,
+    new_file: bool,
+    deleted_file: bool,
     combined: bool,
     in_hunk: bool,
     removed: bool,
@@ -94,8 +94,9 @@ struct Changes {
 
 impl Changes {
     fn read(&mut self, line: &[u8]) {
-        if is_combined(line) {
-            self.combined = true;
+        if starts_file(line) {
+            self.file = true;
+            self.combined = is_combined(line);
         } else if line.starts_with(b"@@") {
             self.in_hunk = true;
         } else if self.in_hunk {
@@ -104,6 +105,19 @@ impl Changes {
                 Some(b'+') => self.added = true,
                 _ => {}
             }
+        } else if line.starts_with(b"new file mode") || line.starts_with(b"--- /dev/null") {
+            self.new_file = true;
+        } else if line.starts_with(b"deleted file mode") || line.starts_with(b"+++ /dev/null") {
+            self.deleted_file = true;
+        }
+    }
+
+    fn status(&self) -> Option<Status> {
+        match (self.file, self.new_file, self.deleted_file) {
+            (false, _, _) => None,
+            (true, true, _) => Some(Status::Added),
+            (true, _, true) => Some(Status::Deleted),
+            _ => Some(Status::Modified),
         }
     }
 

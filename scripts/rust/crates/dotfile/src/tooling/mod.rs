@@ -13,6 +13,8 @@ use crate::event::{Event, EventSink, Phase, Summary};
 
 pub mod catalog;
 pub mod digest;
+mod go_patches;
+mod go_upgrades;
 pub mod install;
 pub mod requirements;
 
@@ -20,6 +22,7 @@ pub mod requirements;
 pub struct Refresh {
     executable: PathBuf,
     options: Arc<install::Options>,
+    upgrade: bool,
     replaced: Arc<AtomicBool>,
 }
 
@@ -42,19 +45,20 @@ pub fn pending(cli: &SyncCli) -> Result<Option<Refresh>, String> {
         }
     };
     let requested = cli.installs_only() || cli.rebuild;
-    if !requested {
-        // Re-execing into a rebuilt binary already installed the toolchain, and a
-        // build tree copy of dotfile is not this machine's installed toolchain.
-        if std::env::var_os("DOTFILE_REEXECED").is_some()
-            || !is_installed(&context.home, &executable)
-            || current(&context, &options)?
-        {
-            return Ok(None);
-        }
+    // A build tree copy of dotfile is not this machine's installed toolchain.
+    if !requested && !is_installed(&context.home, &executable) {
+        return Ok(None);
+    }
+    // The binary that re-execed already checked today.
+    let upgrade = std::env::var_os("DOTFILE_REEXECED").is_none() && go_upgrades::due(&context);
+    // A re-execed dotfile still checks, since the one it replaced may build differently.
+    if !requested && !upgrade && current(&context, &options)? {
+        return Ok(None);
     }
     Ok(Some(Refresh {
         executable,
         options: Arc::new(options),
+        upgrade,
         replaced: Arc::new(AtomicBool::new(false)),
     }))
 }
@@ -71,6 +75,9 @@ impl Refresh {
             eprintln!("dotfile: updating workstation commands…");
         }
         let _lock = crate::lock::SetupLock::acquire(&context)?;
+        if self.upgrade {
+            go_upgrades::upgrade_patched(&context, events)?;
+        }
         let report = install::ensure(&context, &self.options, events)?;
         self.replaced
             .store(report.dotfile_changed, Ordering::SeqCst);

@@ -1,0 +1,84 @@
+--- a/pkg/gui/presentation/files.go
++++ b/pkg/gui/presentation/files.go
+@@ -131,13 +131,7 @@
+ 
+ 	indentation := strings.Repeat("  ", visualDepth)
+ 
+-	if hasStagedChanges && !hasUnstagedChanges {
+-		nameColor = style.FgGreen
+-	} else if hasStagedChanges {
+-		nameColor = style.FgYellow
+-	} else {
+-		nameColor = theme.DefaultTextColor
+-	}
++	nameColor = theme.DefaultTextColor
+ 
+ 	if file == nil {
+ 		output += indentation + ""
+@@ -183,21 +177,32 @@
+ 
+ func formatFileStatus(file *models.File, restColor style.TextStyle) string {
+ 	firstChar := file.ShortStatus[0:1]
+-	firstCharCl := style.FgGreen
+-	switch firstChar {
+-	case "?":
+-		firstCharCl = theme.UnstagedChangesColor
+-	case " ":
+-		firstCharCl = restColor
+-	}
+-
+ 	secondChar := file.ShortStatus[1:2]
+-	secondCharCl := theme.UnstagedChangesColor
+-	if secondChar == " " {
+-		secondCharCl = restColor
++	if file.HasMergeConflicts {
++		return deletedColor.Sprint(firstChar) + deletedColor.Sprint(secondChar)
+ 	}
++	return colorForChangeStatus(firstChar, restColor).Sprint(firstChar) +
++		colorForChangeStatus(secondChar, restColor).Sprint(secondChar)
++}
+ 
+-	return firstCharCl.Sprint(firstChar) + secondCharCl.Sprint(secondChar)
++// VS Code's git colors, the same whether a change is staged or not.
++var (
++	addedColor    = style.New().SetFg(style.NewRGBColor(color.HEX("#73c991")))
++	modifiedColor = style.New().SetFg(style.NewRGBColor(color.HEX("#e5ba7d")))
++	deletedColor  = style.New().SetFg(style.NewRGBColor(color.HEX("#f48771")))
++)
++
++func colorForChangeStatus(changeStatus string, otherColor style.TextStyle) style.TextStyle {
++	switch changeStatus {
++	case "A", "?", "R", "C":
++		return addedColor
++	case "M", "T":
++		return modifiedColor
++	case "D", "U":
++		return deletedColor
++	default:
++		return otherColor
++	}
+ }
+ 
+ func formatLineChanges(linesAdded, linesDeleted int) string {
+@@ -283,20 +288,7 @@
+ }
+ 
+ func getColorForChangeStatus(changeStatus string) style.TextStyle {
+-	switch changeStatus {
+-	case "A":
+-		return style.FgGreen
+-	case "M", "R":
+-		return style.FgYellow
+-	case "D":
+-		return theme.UnstagedChangesColor
+-	case "C":
+-		return style.FgCyan
+-	case "T":
+-		return style.FgMagenta
+-	default:
+-		return theme.DefaultTextColor
+-	}
++	return colorForChangeStatus(changeStatus, theme.DefaultTextColor)
+ }
+ 
+ func fileNameAtDepth(node *filetree.Node[models.File], depth int, showRootItem bool) string {

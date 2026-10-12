@@ -201,6 +201,14 @@ _wezterm_go_to() {
 
 zle -N wezterm-go-to _wezterm_go_to
 
+_wezterm_cd_git_root() {
+  local REPLY
+  _git_root || return 0
+  _wezterm_cd "$REPLY"
+}
+
+zle -N wezterm-cd-git-root _wezterm_cd_git_root
+
 if [[ -n $WEZTERM_GO_TO ]]; then
   () {
     local REPLY

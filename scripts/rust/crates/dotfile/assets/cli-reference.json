@@ -263,7 +263,7 @@
     "dwin": "Focuses a window without raising its app's other windows.",
     "flatten": "Lifts a directory's contents out of the directories holding them.",
     "gdd": "Discards tracked and untracked working-tree changes while preserving ignored files and nested repositories.",
-    "gdelta": "Renders a diff with delta, side by side only for files with both removed and added lines, and without the code context git adds to hunk headers.",
+    "gdelta": "Renders a diff with delta, side by side only for files with both removed and added lines.",
     "gget": "Downloads a file or directory from a GitHub repository into the current directory.",
     "gppf": "Stages everything, commits with the supplied message, and pushes the commit.",
     "hexcat": "Prints files like cat; on a terminal with built-in bat highlighting and color swatches.",

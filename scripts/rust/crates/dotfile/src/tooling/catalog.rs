@@ -128,7 +128,11 @@ fn inputs(root: &Path, language: Language) -> Vec<PathBuf> {
             root.join("scripts/python/pyproject.toml"),
             root.join("scripts/python/uv.lock"),
         ],
-        Language::Go => vec![root.join("scripts/go")],
+        // A dotfile that applies the patches differently has to rebuild what they patch.
+        Language::Go => vec![
+            root.join("scripts/go"),
+            root.join("scripts/rust/crates/dotfile/src/tooling/go_patches.rs"),
+        ],
     }
 }
 

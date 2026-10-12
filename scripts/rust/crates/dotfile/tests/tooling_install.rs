@@ -84,7 +84,11 @@ fn stubs(root: &Path) -> PathBuf {
     );
     executable(
         &path.join("go"),
-        "#!/bin/sh\nprintf 'go\\n' >> \"$BUILD_LOG\"\n\
+        "#!/bin/sh\n[ \"$1\" = mod ] && { printf '{\"Dir\": \"%s\"}' \"$GO_MODULE_DIR\"; exit 0; }\n\
+         [ -n \"$GO_OFFLINE\" ] && { echo 'go: dial tcp: lookup proxy.golang.org: no such host' >&2; exit 1; }\n\
+         printf 'go\\n' >> \"$BUILD_LOG\"\n\
+         for argument; do case $argument in -modfile=*) modfile=${argument#-modfile=} ;; esac; done\n\
+         [ -n \"$modfile\" ] && cat \"$(sed -n 's/^replace .* => //p' \"$modfile\")/hello.go\" >> \"$BUILD_LOG\"\n\
          while [ $# -gt 0 ]; do [ \"$1\" = -o ] && { out=$2; shift; }; shift; done\n\
          mkdir -p \"$out\"\nprintf 'go %s' \"$BUILD_TAG\" > \"$out/copy-file-pretty\"\n",
     );
@@ -102,7 +106,7 @@ fn stubs(root: &Path) -> PathBuf {
 
 /// The stubs shell out to these, and PATH holds nothing else: a real cargo, go
 /// or uv on this machine must never stand in for a missing one.
-const UTILITIES: [&str; 2] = ["mkdir", "chmod"];
+const UTILITIES: [&str; 5] = ["mkdir", "chmod", "cat", "sed", "git"];
 
 fn link_utility(directory: &Path, name: &str) {
     let found = std::env::split_paths(&std::env::var("PATH").unwrap_or_default())
@@ -347,6 +351,139 @@ fn a_failed_build_leaves_the_installed_tools_alone() {
             .trim(),
         "stamps stay consistent with what is installed"
     );
+}
+
+const MODULE_SOURCE: &str = "package lib\n\nconst Greeting = \"hi\"\n";
+
+fn with_patched_module(context: &mut Context, root: &Path, patch: &str) -> PathBuf {
+    let module = root.join("modcache/example.com/lib@v1.0.0");
+    fs::create_dir_all(&module).unwrap();
+    fs::write(module.join("go.mod"), "module example.com/lib\n").unwrap();
+    fs::write(module.join("hello.go"), MODULE_SOURCE).unwrap();
+    let patches = root.join("scripts/go/patches/example.com");
+    fs::create_dir_all(&patches).unwrap();
+    fs::write(patches.join("lib.patch"), patch).unwrap();
+    context
+        .process_env
+        .insert("GO_MODULE_DIR".into(), module.clone().into());
+    module
+}
+
+#[test]
+fn go_builds_against_a_patched_copy_of_a_patched_module() {
+    let root = sandbox();
+    let mut context = context(root.path());
+    with_build_env(&mut context, root.path(), "first");
+    let module = with_patched_module(
+        &mut context,
+        root.path(),
+        "--- a/hello.go\n+++ b/hello.go\n@@ -1,3 +1,3 @@\n package lib\n \n-const Greeting = \"hi\"\n+const Greeting = \"hello\"\n",
+    );
+
+    ensure(&context, &install::Options::native()).unwrap();
+
+    assert!(
+        log(root.path()).contains(&"const Greeting = \"hello\"".to_string()),
+        "{:?}",
+        log(root.path())
+    );
+    assert_eq!(
+        fs::read_to_string(module.join("hello.go")).unwrap(),
+        MODULE_SOURCE
+    );
+    assert!(root.path().join(".bin/copy-file-pretty").is_file());
+}
+
+/// Installs everything once, then changes the Rust and Go sources so both rebuild.
+fn installed_then_changed(context: &mut Context, root: &Path) -> String {
+    with_build_env(context, root, "first");
+    ensure(context, &install::Options::native()).unwrap();
+    let go_stamp = fs::read_to_string(root.join("config/sync/go")).unwrap();
+    fs::write(
+        root.join("scripts/rust/crates/tool/src/main.rs"),
+        "fn main() { /* changed */ }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("scripts/go/cmd/copy-file-pretty/main.go"),
+        "package main // changed\n",
+    )
+    .unwrap();
+    with_build_env(context, root, "second");
+    go_stamp
+}
+
+fn warnings(events: &VecSink) -> Vec<String> {
+    events
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            dotfile_cli::event::Event::Warning { message, .. } => Some(message),
+            _ => None,
+        })
+        .collect()
+}
+
+fn assert_go_kept_and_rust_installed(root: &Path, go_stamp: &str) {
+    assert_eq!(
+        fs::read_to_string(root.join(".bin/copy-file-pretty")).unwrap(),
+        "go first"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("config/sync/go")).unwrap(),
+        go_stamp,
+        "the next sync retries the Go build"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join(".bin/tool")).unwrap(),
+        "rust tool second"
+    );
+}
+
+#[test]
+fn a_patch_that_no_longer_applies_keeps_the_installed_go_commands() {
+    let root = sandbox();
+    let mut context = context(root.path());
+    let go_stamp = installed_then_changed(&mut context, root.path());
+    with_patched_module(
+        &mut context,
+        root.path(),
+        "--- a/hello.go\n+++ b/hello.go\n@@ -1,3 +1,3 @@\n package lib\n \n-const Greeting = \"hey\"\n+const Greeting = \"hello\"\n",
+    );
+    let events = VecSink::default();
+
+    install::ensure(&context, &install::Options::native(), &events).unwrap();
+
+    assert!(
+        warnings(&events)
+            .iter()
+            .any(|warning| warning.contains("lib.patch")),
+        "{:?}",
+        warnings(&events)
+    );
+    assert_go_kept_and_rust_installed(root.path(), &go_stamp);
+}
+
+#[test]
+fn an_offline_go_build_keeps_the_installed_go_commands() {
+    let root = sandbox();
+    let mut context = context(root.path());
+    let go_stamp = installed_then_changed(&mut context, root.path());
+    context.process_env.insert("GO_OFFLINE".into(), "1".into());
+    let events = VecSink::default();
+
+    install::ensure(&context, &install::Options::native(), &events).unwrap();
+
+    assert!(
+        warnings(&events)
+            .iter()
+            .any(|warning| warning.starts_with("go: ")
+                && warning.contains("no such host")
+                && warning.ends_with("kept the installed commands")),
+        "{:?}",
+        warnings(&events)
+    );
+    assert_go_kept_and_rust_installed(root.path(), &go_stamp);
 }
 
 #[test]

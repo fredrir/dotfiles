@@ -54,7 +54,6 @@ ksshaskpass
 kwallet-pam
 kwin-x11
 kwrited
-lazygit
 less
 libreoffice-fresh
 libxcrypt-compat

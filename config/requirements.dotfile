@@ -21,7 +21,7 @@ shared {
   yazi
   starship
   fastfetch
-  lazygit
+  go
   difft = difftastic
   fzf
   eza

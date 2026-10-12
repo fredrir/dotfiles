@@ -13,6 +13,13 @@ fn layouts(diff: &str) -> Vec<Option<Layout>> {
         .collect()
 }
 
+fn statuses(diff: &str) -> Vec<Option<Status>> {
+    sections(diff)
+        .into_iter()
+        .map(|section| section.status)
+        .collect()
+}
+
 fn joined(diff: &str) -> String {
     let text: Vec<u8> = sections(diff)
         .into_iter()
@@ -92,7 +99,7 @@ fn each_file_is_its_own_section() {
 }
 
 #[test]
-fn sections_keep_the_diff_text() {
+fn sections_keep_every_byte() {
     let diff = [
         "commit abc\n\n    message\n\n",
         ADDED,
@@ -101,29 +108,6 @@ fn sections_keep_the_diff_text() {
     ]
     .concat();
     assert_eq!(joined(&diff), diff);
-}
-
-#[test]
-fn hunk_headers_lose_the_enclosing_code() {
-    let diff = "\
-diff --git a/a.txt b/a.txt
-@@ -14,3 +14,4 @@ gui:
- kept
-+added
-";
-    assert_eq!(joined(diff), diff.replace(" gui:", ""));
-}
-
-#[test]
-fn colored_hunk_headers_lose_their_escapes_with_the_code() {
-    let diff = "diff --git a/a b/a\n\x1b[36m@@ -1 +1 @@\x1b[m fn main() {\n-a\n+b\n";
-    assert_eq!(joined(diff), "diff --git a/a b/a\n@@ -1 +1 @@\n-a\n+b\n");
-}
-
-#[test]
-fn combined_hunk_headers_are_kept() {
-    let diff = "diff --cc a.txt\n@@@ -1,1 -1,1 +1,1 @@@ fn main() {\n++merged\n";
-    assert_eq!(joined(diff), diff);
 }
 
 #[test]
@@ -192,4 +176,44 @@ index 1,2..3
 #[test]
 fn empty_input_has_no_sections() {
     assert!(sections("").is_empty());
+}
+
+#[test]
+fn new_files_are_added() {
+    assert_eq!(statuses(ADDED), [Some(Status::Added)]);
+}
+
+#[test]
+fn deleted_files_are_deleted() {
+    assert_eq!(statuses(REMOVED), [Some(Status::Deleted)]);
+}
+
+#[test]
+fn changed_and_renamed_files_are_modified() {
+    assert_eq!(
+        statuses(&[CHANGED, RENAMED].concat()),
+        [Some(Status::Modified), Some(Status::Modified)]
+    );
+}
+
+#[test]
+fn dev_null_marks_new_and_deleted_files_without_mode_lines() {
+    let added = "diff --git a/a b/a\n--- /dev/null\n+++ b/a\n@@ -0,0 +1 @@\n+a\n";
+    let deleted = "diff --git a/b b/b\n--- a/b\n+++ /dev/null\n@@ -1 +0,0 @@\n-b\n";
+    assert_eq!(
+        statuses(&[added, deleted].concat()),
+        [Some(Status::Added), Some(Status::Deleted)]
+    );
+}
+
+#[test]
+fn a_changed_line_that_looks_like_dev_null_is_content() {
+    let diff = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n--- /dev/null\n+++ /dev/null\n";
+    assert_eq!(statuses(diff), [Some(Status::Modified)]);
+}
+
+#[test]
+fn text_before_the_first_file_has_no_status() {
+    let diff = ["commit abc\n\n    message\n\n", ADDED].concat();
+    assert_eq!(statuses(&diff), [None, Some(Status::Added)]);
 }

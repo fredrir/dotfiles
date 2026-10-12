@@ -4,14 +4,28 @@ notARepository: quit
 disableStartupPopups: false
 
 gui:
+  sidePanelWidth: 0.25
   fileTreeSortOrder: mixed
   showRandomTip: false
   commitGraphStyle: detailed
   showDivergenceFromBaseBranch: arrowAndNumber
   sidePanels:
     - [files]
-    - [commits]
-    - [branches]
+    - [commits, branches]
+  theme:
+    activeBorderColor: ["#2f708c"]
+    inactiveBorderColor: ["#8c8c8c"]
+    searchingActiveBorderColor: ["#48a0c7"]
+    optionsTextColor: ["#8c8c8c"]
+    selectedLineFgColor: [default]
+    selectedLineBgColor: ["#383939"]
+    inactiveViewSelectedLineBgColor: ["#2c2d2e"]
+    cherryPickedCommitFgColor: ["#ffffff"]
+    cherryPickedCommitBgColor: ["#307e9f"]
+    markedBaseCommitFgColor: ["#202020"]
+    markedBaseCommitBgColor: ["#cca700"]
+    unstagedChangesColor: ["#e5ba7d"]
+    defaultFgColor: ["#bfbfbf"]
 
 git:
   diffContextSize: 3

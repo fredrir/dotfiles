@@ -29,21 +29,36 @@
 	navigate = true
 	light = false
 	line-numbers = true
-	syntax-theme = Fredrir
+	syntax-theme = 2026 Dark
 	max-line-distance = 0.8
-	minus-style = syntax "#7a2936"
-	minus-emph-style = syntax "#b3596b"
-	plus-style = syntax "#225c2b"
-	plus-emph-style = syntax "#38a660"
-	line-numbers-minus-style = "#dc5a5a"
-	line-numbers-plus-style = "#50c850"
-	hunk-header-style = file line-number syntax
+	minus-style = syntax "#2d1919"
+	minus-emph-style = syntax "#693331"
+	plus-style = syntax "#17231a"
+	plus-emph-style = syntax "#2a4c2d"
+	line-numbers-minus-style = "#f28772"
+	line-numbers-plus-style = "#72c892"
+	line-numbers-zero-style = "#858889"
+	line-numbers-left-style = "#343536"
+	line-numbers-right-style = "#343536"
+	file-added-label = ""
+	file-modified-label = "Modified:"
+	file-removed-label = "Deleted:"
+	file-renamed-label = "Renamed:"
+	file-decoration-style = "#2a2b2c ul"
+	hunk-header-style = omit
 [delta "unified"]
 	line-numbers-left-format = ""
+	file-style = "#bfbfbf"
 [delta "split"]
 	side-by-side = true
 	line-numbers-left-format = "{nm:^4}│"
 	wrap-max-lines = unlimited
+[delta "added"]
+	file-style = "#73c991"
+[delta "modified"]
+	file-style = "#e5ba7d"
+[delta "deleted"]
+	file-style = "#f48771"
 
 [merge]
 	conflictStyle = zdiff3

@@ -17,6 +17,7 @@ vikey '^H' search_history
 vikey $'\e[115;9u' wezterm-open-yazi
 vikey $'\e[5;30012~' wezterm-open-yazi
 vikey $'\e[5;30020~' wezterm-go-to
+vikey $'\e[5;30021~' wezterm-cd-git-root
 
 # Motion
 key '^W' motion-backward-kill-shell-word

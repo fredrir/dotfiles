@@ -9,7 +9,7 @@ use crate::context::Context;
 use crate::event::{Event, EventSink, Phase};
 use crate::process::CaptureLimits;
 
-const BUILD_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+pub(super) const BUILD_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
 pub struct Options {
     pub languages: Vec<Language>,
@@ -207,10 +207,19 @@ fn build_all(
     });
     let mut built = BTreeMap::new();
     for (language, result) in results {
-        built.insert(
-            language,
-            result.map_err(|error| format!("{language}: {error}"))?,
-        );
+        match result {
+            Ok(artifacts) => {
+                built.insert(language, artifacts);
+            }
+            // Only Rust builds dotfile itself; the rest can wait for a sync that can build them, e.g. online.
+            Err(error) if language != Language::Rust && !crate::cancel::requested() => {
+                events.emit(Event::Warning {
+                    message: format!("{language}: {error}; kept the installed commands"),
+                    hint: None,
+                });
+            }
+            Err(error) => return Err(format!("{language}: {error}")),
+        }
     }
     events.emit(Event::Progress {
         phase: Phase::Tooling,
@@ -289,11 +298,15 @@ fn build_rust(context: &Context, crates: &[Crate]) -> Result<Built, String> {
 
 fn build_go(context: &Context, output: &Path) -> Result<PathBuf, String> {
     fs::create_dir_all(output).map_err(|e| format!("create {}: {e}", output.display()))?;
+    let source = context.root.join("scripts/go");
+    let patched = super::go_patches::prepare(context, &source)?;
+    let mut command = context.command("go");
+    command.current_dir(&source).arg("build");
+    if let Some(patched) = &patched {
+        command.arg(format!("-modfile={}", patched.modfile().display()));
+    }
     run(
-        context
-            .command("go")
-            .current_dir(context.root.join("scripts/go"))
-            .arg("build")
+        command
             .arg("-o")
             .arg(format!("{}/", output.display()))
             .arg("./cmd/..."),
@@ -357,7 +370,7 @@ fn export_constraints(
     Ok(file)
 }
 
-fn run(command: &mut Command, label: &str) -> Result<(), String> {
+pub(super) fn run(command: &mut Command, label: &str) -> Result<(), String> {
     let result = crate::process::output(
         command.stdin(Stdio::null()),
         CaptureLimits::default(),
@@ -414,10 +427,12 @@ fn install(
         report.rebuilt.push(stage.language);
     }
     for (stage, digest) in pending {
-        transaction.write(
-            &stamps.join(stage.language.key()),
-            format!("{digest}\n").as_bytes(),
-        )?;
+        if built.contains_key(&stage.language) {
+            transaction.write(
+                &stamps.join(stage.language.key()),
+                format!("{digest}\n").as_bytes(),
+            )?;
+        }
     }
     transaction.commit()?;
     events.emit(Event::Progress {
