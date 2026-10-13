@@ -13,12 +13,13 @@
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code>&#91;Backslash&#93;</code> | [<code>goToNextReference</code>](../../shared/vscode/keybindings.json#L371) | Go To Next Reference<br><code>inReferenceSearchEditor &#124;&#124; referenceSearchVisible</code> |
-| <code>alt+e</code> | [<code>editor.action.marker.next</code>](../../shared/vscode/keybindings.json#L351) | Editor action marker next<br><code>editorFocus</code> |
-| <code>alt+enter</code> | [<code>editor.action.revealDefinition</code>](../../shared/vscode/keybindings.json#L361) | Editor action reveal Definition<br><code>editorHasDefinitionProvider &amp;&amp; editorTextFocus</code> |
-| <code>alt+enter</code> | [<code>editor.gotoNextSymbolFromResult</code>](../../shared/vscode/keybindings.json#L381) | Editor goto Next Symbol From Result<br><code>hasSymbols</code> |
+| <code>alt+e</code> | [<code>markdown.editor.toggleLocked</code>](../../shared/vscode/keybindings.json#L396) | Markdown editor toggle Locked<br><code>markdownEditorFocus &amp;&amp; activeCustomEditorId == 'vscode.markdown.editor'</code> |
+| <code>alt+enter</code> | [<code>editor.action.revealDefinition</code>](../../shared/vscode/keybindings.json#L356) | Editor action reveal Definition<br><code>editorHasDefinitionProvider &amp;&amp; editorTextFocus</code> |
+| <code>alt+enter</code> | [<code>editor.gotoNextSymbolFromResult</code>](../../shared/vscode/keybindings.json#L376) | Editor goto Next Symbol From Result<br><code>hasSymbols</code> |
 | <code>alt+f5</code> | [<code>-workbench.action.compareEditor.nextChange</code>](../../shared/vscode/keybindings.json#L196) | Compare Editor next Change<br><code>textCompareEditorVisible; remove binding</code> |
-| <code>alt+f8</code> | [<code>-editor.action.marker.next</code>](../../shared/vscode/keybindings.json#L356) | Editor action marker next<br><code>editorFocus; remove binding</code> |
+| <code>alt+f8</code> | [<code>-editor.action.marker.next</code>](../../shared/vscode/keybindings.json#L351) | Editor action marker next<br><code>editorFocus; remove binding</code> |
+| <code>alt+shift+down</code> | [<code>editor.action.smartSelect.shrink</code>](../../shared/vscode/keybindings.json#L458) | Editor action smart Select shrink<br><code>editorTextFocus</code> |
+| <code>alt+shift+up</code> | [<code>editor.action.smartSelect.expand</code>](../../shared/vscode/keybindings.json#L453) | Editor action smart Select expand<br><code>editorTextFocus</code> |
 | <code>alt+tab</code> | [<code>workbench.action.switchWindow</code>](../../shared/vscode/keybindings.json#L2) | Switch Window |
 | <code>ctrl+1</code> | [<code>-workbench.action.openEditorAtIndex1</code>](../../shared/vscode/keybindings.json#L30) | Open Editor At Index1<br><code>global; remove binding</code> |
 | <code>ctrl+2</code> | [<code>-workbench.action.openEditorAtIndex2</code>](../../shared/vscode/keybindings.json#L22) | Open Editor At Index2<br><code>global; remove binding</code> |
@@ -39,14 +40,17 @@
 | <code>ctrl+w</code> | [<code>-workbench.action.switchWindow</code>](../../shared/vscode/keybindings.json#L6) | Switch Window<br><code>global; remove binding</code> |
 | <code>escape</code> | [<code>-inlineChat2.close</code>](../../shared/vscode/keybindings.json#L271) | Inline Chat2 close<br><code>chatInputHasFocus &amp;&amp; inlineChatHasEditsAgent &amp;&amp; inlineChatVisible &#124;&#124; chatInputHasFocus &amp;&amp; inlineChatHasNotebookAgent &amp;&amp; inlineChatVisible &amp;&amp; activeEditor == 'workbench.editor.notebook' &#124;&#124; editorFocus &amp;&amp; inlineChatHasEditsAgent &amp;&amp; inlineChatVisible &amp;&amp; !chatEdits.hasEditorModifications &#124;&#124; editorFocus &amp;&amp; inlineChatHasNotebookAgent &amp;&amp; inlineChatVisible &amp;&amp; !chatEdits.hasEditorModifications &amp;&amp; activeEditor == 'workbench.editor.notebook'; remove binding</code> |
 | <code>escape</code> | [<code>-workbench.action.terminal.chat.close</code>](../../shared/vscode/keybindings.json#L266) | Terminal chat close<br><code>chatIsEnabled &amp;&amp; terminalChatFocus &amp;&amp; terminalChatVisible &#124;&#124; chatIsEnabled &amp;&amp; terminalChatVisible &amp;&amp; terminalFocus; remove binding</code> |
-| <code>f12</code> | [<code>-editor.action.revealDefinition</code>](../../shared/vscode/keybindings.json#L366) | Editor action reveal Definition<br><code>editorHasDefinitionProvider &amp;&amp; editorTextFocus; remove binding</code> |
-| <code>f12</code> | [<code>-editor.gotoNextSymbolFromResult</code>](../../shared/vscode/keybindings.json#L386) | Editor goto Next Symbol From Result<br><code>hasSymbols; remove binding</code> |
-| <code>f12</code> | [<code>-goToNextReference</code>](../../shared/vscode/keybindings.json#L376) | Go To Next Reference<br><code>inReferenceSearchEditor &#124;&#124; referenceSearchVisible; remove binding</code> |
+| <code>f12</code> | [<code>-editor.action.revealDefinition</code>](../../shared/vscode/keybindings.json#L361) | Editor action reveal Definition<br><code>editorHasDefinitionProvider &amp;&amp; editorTextFocus; remove binding</code> |
+| <code>f12</code> | [<code>-editor.gotoNextSymbolFromResult</code>](../../shared/vscode/keybindings.json#L381) | Editor goto Next Symbol From Result<br><code>hasSymbols; remove binding</code> |
+| <code>f12</code> | [<code>-goToNextReference</code>](../../shared/vscode/keybindings.json#L371) | Go To Next Reference<br><code>inReferenceSearchEditor &#124;&#124; referenceSearchVisible; remove binding</code> |
+| <code>f4</code> | [<code>-goToNextReference</code>](../../shared/vscode/keybindings.json#L411) | Go To Next Reference<br><code>inReferenceSearchEditor &#124;&#124; referenceSearchVisible; remove binding</code> |
+| <code>f4</code> | [<code>-references-view.next</code>](../../shared/vscode/keybindings.json#L401) | References view next<br><code>reference-list.hasResult &amp;&amp; references-view.canNavigate; remove binding</code> |
+| <code>f4</code> | [<code>-search.action.focusNextSearchResult</code>](../../shared/vscode/keybindings.json#L406) | Search action focus Next Search Result<br><code>hasSearchResult &#124;&#124; inSearchEditor; remove binding</code> |
 | <code>shift+alt+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"command":"workbench.action.tasks.runTask","args":"Copy active file content"}&#93;}</code>](../../shared/vscode/keybindings.json#L157) | Run Commands<br><code>editorFocus</code> |
 | <code>shift+alt+b</code> | [<code>workbench.action.tasks.build</code>](../../shared/vscode/keybindings.json#L311) | Tasks build<br><code>taskCommandsRegistered</code> |
-| <code>shift+alt+e</code> | [<code>editor.action.marker.prev</code>](../../shared/vscode/keybindings.json#L391) | Editor action marker prev<br><code>editorFocus</code> |
+| <code>shift+alt+e</code> | [<code>editor.action.marker.prev</code>](../../shared/vscode/keybindings.json#L386) | Editor action marker prev<br><code>editorFocus</code> |
 | <code>shift+alt+f5</code> | [<code>-workbench.action.compareEditor.previousChange</code>](../../shared/vscode/keybindings.json#L206) | Compare Editor previous Change<br><code>textCompareEditorVisible; remove binding</code> |
-| <code>shift+alt+f8</code> | [<code>-editor.action.marker.prev</code>](../../shared/vscode/keybindings.json#L396) | Editor action marker prev<br><code>editorFocus; remove binding</code> |
+| <code>shift+alt+f8</code> | [<code>-editor.action.marker.prev</code>](../../shared/vscode/keybindings.json#L391) | Editor action marker prev<br><code>editorFocus; remove binding</code> |
 
 ## Mac Keybinds
 
@@ -71,6 +75,10 @@
 | <code>cmd+b</code> | [<code>-markdown.extension.editing.toggleBold</code>](../../shared/vscode/keybindings.json#L181) | Markdown extension editing toggle Bold<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^markdown$&#124;^rmd$&#124;^quarto$/; remove binding</code> |
 | <code>cmd+b</code> | [<code>-workbench.action.toggleSidebarVisibility</code>](../../shared/vscode/keybindings.json#L321) | Toggle Sidebar Visibility<br><code>global; remove binding</code> |
 | <code>cmd+b</code> | [<code>workbench.action.toggleSidebarVisibility</code>](../../shared/vscode/keybindings.json#L325) | Toggle Sidebar Visibility |
+| <code>cmd+e</code> | [<code>editor.action.marker.next</code>](../../shared/vscode/keybindings.json#L448) | Editor action marker next<br><code>editorTextFocus</code> |
+| <code>cmd+e</code> | [<code>runCommands {"commands":&#91;"list.focusDown","list.selectAndPreserveFocus"&#93;}</code>](../../shared/vscode/keybindings.json#L421) | Run Commands<br><code>focusedView == 'workbench.scm' &amp;&amp; listFocus &amp;&amp; !inputFocus</code> |
+| <code>cmd+e</code> | [<code>runCommands {"commands":&#91;"list.focusDown","list.selectAndPreserveFocus"&#93;}</code>](../../shared/vscode/keybindings.json#L437) | Run Commands<br><code>searchViewletFocus &amp;&amp; listFocus &amp;&amp; !inputFocus</code> |
+| <code>cmd+e</code> | [<code>search.action.focusSearchList</code>](../../shared/vscode/keybindings.json#L432) | Search action focus Search List<br><code>searchViewletFocus &amp;&amp; !listFocus &amp;&amp; hasSearchResult</code> |
 | <code>cmd+k o</code> | [<code>-workbench.action.copyEditorToNewWindow</code>](../../shared/vscode/keybindings.json#L216) | Copy Editor To New Window<br><code>activeEditor; remove binding</code> |
 | <code>cmd+k shift+alt+cmd+c</code> | [<code>-copyRelativeFilePath</code>](../../shared/vscode/keybindings.json#L115) | Copy Relative File Path<br><code>editorFocus; remove binding</code> |
 | <code>cmd+k shift+g</code> | [<code>git.timeline.openDiff</code>](../../shared/vscode/keybindings.json#L221) | Git timeline open Diff |
@@ -100,3 +108,5 @@
 | <code>shift+cmd+r</code> | [<code>renameFile</code>](../../shared/vscode/keybindings.json#L299) | Rename File |
 | <code>shift+cmd+t</code> | [<code>-workbench.action.reopenClosedEditor</code>](../../shared/vscode/keybindings.json#L130) | Reopen Closed Editor<br><code>global; remove binding</code> |
 | <code>shift+cmd+t</code> | [<code>workbench.action.closeOtherEditors</code>](../../shared/vscode/keybindings.json#L134) | Close Other Editors |
+| <code>shift+cmd+u</code> | [<code>-workbench.action.output.toggleOutput</code>](../../shared/vscode/keybindings.json#L416) | Output toggle Output<br><code>workbench.panel.output.active; remove binding</code> |
+| <code>shift+cmd+u</code> | [<code>goToNextReference</code>](../../shared/vscode/keybindings.json#L366) | Go To Next Reference<br><code>inReferenceSearchEditor &#124;&#124; referenceSearchVisible</code> |

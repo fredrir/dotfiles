@@ -124,15 +124,17 @@ local bindings = {
   ----
   keybind(go_to "PYPARSER", { MOD.UNIQUE }, "p"),
   keybind(go_to "HOME/infra", MOD.UNIQUE, "i"),
-  keybind(go_to "LLUNDE", MOD.UNIQUE, "l"),
+  keybind(go_to "LLUNDE", MOD.SUPER_REV, "l"),
   ----
   keybind(go_to "CONFIG", MOD.SHIFT_RIGHT, "c"),
   keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),
   keybind(cd_git_root, MOD.SHIFT_RIGHT, "g"),
+  keybind(go_to "OLDPWD", MOD.SHIFT_RIGHT, "j"),
   keybind(go_to "PYPARSER", { MOD.SHIFT_RIGHT }, "q"),
   keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
   keybind(go_to "HOME/rif", MOD.SHIFT_RIGHT, "r"),
-  keybind(go_to "HOME/.agents/skills", { MOD.SHIFT_RIGHT }, "a"),
+  keybind(go_to "HOME/ArchTeX", { MOD.SHIFT_RIGHT }, "a"),
+  keybind(go_to "HOME/.agents/skills", { MOD.SHIFT_RIGHT }, "9"),
   keybind(go_to "HOME/projects/shucked", MOD.SHIFT_RIGHT, "s"),
   keybind(go_to "HOME/projects/wez-plugins/vertical-tabs", MOD.SHIFT_RIGHT, "v"),
 

@@ -349,11 +349,6 @@
     "when": "editorFocus"
   },
   {
-    "key": "alt+e",
-    "command": "editor.action.marker.next",
-    "when": "editorFocus"
-  },
-  {
     "key": "alt+f8",
     "command": "-editor.action.marker.next",
     "when": "editorFocus"
@@ -369,7 +364,7 @@
     "when": "editorHasDefinitionProvider && editorTextFocus"
   },
   {
-    "key": "[Backslash]",
+    "key": "shift+cmd+u",
     "command": "goToNextReference",
     "when": "inReferenceSearchEditor || referenceSearchVisible"
   },
@@ -397,5 +392,72 @@
     "key": "shift+alt+f8",
     "command": "-editor.action.marker.prev",
     "when": "editorFocus"
+  },
+  {
+    "key": "alt+e",
+    "command": "markdown.editor.toggleLocked",
+    "when": "markdownEditorFocus && activeCustomEditorId == 'vscode.markdown.editor'"
+  },
+  {
+    "key": "f4",
+    "command": "-references-view.next",
+    "when": "reference-list.hasResult && references-view.canNavigate"
+  },
+  {
+    "key": "f4",
+    "command": "-search.action.focusNextSearchResult",
+    "when": "hasSearchResult || inSearchEditor"
+  },
+  {
+    "key": "f4",
+    "command": "-goToNextReference",
+    "when": "inReferenceSearchEditor || referenceSearchVisible"
+  },
+  {
+    "key": "shift+cmd+u",
+    "command": "-workbench.action.output.toggleOutput",
+    "when": "workbench.panel.output.active"
+  },
+  {
+    "key": "cmd+e",
+    "command": "runCommands",
+    "args": {
+      "commands": [
+        "list.focusDown",
+        "list.selectAndPreserveFocus"
+      ]
+    },
+    "when": "focusedView == 'workbench.scm' && listFocus && !inputFocus"
+  },
+  {
+    "key": "cmd+e",
+    "command": "search.action.focusSearchList",
+    "when": "searchViewletFocus && !listFocus && hasSearchResult"
+  },
+  {
+    "key": "cmd+e",
+    "command": "runCommands",
+    "args": {
+      "commands": [
+        "list.focusDown",
+        "list.selectAndPreserveFocus"
+      ]
+    },
+    "when": "searchViewletFocus && listFocus && !inputFocus"
+  },
+  {
+    "key": "cmd+e",
+    "command": "editor.action.marker.next",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "alt+shift+up",
+    "command": "editor.action.smartSelect.expand",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "alt+shift+down",
+    "command": "editor.action.smartSelect.shrink",
+    "when": "editorTextFocus"
   }
 ]

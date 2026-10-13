@@ -30,7 +30,18 @@
  }
 --- a/pkg/config/app_config.go
 +++ b/pkg/config/app_config.go
-@@ -910,6 +910,19 @@
+@@ -110,6 +110,10 @@
+ 	appState, err := loadAppState()
+ 	if err != nil {
+ 		return nil, err
++	}
++	if !appState.HiddenPanesInitialized {
++		appState.HiddenPanes = lo.Union(appState.HiddenPanes, []string{"commits", "branches"})
++		appState.HiddenPanesInitialized = true
+ 	}
+ 	githubPullRequestCache := loadGithubPullRequestCache()
+ 
+@@ -910,6 +914,21 @@
  	ShellCommandsHistory []string `yaml:"customcommandshistory"`
  
  	HideCommandLog bool
@@ -38,6 +49,8 @@
 +	PanelSizes PanelSizes
 +	// Side window names, "sidePanels" for all of them, "main" and "secondary"
 +	HiddenPanes []string
++	// Apply the hidden defaults once, including to state saved before pane defaults existed.
++	HiddenPanesInitialized bool
 +}
 +
 +// PanelSizes are set by dragging panel borders; zero values defer to the user config.
@@ -52,7 +65,16 @@
  func getDefaultAppState() *AppState {
 --- a/pkg/config/user_config.go
 +++ b/pkg/config/user_config.go
-@@ -653,6 +653,7 @@
+@@ -264,6 +264,8 @@
+ 	MarkedBaseCommitFgColor []string `yaml:"markedBaseCommitFgColor"`
+ 	// Background color of marked base commit (for rebase)
+ 	MarkedBaseCommitBgColor []string `yaml:"markedBaseCommitBgColor"`
++	// Color for files and the diff title with staged changes
++	StagedChangesColor []string `yaml:"stagedChangesColor" jsonschema:"minItems=1,uniqueItems=true"`
+ 	// Color for file with unstaged changes
+ 	UnstagedChangesColor []string `yaml:"unstagedChangesColor" jsonschema:"minItems=1,uniqueItems=true"`
+ 	// Default text color
+@@ -653,6 +655,7 @@
  	CheckoutCommit                 Keybinding `yaml:"checkoutCommit"`
  	ResetCherryPick                Keybinding `yaml:"resetCherryPick"`
  	CopyCommitAttributeToClipboard Keybinding `yaml:"copyCommitAttributeToClipboard"`
@@ -60,7 +82,15 @@
  	OpenLogMenu                    Keybinding `yaml:"openLogMenu"`
  	OpenInBrowser                  Keybinding `yaml:"openInBrowser"`
  	OpenPullRequestInBrowser       Keybinding `yaml:"openPullRequestInBrowser"`
-@@ -1171,6 +1172,7 @@
+@@ -913,6 +916,7 @@
+ 				CherryPickedCommitFgColor:  []string{"blue"},
+ 				MarkedBaseCommitBgColor:    []string{"yellow"},
+ 				MarkedBaseCommitFgColor:    []string{"blue"},
++				StagedChangesColor:         []string{"green"},
+ 				UnstagedChangesColor:       []string{"red"},
+ 				DefaultFgColor:             []string{"default"},
+ 			},
+@@ -1171,6 +1175,7 @@
  				CheckoutCommit:                 Keybinding{"<space>"},
  				ResetCherryPick:                Keybinding{"<ctrl+r>"},
  				CopyCommitAttributeToClipboard: Keybinding{"y"},
@@ -160,7 +190,18 @@
  		}
  	}
  }
-@@ -1728,6 +1754,9 @@
+@@ -1473,6 +1499,10 @@
+ 		return
+ 	}
+ 
++	if v.TitleColor != ColorDefault && len(v.Tabs) == 0 {
++		fgColor = v.TitleColor
++	}
++
+ 	tabs := v.Tabs
+ 	prefix := v.TitlePrefix
+ 	if prefix != "" {
+@@ -1728,6 +1758,9 @@
  
  		g.drawFrameEdges(v, frameColor, bgColor)
  		g.drawFrameCorners(v, frameColor, bgColor)
@@ -170,7 +211,7 @@
  		if v.Title != "" || len(v.Tabs) > 0 {
  			g.drawTitle(v, fgColor, bgColor)
  		}
-@@ -1740,6 +1769,26 @@
+@@ -1740,6 +1773,26 @@
  	}
  }
  
@@ -197,7 +238,7 @@
  // onKey manages key-press events. A keybinding handler is called when
  // a key-press or mouse event satisfies a configured keybinding. Furthermore,
  // currentView's internal buffer is modified if currentView.Editable is true.
-@@ -1773,6 +1822,11 @@
+@@ -1773,6 +1826,11 @@
  			}
  			return nil
  		}
@@ -209,7 +250,7 @@
  		// While the mouse is captured, all mouse events go to the view that
  		// was under the pointer when the button was pressed, even if the
  		// pointer has since left it; this is what lets drag gestures keep
-@@ -1915,6 +1969,11 @@
+@@ -1915,6 +1973,11 @@
  
  	case eventMouseMove:
  		mx, my := ev.MouseX, ev.MouseY
@@ -261,6 +302,17 @@
 +
  	return gui.State.Contexts.Files
  }
+--- a/pkg/gui/controllers.go
++++ b/pkg/gui/controllers.go
+@@ -190,7 +190,7 @@
+ 	confirmationController := controllers.NewConfirmationController(common)
+ 	promptController := controllers.NewPromptController(common)
+ 	suggestionsController := controllers.NewSuggestionsController(common)
+-	jumpToSideWindowController := controllers.NewJumpToSideWindowController(common, gui.handleNextTab)
++	jumpToSideWindowController := controllers.NewJumpToSideWindowController(common, gui.handleNextTab, gui.togglePane)
+ 
+ 	sideWindowControllerFactory := controllers.NewSideWindowControllerFactory(common)
+ 
 --- a/pkg/gui/controllers/basic_commits_controller.go
 +++ b/pkg/gui/controllers/basic_commits_controller.go
 @@ -66,6 +66,12 @@
@@ -312,7 +364,15 @@
  
 --- a/pkg/gui/controllers/files_controller.go
 +++ b/pkg/gui/controllers/files_controller.go
-@@ -379,6 +379,14 @@
+@@ -13,6 +13,7 @@
+ 	"github.com/jesseduffield/lazygit/pkg/gui/context"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/filetree"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/types"
++	"github.com/jesseduffield/lazygit/pkg/theme"
+ 	"github.com/jesseduffield/lazygit/pkg/utils"
+ 	"github.com/samber/lo"
+ )
+@@ -379,6 +380,14 @@
  	alwaysSplit := self.c.UserConfig().Gui.SplitDiff == "always"
  	showStaged := node.GetHasStagedChanges() || alwaysSplit
  	showUnstaged := node.GetHasUnstagedChanges() || alwaysSplit || !showStaged
@@ -327,7 +387,23 @@
  
  	// While the main view is focused to act on this diff, it may have to be git's own
  	// rather than the diff renderer's; both panes have to agree about that.
-@@ -410,6 +418,19 @@
+@@ -393,6 +402,7 @@
+ 			Task:           types.NewMainViewDiffTask(cmdObj.GetCmd(), mode),
+ 			SubTitle:       self.c.Helpers().Diff.IgnoringWhitespaceSubTitle(),
+ 			Title:          self.c.Tr.UnstagedChanges,
++			TitleColor:     theme.GocuiUnstagedChangesColor | gocui.AttrBold,
+ 			NothingToActOn: !node.GetHasUnstagedChanges(),
+ 		}
+ 	}
+@@ -403,6 +413,7 @@
+ 			Task:           types.NewMainViewDiffTask(cmdObj.GetCmd(), mode),
+ 			SubTitle:       self.c.Helpers().Diff.IgnoringWhitespaceSubTitle(),
+ 			Title:          self.c.Tr.StagedChanges,
++			TitleColor:     theme.GocuiStagedChangesColor | gocui.AttrBold,
+ 			NothingToActOn: !node.GetHasStagedChanges(),
+ 		}
+ 	}
+@@ -410,6 +421,19 @@
  	self.c.RenderToMainViews(refreshOpts)
  }
  
@@ -347,7 +423,7 @@
  func (self *FilesController) GetFocusedMainViewDiffSource() types.FocusedMainViewDiffSource {
  	return self.diffActions
  }
-@@ -1543,6 +1564,9 @@
+@@ -1543,6 +1567,9 @@
  		if err != nil && strings.Contains(err.Error(), "exit status 128") {
  			return errors.New(self.c.Tr.PassUnameWrong)
  		}
@@ -784,6 +860,49 @@
  	})
  }
  
+--- a/pkg/gui/controllers/jump_to_side_window_controller.go
++++ b/pkg/gui/controllers/jump_to_side_window_controller.go
+@@ -2,22 +2,26 @@
+ 
+ import (
+ 	"github.com/jesseduffield/lazygit/pkg/gui/types"
++	"github.com/samber/lo"
+ )
+ 
+ type JumpToSideWindowController struct {
+ 	baseController
+ 	c           *ControllerCommon
+ 	nextTabFunc func() error
++	togglePane  func(string)
+ }
+ 
+ func NewJumpToSideWindowController(
+ 	c *ControllerCommon,
+ 	nextTabFunc func() error,
++	togglePane func(string),
+ ) *JumpToSideWindowController {
+ 	return &JumpToSideWindowController{
+ 		baseController: baseController{},
+ 		c:              c,
+ 		nextTabFunc:    nextTabFunc,
++		togglePane:     togglePane,
+ 	}
+ }
+ 
+@@ -49,7 +53,12 @@
+ func (self *JumpToSideWindowController) goToSideWindow(window string) func() error {
+ 	return func() error {
+ 		sideWindowAlreadyActive := self.c.Helpers().Window.CurrentWindow() == window
+-		if sideWindowAlreadyActive && self.c.UserConfig().Gui.SwitchTabsWithPanelJumpKeys {
++		if window == "commits" || window == "branches" {
++			self.togglePane(window)
++			if lo.Contains(self.c.GetAppState().HiddenPanes, window) {
++				return nil
++			}
++		} else if sideWindowAlreadyActive && self.c.UserConfig().Gui.SwitchTabsWithPanelJumpKeys {
+ 			return self.nextTabFunc()
+ 		}
+ 
 --- a/pkg/gui/controllers/list_controller.go
 +++ b/pkg/gui/controllers/list_controller.go
 @@ -45,11 +45,21 @@
@@ -1053,6 +1172,16 @@
  
  	// reading more lines into main view buffers upon resize
  	prevMainView := gui.Views.Main
+--- a/pkg/gui/main_panels.go
++++ b/pkg/gui/main_panels.go
+@@ -64,6 +64,7 @@
+ 
+ 	if opts.Title != "" {
+ 		view.Title = opts.Title
++		view.TitleColor = opts.TitleColor
+ 	}
+ 
+ 	view.Subtitle = opts.SubTitle
 --- /dev/null
 +++ b/pkg/gui/panel_borders.go
 @@ -0,0 +1,230 @@
@@ -1301,7 +1430,7 @@
  }
 --- a/pkg/gui/presentation/files.go
 +++ b/pkg/gui/presentation/files.go
-@@ -131,13 +131,7 @@
+@@ -131,12 +131,14 @@
  
  	indentation := strings.Repeat("  ", visualDepth)
  
@@ -1311,12 +1440,18 @@
 -		nameColor = style.FgYellow
 -	} else {
 -		nameColor = theme.DefaultTextColor
--	}
 +	nameColor = theme.DefaultTextColor
++	switch {
++	case hasStagedChanges && hasUnstagedChanges:
++		nameColor = nameColor.SetBold()
++	case hasStagedChanges:
++		nameColor = theme.StagedChangesColor
++	case hasUnstagedChanges:
++		nameColor = theme.UnstagedChangesColor
+ 	}
  
  	if file == nil {
- 		output += indentation + ""
-@@ -183,21 +177,31 @@
+@@ -183,21 +185,31 @@
  
  func formatFileStatus(file *models.File, restColor style.TextStyle) string {
  	firstChar := file.ShortStatus[0:1]
@@ -1360,7 +1495,7 @@
  }
  
  func formatLineChanges(linesAdded, linesDeleted int) string {
-@@ -283,20 +287,7 @@
+@@ -283,20 +295,7 @@
  }
  
  func getColorForChangeStatus(changeStatus string) style.TextStyle {
@@ -1445,3 +1580,50 @@
  )
  
  type CreateMenuOptions struct {
+--- a/pkg/gui/types/rendering.go
++++ b/pkg/gui/types/rendering.go
+@@ -4,6 +4,7 @@
+ 	"os/exec"
+ 
+ 	"github.com/jesseduffield/lazygit/pkg/commands/git_commands"
++	"github.com/jesseduffield/lazygit/pkg/gocui"
+ )
+ 
+ type MainContextPair struct {
+@@ -34,8 +35,9 @@
+ }
+ 
+ type ViewUpdateOpts struct {
+-	Title    string
+-	SubTitle string
++	Title      string
++	TitleColor gocui.Attribute
++	SubTitle   string
+ 
+ 	Task UpdateTask
+ 
+--- a/pkg/theme/theme.go
++++ b/pkg/theme/theme.go
+@@ -46,7 +46,10 @@
+ 
+ 	DiffTerminalColor = style.FgMagenta
+ 
+-	UnstagedChangesColor = style.New()
++	StagedChangesColor        = style.FgGreen
++	UnstagedChangesColor      = style.New()
++	GocuiStagedChangesColor   gocui.Attribute
++	GocuiUnstagedChangesColor gocui.Attribute
+ )
+ 
+ // UpdateTheme updates all theme variables
+@@ -65,6 +68,10 @@
+ 	markedBaseCommitFgTextStyle := GetTextStyle(themeConfig.MarkedBaseCommitFgColor, false)
+ 	MarkedBaseCommitTextStyle = markedBaseCommitBgTextStyle.MergeStyle(markedBaseCommitFgTextStyle)
+ 
++	StagedChangesColor = GetTextStyle(themeConfig.StagedChangesColor, false)
++	GocuiStagedChangesColor = GetGocuiStyle(themeConfig.StagedChangesColor)
++	GocuiUnstagedChangesColor = GetGocuiStyle(themeConfig.UnstagedChangesColor)
++
+ 	unstagedChangesTextStyle := GetTextStyle(themeConfig.UnstagedChangesColor, false)
+ 	UnstagedChangesColor = unstagedChangesTextStyle
+ 
