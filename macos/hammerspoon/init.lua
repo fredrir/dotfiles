@@ -5,6 +5,8 @@ local key = require "utils.key"
 
 spoon.ReloadConfiguration:start()
 
+local right_shift = { "cmd", "ctrl", "alt" }
+
 -- Keybinds --
 
 -- Reload
@@ -13,23 +15,25 @@ key.createKeybind({ "fn" }, "r", function()
 end)
 
 -- Obsidian --
-key.createKeybind({ "fn" }, "n", function()
+key.openApp({ "fn" }, "n", "Obsidian")
+
+key.createKeybind({ "fn" }, "-", function()
   hs.urlevent.openURL "obsidian://unique?vault=main"
 end)
 
 -- Zen Browser --
 key.openApp({ "fn" }, "b", "Zen")
+key.openApp(right_shift, "b", "Zen")
 
 -- Wezterm --
 key.openApp({ "fn" }, ".", "Wezterm")
 key.openApp({ "fn" }, "padenter", "Wezterm")
+key.openApp(right_shift, "space", "Wezterm")
 key.openApp({ "fn" }, "t", "Wezterm")
 
--- Obsidian --
-key.openApp({ "fn" }, "o", "Obsidian")
-
 -- Vscode --
-key.openApp({ "fn" }, "p", "Visual Studio Code")
+key.openApp({ "fn" }, "o", "Visual Studio Code")
+key.openApp(right_shift, "c", "Visual Studio Code")
 
 -- Cycle windows of focused app --
 key.createKeybind({ "fn" }, "tab", function()
