@@ -30,12 +30,14 @@
  }
 --- a/pkg/config/app_config.go
 +++ b/pkg/config/app_config.go
-@@ -910,6 +910,17 @@
+@@ -910,6 +910,19 @@
  	ShellCommandsHistory []string `yaml:"customcommandshistory"`
  
  	HideCommandLog bool
 +
 +	PanelSizes PanelSizes
++	// Side window names, "sidePanels" for all of them, "main" and "secondary"
++	HiddenPanes []string
 +}
 +
 +// PanelSizes are set by dragging panel borders; zero values defer to the user config.
@@ -48,17 +50,35 @@
  }
  
  func getDefaultAppState() *AppState {
+--- a/pkg/config/user_config.go
++++ b/pkg/config/user_config.go
+@@ -653,6 +653,7 @@
+ 	CheckoutCommit                 Keybinding `yaml:"checkoutCommit"`
+ 	ResetCherryPick                Keybinding `yaml:"resetCherryPick"`
+ 	CopyCommitAttributeToClipboard Keybinding `yaml:"copyCommitAttributeToClipboard"`
++	CopyCommitHashToClipboard      Keybinding `yaml:"copyCommitHashToClipboard"`
+ 	OpenLogMenu                    Keybinding `yaml:"openLogMenu"`
+ 	OpenInBrowser                  Keybinding `yaml:"openInBrowser"`
+ 	OpenPullRequestInBrowser       Keybinding `yaml:"openPullRequestInBrowser"`
+@@ -1171,6 +1172,7 @@
+ 				CheckoutCommit:                 Keybinding{"<space>"},
+ 				ResetCherryPick:                Keybinding{"<ctrl+r>"},
+ 				CopyCommitAttributeToClipboard: Keybinding{"y"},
++				CopyCommitHashToClipboard:      Keybinding{"<disabled>"},
+ 				OpenLogMenu:                    Keybinding{"<ctrl+l>"},
+ 				OpenInBrowser:                  Keybinding{"o"},
+ 				OpenPullRequestInBrowser:       Keybinding{"G"},
 --- a/pkg/gocui/gui.go
 +++ b/pkg/gocui/gui.go
 @@ -101,6 +101,21 @@
  	HandleWhenPopupPanelFocused bool
  }
  
-+// FrameHandle is a rune on one edge (TOP, BOTTOM, LEFT, RIGHT) of a frame, at an absolute column or row along it.
++// FrameHandle runs along one edge (TOP, BOTTOM, LEFT, RIGHT) of a frame, from an absolute column or row.
 +type FrameHandle struct {
-+	Edge     byte
-+	Position int
-+	Rune     rune
++	Edge  byte
++	Start int
++	Runes []rune
 +}
 +
 +// MouseEvent is a mouse event before it is routed to a view. Hover is a move with no button held.
@@ -140,35 +160,44 @@
  		}
  	}
  }
-@@ -1737,6 +1763,27 @@
- 		if v.Footer != "" && g.ShowListFooter {
- 			g.drawListFooter(v, fgColor, bgColor)
- 		}
-+		if v.FrameHandle.Rune != 0 {
+@@ -1728,6 +1754,9 @@
+ 
+ 		g.drawFrameEdges(v, frameColor, bgColor)
+ 		g.drawFrameCorners(v, frameColor, bgColor)
++		if len(v.FrameHandle.Runes) > 0 {
 +			g.drawFrameHandle(v, bgColor)
++		}
+ 		if v.Title != "" || len(v.Tabs) > 0 {
+ 			g.drawTitle(v, fgColor, bgColor)
+ 		}
+@@ -1740,6 +1769,26 @@
+ 	}
+ }
+ 
++func (g *Gui) drawFrameHandle(v *View, bgColor Attribute) {
++	handle := v.FrameHandle
++	for i, ch := range handle.Runes {
++		x, y := handle.Start+i, handle.Start+i
++		switch handle.Edge {
++		case TOP:
++			y = v.y0
++		case BOTTOM:
++			y = v.y1
++		case LEFT:
++			x = v.x0
++		case RIGHT:
++			x = v.x1
++		}
++		if x >= max(v.x0, 0) && x <= min(v.x1, g.maxX-1) && y >= max(v.y0, 0) && y <= min(v.y1, g.maxY-1) {
++			g.SetRune(x, y, ch, g.SelFrameColor, bgColor)
 +		}
 +	}
 +}
 +
-+func (g *Gui) drawFrameHandle(v *View, bgColor Attribute) {
-+	handle := v.FrameHandle
-+	x, y := handle.Position, handle.Position
-+	switch handle.Edge {
-+	case TOP:
-+		y = v.y0
-+	case BOTTOM:
-+		y = v.y1
-+	case LEFT:
-+		x = v.x0
-+	case RIGHT:
-+		x = v.x1
-+	}
-+	if x >= max(v.x0, 0) && x <= min(v.x1, g.maxX-1) && y >= max(v.y0, 0) && y <= min(v.y1, g.maxY-1) {
-+		g.SetRune(x, y, handle.Rune, g.SelFrameColor, bgColor)
- 	}
- }
- 
-@@ -1773,6 +1820,11 @@
+ // onKey manages key-press events. A keybinding handler is called when
+ // a key-press or mouse event satisfies a configured keybinding. Furthermore,
+ // currentView's internal buffer is modified if currentView.Editable is true.
+@@ -1773,6 +1822,11 @@
  			}
  			return nil
  		}
@@ -180,7 +209,7 @@
  		// While the mouse is captured, all mouse events go to the view that
  		// was under the pointer when the button was pressed, even if the
  		// pointer has since left it; this is what lets drag gestures keep
-@@ -1915,6 +1967,11 @@
+@@ -1915,6 +1969,11 @@
  
  	case eventMouseMove:
  		mx, my := ev.MouseX, ev.MouseY
@@ -201,12 +230,86 @@
 +	// HighlightedEdges (TOP, BOTTOM, LEFT, RIGHT) are drawn in the selected frame color.
 +	HighlightedEdges byte
 +
-+	// FrameHandle is drawn over the frame in the selected frame color; a zero Rune hides it.
++	// FrameHandle is drawn over the frame in the selected frame color; no Runes hides it.
 +	FrameHandle FrameHandle
 +
  	// FrameRunes allows to define custom runes for the frame edges.
  	// The rune slice can be defined with 3 different lengths.
  	// If slice doesn't match these lengths, default runes will be used instead of missing one.
+--- a/pkg/gui/context_config.go
++++ b/pkg/gui/context_config.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"github.com/jesseduffield/lazygit/pkg/gui/context"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/types"
++	"github.com/samber/lo"
+ )
+ 
+ func (gui *Gui) contextTree() *context.ContextTree {
+@@ -18,5 +19,14 @@
+ 		return gui.State.Contexts.LocalCommits
+ 	}
+ 
++	hidden := gui.c.GetAppState().HiddenPanes
++	if lo.Contains(hidden, gui.State.Contexts.Files.GetWindowName()) {
++		for _, panel := range gui.c.UserConfig().Gui.SidePanels {
++			if !lo.Contains(hidden, panel[0]) {
++				return sidePanelContexts(gui.State.Contexts)[panel[0]]
++			}
++		}
++	}
++
+ 	return gui.State.Contexts.Files
+ }
+--- a/pkg/gui/controllers/basic_commits_controller.go
++++ b/pkg/gui/controllers/basic_commits_controller.go
+@@ -66,6 +66,12 @@
+ 			Tooltip:           self.c.Tr.CopyCommitAttributeToClipboardTooltip,
+ 			OpensMenu:         true,
+ 		},
++		{
++			Keys:              opts.GetKeys(opts.Config.Commits.CopyCommitHashToClipboard),
++			Handler:           self.withItem(self.copyTruncatedCommitHashToClipboard),
++			GetDisabledReason: self.require(self.singleItemSelected()),
++			Description:       self.c.Tr.CopyCommitHashToClipboard,
++		},
+ 		{
+ 			Keys:              opts.GetKeys(opts.Config.Commits.OpenInBrowser),
+ 			Handler:           self.withItem(self.openInBrowser),
+@@ -173,7 +179,7 @@
+ 		{
+ 			Label: self.c.Tr.CommitHash,
+ 			OnPress: func() error {
+-				return self.copyCommitHashToClipboard(commit)
++				return self.copyCommitHashToClipboard(commit.Hash())
+ 			},
+ 		},
+ 		{
+@@ -228,13 +234,21 @@
+ 	})
+ }
+ 
+-func (self *BasicCommitsController) copyCommitHashToClipboard(commit *models.Commit) error {
++func (self *BasicCommitsController) copyTruncatedCommitHashToClipboard(commit *models.Commit) error {
++	hash := commit.Hash()
++	if length := self.c.UserConfig().Git.TruncateCopiedCommitHashesTo; length > 0 {
++		hash = hash[:min(len(hash), length)]
++	}
++	return self.copyCommitHashToClipboard(hash)
++}
++
++func (self *BasicCommitsController) copyCommitHashToClipboard(hash string) error {
+ 	self.c.LogAction(self.c.Tr.Actions.CopyCommitHashToClipboard)
+-	if err := self.c.OS().CopyToClipboard(commit.Hash()); err != nil {
++	if err := self.c.OS().CopyToClipboard(hash); err != nil {
+ 		return err
+ 	}
+ 
+-	self.c.Toast(fmt.Sprintf("'%s' %s", commit.Hash(), self.c.Tr.CopiedToClipboard))
++	self.c.Toast(fmt.Sprintf("'%s' %s", hash, self.c.Tr.CopiedToClipboard))
+ 	return nil
+ }
+ 
 --- a/pkg/gui/controllers/files_controller.go
 +++ b/pkg/gui/controllers/files_controller.go
 @@ -379,6 +379,14 @@
@@ -244,6 +347,45 @@
  func (self *FilesController) GetFocusedMainViewDiffSource() types.FocusedMainViewDiffSource {
  	return self.diffActions
  }
+@@ -1543,6 +1564,9 @@
+ 		if err != nil && strings.Contains(err.Error(), "exit status 128") {
+ 			return errors.New(self.c.Tr.PassUnameWrong)
+ 		}
++		if err == nil {
++			self.c.SuccessToast("fetched")
++		}
+ 
+ 		return self.c.Helpers().BranchesHelper.PostFetchRefresh(err, false, fetchGeneration)
+ 	})
+--- a/pkg/gui/controllers/helpers/amend_helper.go
++++ b/pkg/gui/controllers/helpers/amend_helper.go
+@@ -20,5 +20,8 @@
+ func (self *AmendHelper) AmendHead() error {
+ 	cmdObj := self.c.Git().Commit.AmendHeadCmdObj()
+ 	self.c.LogAction(self.c.Tr.Actions.AmendCommit)
+-	return self.gpg.WithGpgHandling(cmdObj, git_commands.CommitGpgSign, self.c.Tr.AmendingStatus, nil, nil)
++	return self.gpg.WithGpgHandling(cmdObj, git_commands.CommitGpgSign, self.c.Tr.AmendingStatus, func() error {
++		self.c.SuccessToast("amended")
++		return nil
++	}, nil)
+ }
+--- a/pkg/gui/controllers/helpers/branches_helper.go
++++ b/pkg/gui/controllers/helpers/branches_helper.go
+@@ -449,7 +449,13 @@
+ 		return err
+ 	}
+ 
+-	return self.WithInlineStatusOnBranches(branches, types.ItemOperationFastForwarding, fastForward)
++	return self.WithInlineStatusOnBranches(branches, types.ItemOperationFastForwarding, func(task gocui.Task) error {
++		if err := fastForward(task); err != nil {
++			return err
++		}
++		self.c.SuccessToast("fast-forwarded")
++		return nil
++	})
+ }
+ 
+ // Does the part of FastForwardBranches that looks at the model, and so has to
 --- a/pkg/gui/controllers/helpers/window_arrangement_helper.go
 +++ b/pkg/gui/controllers/helpers/window_arrangement_helper.go
 @@ -10,6 +10,7 @@
@@ -254,33 +396,36 @@
  	"golang.org/x/exp/slices"
  )
  
-@@ -80,6 +81,8 @@
+@@ -80,6 +81,10 @@
  	InSearchPrompt bool
  	// One of '' (not searching), 'Search: ', and 'Filter: '
  	SearchPrefix string
 +	// Sizes the user has set by dragging panel borders
 +	PanelSizes config.PanelSizes
++	// Panes the user has hidden
++	HiddenPanes []string
  }
  
  func (self *WindowArrangementHelper) GetWindowDimensions(informationStr string, appStatus string) map[string]boxlayout.Dimensions {
-@@ -112,6 +115,7 @@
+@@ -112,6 +117,8 @@
  		IsAnyModeActive:  self.modeHelper.IsAnyModeActive(),
  		InSearchPrompt:   repoState.InSearchPrompt(),
  		SearchPrefix:     searchPrefix,
 +		PanelSizes:       self.c.GetAppState().PanelSizes,
++		HiddenPanes:      self.c.GetAppState().HiddenPanes,
  	}
  
  	return GetWindowDimensions(args)
-@@ -134,8 +138,6 @@
+@@ -134,7 +141,7 @@
  }
  
  func GetWindowDimensions(args WindowArrangementArgs) map[string]boxlayout.Dimensions {
 -	sideSectionWeight, mainSectionWeight := getMidSectionWeights(args)
--
++	args.MainPanes = shownMainPanes(args)
+ 
  	sidePanelsDirection := boxlayout.COLUMN
  	if shouldUsePortraitMode(args) {
- 		sidePanelsDirection = boxlayout.ROW
-@@ -156,17 +158,20 @@
+@@ -156,17 +163,20 @@
  			{
  				Direction: sidePanelsDirection,
  				Weight:    1,
@@ -312,7 +457,7 @@
  				},
  			},
  			{
-@@ -192,8 +197,10 @@
+@@ -192,8 +202,10 @@
  	result := []*boxlayout.Box{
  		{
  			Direction: mainPanelsDirection,
@@ -325,7 +470,7 @@
  		},
  	}
  	if args.ShowExtrasWindow {
-@@ -214,7 +221,7 @@
+@@ -214,7 +226,7 @@
  	return result
  }
  
@@ -334,7 +479,7 @@
  	mainPane := &boxlayout.Box{Window: "main", Weight: 1}
  	secondaryPane := &boxlayout.Box{Window: "secondary", Weight: 1}
  
-@@ -235,10 +242,20 @@
+@@ -235,10 +247,23 @@
  		}
  	}
  
@@ -347,6 +492,9 @@
  
 -func getMidSectionWeights(args WindowArrangementArgs) (int, int) {
 +func getMidSectionWeights(args WindowArrangementArgs, length int) (int, int) {
++	if !sidePanelsShown(args) {
++		return 0, 1
++	}
 +	if args.ScreenMode == types.SCREEN_NORMAL {
 +		if sizes, ok := splitSizes(args.PanelSizes.SidePanelWidth, length); ok {
 +			return sizes[0], sizes[1]
@@ -356,7 +504,7 @@
  	sidePanelWidthRatio := args.UserConfig.Gui.SidePanelWidth
  	// Using 120 so that the default of 0.3333 will remain consistent with previous behavior
  	const maxColumnCount = 120
-@@ -322,19 +339,11 @@
+@@ -322,19 +347,11 @@
  	// between at the end
  	var result []*boxlayout.Box
  
@@ -377,7 +525,7 @@
  		result = append(result,
  			&boxlayout.Box{
  				Window: "information",
-@@ -343,24 +352,9 @@
+@@ -343,24 +360,9 @@
  			})
  	}
  
@@ -405,7 +553,7 @@
  		}
  	}
  
-@@ -369,6 +363,10 @@
+@@ -369,6 +371,10 @@
  		result = insertSpacerBoxes(result)
  	}
  
@@ -416,7 +564,7 @@
  	return result
  }
  
-@@ -423,17 +421,26 @@
+@@ -423,17 +429,26 @@
  	return box
  }
  
@@ -438,8 +586,8 @@
 +
  func sidePanelChildren(args WindowArrangementArgs) func(width int, height int) []*boxlayout.Box {
  	return func(width int, height int) []*boxlayout.Box {
- 		windows := sideWindowNames(args.UserConfig)
- 
+-		windows := sideWindowNames(args.UserConfig)
+-
 -		// These thresholds were originally tuned for the default five side panels.
 -		// With fewer panels there's less to fit, so scale them down proportionally
 -		// to keep using the proportional layout at smaller heights rather than
@@ -447,10 +595,12 @@
 -		// squash sooner tends to work against the reason people add panels.
 -		const defaultSidePanelCount = 5
 -		minHeightForNormalLayout := min(28, 28*len(windows)/defaultSidePanelCount)
++		windows := shownSideWindows(args)
++
  		minHeightForTallSquashedPanels := min(21, 21*len(windows)/defaultSidePanelCount)
  
  		boxForEachWindow := func(boxForWindow func(window string) *boxlayout.Box) []*boxlayout.Box {
-@@ -460,7 +467,11 @@
+@@ -460,7 +475,11 @@
  			}
  
  			return boxForEachWindow(fullHeightBox)
@@ -463,7 +613,7 @@
  			if args.UserConfig.Gui.ShrinkSidePanelsToContent {
  				if boxes, ok := shrinkToContentSidePanelBoxes(args, windows, height); ok {
  					return boxes
-@@ -661,3 +672,54 @@
+@@ -661,3 +680,81 @@
  	}
  	return boxes, true
  }
@@ -473,9 +623,6 @@
 +
 +func draggedSidePanelBoxes(args WindowArrangementArgs, windows []string, height int) ([]*boxlayout.Box, bool) {
 +	heights := args.PanelSizes.SidePanelHeights
-+	if len(heights) != len(windows) {
-+		return nil, false
-+	}
 +	sizes, ok := fitSizes(lo.Map(windows, func(window string, _ int) float64 { return float64(heights[window]) }), height)
 +	if !ok {
 +		return nil, false
@@ -518,6 +665,36 @@
 +	}
 +	return height
 +}
++
++// SidePanelsPane hides every side panel at once.
++const SidePanelsPane = "sidePanels"
++
++// A hidden pane still shows while it is focused, which SidePanelsPane doesn't.
++func isPaneHidden(args WindowArrangementArgs, pane string) bool {
++	return lo.Contains(args.HiddenPanes, pane) && pane != args.CurrentWindow && pane != args.CurrentSideWindow
++}
++
++func shownSideWindows(args WindowArrangementArgs) []string {
++	return lo.Reject(sideWindowNames(args.UserConfig), func(window string, _ int) bool {
++		return isPaneHidden(args, window)
++	})
++}
++
++func sidePanelsShown(args WindowArrangementArgs) bool {
++	return !lo.Contains(args.HiddenPanes, SidePanelsPane) && len(shownSideWindows(args)) > 0
++}
++
++func shownMainPanes(args WindowArrangementArgs) types.MainPanes {
++	if args.MainPanes == types.BothMainPanes {
++		if isPaneHidden(args, "main") {
++			return types.SecondaryPaneOnly
++		}
++		if isPaneHidden(args, "secondary") {
++			return types.MainPaneOnly
++		}
++	}
++	return args.MainPanes
++}
 --- a/pkg/gui/controllers/helpers/working_tree_helper.go
 +++ b/pkg/gui/controllers/helpers/working_tree_helper.go
 @@ -4,11 +4,14 @@
@@ -535,7 +712,15 @@
  	"github.com/jesseduffield/lazygit/pkg/config"
  	"github.com/jesseduffield/lazygit/pkg/gui/context"
  	"github.com/jesseduffield/lazygit/pkg/gui/style"
-@@ -166,26 +169,44 @@
+@@ -155,6 +158,7 @@
+ 				self.commitsHelper.ClearPreservedCommitMessage()
+ 				return nil
+ 			})
++			self.c.SuccessToast("committed")
+ 			return nil
+ 		})
+ }
+@@ -166,26 +170,50 @@
  	// access to the last message that the user typed, and it might be very
  	// different from what was last in the commit panel. So the best we can do
  	// here is to always clear the remembered commit message.
@@ -571,9 +756,15 @@
 +
 +	self.c.LogAction(self.c.Tr.Actions.Commit)
 +	started := time.Now()
-+	return self.c.RunSubprocessAndRefresh(cmdObj.FinishQuietlyIf(func(err error) bool {
-+		return err == nil || self.commitMessageLeftEmptySince(started)
++	committed := false
++	err := self.c.RunSubprocessAndRefresh(cmdObj.FinishQuietlyIf(func(err error) bool {
++		committed = err == nil
++		return committed || self.commitMessageLeftEmptySince(started)
 +	}))
++	if committed {
++		self.c.SuccessToast("committed")
++	}
++	return err
 +}
 +
 +func (self *WorkingTreeHelper) commitMessageLeftEmptySince(started time.Time) bool {
@@ -619,6 +810,28 @@
  }
  
  func (self *ListController) HandleScrollLeft() error {
+--- a/pkg/gui/controllers/local_commits_controller.go
++++ b/pkg/gui/controllers/local_commits_controller.go
+@@ -1256,6 +1256,9 @@
+ 				}, func(gocui.Task) error {
+ 					self.c.LogAction(self.c.Tr.Actions.AmendCommit)
+ 					err := self.c.Git().Rebase.AmendTo(commits, selectedIdx)
++					if err == nil {
++						self.c.SuccessToast("amended")
++					}
+ 					return self.c.Helpers().MergeAndRebase.CheckMergeOrRebase(err)
+ 				})
+ 			})
+--- a/pkg/gui/controllers/remotes_controller.go
++++ b/pkg/gui/controllers/remotes_controller.go
+@@ -367,6 +367,7 @@
+ 		if err != nil {
+ 			return err
+ 		}
++		self.c.SuccessToast("fetched")
+ 		refreshOptions := types.RefreshOptions{
+ 			Scope: []types.RefreshableView{types.BRANCHES, types.REMOTES},
+ 		}
 --- a/pkg/gui/controllers/switch_to_focused_main_view_controller.go
 +++ b/pkg/gui/controllers/switch_to_focused_main_view_controller.go
 @@ -101,7 +101,7 @@
@@ -630,6 +843,140 @@
  		c.Helpers().DiffLine.RenderFocusedMainViewAgain(mainViewContext.GetView(), source, func() {
  			c.Helpers().DiffLine.EstablishSelection(mainViewContext, clickedLineIdx)
  		})
+--- a/pkg/gui/controllers/sync_controller.go
++++ b/pkg/gui/controllers/sync_controller.go
+@@ -387,6 +387,9 @@
+ 			FastForwardOnly: opts.FastForwardOnly,
+ 		},
+ 	)
++	if err == nil {
++		self.c.SuccessToast("pulled")
++	}
+ 
+ 	return self.c.Helpers().MergeAndRebase.CheckMergeOrRebaseAndSelectHeadCommit(err)
+ }
+@@ -452,6 +455,9 @@
+ 		}
+ 
+ 		err = self.pushBranches(task, opts.branchesBelow, opts.forceWithLeaseBelow)
++		if err == nil {
++			self.c.SuccessToast("pushed")
++		}
+ 		self.c.RefreshFromWorker(types.RefreshOptions{})
+ 		return err
+ 	})
+@@ -463,6 +469,9 @@
+ 	return self.withPushingStatus(currentBranch, branchesBelow, func(task gocui.Task) error {
+ 		branches := append([]*models.Branch{currentBranch}, branchesBelow...)
+ 		err := self.pushBranches(task, branches, forceWithLease)
++		if err == nil {
++			self.c.SuccessToast("pushed")
++		}
+ 		self.c.RefreshFromWorker(types.RefreshOptions{})
+ 		return err
+ 	})
+--- a/pkg/gui/controllers/tags_controller.go
++++ b/pkg/gui/controllers/tags_controller.go
+@@ -340,7 +340,11 @@
+ 		HandleConfirm: func(response string) error {
+ 			return helpers.WithInlineStatusOnItems(self.c.HelperCommon, tags, types.ItemOperationPushing, context.TAGS_CONTEXT_KEY, func(task gocui.Task) error {
+ 				self.c.LogAction(self.c.Tr.Actions.PushTag)
+-				return self.c.Git().Tag.Push(task, response, tagNames(tags))
++				if err := self.c.Git().Tag.Push(task, response, tagNames(tags)); err != nil {
++					return err
++				}
++				self.c.SuccessToast("pushed")
++				return nil
+ 			})
+ 		},
+ 	})
+--- a/pkg/gui/extras_panel.go
++++ b/pkg/gui/extras_panel.go
+@@ -2,20 +2,32 @@
+ 
+ import (
+ 	"io"
++	"strings"
+ 
+ 	"github.com/jesseduffield/lazygit/pkg/gocui"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/context"
++	"github.com/jesseduffield/lazygit/pkg/gui/controllers/helpers"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/style"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/types"
++	"github.com/samber/lo"
+ )
+ 
+ func (gui *Gui) handleCreateExtrasMenuPanel() error {
++	tabTitles := gui.sidePanelTabTitles()
++	items := []*types.MenuItem{gui.paneMenuItem("Side panels", helpers.SidePanelsPane, 'p')}
++	for i, panel := range gui.c.UserConfig().Gui.SidePanels {
++		label := strings.Join(lo.Map(panel, func(name string, _ int) string { return tabTitles[name] }), " - ")
++		items = append(items, gui.paneMenuItem(label, panel[0], rune('1'+i)))
++	}
++	items = append(items, gui.paneMenuItem(gui.c.Tr.UnstagedChanges, "main", 'u'), gui.paneMenuItem(gui.c.Tr.StagedChanges, "secondary", 's'))
++
+ 	return gui.c.Menu(types.CreateMenuOptions{
+-		Title: gui.c.Tr.CommandLog,
+-		Items: []*types.MenuItem{
+-			{
+-				Label: gui.c.Tr.ToggleShowCommandLog,
+-				Keys:  []gocui.Key{gocui.NewKeyRune('t')},
++		Title: "Panes",
++		Items: append(items,
++			&types.MenuItem{
++				Label:  gui.c.Tr.CommandLog,
++				Keys:   []gocui.Key{gocui.NewKeyRune('t')},
++				Widget: types.MakeMenuCheckBox(gui.c.State().GetShowExtrasWindow()),
+ 				OnPress: func() error {
+ 					currentContext := gui.c.Context().CurrentStatic()
+ 					if gui.c.State().GetShowExtrasWindow() && currentContext.GetKey() == context.COMMAND_LOG_CONTEXT_KEY {
+@@ -28,15 +40,44 @@
+ 					return nil
+ 				},
+ 			},
+-			{
++			&types.MenuItem{
+ 				Label:   gui.c.Tr.FocusCommandLog,
+ 				Keys:    []gocui.Key{gocui.NewKeyRune('f')},
+ 				OnPress: gui.handleFocusCommandLog,
+ 			},
+-		},
++		),
+ 	})
+ }
+ 
++func (gui *Gui) paneMenuItem(label string, pane string, key rune) *types.MenuItem {
++	return &types.MenuItem{
++		Label:  label,
++		Keys:   []gocui.Key{gocui.NewKeyRune(key)},
++		Widget: types.MakeMenuCheckBox(!lo.Contains(gui.c.GetAppState().HiddenPanes, pane)),
++		OnPress: func() error {
++			gui.togglePane(pane)
++			return nil
++		},
++	}
++}
++
++// Only one of the two diff panes can be hidden, and focus leaves a side panel as it is hidden.
++func (gui *Gui) togglePane(pane string) {
++	state := gui.c.GetAppState()
++	hide := !lo.Contains(state.HiddenPanes, pane)
++	state.HiddenPanes = lo.Without(state.HiddenPanes, pane)
++	if hide {
++		otherDiffPane := map[string]string{"main": "secondary", "secondary": "main"}[pane]
++		state.HiddenPanes = append(lo.Without(state.HiddenPanes, otherDiffPane), pane)
++		if pane == gui.c.Context().CurrentSide().GetWindowName() {
++			if shown, ok := lo.Find(gui.helpers.Window.SideWindows(), func(window string) bool { return !lo.Contains(state.HiddenPanes, window) }); ok {
++				gui.c.Context().Push(gui.helpers.Window.GetContextForWindow(shown), types.OnFocusOpts{})
++			}
++		}
++	}
++	gui.c.SaveAppStateAndLogError()
++}
++
+ func (gui *Gui) handleFocusCommandLog() error {
+ 	gui.c.State().SetShowExtrasWindow(true)
+ 	// TODO: is this necessary? Can't I just call 'return from context'?
 --- a/pkg/gui/gui.go
 +++ b/pkg/gui/gui.go
 @@ -140,6 +140,8 @@
@@ -655,7 +1002,17 @@
  }
  
  type GuiRepoState struct {
-@@ -987,6 +990,7 @@
+@@ -666,6 +669,9 @@
+ 
+ 	gui.applySidePanelConfig()
+ 
++	if startArgs.GitArg == appTypes.GitArgNone {
++		return gui.defaultSideContext()
++	}
+ 	return initialContext(contextTree, startArgs)
+ }
+ 
+@@ -987,6 +993,7 @@
  
  		return true
  	}
@@ -663,7 +1020,7 @@
  
  	// if the deadlock package wants to report a deadlock, we first need to
  	// close the gui so that we can actually read what it prints.
-@@ -1135,6 +1139,10 @@
+@@ -1135,6 +1142,10 @@
  	subprocess.Stderr = io.Discard
  	subprocess.Stdin = nil
  
@@ -674,6 +1031,18 @@
  	if gui.integrationTest == nil && (gui.Config.GetUserConfig().PromptToReturnFromSubprocess || err != nil) {
  		fmt.Fprintf(os.Stdout, "\n%s", style.FgGreen.Sprint(gui.Tr.PressEnterToReturn))
  
+--- a/pkg/gui/keybindings.go
++++ b/pkg/gui/keybindings.go
+@@ -170,8 +170,7 @@
+ 			ViewName:    "",
+ 			Keys:        opts.GetKeys(opts.Config.Universal.ExtrasMenu),
+ 			Handler:     opts.Guards.NoPopupPanel(gui.handleCreateExtrasMenuPanel),
+-			Description: gui.c.Tr.OpenCommandLogMenu,
+-			Tooltip:     gui.c.Tr.OpenCommandLogMenuTooltip,
++			Description: "Panes",
+ 			OpensMenu:   true,
+ 		},
+ 		{
 --- a/pkg/gui/layout.go
 +++ b/pkg/gui/layout.go
 @@ -31,6 +31,7 @@
@@ -686,7 +1055,7 @@
  	prevMainView := gui.Views.Main
 --- /dev/null
 +++ b/pkg/gui/panel_borders.go
-@@ -0,0 +1,231 @@
+@@ -0,0 +1,230 @@
 +package gui
 +
 +import (
@@ -861,9 +1230,9 @@
 +		after:    []string{lower},
 +		position: dims[upper].Y1,
 +		resize: func(position int) {
-+			heights := lo.SliceToMap(windows, func(window string) (string, int) {
++			heights := lo.Assign(sizes.SidePanelHeights, lo.SliceToMap(windows, func(window string) (string, int) {
 +				return window, dims[window].Y1 - dims[window].Y0 + 1
-+			})
++			}))
 +			pair := heights[upper] + heights[lower]
 +			heights[upper] = lo.Clamp(position-dims[upper].Y0+1, helpers.MinPanelSize, pair-helpers.MinPanelSize)
 +			heights[lower] = pair - heights[upper]
@@ -884,7 +1253,7 @@
 +	return d.Y0, d.Y1
 +}
 +
-+// highlightPanelBorder colors the border and puts handles on it where the pointer crosses it.
++// highlightPanelBorder colors the border and centers handles on it where the pointer crosses it.
 +func (gui *Gui) highlightPanelBorder(border *panelBorder, x int, y int) {
 +	edges := map[string]byte{}
 +	handles := map[string]gocui.FrameHandle{}
@@ -892,22 +1261,21 @@
 +		sides := []struct {
 +			windows []string
 +			edge    byte
-+			handle  rune
++			handle  []rune
 +		}{
-+			{border.before, gocui.BOTTOM, '▴'},
-+			{border.after, gocui.TOP, '▾'},
++			{border.before, gocui.BOTTOM, []rune("━━▲━━")},
++			{border.after, gocui.TOP, []rune("━━▼━━")},
 +		}
 +		if border.vertical {
-+			sides[0].edge, sides[0].handle = gocui.RIGHT, '◂'
-+			sides[1].edge, sides[1].handle = gocui.LEFT, '▸'
++			sides[0].edge, sides[0].handle = gocui.RIGHT, []rune("┃◀┃")
++			sides[1].edge, sides[1].handle = gocui.LEFT, []rune("┃▶┃")
 +		}
 +		across := lo.Ternary(border.vertical, y, x)
 +		for _, side := range sides {
 +			for _, window := range side.windows {
 +				edges[window] = side.edge
-+				if start, end := span(gui.PrevLayout.WindowDimensions[window], !border.vertical); start <= across && across <= end {
-+					handles[window] = gocui.FrameHandle{Edge: side.edge, Position: across, Rune: side.handle}
-+				}
++				// Every view clips the handle to itself, so it can run across windows.
++				handles[window] = gocui.FrameHandle{Edge: side.edge, Start: across - len(side.handle)/2, Runes: side.handle}
 +			}
 +		}
 +	}
@@ -918,6 +1286,19 @@
 +		}
 +	}
 +}
+--- a/pkg/gui/popup/popup_handler.go
++++ b/pkg/gui/popup/popup_handler.go
+@@ -67,6 +67,10 @@
+ 	self.toastFn(message, types.ToastKindError)
+ }
+ 
++func (self *PopupHandler) SuccessToast(message string) {
++	self.toastFn(message, types.ToastKindSuccess)
++}
++
+ func (self *PopupHandler) SetToastFunc(f func(string, types.ToastKind)) {
+ 	self.toastFn = f
+ }
 --- a/pkg/gui/presentation/files.go
 +++ b/pkg/gui/presentation/files.go
 @@ -131,13 +131,7 @@
@@ -1003,15 +1384,17 @@
  func fileNameAtDepth(node *filetree.Node[models.File], depth int, showRootItem bool) string {
 --- a/pkg/gui/status/status_manager.go
 +++ b/pkg/gui/status/status_manager.go
-@@ -5,7 +5,6 @@
+@@ -5,8 +5,8 @@
  
  	"github.com/jesseduffield/lazygit/pkg/config"
  	"github.com/jesseduffield/lazygit/pkg/gocui"
 -	"github.com/jesseduffield/lazygit/pkg/gui/presentation"
  	"github.com/jesseduffield/lazygit/pkg/gui/types"
++	"github.com/jesseduffield/lazygit/pkg/theme"
  	"github.com/samber/lo"
  	"github.com/sasha-s/go-deadlock"
-@@ -78,14 +77,13 @@
+ )
+@@ -78,14 +78,13 @@
  	self.mutex.Lock()
  	defer self.mutex.Unlock()
  
@@ -1031,3 +1414,34 @@
  }
  
  func (self *StatusManager) HasStatus() bool {
+@@ -136,8 +135,11 @@
+ 	id := self.nextId
+ 
+ 	color := gocui.ColorCyan
+-	if kind == types.ToastKindError {
++	switch kind {
++	case types.ToastKindError:
+ 		color = gocui.ColorRed
++	case types.ToastKindSuccess:
++		color = theme.OptionsColor
+ 	}
+ 
+ 	newStatus := appStatus{
+--- a/pkg/gui/types/common.go
++++ b/pkg/gui/types/common.go
+@@ -183,6 +183,7 @@
+ 	Menu(opts CreateMenuOptions) error
+ 	Toast(message string)
+ 	ErrorToast(message string)
++	SuccessToast(message string)
+ 	SetToastFunc(func(string, ToastKind))
+ 	GetPromptInput() string
+ }
+@@ -206,6 +207,7 @@
+ const (
+ 	ToastKindStatus ToastKind = iota
+ 	ToastKindError
++	ToastKindSuccess
+ )
+ 
+ type CreateMenuOptions struct {

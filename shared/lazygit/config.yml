@@ -29,6 +29,7 @@ gui:
 
 git:
   diffContextSize: 3
+  truncateCopiedCommitHashesTo: 7
   diffRenderers:
     - name: Delta
       command: ~/dotfiles/.bin/gdelta --{{colorScheme}} --paging=never --width={{width}}
@@ -41,11 +42,14 @@ git:
       name: Git
 
 os:
-  copyToClipboardCmd: printf '%s\n' {{text}} | dclip
-  readFromClipboardCmd: dclip -o
+  copyToClipboardCmd: printf '%s\n' {{text}} | ~/dotfiles/.bin/dclip
+  readFromClipboardCmd: ~/dotfiles/.bin/dclip -o
 
 keybinding:
   files:
     openStatusFilter: b
     commitChanges: C
     commitChangesWithEditor: c
+  commits:
+    copyCommitHashToClipboard: y
+    copyCommitAttributeToClipboard: Y

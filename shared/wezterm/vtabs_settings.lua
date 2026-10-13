@@ -16,10 +16,10 @@ return {
     keyboard_shortcuts = true,
     muted = "#98a8be",
     quick_terminal_blur = 0,
-    quick_terminal_height = 0.85,
+    quick_terminal_height = 0.90,
     quick_terminal_opacity = 1.0,
     quick_terminal_preserve_shell = true,
-    quick_terminal_width = 0.85,
+    quick_terminal_width = 0.90,
     quick_terminal_window_padding = {
       bottom = "8.25pt",
       left = "8.25pt",
