@@ -1,3 +1,212 @@
+--- a/pkg/commands/oscommands/cmd_obj.go
++++ b/pkg/commands/oscommands/cmd_obj.go
+@@ -31,6 +31,9 @@
+ 	// see IgnoreEmptyError()
+ 	ignoreEmptyError bool
+ 
++	// see FinishQuietlyIf()
++	finishQuietly func(error) bool
++
+ 	// if set to true, it means we might be asked to enter a username/password by this command.
+ 	credentialStrategy CredentialStrategy
+ 	task               gocui.Task
+@@ -191,6 +194,17 @@
+ 	return self.ignoreEmptyError
+ }
+ 
++// FinishQuietlyIf returns from a subprocess without the prompt to return or an error, when finishQuietly holds for how it ended.
++func (self *CmdObj) FinishQuietlyIf(finishQuietly func(error) bool) *CmdObj {
++	self.finishQuietly = finishQuietly
++
++	return self
++}
++
++func (self *CmdObj) FinishesQuietly(err error) bool {
++	return self.finishQuietly != nil && self.finishQuietly(err)
++}
++
+ func (self *CmdObj) Mutex() *deadlock.Mutex {
+ 	return self.mutex
+ }
+--- a/pkg/config/app_config.go
++++ b/pkg/config/app_config.go
+@@ -910,6 +910,17 @@
+ 	ShellCommandsHistory []string `yaml:"customcommandshistory"`
+ 
+ 	HideCommandLog bool
++
++	PanelSizes PanelSizes
++}
++
++// PanelSizes are set by dragging panel borders; zero values defer to the user config.
++type PanelSizes struct {
++	SidePanelWidth float64
++	// Weights of the side windows, keyed by window name
++	SidePanelHeights map[string]int
++	// Share of the main section taken by the main pane when the secondary pane is shown too
++	MainPanelSplit float64
+ }
+ 
+ func getDefaultAppState() *AppState {
+--- a/pkg/gocui/gui.go
++++ b/pkg/gocui/gui.go
+@@ -101,6 +101,21 @@
+ 	HandleWhenPopupPanelFocused bool
+ }
+ 
++// FrameHandle is a rune on one edge (TOP, BOTTOM, LEFT, RIGHT) of a frame, at an absolute column or row along it.
++type FrameHandle struct {
++	Edge     byte
++	Position int
++	Rune     rune
++}
++
++// MouseEvent is a mouse event before it is routed to a view. Hover is a move with no button held.
++type MouseEvent struct {
++	X, Y  int
++	Key   KeyName
++	Mod   Modifier
++	Hover bool
++}
++
+ type ViewMouseBindingOpts struct {
+ 	X int // i.e. origin x + cursor x
+ 	Y int // i.e. origin y + cursor y
+@@ -209,6 +224,9 @@
+ 
+ 	ShouldHandleMouseEvent func(view *View, key KeyName) bool
+ 
++	// InterceptMouse sees mouse events before any view does, and consumes those it returns true for.
++	InterceptMouse func(MouseEvent) (bool, error)
++
+ 	screen         tcell.Screen
+ 	suspendedMutex sync.Mutex
+ 	suspended      bool
+@@ -1315,10 +1333,10 @@
+ 			continue
+ 		}
+ 		if v.y0 > -1 && v.y0 < g.maxY {
+-			g.SetRune(x, v.y0, runeH, fgColor, bgColor)
++			g.SetRune(x, v.y0, runeH, g.edgeColor(v, TOP, fgColor), bgColor)
+ 		}
+ 		if v.y1 > -1 && v.y1 < g.maxY {
+-			g.SetRune(x, v.y1, runeH, fgColor, bgColor)
++			g.SetRune(x, v.y1, runeH, g.edgeColor(v, BOTTOM, fgColor), bgColor)
+ 		}
+ 	}
+ 
+@@ -1328,16 +1346,23 @@
+ 			continue
+ 		}
+ 		if v.x0 > -1 && v.x0 < g.maxX {
+-			g.SetRune(v.x0, y, runeV, fgColor, bgColor)
++			g.SetRune(v.x0, y, runeV, g.edgeColor(v, LEFT, fgColor), bgColor)
+ 		}
+ 		if v.x1 > -1 && v.x1 < g.maxX {
+ 			runeToPrint := calcScrollbarRune(showScrollbar, realScrollbarStart, realScrollbarEnd, y, runeV)
+ 
+-			g.SetRune(v.x1, y, runeToPrint, fgColor, bgColor)
++			g.SetRune(v.x1, y, runeToPrint, g.edgeColor(v, RIGHT, fgColor), bgColor)
+ 		}
+ 	}
+ }
+ 
++func (g *Gui) edgeColor(v *View, edges byte, fgColor Attribute) Attribute {
++	if v.HighlightedEdges&edges != 0 {
++		return g.SelFrameColor
++	}
++	return fgColor
++}
++
+ func calcScrollbarRune(
+ 	showScrollbar bool, scrollbarStart int, scrollbarEnd int, position int, runeV rune,
+ ) rune {
+@@ -1456,13 +1481,14 @@
+ 	}
+ 
+ 	corners := []struct {
+-		x, y int
+-		ch   rune
+-	}{{v.x0, v.y0, runeTL}, {v.x1, v.y0, runeTR}, {v.x0, v.y1, runeBL}, {v.x1, v.y1, runeBR}}
++		x, y  int
++		ch    rune
++		edges byte
++	}{{v.x0, v.y0, runeTL, TOP | LEFT}, {v.x1, v.y0, runeTR, TOP | RIGHT}, {v.x0, v.y1, runeBL, BOTTOM | LEFT}, {v.x1, v.y1, runeBR, BOTTOM | RIGHT}}
+ 
+ 	for _, c := range corners {
+ 		if c.x >= 0 && c.y >= 0 && c.x < g.maxX && c.y < g.maxY {
+-			g.SetRune(c.x, c.y, c.ch, fgColor, bgColor)
++			g.SetRune(c.x, c.y, c.ch, g.edgeColor(v, c.edges, fgColor), bgColor)
+ 		}
+ 	}
+ }
+@@ -1737,6 +1763,27 @@
+ 		if v.Footer != "" && g.ShowListFooter {
+ 			g.drawListFooter(v, fgColor, bgColor)
+ 		}
++		if v.FrameHandle.Rune != 0 {
++			g.drawFrameHandle(v, bgColor)
++		}
++	}
++}
++
++func (g *Gui) drawFrameHandle(v *View, bgColor Attribute) {
++	handle := v.FrameHandle
++	x, y := handle.Position, handle.Position
++	switch handle.Edge {
++	case TOP:
++		y = v.y0
++	case BOTTOM:
++		y = v.y1
++	case LEFT:
++		x = v.x0
++	case RIGHT:
++		x = v.x1
++	}
++	if x >= max(v.x0, 0) && x <= min(v.x1, g.maxX-1) && y >= max(v.y0, 0) && y <= min(v.y1, g.maxY-1) {
++		g.SetRune(x, y, handle.Rune, g.SelFrameColor, bgColor)
+ 	}
+ }
+ 
+@@ -1773,6 +1820,11 @@
+ 			}
+ 			return nil
+ 		}
++		if g.mouseCapture == nil && g.InterceptMouse != nil {
++			if intercepted, err := g.InterceptMouse(MouseEvent{X: mx, Y: my, Key: ev.Key.KeyName(), Mod: ev.Key.Mod()}); intercepted || err != nil {
++				return err
++			}
++		}
+ 		// While the mouse is captured, all mouse events go to the view that
+ 		// was under the pointer when the button was pressed, even if the
+ 		// pointer has since left it; this is what lets drag gestures keep
+@@ -1915,6 +1967,11 @@
+ 
+ 	case eventMouseMove:
+ 		mx, my := ev.MouseX, ev.MouseY
++		if g.InterceptMouse != nil {
++			if intercepted, err := g.InterceptMouse(MouseEvent{X: mx, Y: my, Hover: true}); intercepted || err != nil {
++				return err
++			}
++		}
+ 		v, err := g.VisibleViewByPosition(mx, my)
+ 		if err != nil {
+ 			break
+--- a/pkg/gocui/view.go
++++ b/pkg/gocui/view.go
+@@ -198,6 +198,12 @@
+ 	// FrameColor allow to configure the color of the Frame when it is not highlighted.
+ 	FrameColor Attribute
+ 
++	// HighlightedEdges (TOP, BOTTOM, LEFT, RIGHT) are drawn in the selected frame color.
++	HighlightedEdges byte
++
++	// FrameHandle is drawn over the frame in the selected frame color; a zero Rune hides it.
++	FrameHandle FrameHandle
++
+ 	// FrameRunes allows to define custom runes for the frame edges.
+ 	// The rune slice can be defined with 3 different lengths.
+ 	// If slice doesn't match these lengths, default runes will be used instead of missing one.
 --- a/pkg/gui/controllers/files_controller.go
 +++ b/pkg/gui/controllers/files_controller.go
 @@ -379,6 +379,14 @@
@@ -37,7 +246,117 @@
  }
 --- a/pkg/gui/controllers/helpers/window_arrangement_helper.go
 +++ b/pkg/gui/controllers/helpers/window_arrangement_helper.go
-@@ -322,19 +322,11 @@
+@@ -10,6 +10,7 @@
+ 	"github.com/jesseduffield/lazygit/pkg/config"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/types"
+ 	"github.com/jesseduffield/lazygit/pkg/utils"
++	"github.com/samber/lo"
+ 	"golang.org/x/exp/slices"
+ )
+ 
+@@ -80,6 +81,8 @@
+ 	InSearchPrompt bool
+ 	// One of '' (not searching), 'Search: ', and 'Filter: '
+ 	SearchPrefix string
++	// Sizes the user has set by dragging panel borders
++	PanelSizes config.PanelSizes
+ }
+ 
+ func (self *WindowArrangementHelper) GetWindowDimensions(informationStr string, appStatus string) map[string]boxlayout.Dimensions {
+@@ -112,6 +115,7 @@
+ 		IsAnyModeActive:  self.modeHelper.IsAnyModeActive(),
+ 		InSearchPrompt:   repoState.InSearchPrompt(),
+ 		SearchPrefix:     searchPrefix,
++		PanelSizes:       self.c.GetAppState().PanelSizes,
+ 	}
+ 
+ 	return GetWindowDimensions(args)
+@@ -134,8 +138,6 @@
+ }
+ 
+ func GetWindowDimensions(args WindowArrangementArgs) map[string]boxlayout.Dimensions {
+-	sideSectionWeight, mainSectionWeight := getMidSectionWeights(args)
+-
+ 	sidePanelsDirection := boxlayout.COLUMN
+ 	if shouldUsePortraitMode(args) {
+ 		sidePanelsDirection = boxlayout.ROW
+@@ -156,17 +158,20 @@
+ 			{
+ 				Direction: sidePanelsDirection,
+ 				Weight:    1,
+-				Children: []*boxlayout.Box{
+-					{
+-						Direction:           boxlayout.ROW,
+-						Weight:              sideSectionWeight,
+-						ConditionalChildren: sidePanelChildren(args),
+-					},
+-					{
+-						Direction: boxlayout.ROW,
+-						Weight:    mainSectionWeight,
+-						Children:  mainPanelChildren(args),
+-					},
++				ConditionalChildren: func(width int, height int) []*boxlayout.Box {
++					sideSectionWeight, mainSectionWeight := getMidSectionWeights(args, lengthAlong(sidePanelsDirection, width, height))
++					return []*boxlayout.Box{
++						{
++							Direction:           boxlayout.ROW,
++							Weight:              sideSectionWeight,
++							ConditionalChildren: sidePanelChildren(args),
++						},
++						{
++							Direction: boxlayout.ROW,
++							Weight:    mainSectionWeight,
++							Children:  mainPanelChildren(args),
++						},
++					}
+ 				},
+ 			},
+ 			{
+@@ -192,8 +197,10 @@
+ 	result := []*boxlayout.Box{
+ 		{
+ 			Direction: mainPanelsDirection,
+-			Children:  mainSectionChildren(args),
+-			Weight:    1,
++			ConditionalChildren: func(width int, height int) []*boxlayout.Box {
++				return mainSectionChildren(args, lengthAlong(mainPanelsDirection, width, height))
++			},
++			Weight: 1,
+ 		},
+ 	}
+ 	if args.ShowExtrasWindow {
+@@ -214,7 +221,7 @@
+ 	return result
+ }
+ 
+-func mainSectionChildren(args WindowArrangementArgs) []*boxlayout.Box {
++func mainSectionChildren(args WindowArrangementArgs, length int) []*boxlayout.Box {
+ 	mainPane := &boxlayout.Box{Window: "main", Weight: 1}
+ 	secondaryPane := &boxlayout.Box{Window: "secondary", Weight: 1}
+ 
+@@ -235,10 +242,20 @@
+ 		}
+ 	}
+ 
++	if sizes, ok := splitSizes(args.PanelSizes.MainPanelSplit, length); ok {
++		mainPane.Weight, secondaryPane.Weight = sizes[0], sizes[1]
++	}
++
+ 	return []*boxlayout.Box{mainPane, secondaryPane}
+ }
+ 
+-func getMidSectionWeights(args WindowArrangementArgs) (int, int) {
++func getMidSectionWeights(args WindowArrangementArgs, length int) (int, int) {
++	if args.ScreenMode == types.SCREEN_NORMAL {
++		if sizes, ok := splitSizes(args.PanelSizes.SidePanelWidth, length); ok {
++			return sizes[0], sizes[1]
++		}
++	}
++
+ 	sidePanelWidthRatio := args.UserConfig.Gui.SidePanelWidth
+ 	// Using 120 so that the default of 0.3333 will remain consistent with previous behavior
+ 	const maxColumnCount = 120
+@@ -322,19 +339,11 @@
  	// between at the end
  	var result []*boxlayout.Box
  
@@ -58,7 +377,7 @@
  		result = append(result,
  			&boxlayout.Box{
  				Window: "information",
-@@ -343,30 +335,19 @@
+@@ -343,24 +352,9 @@
  			})
  	}
  
@@ -86,16 +405,194 @@
  		}
  	}
  
- 	if len(result) > 0 {
- 		// If we have at least one view, insert 1-char wide spacer boxes between them.
+@@ -369,6 +363,10 @@
  		result = insertSpacerBoxes(result)
-+	}
-+
-+	if len(result) > 0 && result[0].Window != "options" {
-+		result = slices.Insert(result, 0, flexibleSpacerBox())
  	}
  
++	if len(result) > 0 && result[0].Window != "options" {
++		result = slices.Insert(result, 0, flexibleSpacerBox())
++	}
++
  	return result
+ }
+ 
+@@ -423,17 +421,26 @@
+ 	return box
+ }
+ 
++// These thresholds were originally tuned for the default five side panels.
++// With fewer panels there's less to fit, so scale them down proportionally
++// to keep using the proportional layout at smaller heights rather than
++// squashing unnecessarily. We only ever scale down: making more panels
++// squash sooner tends to work against the reason people add panels.
++const defaultSidePanelCount = 5
++
++func minHeightForNormalLayout(windowCount int) int {
++	return min(28, 28*windowCount/defaultSidePanelCount)
++}
++
++// SidePanelsAreWeighted reports whether the side panels share their height by weight, the layout dragged heights apply to.
++func SidePanelsAreWeighted(screenMode types.ScreenMode, windowCount int, height int) bool {
++	return screenMode == types.SCREEN_NORMAL && height >= minHeightForNormalLayout(windowCount)
++}
++
+ func sidePanelChildren(args WindowArrangementArgs) func(width int, height int) []*boxlayout.Box {
+ 	return func(width int, height int) []*boxlayout.Box {
+ 		windows := sideWindowNames(args.UserConfig)
+ 
+-		// These thresholds were originally tuned for the default five side panels.
+-		// With fewer panels there's less to fit, so scale them down proportionally
+-		// to keep using the proportional layout at smaller heights rather than
+-		// squashing unnecessarily. We only ever scale down: making more panels
+-		// squash sooner tends to work against the reason people add panels.
+-		const defaultSidePanelCount = 5
+-		minHeightForNormalLayout := min(28, 28*len(windows)/defaultSidePanelCount)
+ 		minHeightForTallSquashedPanels := min(21, 21*len(windows)/defaultSidePanelCount)
+ 
+ 		boxForEachWindow := func(boxForWindow func(window string) *boxlayout.Box) []*boxlayout.Box {
+@@ -460,7 +467,11 @@
+ 			}
+ 
+ 			return boxForEachWindow(fullHeightBox)
+-		} else if height >= minHeightForNormalLayout {
++		} else if height >= minHeightForNormalLayout(len(windows)) {
++			if boxes, ok := draggedSidePanelBoxes(args, windows, height); ok {
++				return boxes
++			}
++
+ 			if args.UserConfig.Gui.ShrinkSidePanelsToContent {
+ 				if boxes, ok := shrinkToContentSidePanelBoxes(args, windows, height); ok {
+ 					return boxes
+@@ -661,3 +672,54 @@
+ 	}
+ 	return boxes, true
+ }
++
++// MinPanelSize is the smallest width or height a dragged panel border leaves a panel.
++const MinPanelSize = 3
++
++func draggedSidePanelBoxes(args WindowArrangementArgs, windows []string, height int) ([]*boxlayout.Box, bool) {
++	heights := args.PanelSizes.SidePanelHeights
++	if len(heights) != len(windows) {
++		return nil, false
++	}
++	sizes, ok := fitSizes(lo.Map(windows, func(window string, _ int) float64 { return float64(heights[window]) }), height)
++	if !ok {
++		return nil, false
++	}
++	return lo.Map(windows, func(window string, i int) *boxlayout.Box {
++		return &boxlayout.Box{Window: window, Weight: sizes[i]}
++	}), true
++}
++
++func splitSizes(ratio float64, length int) ([]int, bool) {
++	return fitSizes([]float64{ratio, 1 - ratio}, length)
++}
++
++// fitSizes scales shares to sizes that add up to length exactly, so boxlayout reproduces them when given as weights.
++func fitSizes(shares []float64, length int) ([]int, bool) {
++	if length < len(shares)*MinPanelSize || lo.SomeBy(shares, func(share float64) bool { return share <= 0 }) {
++		return nil, false
++	}
++	total := lo.Sum(shares)
++	sizes := make([]int, len(shares))
++	cumulative, boundary := 0.0, 0
++	for i, share := range shares {
++		cumulative += share
++		next := int(math.Round(cumulative / total * float64(length)))
++		sizes[i] = next - boundary
++		boundary = next
++	}
++	for i := range sizes {
++		for sizes[i] < MinPanelSize {
++			sizes[slices.Index(sizes, slices.Max(sizes))]--
++			sizes[i]++
++		}
++	}
++	return sizes, true
++}
++
++func lengthAlong(direction boxlayout.Direction, width int, height int) int {
++	if direction == boxlayout.COLUMN {
++		return width
++	}
++	return height
++}
+--- a/pkg/gui/controllers/helpers/working_tree_helper.go
++++ b/pkg/gui/controllers/helpers/working_tree_helper.go
+@@ -4,11 +4,14 @@
+ 	"errors"
+ 	"fmt"
+ 	"os"
++	"path/filepath"
+ 	"regexp"
+ 	"strings"
++	"time"
+ 
+ 	"github.com/jesseduffield/lazygit/pkg/commands/git_commands"
+ 	"github.com/jesseduffield/lazygit/pkg/commands/models"
++	"github.com/jesseduffield/lazygit/pkg/commands/oscommands"
+ 	"github.com/jesseduffield/lazygit/pkg/config"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/context"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/style"
+@@ -166,26 +169,44 @@
+ 	// access to the last message that the user typed, and it might be very
+ 	// different from what was last in the commit panel. So the best we can do
+ 	// here is to always clear the remembered commit message.
+-	self.commitsHelper.ClearPreservedCommitMessage()
+-
+-	self.c.LogAction(self.c.Tr.Actions.Commit)
+-	return self.c.RunSubprocessAndRefresh(
+-		self.c.Git().Commit.CommitInEditorWithMessageFileCmdObj(filepath, forceSkipHooks),
+-	)
++	return self.commitInEditor(self.c.Git().Commit.CommitInEditorWithMessageFileCmdObj(filepath, forceSkipHooks))
+ }
+ 
+ // HandleCommitEditorPress - handle when the user wants to commit changes via
+ // their editor rather than via the popup panel
+ func (self *WorkingTreeHelper) HandleCommitEditorPress() error {
+ 	return self.WithEnsureCommittableFiles(func() error {
+-		// See reasoning in switchFromCommitMessagePanelToEditor for why it makes sense
+-		// to clear this message before calling into the editor
+-		self.commitsHelper.ClearPreservedCommitMessage()
++		return self.commitInEditor(self.c.Git().Commit.CommitEditorCmdObj())
++	})
++}
+ 
+-		self.c.LogAction(self.c.Tr.Actions.Commit)
+-		return self.c.RunSubprocessAndRefresh(
+-			self.c.Git().Commit.CommitEditorCmdObj(),
+-		)
++// commitInEditor only stops to show git's output when the commit failed for another reason than an empty message.
++func (self *WorkingTreeHelper) commitInEditor(cmdObj *oscommands.CmdObj) error {
++	// See reasoning in switchFromCommitMessagePanelToEditor for why it makes sense
++	// to clear this message before calling into the editor
++	self.commitsHelper.ClearPreservedCommitMessage()
++
++	self.c.LogAction(self.c.Tr.Actions.Commit)
++	started := time.Now()
++	return self.c.RunSubprocessAndRefresh(cmdObj.FinishQuietlyIf(func(err error) bool {
++		return err == nil || self.commitMessageLeftEmptySince(started)
++	}))
++}
++
++func (self *WorkingTreeHelper) commitMessageLeftEmptySince(started time.Time) bool {
++	path := filepath.Join(self.c.Git().RepoPaths.WorktreeGitDirPath(), "COMMIT_EDITMSG")
++	info, err := os.Stat(path)
++	if err != nil || info.ModTime().Before(started) {
++		return false
++	}
++	content, err := os.ReadFile(path)
++	if err != nil {
++		return false
++	}
++	commentChar := string(self.c.Git().Config.GetCoreCommentChar())
++	message, _, _ := strings.Cut(string(content), commentChar+" ------------------------ >8 ------------------------")
++	return lo.EveryBy(strings.Split(message, "\n"), func(line string) bool {
++		return strings.HasPrefix(line, commentChar) || strings.TrimSpace(line) == ""
+ 	})
+ }
+ 
 --- a/pkg/gui/controllers/list_controller.go
 +++ b/pkg/gui/controllers/list_controller.go
 @@ -45,11 +45,21 @@
@@ -133,6 +630,294 @@
  		c.Helpers().DiffLine.RenderFocusedMainViewAgain(mainViewContext.GetView(), source, func() {
  			c.Helpers().DiffLine.EstablishSelection(mainViewContext, clickedLineIdx)
  		})
+--- a/pkg/gui/gui.go
++++ b/pkg/gui/gui.go
+@@ -140,6 +140,8 @@
+ 
+ 	PrevLayout PrevLayout
+ 
++	borderDrag borderDrag
++
+ 	// this is the initial dir we are in upon opening lazygit. We hold onto this
+ 	// in case we want to restore it before quitting for users who have set up
+ 	// the feature for changing directory upon quit.
+@@ -234,9 +236,10 @@
+ // we keep track of some stuff from one render to the next to see if certain
+ // things have changed
+ type PrevLayout struct {
+-	Information string
+-	MainWidth   int
+-	MainHeight  int
++	Information      string
++	MainWidth        int
++	MainHeight       int
++	WindowDimensions map[string]boxlayout.Dimensions
+ }
+ 
+ type GuiRepoState struct {
+@@ -987,6 +990,7 @@
+ 
+ 		return true
+ 	}
++	gui.g.InterceptMouse = gui.interceptPanelBorderMouse
+ 
+ 	// if the deadlock package wants to report a deadlock, we first need to
+ 	// close the gui so that we can actually read what it prints.
+@@ -1135,6 +1139,10 @@
+ 	subprocess.Stderr = io.Discard
+ 	subprocess.Stdin = nil
+ 
++	if cmdObj.FinishesQuietly(err) {
++		return nil
++	}
++
+ 	if gui.integrationTest == nil && (gui.Config.GetUserConfig().PromptToReturnFromSubprocess || err != nil) {
+ 		fmt.Fprintf(os.Stdout, "\n%s", style.FgGreen.Sprint(gui.Tr.PressEnterToReturn))
+ 
+--- a/pkg/gui/layout.go
++++ b/pkg/gui/layout.go
+@@ -31,6 +31,7 @@
+ 	}
+ 
+ 	viewDimensions := gui.getWindowDimensions(informationStr, appStatus)
++	gui.PrevLayout.WindowDimensions = viewDimensions
+ 
+ 	// reading more lines into main view buffers upon resize
+ 	prevMainView := gui.Views.Main
+--- /dev/null
++++ b/pkg/gui/panel_borders.go
+@@ -0,0 +1,231 @@
++package gui
++
++import (
++	"time"
++
++	"github.com/jesseduffield/lazycore/pkg/boxlayout"
++	"github.com/jesseduffield/lazygit/pkg/config"
++	"github.com/jesseduffield/lazygit/pkg/gocui"
++	"github.com/jesseduffield/lazygit/pkg/gui/controllers/helpers"
++	"github.com/jesseduffield/lazygit/pkg/gui/types"
++	"github.com/samber/lo"
++)
++
++// A panelBorder is where windows meet and can be resized by dragging.
++type panelBorder struct {
++	name          string
++	before, after []string
++	// The border runs top to bottom, so dragging moves it along x
++	vertical bool
++	// Last column or row of the windows before the border
++	position int
++	resize   func(position int)
++	reset    func()
++}
++
++type borderDrag struct {
++	dragging    string
++	grabOffset  int
++	lastPressed string
++	lastPress   time.Time
++}
++
++func (gui *Gui) interceptPanelBorderMouse(ev gocui.MouseEvent) (bool, error) {
++	drag := &gui.borderDrag
++	if drag.dragging != "" {
++		if ev.Key == gocui.MouseLeft && ev.Mod == gocui.ModMotion {
++			if border, ok := gui.panelBorderNamed(drag.dragging); ok {
++				border.resize(border.coordinate(ev.X, ev.Y) - drag.grabOffset)
++				gui.highlightPanelBorder(&border, ev.X, ev.Y)
++			}
++			return true, nil
++		}
++		drag.dragging = ""
++		gui.c.SaveAppStateAndLogError()
++		if ev.Key == gocui.MouseRelease {
++			gui.highlightPanelBorder(gui.panelBorderAt(ev.X, ev.Y), ev.X, ev.Y)
++			return true, nil
++		}
++	}
++
++	border := gui.panelBorderAt(ev.X, ev.Y)
++	if ev.Hover {
++		gui.highlightPanelBorder(border, ev.X, ev.Y)
++		return false, nil
++	}
++	if border == nil || ev.Key != gocui.MouseLeft || ev.Mod != gocui.ModNone {
++		return false, nil
++	}
++
++	if drag.lastPressed == border.name && time.Since(drag.lastPress) < gocui.DOUBLE_CLICK_THRESHOLD {
++		border.reset()
++		drag.lastPressed = ""
++	} else {
++		drag.lastPressed, drag.lastPress = border.name, time.Now()
++	}
++	drag.dragging, drag.grabOffset = border.name, border.coordinate(ev.X, ev.Y)-border.position
++	gui.highlightPanelBorder(border, ev.X, ev.Y)
++	return true, nil
++}
++
++func (gui *Gui) panelBorderAt(x int, y int) *panelBorder {
++	if gui.helpers.Confirmation.IsPopupPanelFocused() {
++		return nil
++	}
++	view, err := gui.g.VisibleViewByPosition(x, y)
++	if err != nil {
++		return nil
++	}
++	context, ok := gui.helpers.View.ContextForView(view.Name())
++	if !ok {
++		return nil
++	}
++	window := context.GetWindowName()
++	for _, border := range gui.panelBorders() {
++		coordinate := border.coordinate(x, y)
++		if coordinate == border.position && lo.Contains(border.before, window) {
++			return &border
++		}
++		if coordinate == border.position+1 && lo.Contains(border.after, window) && !isOnTab(view, border, x) {
++			return &border
++		}
++	}
++	return nil
++}
++
++// Tabs in the title row stay clickable.
++func isOnTab(view *gocui.View, border panelBorder, x int) bool {
++	x0, _, _, _ := view.Dimensions()
++	return !border.vertical && len(view.Tabs) > 1 && view.GetClickedTabIndex(x-x0) >= 0
++}
++
++func (gui *Gui) panelBorderNamed(name string) (panelBorder, bool) {
++	return lo.Find(gui.panelBorders(), func(border panelBorder) bool { return border.name == name })
++}
++
++func (gui *Gui) panelBorders() []panelBorder {
++	dims := gui.PrevLayout.WindowDimensions
++	sizes := &gui.c.GetAppState().PanelSizes
++	isShown := func(window string, _ int) bool {
++		d, ok := dims[window]
++		return ok && d.X1 >= d.X0 && d.Y1 >= d.Y0
++	}
++	sideWindows := lo.Filter(gui.helpers.Window.SideWindows(), isShown)
++	mainWindows := lo.Filter([]string{"main", "secondary", "extras"}, isShown)
++	borders := []panelBorder{}
++
++	if gui.State.ScreenMode == types.SCREEN_NORMAL && len(sideWindows) > 0 && len(mainWindows) > 0 {
++		last := dims[sideWindows[len(sideWindows)-1]]
++		vertical := last.X1 < dims[mainWindows[0]].X0
++		_, position := span(last, vertical)
++		before := lo.Filter(sideWindows, func(window string, _ int) bool { _, end := span(dims[window], vertical); return end == position })
++		after := lo.Filter(mainWindows, func(window string, _ int) bool { start, _ := span(dims[window], vertical); return start == position+1 })
++		if len(after) > 0 {
++			start, _ := span(dims[sideWindows[0]], vertical)
++			_, end := span(dims[mainWindows[len(mainWindows)-1]], vertical)
++			borders = append(borders, shareBorder(before, after, vertical, position, start, end, &sizes.SidePanelWidth))
++		}
++	}
++
++	if len(sideWindows) > 1 {
++		top, bottom := dims[sideWindows[0]].Y0, dims[sideWindows[len(sideWindows)-1]].Y1
++		if helpers.SidePanelsAreWeighted(gui.State.ScreenMode, len(sideWindows), bottom-top+1) {
++			for i := range len(sideWindows) - 1 {
++				borders = append(borders, sidePanelBorder(dims, sideWindows, i, sizes))
++			}
++		}
++	}
++
++	if isShown("main", 0) && isShown("secondary", 0) {
++		main, secondary := dims["main"], dims["secondary"]
++		vertical := main.X1 < secondary.X0
++		start, position := span(main, vertical)
++		_, end := span(secondary, vertical)
++		borders = append(borders, shareBorder([]string{"main"}, []string{"secondary"}, vertical, position, start, end, &sizes.MainPanelSplit))
++	}
++
++	return borders
++}
++
++// shareBorder splits start..end, storing the share before the border.
++func shareBorder(before []string, after []string, vertical bool, position int, start int, end int, share *float64) panelBorder {
++	length := end - start + 1
++	return panelBorder{
++		name:     before[0] + "|" + after[0],
++		before:   before,
++		after:    after,
++		vertical: vertical,
++		position: position,
++		resize: func(position int) {
++			size := lo.Clamp(position-start+1, helpers.MinPanelSize, length-helpers.MinPanelSize)
++			*share = float64(size) / float64(length)
++		},
++		reset: func() { *share = 0 },
++	}
++}
++
++func sidePanelBorder(dims map[string]boxlayout.Dimensions, windows []string, index int, sizes *config.PanelSizes) panelBorder {
++	upper, lower := windows[index], windows[index+1]
++	return panelBorder{
++		name:     upper + "|" + lower,
++		before:   []string{upper},
++		after:    []string{lower},
++		position: dims[upper].Y1,
++		resize: func(position int) {
++			heights := lo.SliceToMap(windows, func(window string) (string, int) {
++				return window, dims[window].Y1 - dims[window].Y0 + 1
++			})
++			pair := heights[upper] + heights[lower]
++			heights[upper] = lo.Clamp(position-dims[upper].Y0+1, helpers.MinPanelSize, pair-helpers.MinPanelSize)
++			heights[lower] = pair - heights[upper]
++			sizes.SidePanelHeights = heights
++		},
++		reset: func() { sizes.SidePanelHeights = nil },
++	}
++}
++
++func (border panelBorder) coordinate(x int, y int) int {
++	return lo.Ternary(border.vertical, x, y)
++}
++
++func span(d boxlayout.Dimensions, vertical bool) (int, int) {
++	if vertical {
++		return d.X0, d.X1
++	}
++	return d.Y0, d.Y1
++}
++
++// highlightPanelBorder colors the border and puts handles on it where the pointer crosses it.
++func (gui *Gui) highlightPanelBorder(border *panelBorder, x int, y int) {
++	edges := map[string]byte{}
++	handles := map[string]gocui.FrameHandle{}
++	if border != nil {
++		sides := []struct {
++			windows []string
++			edge    byte
++			handle  rune
++		}{
++			{border.before, gocui.BOTTOM, '▴'},
++			{border.after, gocui.TOP, '▾'},
++		}
++		if border.vertical {
++			sides[0].edge, sides[0].handle = gocui.RIGHT, '◂'
++			sides[1].edge, sides[1].handle = gocui.LEFT, '▸'
++		}
++		across := lo.Ternary(border.vertical, y, x)
++		for _, side := range sides {
++			for _, window := range side.windows {
++				edges[window] = side.edge
++				if start, end := span(gui.PrevLayout.WindowDimensions[window], !border.vertical); start <= across && across <= end {
++					handles[window] = gocui.FrameHandle{Edge: side.edge, Position: across, Rune: side.handle}
++				}
++			}
++		}
++	}
++	for _, context := range gui.State.Contexts.Flatten() {
++		if view := context.GetView(); view != nil {
++			view.HighlightedEdges = edges[context.GetWindowName()]
++			view.FrameHandle = handles[context.GetWindowName()]
++		}
++	}
++}
 --- a/pkg/gui/presentation/files.go
 +++ b/pkg/gui/presentation/files.go
 @@ -131,13 +131,7 @@

@@ -17,4 +17,5 @@ add_path \
   "$HOME/.nix-profile/bin" \
   "$HOME/.local/share/npm-global/bin" \
   "$HOME/llama.cpp/build/bin" \
-  "$HOME/.cargo/bin"
+  "$HOME/.cargo/bin" \
+  "$HOME/.docker/bin"

@@ -47,3 +47,5 @@ os:
 keybinding:
   files:
     openStatusFilter: b
+    commitChanges: C
+    commitChangesWithEditor: c
