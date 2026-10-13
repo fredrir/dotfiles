@@ -1,3 +1,23 @@
+--- a/pkg/gui/controllers/helpers/window_arrangement_helper.go
++++ b/pkg/gui/controllers/helpers/window_arrangement_helper.go
+@@ -334,7 +334,7 @@
+ 		result = append(result, &boxlayout.Box{Window: "options", Weight: 1})
+ 	}
+ 
+-	if (!args.InDemo && args.UserConfig.Gui.ShowBottomLine) || args.IsAnyModeActive {
++	if args.IsAnyModeActive {
+ 		result = append(result,
+ 			&boxlayout.Box{
+ 				Window: "information",
+@@ -343,7 +343,7 @@
+ 			})
+ 	}
+ 
+-	if len(result) == 2 && result[0].Window == "appStatus" {
++	if len(result) == 2 && result[0].Window == "appStatus" && result[1].Window == "information" {
+ 		// Only status and information are showing; need to insert a flexible
+ 		// spacer between the two, so that information is right-aligned. Note
+ 		// that the call to insertSpacerBoxes below will still insert a 1-char
 --- a/pkg/gui/controllers/list_controller.go
 +++ b/pkg/gui/controllers/list_controller.go
 @@ -45,11 +45,22 @@
