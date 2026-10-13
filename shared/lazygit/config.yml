@@ -43,3 +43,7 @@ git:
 os:
   copyToClipboardCmd: printf '%s\n' {{text}} | dclip
   readFromClipboardCmd: dclip -o
+
+keybinding:
+  files:
+    openStatusFilter: b

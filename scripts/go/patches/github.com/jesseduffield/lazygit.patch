@@ -1,6 +1,55 @@
+--- a/pkg/gui/controllers/files_controller.go
++++ b/pkg/gui/controllers/files_controller.go
+@@ -379,6 +379,14 @@
+ 	alwaysSplit := self.c.UserConfig().Gui.SplitDiff == "always"
+ 	showStaged := node.GetHasStagedChanges() || alwaysSplit
+ 	showUnstaged := node.GetHasUnstagedChanges() || alwaysSplit || !showStaged
++	if !self.mainViewIsFocused() {
++		switch self.context().GetStatusFilter() {
++		case filetree.DisplayStaged:
++			showStaged, showUnstaged = true, false
++		case filetree.DisplayUnstaged:
++			showStaged, showUnstaged = false, true
++		}
++	}
+ 
+ 	// While the main view is focused to act on this diff, it may have to be git's own
+ 	// rather than the diff renderer's; both panes have to agree about that.
+@@ -410,6 +418,19 @@
+ 	self.c.RenderToMainViews(refreshOpts)
+ }
+ 
++func (self *FilesController) mainViewIsFocused() bool {
++	current := self.c.Context().CurrentStatic().GetKey()
++	return current == self.c.Contexts().Normal.GetKey() || current == self.c.Contexts().NormalSecondary.GetKey()
++}
++
++func statusFilterHidesDiffPane(c *ControllerCommon, source types.Context) bool {
++	if source.GetKey() != c.Contexts().Files.GetKey() {
++		return false
++	}
++	filter := c.Contexts().Files.GetStatusFilter()
++	return filter == filetree.DisplayStaged || filter == filetree.DisplayUnstaged
++}
++
+ func (self *FilesController) GetFocusedMainViewDiffSource() types.FocusedMainViewDiffSource {
+ 	return self.diffActions
+ }
 --- a/pkg/gui/controllers/helpers/window_arrangement_helper.go
 +++ b/pkg/gui/controllers/helpers/window_arrangement_helper.go
-@@ -334,7 +334,7 @@
+@@ -322,19 +322,11 @@
+ 	// between at the end
+ 	var result []*boxlayout.Box
+ 
+-	if !args.InDemo {
+-		// app status appears very briefly in demos and dislodges the caption,
+-		// so better not to show it at all
+-		if args.AppStatus != "" {
+-			result = append(result, &boxlayout.Box{Window: "appStatus", Size: utils.StringWidth(args.AppStatus)})
+-		}
+-	}
+-
+ 	if args.UserConfig.Gui.ShowBottomLine {
  		result = append(result, &boxlayout.Box{Window: "options", Weight: 1})
  	}
  
@@ -9,18 +58,47 @@
  		result = append(result,
  			&boxlayout.Box{
  				Window: "information",
-@@ -343,7 +343,7 @@
+@@ -343,30 +335,19 @@
  			})
  	}
  
 -	if len(result) == 2 && result[0].Window == "appStatus" {
-+	if len(result) == 2 && result[0].Window == "appStatus" && result[1].Window == "information" {
- 		// Only status and information are showing; need to insert a flexible
- 		// spacer between the two, so that information is right-aligned. Note
- 		// that the call to insertSpacerBoxes below will still insert a 1-char
+-		// Only status and information are showing; need to insert a flexible
+-		// spacer between the two, so that information is right-aligned. Note
+-		// that the call to insertSpacerBoxes below will still insert a 1-char
+-		// spacer in addition (right after the flexible one); this is needed for
+-		// the case that there's not enough room, to ensure there's always at
+-		// least one space.
+-		result = slices.Insert(result, 1, flexibleSpacerBox())
+-	} else if len(result) == 1 {
+-		if result[0].Window == "information" {
+-			// Only information is showing; need to add a flexible spacer so
+-			// that information is right-aligned
+-			result = slices.Insert(result, 0, flexibleSpacerBox())
+-		} else {
+-			// Only status is showing; need to make it flexible so that it
+-			// extends over the whole width
+-			result[0].Size = 0
+-			result[0].Weight = 1
++	if !args.InDemo {
++		if args.AppStatus != "" {
++			result = append(result, &boxlayout.Box{Window: "appStatus", Size: utils.StringWidth(args.AppStatus)})
+ 		}
+ 	}
+ 
+ 	if len(result) > 0 {
+ 		// If we have at least one view, insert 1-char wide spacer boxes between them.
+ 		result = insertSpacerBoxes(result)
++	}
++
++	if len(result) > 0 && result[0].Window != "options" {
++		result = slices.Insert(result, 0, flexibleSpacerBox())
+ 	}
+ 
+ 	return result
 --- a/pkg/gui/controllers/list_controller.go
 +++ b/pkg/gui/controllers/list_controller.go
-@@ -45,11 +45,22 @@
+@@ -45,11 +45,21 @@
  }
  
  func (self *ListController) HandlePrevLine() error {
@@ -33,7 +111,6 @@
 +	return self.handleLineChange(self.wrappingChange(1))
 +}
 +
-+// Range selections never wrap, as that would select the whole list.
 +func (self *ListController) wrappingChange(change int) int {
 +	list := self.context.GetList()
 +	length := list.Len()
@@ -45,6 +122,17 @@
  }
  
  func (self *ListController) HandleScrollLeft() error {
+--- a/pkg/gui/controllers/switch_to_focused_main_view_controller.go
++++ b/pkg/gui/controllers/switch_to_focused_main_view_controller.go
+@@ -101,7 +101,7 @@
+ 	// is. Now that the user wants to act on it, it is re-rendered as git's own diff — the
+ 	// panel below decides that for itself, from the same question — and the selection
+ 	// goes on that instead of on rows we can't place.
+-	if c.Helpers().DiffLine.MainViewDiffMode() == git_commands.DiffModeRaw {
++	if c.Helpers().DiffLine.MainViewDiffMode() == git_commands.DiffModeRaw || statusFilterHidesDiffPane(c, source) {
+ 		c.Helpers().DiffLine.RenderFocusedMainViewAgain(mainViewContext.GetView(), source, func() {
+ 			c.Helpers().DiffLine.EstablishSelection(mainViewContext, clickedLineIdx)
+ 		})
 --- a/pkg/gui/presentation/files.go
 +++ b/pkg/gui/presentation/files.go
 @@ -131,13 +131,7 @@
@@ -62,7 +150,7 @@
  
  	if file == nil {
  		output += indentation + ""
-@@ -183,21 +177,32 @@
+@@ -183,21 +177,31 @@
  
  func formatFileStatus(file *models.File, restColor style.TextStyle) string {
  	firstChar := file.ShortStatus[0:1]
@@ -86,7 +174,6 @@
 +}
  
 -	return firstCharCl.Sprint(firstChar) + secondCharCl.Sprint(secondChar)
-+// VS Code's git colors, the same whether a change is staged or not.
 +var (
 +	addedColor    = style.New().SetFg(style.NewRGBColor(color.HEX("#73c991")))
 +	modifiedColor = style.New().SetFg(style.NewRGBColor(color.HEX("#e5ba7d")))
@@ -107,7 +194,7 @@
  }
  
  func formatLineChanges(linesAdded, linesDeleted int) string {
-@@ -283,20 +288,7 @@
+@@ -283,20 +287,7 @@
  }
  
  func getColorForChangeStatus(changeStatus string) style.TextStyle {
@@ -129,3 +216,33 @@
  }
  
  func fileNameAtDepth(node *filetree.Node[models.File], depth int, showRootItem bool) string {
+--- a/pkg/gui/status/status_manager.go
++++ b/pkg/gui/status/status_manager.go
+@@ -5,7 +5,6 @@
+ 
+ 	"github.com/jesseduffield/lazygit/pkg/config"
+ 	"github.com/jesseduffield/lazygit/pkg/gocui"
+-	"github.com/jesseduffield/lazygit/pkg/gui/presentation"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/types"
+ 	"github.com/samber/lo"
+ 	"github.com/sasha-s/go-deadlock"
+@@ -78,14 +77,13 @@
+ 	self.mutex.Lock()
+ 	defer self.mutex.Unlock()
+ 
+-	if len(self.statuses) == 0 {
++	toast, ok := lo.Find(self.statuses, func(status appStatus) bool {
++		return status.statusType != "waiting"
++	})
++	if !ok {
+ 		return "", gocui.ColorDefault
+ 	}
+-	topStatus := self.statuses[0]
+-	if topStatus.statusType == "waiting" {
+-		return topStatus.message + " " + presentation.Loader(time.Now(), userConfig.Gui.Spinner), topStatus.color
+-	}
+-	return topStatus.message, topStatus.color
++	return toast.message, toast.color
+ }
+ 
+ func (self *StatusManager) HasStatus() bool {
