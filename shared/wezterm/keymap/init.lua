@@ -142,7 +142,8 @@ local bindings = {
   ------ Git & Quick Actions ------
   keybind(git_add, MOD.UNIQUE, "g"),
   ----
-  keybind(lazygit, MOD.PRIMARY, "g"),
+  keybind(lazygit.open, MOD.PRIMARY, "g"),
+  keybind(lazygit.log, MOD.SUPER_REV, "g"),
   keybind(quick_yazi, MOD.PRIMARY, "y"),
   ----
 }

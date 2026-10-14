@@ -41,12 +41,13 @@
  	}
  	githubPullRequestCache := loadGithubPullRequestCache()
  
-@@ -910,6 +914,21 @@
+@@ -910,6 +914,22 @@
  	ShellCommandsHistory []string `yaml:"customcommandshistory"`
  
  	HideCommandLog bool
 +
-+	PanelSizes PanelSizes
++	PanelSizes    PanelSizes
++	LogPanelSizes PanelSizes
 +	// Side window names, "sidePanels" for all of them, "main" and "secondary"
 +	HiddenPanes []string
 +	// Apply the hidden defaults once, including to state saved before pane defaults existed.
@@ -760,7 +761,7 @@
  		IsAnyModeActive:  self.modeHelper.IsAnyModeActive(),
  		InSearchPrompt:   repoState.InSearchPrompt(),
  		SearchPrefix:     searchPrefix,
-+		PanelSizes:       self.c.GetAppState().PanelSizes,
++		PanelSizes:       *self.c.GetPanelSizes(),
 +		HiddenPanes:      self.c.GetAppState().HiddenPanes,
  	}
  
@@ -828,7 +829,7 @@
  	mainPane := &boxlayout.Box{Window: "main", Weight: 1}
  	secondaryPane := &boxlayout.Box{Window: "secondary", Weight: 1}
  
-@@ -235,10 +247,23 @@
+@@ -235,10 +247,17 @@
  		}
  	}
  
@@ -844,16 +845,24 @@
 +	if !sidePanelsShown(args) {
 +		return 0, 1
 +	}
-+	if args.ScreenMode == types.SCREEN_NORMAL {
+ 	sidePanelWidthRatio := args.UserConfig.Gui.SidePanelWidth
+ 	// Using 120 so that the default of 0.3333 will remain consistent with previous behavior
+ 	const maxColumnCount = 120
+@@ -265,6 +284,13 @@
+ 		}
+ 	}
+ 
++	// Reuse dragged sizes in normal and half-screen layouts, after deciding which sections are visible.
++	if sideSectionWeight > 0 && mainSectionWeight > 0 {
 +		if sizes, ok := splitSizes(args.PanelSizes.SidePanelWidth, length); ok {
 +			return sizes[0], sizes[1]
 +		}
 +	}
 +
- 	sidePanelWidthRatio := args.UserConfig.Gui.SidePanelWidth
- 	// Using 120 so that the default of 0.3333 will remain consistent with previous behavior
- 	const maxColumnCount = 120
-@@ -322,19 +347,11 @@
+ 	return sideSectionWeight, mainSectionWeight
+ }
+ 
+@@ -322,19 +348,11 @@
  	// between at the end
  	var result []*boxlayout.Box
  
@@ -874,7 +883,7 @@
  		result = append(result,
  			&boxlayout.Box{
  				Window: "information",
-@@ -343,24 +360,9 @@
+@@ -343,24 +361,9 @@
  			})
  	}
  
@@ -902,7 +911,7 @@
  		}
  	}
  
-@@ -369,6 +371,10 @@
+@@ -369,6 +372,10 @@
  		result = insertSpacerBoxes(result)
  	}
  
@@ -913,7 +922,7 @@
  	return result
  }
  
-@@ -423,17 +429,26 @@
+@@ -423,17 +430,26 @@
  	return box
  }
  
@@ -949,7 +958,7 @@
  		minHeightForTallSquashedPanels := min(21, 21*len(windows)/defaultSidePanelCount)
  
  		boxForEachWindow := func(boxForWindow func(window string) *boxlayout.Box) []*boxlayout.Box {
-@@ -460,7 +475,11 @@
+@@ -460,7 +476,11 @@
  			}
  
  			return boxForEachWindow(fullHeightBox)
@@ -962,7 +971,7 @@
  			if args.UserConfig.Gui.ShrinkSidePanelsToContent {
  				if boxes, ok := shrinkToContentSidePanelBoxes(args, windows, height); ok {
  					return boxes
-@@ -661,3 +680,81 @@
+@@ -661,3 +681,81 @@
  	}
  	return boxes, true
  }
@@ -1371,16 +1380,18 @@
  	// TODO: is this necessary? Can't I just call 'return from context'?
 --- a/pkg/gui/gui.go
 +++ b/pkg/gui/gui.go
-@@ -140,6 +140,8 @@
+@@ -140,6 +140,10 @@
  
  	PrevLayout PrevLayout
  
 +	borderDrag borderDrag
++	// Keep log's saved sizes independent of regular lazygit, even when the screen mode changes.
++	logPanelSizes bool
 +
  	// this is the initial dir we are in upon opening lazygit. We hold onto this
  	// in case we want to restore it before quitting for users who have set up
  	// the feature for changing directory upon quit.
-@@ -234,9 +236,10 @@
+@@ -234,9 +238,10 @@
  // we keep track of some stuff from one render to the next to see if certain
  // things have changed
  type PrevLayout struct {
@@ -1394,7 +1405,7 @@
  }
  
  type GuiRepoState struct {
-@@ -666,6 +669,9 @@
+@@ -666,6 +671,9 @@
  
  	gui.applySidePanelConfig()
  
@@ -1404,7 +1415,15 @@
  	return initialContext(contextTree, startArgs)
  }
  
-@@ -987,6 +993,7 @@
+@@ -948,6 +956,7 @@
+ 
+ // Run: setup the gui with keybindings and start the mainloop
+ func (gui *Gui) Run(startArgs appTypes.StartArgs) error {
++	gui.logPanelSizes = startArgs.GitArg == appTypes.GitArgLog
+ 	g, err := gui.initGocui(Headless(), startArgs.IntegrationTest)
+ 	if err != nil {
+ 		return err
+@@ -987,6 +996,7 @@
  
  		return true
  	}
@@ -1412,17 +1431,34 @@
  
  	// if the deadlock package wants to report a deadlock, we first need to
  	// close the gui so that we can actually read what it prints.
-@@ -1135,6 +1142,10 @@
+@@ -1134,6 +1144,10 @@
+ 	subprocess.Stdout = io.Discard
  	subprocess.Stderr = io.Discard
  	subprocess.Stdin = nil
- 
++
 +	if cmdObj.FinishesQuietly(err) {
 +		return nil
 +	}
-+
+ 
  	if gui.integrationTest == nil && (gui.Config.GetUserConfig().PromptToReturnFromSubprocess || err != nil) {
  		fmt.Fprintf(os.Stdout, "\n%s", style.FgGreen.Sprint(gui.Tr.PressEnterToReturn))
+--- a/pkg/gui/gui_common.go
++++ b/pkg/gui/gui_common.go
+@@ -89,6 +89,14 @@
+ 	return self.gui.Config.GetAppState()
+ }
  
++func (self *guiCommon) GetPanelSizes() *config.PanelSizes {
++	state := self.GetAppState()
++	if self.gui.logPanelSizes {
++		return &state.LogPanelSizes
++	}
++	return &state.PanelSizes
++}
++
+ func (self *guiCommon) SaveAppState() error {
+ 	return self.gui.Config.SaveAppState()
+ }
 --- a/pkg/gui/keybindings.go
 +++ b/pkg/gui/keybindings.go
 @@ -170,8 +170,7 @@
@@ -1492,7 +1528,7 @@
  	view.Subtitle = opts.SubTitle
 --- /dev/null
 +++ b/pkg/gui/panel_borders.go
-@@ -0,0 +1,230 @@
+@@ -0,0 +1,229 @@
 +package gui
 +
 +import (
@@ -1502,7 +1538,6 @@
 +	"github.com/jesseduffield/lazygit/pkg/config"
 +	"github.com/jesseduffield/lazygit/pkg/gocui"
 +	"github.com/jesseduffield/lazygit/pkg/gui/controllers/helpers"
-+	"github.com/jesseduffield/lazygit/pkg/gui/types"
 +	"github.com/samber/lo"
 +)
 +
@@ -1600,7 +1635,7 @@
 +
 +func (gui *Gui) panelBorders() []panelBorder {
 +	dims := gui.PrevLayout.WindowDimensions
-+	sizes := &gui.c.GetAppState().PanelSizes
++	sizes := gui.c.GetPanelSizes()
 +	isShown := func(window string, _ int) bool {
 +		d, ok := dims[window]
 +		return ok && d.X1 >= d.X0 && d.Y1 >= d.Y0
@@ -1609,7 +1644,7 @@
 +	mainWindows := lo.Filter([]string{"main", "secondary", "extras"}, isShown)
 +	borders := []panelBorder{}
 +
-+	if gui.State.ScreenMode == types.SCREEN_NORMAL && len(sideWindows) > 0 && len(mainWindows) > 0 {
++	if len(sideWindows) > 0 && len(mainWindows) > 0 {
 +		last := dims[sideWindows[len(sideWindows)-1]]
 +		vertical := last.X1 < dims[mainWindows[0]].X0
 +		_, position := span(last, vertical)
@@ -1721,6 +1756,128 @@
 +			view.HighlightedEdges = edges[context.GetWindowName()]
 +			view.FrameHandle = handles[context.GetWindowName()]
 +		}
++	}
++}
+--- /dev/null
++++ b/pkg/gui/panel_borders_test.go
+@@ -0,0 +1,119 @@
++package gui
++
++import (
++	"slices"
++	"testing"
++
++	"github.com/jesseduffield/lazygit/pkg/config"
++	"github.com/jesseduffield/lazygit/pkg/gui/controllers/helpers"
++	"github.com/jesseduffield/lazygit/pkg/gui/types"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"gopkg.in/yaml.v3"
++)
++
++func TestPanelBorderResizeScreenModes(t *testing.T) {
++	for _, test := range []struct {
++		name        string
++		mode        types.ScreenMode
++		location    string
++		defaultSize int
++		logMode     bool
++	}{
++		{"normal/left", types.SCREEN_NORMAL, "left", 30, false},
++		{"normal/top", types.SCREEN_NORMAL, "top", 15, false},
++		{"normal/half", types.SCREEN_HALF, "left", 60, false},
++		{"log/left", types.SCREEN_HALF, "left", 60, true},
++		{"log/top", types.SCREEN_HALF, "top", 20, true},
++		{"log/normal", types.SCREEN_NORMAL, "left", 30, true},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			gui := NewDummyGui()
++			gui.logPanelSizes = test.logMode
++			state := gui.c.GetAppState()
++			otherSizes := &state.LogPanelSizes
++			if test.logMode {
++				otherSizes = &state.PanelSizes
++			}
++			otherSavedSizes := config.PanelSizes{SidePanelWidth: 0.7, MainPanelSplit: 0.6, SidePanelHeights: map[string]int{"files": 12, "commits": 8}}
++			*otherSizes = otherSavedSizes
++			gui.State = &GuiRepoState{ScreenMode: test.mode}
++			gui.helpers = &helpers.Helpers{Window: helpers.NewWindowHelper(gui.c, nil)}
++			userConfig := gui.c.UserConfig()
++			userConfig.Gui.SidePanels = []config.SidePanel{{"files"}, {"commits", "branches"}}
++			userConfig.Gui.SidePanelWidth = 0.25
++			userConfig.Gui.ShowBottomLine = false
++			userConfig.Gui.EnlargedSideViewLocation = test.location
++			userConfig.Gui.PortraitMode = "never"
++			if test.location == "top" {
++				userConfig.Gui.PortraitMode = "always"
++			}
++			args := helpers.WindowArrangementArgs{
++				Width: 120, Height: 60, UserConfig: userConfig,
++				CurrentWindow: "commits", CurrentSideWindow: "commits",
++				ActiveViewForWindow: func(window string) string { return window },
++				MainPanes:           types.MainPaneOnly, ScreenMode: test.mode,
++			}
++			layout := func() {
++				args.PanelSizes = *gui.c.GetPanelSizes()
++				gui.PrevLayout.WindowDimensions = helpers.GetWindowDimensions(args)
++			}
++			layout()
++			var border *panelBorder
++			for _, candidate := range gui.panelBorders() {
++				if slices.Contains(candidate.before, "commits") && slices.Contains(candidate.after, "main") {
++					border = &candidate
++					break
++				}
++			}
++			require.NotNil(t, border, "the visible commits/diff boundary must be draggable")
++			assert.Equal(t, test.location == "left", border.vertical)
++			assert.Equal(t, test.defaultSize-1, border.position)
++
++			length := args.Height
++			if border.vertical {
++				length = args.Width
++			}
++			for _, size := range []int{length * 2 / 5, helpers.MinPanelSize, length - helpers.MinPanelSize} {
++				border.resize(size - 1)
++				layout()
++				dims := gui.PrevLayout.WindowDimensions
++				_, end := span(dims["commits"], border.vertical)
++				start, _ := span(dims["main"], border.vertical)
++				assert.Equal(t, size-1, end)
++				assert.Equal(t, size, start)
++				assert.InDelta(t, float64(size)/float64(length), gui.c.GetPanelSizes().SidePanelWidth, 0.0001)
++				assert.Equal(t, otherSavedSizes, *otherSizes)
++			}
++			serialized, err := yaml.Marshal(state)
++			require.NoError(t, err)
++			var restored config.AppState
++			require.NoError(t, yaml.Unmarshal(serialized, &restored))
++			serializedAgain, err := yaml.Marshal(&restored)
++			require.NoError(t, err)
++			assert.Equal(t, serialized, serializedAgain)
++
++			// A saved size must not bring back panes hidden by the screen mode.
++			if test.mode == types.SCREEN_HALF {
++				args.CurrentWindow = "main"
++				layout()
++				assert.Empty(t, gui.panelBorders())
++				assert.Equal(t, 0, gui.PrevLayout.WindowDimensions["main"].X0)
++				assert.Equal(t, 0, gui.PrevLayout.WindowDimensions["main"].Y0)
++				args.CurrentWindow = "commits"
++			}
++			args.ScreenMode, gui.State.ScreenMode = types.SCREEN_FULL, types.SCREEN_FULL
++			layout()
++			assert.Empty(t, gui.panelBorders())
++			args.ScreenMode, gui.State.ScreenMode = test.mode, test.mode
++
++			// The existing double-click reset restores each mode's default split.
++			border.reset()
++			layout()
++			_, end := span(gui.PrevLayout.WindowDimensions["commits"], border.vertical)
++			assert.Equal(t, test.defaultSize-1, end)
++			assert.Zero(t, gui.c.GetPanelSizes().SidePanelWidth)
++			assert.Equal(t, otherSavedSizes, *otherSizes)
++		})
 +	}
 +}
 --- a/pkg/gui/popup/popup_handler.go
@@ -2136,7 +2293,15 @@
 +}
 --- a/pkg/gui/types/common.go
 +++ b/pkg/gui/types/common.go
-@@ -183,6 +183,7 @@
+@@ -96,6 +96,7 @@
+ 
+ 	GetConfig() config.AppConfigurer
+ 	GetAppState() *config.AppState
++	GetPanelSizes() *config.PanelSizes
+ 	SaveAppState() error
+ 	SaveAppStateAndLogError()
+ 
+@@ -183,6 +184,7 @@
  	Menu(opts CreateMenuOptions) error
  	Toast(message string)
  	ErrorToast(message string)
@@ -2144,7 +2309,7 @@
  	SetToastFunc(func(string, ToastKind))
  	GetPromptInput() string
  }
-@@ -206,6 +207,7 @@
+@@ -206,6 +208,7 @@
  const (
  	ToastKindStatus ToastKind = iota
  	ToastKindError
