@@ -394,11 +394,6 @@
     "when": "editorFocus"
   },
   {
-    "key": "alt+e",
-    "command": "markdown.editor.toggleLocked",
-    "when": "markdownEditorFocus && activeCustomEditorId == 'vscode.markdown.editor'"
-  },
-  {
     "key": "f4",
     "command": "-references-view.next",
     "when": "reference-list.hasResult && references-view.canNavigate"
@@ -472,5 +467,48 @@
   {
     "key": "ctrl+g",
     "command": "-workbench.action.gotoLine"
+  },
+  {
+    "key": "shift+alt+enter",
+    "command": "editor.action.goToImplementation",
+    "when": "editorHasImplementationProvider && editorTextFocus"
+  },
+  {
+    "key": "cmd+f12",
+    "command": "-editor.action.goToImplementation",
+    "when": "editorHasImplementationProvider && editorTextFocus"
+  },
+  {
+    "key": "alt+e",
+    "command": "editor.action.jumpToBracket"
+  },
+  {
+    "key": "alt+shift+e",
+    "command": "editor.action.selectToBracket"
+  },
+  {
+    "key": "alt+enter",
+    "command": "-workbench.action.terminal.chat.insertCommand",
+    "when": "chatIsEnabled && terminalChatResponseContainsCodeBlock && terminalHasBeenCreated && !terminalChatActiveRequest && !terminalChatResponseContainsMultipleCodeBlocks || chatIsEnabled && terminalChatResponseContainsCodeBlock && terminalProcessSupported && !terminalChatActiveRequest && !terminalChatResponseContainsMultipleCodeBlocks"
+  },
+  {
+    "key": "alt+enter",
+    "command": "-workbench.action.terminal.chat.insertFirstCommand",
+    "when": "chatIsEnabled && terminalChatResponseContainsMultipleCodeBlocks && terminalHasBeenCreated && !terminalChatActiveRequest || chatIsEnabled && terminalChatResponseContainsMultipleCodeBlocks && terminalProcessSupported && !terminalChatActiveRequest"
+  },
+  {
+    "key": "alt+enter",
+    "command": "-notebook.cell.executeAndInsertBelow",
+    "when": "notebookCellListFocused && notebookCellType == 'markup' || notebookCellListFocused && notebookMissingKernelExtension && !notebookCellExecuting && notebookCellType == 'code' || notebookCellListFocused && !notebookCellExecuting && notebookCellType == 'code' && notebookKernelCount > 0 || notebookCellListFocused && !notebookCellExecuting && notebookCellType == 'code' && notebookKernelSourceCount > 0"
+  },
+  {
+    "key": "shift+alt+enter",
+    "command": "-quickInput.accept",
+    "when": "inQuickInput && quickInputType != 'quickWidget'"
+  },
+  {
+    "key": "shift+alt+enter",
+    "command": "-workbench.action.chat.submitWithoutDispatching",
+    "when": "chatInputHasText && inChatInput && !chatSessionRequestInProgress && !chatTranscriptProgressActive && chatAgentKind == 'ask'"
   }
 ]
