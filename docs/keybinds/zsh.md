@@ -10,12 +10,13 @@
 
 ## Shared Keybinds
 
-[<code>keymap = emacs</code>](../../shared/zsh/80-keybinds.zsh#L1) · [<code>keymap = motion-select</code>](../../shared/zsh/80-keybinds.zsh#L7)
+[<code>keymap = emacs</code>](../../shared/zsh/80-keybinds.zsh#L1) · [<code>keymap = motion-select</code>](../../shared/zsh/80-keybinds.zsh#L9)
 
 | Key | Action | Description |
 | --- | --- | --- |
 | <code>&lt;</code> | [<code>Previous completion group</code>](../../shared/zsh/50-fzf.zsh#L22) | Previous completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |
 | <code>&gt;</code> | [<code>Next completion group</code>](../../shared/zsh/50-fzf.zsh#L22) | Next completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |
-| <code>^R</code> | [<code>Unbind</code>](../../shared/zsh/80-keybinds.zsh#L3) | Unbind<br><code>emacs</code> |
-| <code>^R</code> | [<code>Unbind</code>](../../shared/zsh/80-keybinds.zsh#L5) | Unbind<br><code>vicmd</code> |
-| <code>^R</code> | [<code>Unbind</code>](../../shared/zsh/80-keybinds.zsh#L4) | Unbind<br><code>viins</code> |
+| <code>^R</code> | [<code>Unbind</code>](../../shared/zsh/80-keybinds.zsh#L5) | Unbind<br><code>emacs</code> |
+| <code>^R</code> | [<code>Unbind</code>](../../shared/zsh/80-keybinds.zsh#L7) | Unbind<br><code>vicmd</code> |
+| <code>^R</code> | [<code>Unbind</code>](../../shared/zsh/80-keybinds.zsh#L6) | Unbind<br><code>viins</code> |
+| <code>^&#91;</code> | [<code>autosuggest-clear</code>](../../shared/zsh/80-keybinds.zsh#L3) | Autosuggest clear<br><code>emacs</code> |

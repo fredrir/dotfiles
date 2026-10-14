@@ -1,4 +1,6 @@
 bindkey -e
+export KEYTIMEOUT=5
+bindkey -M emacs '^[' autosuggest-clear
 
 bindkey -M emacs -r '^R'
 bindkey -M viins -r '^R'
