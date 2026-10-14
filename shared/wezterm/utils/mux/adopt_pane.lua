@@ -17,8 +17,10 @@ cd -- "$1" 2>/dev/null
 shift
 exec /usr/bin/env -i WEZTERM_PANE="$WEZTERM_PANE" WEZTERM_UNIX_SOCKET="$WEZTERM_UNIX_SOCKET" "$@"
 ]]
+---@type table<integer, true>
 local pending = {}
 
+---@param ... string|number
 ---@return string?, string?
 local function mux(...)
   local args = {
@@ -51,6 +53,7 @@ end
 ---@field session string?
 
 ---@return AttachTarget?, string?
+---@param target string
 local function resolve(target)
   if target == host.origin.hostname then
     return { domain = "local", home = host.origin.home }
@@ -112,13 +115,15 @@ local function mirrored_cwd(pane, to, location)
   if cwd:sub(1, 1) ~= "/" then
     return nil
   end
-  if home and (cwd == home or cwd:sub(1, #home + 1) == home .. "/") then
+  if home and to.home and (cwd == home or cwd:sub(1, #home + 1) == home .. "/") then
     return to.home .. cwd:sub(#home + 1)
   end
   return cwd
 end
 
 ---@param to AttachTarget
+---@param wait_for_ready boolean
+---@param cwd string?
 ---@param go_to string?
 ---@return string[]
 local function spawn_args(to, wait_for_ready, cwd, go_to)
@@ -148,7 +153,8 @@ local function spawn_args(to, wait_for_ready, cwd, go_to)
   }
 end
 
----@return integer?, string? localmux pane ID behind the GUI pane
+---@return integer?, string?
+---@param pane Pane
 local function localmux_pane(pane)
   local metadata = pane:get_metadata() or {}
   local source = metadata.remote_pane_id
@@ -158,7 +164,13 @@ local function localmux_pane(pane)
   return source
 end
 
+---@param _ Window
+---@param pane Pane
+---@param source integer
+---@param target string
 ---@param done fun(err: string?)
+---@param location AttachLocation?
+---@param go_to string?
 local function replace(_, pane, source, target, done, location, go_to)
   if target == "toggle" then
     target = is_remote(pane) and host.origin.hostname or host.target.hostname
@@ -168,10 +180,12 @@ local function replace(_, pane, source, target, done, location, go_to)
     return done(err)
   end
 
+  ---@type (string|number)[]
   local args = { "replace-pane", "--pane-id", source }
   if to.home then
     table.insert(args, "--wait-for-ready")
   end
+  ---@type string?
   local cwd
   if target == host.origin.hostname or target == host.target.hostname then
     cwd = mirrored_cwd(pane, to, location)
@@ -190,6 +204,10 @@ local function replace(_, pane, source, target, done, location, go_to)
   done()
 end
 
+---@param window Window
+---@param pane Pane
+---@param source integer
+---@param target string
 ---@param done fun(err: string?)
 local function new_tab(window, pane, source, target, done)
   local to, err = resolve(target)
@@ -213,6 +231,7 @@ local function new_tab(window, pane, source, target, done)
   done(activate_error)
 end
 
+---@param pane Pane
 ---@param id string?
 ---@param message string?
 local function reply(pane, id, message)
@@ -221,7 +240,11 @@ local function reply(pane, id, message)
   end
 end
 
----@param action fun(window, pane, source: integer, target: string, done: fun(err: string?), location: AttachLocation?, go_to: string?)
+---@alias AttachAction fun(window: Window, pane: Pane, source: integer, target: string, done: fun(err: string?), location: AttachLocation?, go_to: string?)
+---@alias AttachRequest fun(window: Window, pane: Pane, target: string, id?: string, location?: AttachLocation, go_to?: string)
+
+---@param action AttachAction
+---@return AttachRequest
 local function once_per_pane(action)
   return function(window, pane, target, id, location, go_to)
     target = target == "peer" and host.target.hostname or target
@@ -230,6 +253,7 @@ local function once_per_pane(action)
       return reply(pane, id, "attach_mux: request already pending")
     end
     pending[pane_id] = true
+    ---@param err string?
     local function done(err)
       pending[pane_id] = nil
       local message = err and "attach_mux: " .. err
@@ -249,6 +273,7 @@ local function once_per_pane(action)
   end
 end
 
+---@type table<string, AttachRequest>
 local requests = {
   ATTACH_MUX = once_per_pane(replace),
 }
@@ -258,12 +283,15 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
   if not request then
     return
   end
+  ---@type string?, string?
   local target, id = value:match "^v1:([%w._-]+):(%d+:%d+%.%d+)$"
+  ---@type AttachLocation?
   local location
   if not target then
+    ---@type string?, string?
     local home, cwd
     target, id, home, cwd = value:match "^v2:([%w._-]+):(%d+:%d+%.%d+)%z([^%z]+)%z([^%z]+)$"
-    if target then
+    if target and cwd then
       location = { home = home, cwd = cwd }
     end
   end
@@ -284,6 +312,8 @@ return {
   new_peer_tab = wezterm.action_callback(function(window, pane)
     open_peer_tab(window, pane, "peer")
   end),
+  ---@param window Window
+  ---@param pane Pane
   ---@param go_to string resolved by the peer's shell
   go_to_peer = function(window, pane, go_to)
     requests.ATTACH_MUX(window, pane, "peer", nil, nil, go_to)

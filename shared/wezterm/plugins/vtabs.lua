@@ -1,5 +1,4 @@
 local wezterm = require "wezterm"
-local profiles = require "ui.colors.profiles"
 local adopt_pane = require "utils.mux.adopt_pane"
 
 local plugin_root = wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs"

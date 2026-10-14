@@ -1,47 +1,45 @@
----@diagnostic disable: duplicate-doc-alias
---
---[[ FormatItems: Begin ]]
----@class FormatItem.Text
+--[[ Cells.FormatItems: Begin ]]
+---@class Cells.FormatItem.Text
 ---@field Text string
 
----@class FormatItem.Attribute.Intensity
+---@class Cells.FormatItem.Attribute.Intensity
 ---@field Intensity 'Bold'|'Half'|'Normal'
 
----@class FormatItem.Attribute.Italic
+---@class Cells.FormatItem.Attribute.Italic
 ---@field Italic boolean
 
----@class FormatItem.Attribute.Underline
+---@class Cells.FormatItem.Attribute.Underline
 ---@field Underline 'None'|'Single'|'Double'|'Curly'
 
----@class FormatItem.Attribute
----@field Attribute FormatItem.Attribute.Intensity|FormatItem.Attribute.Italic|FormatItem.Attribute.Underline
+---@class Cells.FormatItem.Attribute
+---@field Attribute Cells.FormatItem.Attribute.Intensity|Cells.FormatItem.Attribute.Italic|Cells.FormatItem.Attribute.Underline
 
----@class FormatItem.Foreground
----@field Background {Color: string}
-
----@class FormatItem.Background
+---@class Cells.FormatItem.Foreground
 ---@field Foreground {Color: string}
 
----@alias FormatItem.Reset 'ResetAttributes'
+---@class Cells.FormatItem.Background
+---@field Background {Color: string}
 
----@alias FormatItem FormatItem.Text|FormatItem.Attribute|FormatItem.Foreground|FormatItem.Background|FormatItem.Reset
---[[ FormatItems: End ]]
+---@alias Cells.FormatItem.Reset 'ResetAttributes'
+
+---@alias Cells.FormatItem Cells.FormatItem.Text|Cells.FormatItem.Attribute|Cells.FormatItem.Foreground|Cells.FormatItem.Background|Cells.FormatItem.Reset
+--[[ Cells.FormatItems: End ]]
 
 local attr = {}
 
 ---@param type 'Bold'|'Half'|'Normal'
----@return {Attribute: FormatItem.Attribute.Intensity}
+---@return {Attribute: Cells.FormatItem.Attribute.Intensity}
 attr.intensity = function(type)
   return { Attribute = { Intensity = type } }
 end
 
----@return {Attribute: FormatItem.Attribute.Italic}
+---@return {Attribute: Cells.FormatItem.Attribute.Italic}
 attr.italic = function()
   return { Attribute = { Italic = true } }
 end
 
 ---@param type 'None'|'Single'|'Double'|'Curly'
----@return {Attribute: FormatItem.Attribute.Underline}
+---@return {Attribute: Cells.FormatItem.Attribute.Underline}
 attr.underline = function(type)
   return { Attribute = { Underline = type } }
 end
@@ -49,13 +47,13 @@ end
 ---@alias Cells.SegmentColors {bg?: string|'UNSET', fg?: string|'UNSET'}
 
 ---@class FormatCells.Segment
----@field items FormatItem[]
+---@field items Cells.FormatItem[]
 ---@field has_bg boolean
 ---@field has_fg boolean
 ---@field nested false
 
 ---@class FormatCells.NestedSegment
----@field nested_items FormatItem[][]
+---@field nested_items Cells.FormatItem[][]
 ---@field nested true
 
 ---Format item generator for `wezterm.format` (ref: <https://wezfurlong.org/wezterm/config/lua/wezterm/format.html>)
@@ -66,10 +64,10 @@ Cells.__index = Cells
 
 ---Attribute generator for `wezterm.format` (ref: <https://wezfurlong.org/wezterm/config/lua/wezterm/format.html>)
 ---@class Cells.Attributes
----@field intensity fun(type: 'Bold'|'Half'|'Normal'): {Attribute: FormatItem.Attribute.Intensity}
----@field underline fun(type: 'None'|'Single'|'Double'|'Curly'): {Attribute: FormatItem.Attribute.Underline}
----@field italic fun(): {Attribute: FormatItem.Attribute.Italic}
----@overload fun(...: FormatItem.Attribute): FormatItem.Attribute[]
+---@field intensity fun(type: 'Bold'|'Half'|'Normal'): {Attribute: Cells.FormatItem.Attribute.Intensity}
+---@field underline fun(type: 'None'|'Single'|'Double'|'Curly'): {Attribute: Cells.FormatItem.Attribute.Underline}
+---@field italic fun(): {Attribute: Cells.FormatItem.Attribute.Italic}
+---@overload fun(...: Cells.FormatItem.Attribute): Cells.FormatItem.Attribute[]
 Cells.attr = setmetatable(attr, {
   __call = function(_, ...)
     return { ... }
@@ -87,11 +85,11 @@ end
 ---@param segment_id string|number the segment id
 ---@param text? string the text to push
 ---@param color? Cells.SegmentColors the bg and fg colors for text
----@param attributes? FormatItem.Attribute[] use bold text
+---@param attributes? Cells.FormatItem.Attribute[] use bold text
 function Cells:add_segment(segment_id, text, color, attributes)
   color = color or {}
 
-  ---@type FormatItem[]
+  ---@type Cells.FormatItem[]
   local items = {}
 
   if color.bg then
@@ -123,7 +121,7 @@ end
 
 ---Add a nested segment with a unique `segment_id` to cells
 ---@param segment_id string|number the segment id
----@param items? FormatItem[][] the items to push
+---@param items? Cells.FormatItem[][] the items to push
 ---@return FormatCells
 function Cells:add_nested_segment(segment_id, items)
   ---@type FormatCells.NestedSegment
@@ -216,7 +214,7 @@ end
 
 ---Update the items of a nested segment
 ---@param segment_id string|number the segment id
----@param items FormatItem[][] the items to push
+---@param items Cells.FormatItem[][] the items to push
 ---@return FormatCells
 function Cells:update_nested_segment(segment_id, items)
   self:_check_segment(segment_id)
@@ -227,7 +225,7 @@ end
 
 ---Extend the items of a nested segment
 ---@param segment_id string|number the segment id
----@param items FormatItem[] the items to push
+---@param items Cells.FormatItem[] the items to push
 ---@return FormatCells
 function Cells:extend_nested_segment(segment_id, items)
   self:_check_segment(segment_id)
@@ -240,8 +238,8 @@ end
 
 ---Convert specific segments into a format that `wezterm.format` can use
 ---Segments will rendered in the order of the `ids` table
----@param ids table<string|number> the segment ids
----@return FormatItem[]
+---@param ids (string|number)[] the segment ids
+---@return Cells.FormatItem[]
 function Cells:render(ids)
   local cells = {}
 
@@ -268,7 +266,7 @@ end
 ---Convert all segments into a format that `wezterm.format` can use
 --- WARNING: Segments may not be in the same order as they were added if the `segment_id` is a string
 ---
----@return FormatItem[]
+---@return Cells.FormatItem[]
 function Cells:render_all()
   local cells = {}
   for _, segment in pairs(self.segments) do

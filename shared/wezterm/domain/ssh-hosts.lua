@@ -23,15 +23,16 @@ end
 ---@param hosts table<string, true>
 local function collect(path, hosts)
   for line in io.lines(path) do
+    ---@type string?, string?
     local key, value = line:match "^%s*(%a+)[%s=]+(.-)%s*$"
     key = key and key:lower()
-    if key == "include" then
+    if key == "include" and value then
       for pattern in value:gmatch "%S+" do
         for _, included in ipairs(include_paths(pattern)) do
           collect(included, hosts)
         end
       end
-    elseif key == "host" then
+    elseif key == "host" and value then
       for name in value:gmatch "%S+" do
         if not name:find "[*?!]" then
           hosts[name] = true
@@ -50,6 +51,7 @@ return function()
     return names
   end
 
+  ---@type table<string, true>
   local hosts = {}
   local ok, err = pcall(collect, SSH_DIR .. "/config", hosts)
   if not ok then

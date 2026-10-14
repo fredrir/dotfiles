@@ -44,6 +44,7 @@ end
 ---@param themes table<string, DotfileThemeColors>
 ---@return table<string, Palette>
 local function schemes(themes)
+  ---@type table<string, Palette>
   local resolved = {}
   for name, colors in pairs(themes) do
     resolved[name] = palette(colors)

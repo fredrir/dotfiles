@@ -1,6 +1,5 @@
 local wezterm = require "wezterm"
 local remote = require "utils.remote"
-local trim = require("utils.str").trim
 
 return wezterm.action_callback(function(window, pane)
   local cwd = pane:get_current_working_dir()
@@ -27,11 +26,5 @@ return wezterm.action_callback(function(window, pane)
     }
   end
 
-  local ran, ok, _, stderr = pcall(wezterm.run_child_process, args)
-  if not ran then
-    notify(window, tostring(ok))
-  elseif not ok then
-    local message = trim(stderr)
-    notify(window, message ~= "" and message or "Failed to stage changes")
-  end
+  pcall(wezterm.run_child_process, args)
 end)

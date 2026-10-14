@@ -22,14 +22,14 @@
 ---@field name string
 ---@field type 'table'
 ---@field table_of 'string' | 'number' | 'boolean'
----@field default table
+---@field default (string|number|boolean)[]
 ---@field required? boolean
 
 ---@alias OptsSchema (Opt.boolean | Opt.number | Opt.string | Opt.table)[]
+---@alias OptValue boolean|number|string|(string|number|boolean)[]
 
----Check if a table contains a value
----@param tbl table
----@param value any
+---@param tbl OptValue[]
+---@param value OptValue
 ---@return boolean
 local function tbl_contains(tbl, value)
   for _, v in ipairs(tbl) do
@@ -40,7 +40,6 @@ local function tbl_contains(tbl, value)
   return false
 end
 
----Validate the schema for the event options
 ---@param schema OptsSchema
 local function validate_opts_schema(schema)
   local field_names = {}
@@ -76,13 +75,11 @@ local function validate_opts_schema(schema)
   end
 end
 
----Event options validation class
 ---@class OptsValidator
 ---@field schema OptsSchema
 local OptsValidator = {}
 OptsValidator.__index = OptsValidator
 
----Create a new instance of OptsValidator
 ---@param schema OptsSchema
 function OptsValidator:new(schema)
   validate_opts_schema(schema)
@@ -90,19 +87,20 @@ function OptsValidator:new(schema)
   return setmetatable(event_opts, self)
 end
 
----Validate the event options against the schema
----If the options are valid, it returns the options and nil
----If a field is invalid, it returns the default value and an error message
----@generic T
+---@generic T: table<string, OptValue>
 ---@param opts T
 ---@return T
 ---@return string|nil
 function OptsValidator:validate(opts)
+  ---@type table<string, OptValue>
+  local values = opts
+  ---@type string[]
   local errors = {}
+  ---@type table<string, OptValue>
   local valid_opts = {}
 
   for _, opt in ipairs(self.schema) do
-    local value = opts[opt.name]
+    local value = values[opt.name]
     local error = false
 
     if value == nil then
@@ -127,7 +125,7 @@ function OptsValidator:validate(opts)
       error = true
     end
 
-    if opt.type == "table" then
+    if opt.type == "table" and type(value) == "table" then
       for _, v in ipairs(value) do
         if type(v) ~= opt.table_of then
           table.insert(errors, string.format("Items in field \"%s\" must be of type \"%s\"", opt.name, opt.table_of))

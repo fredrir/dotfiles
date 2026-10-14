@@ -1,8 +1,6 @@
 ---@diagnostic disable: missing-fields
 local platform = require "utils.platform"
 
-local M = {}
-
 ---@type Mods
 local MOD
 

@@ -5,6 +5,8 @@ export DOTFILES_BIN="$DOTFILES/scripts/shell"
 export DOTFILES_ZSH_CACHE="$DOTFILES/.cache/zsh"
 export DOTFILES_COMPILED="$DOTFILES/.bin"
 
+export PROJECTS="$HOME/projects"
+
 export ZCONF="$DOTFILES/shared/zsh"
 export ATUIN_CONFIG_DIR="$DOTFILES/shared/atuin"
 export DIRENV_CONFIG="$DOTFILES/shared/direnv"

@@ -9,9 +9,13 @@ local hosts = {
   ntnu = { home = "/home/ubuntu", wezterm = "/home/ubuntu/.local/bin/wezterm" },
 }
 
+---@type boolean
 local supported = false
 for _, kind in ipairs(wezterm.mux.local_pane_layout_domains or {}) do
-  supported = supported or kind == "unix"
+  if kind == "unix" then
+    supported = true
+    break
+  end
 end
 
 return {

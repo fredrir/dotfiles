@@ -12,7 +12,8 @@
     "${env:HOME}/projects/wez-plugins/vertical-tabs/plugin/types"
   ],
   "workspace.ignoreDir": [
-    ".luarocks"
+    ".luarocks",
+    "lua_modules"
   ],
   "workspace.checkThirdParty": false,
   "diagnostics.unusedLocalExclude": [

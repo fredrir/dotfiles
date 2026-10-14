@@ -1,7 +1,6 @@
 alias cdi="cd $HOME/infra"
 
 # Projects
-export PROJECTS="$HOME/projects"
 alias cdpw="cd $PROJECTS/wez-plugins/vertical-tabs"
 alias cdwp="cd $PROJECTS/wez-plugins/vertical-tabs"
 alias cdpe="cd $PROJECTS/elvfast"

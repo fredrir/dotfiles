@@ -8,7 +8,7 @@
     "command": "-workbench.action.switchWindow"
   },
   {
-    "key": "cmd+'",
+    "key": "cmd+",
     "command": "workbench.action.splitEditor"
   },
   {
@@ -88,11 +88,6 @@
     "command": "-workbench.action.openEditorAtIndex9"
   },
   {
-    "key": "ctrl+shift+alt+cmd+k",
-    "command": "copyFilePath",
-    "when": "editorFocus"
-  },
-  {
     "key": "alt+cmd+c",
     "command": "-copyFilePath",
     "when": "editorFocus"
@@ -108,23 +103,8 @@
     "when": "!editorFocus"
   },
   {
-    "key": "ctrl+alt+cmd+k",
-    "command": "copyRelativeFilePath",
-    "when": "editorFocus"
-  },
-  {
-    "key": "cmd+k shift+alt+cmd+c",
-    "command": "-copyRelativeFilePath",
-    "when": "editorFocus"
-  },
-  {
     "key": "ctrl+alt+c",
     "command": "copyRelativeFilePath",
-    "when": "!editorFocus"
-  },
-  {
-    "key": "shift+alt+cmd+c",
-    "command": "-copyRelativeFilePath",
     "when": "!editorFocus"
   },
   {
@@ -479,14 +459,6 @@
     "when": "editorHasImplementationProvider && editorTextFocus"
   },
   {
-    "key": "alt+e",
-    "command": "editor.action.jumpToBracket"
-  },
-  {
-    "key": "alt+shift+e",
-    "command": "editor.action.selectToBracket"
-  },
-  {
     "key": "alt+enter",
     "command": "-workbench.action.terminal.chat.insertCommand",
     "when": "chatIsEnabled && terminalChatResponseContainsCodeBlock && terminalHasBeenCreated && !terminalChatActiveRequest && !terminalChatResponseContainsMultipleCodeBlocks || chatIsEnabled && terminalChatResponseContainsCodeBlock && terminalProcessSupported && !terminalChatActiveRequest && !terminalChatResponseContainsMultipleCodeBlocks"
@@ -510,5 +482,46 @@
     "key": "shift+alt+enter",
     "command": "-workbench.action.chat.submitWithoutDispatching",
     "when": "chatInputHasText && inChatInput && !chatSessionRequestInProgress && !chatTranscriptProgressActive && chatAgentKind == 'ask'"
-  }
+  },
+  {
+    "key": "alt+e",
+    "command": "editor.action.jumpToBracket"
+  },
+  {
+    "key": "alt+shift+e",
+    "command": "editor.action.selectToBracket"
+  },
+  {
+    "key": "ctrl+alt+cmd+k",
+    "command": "bracketeer.swapQuotes"
+  },
+  {
+    "key": "shift+alt+cmd+[Period]",
+    "command": "-bracketeer.swapQuotes"
+  },
+  {
+    "key": "ctrl+shift+alt+cmd+k",
+    "command": "bracketeer.swapBrackets"
+  },
+  {
+    "key": "shift+alt+cmd+k",
+    "command": "-bracketeer.swapBrackets"
+  },
+  {
+    "key": "alt+f",
+    "command": "editor.action.selectToBracket",
+    "args": {
+      "selectBrackets": false
+    },
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "shift+alt+f",
+    "command": "bracketeer.selectBracketContent",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "shift+alt+cmd+h",
+    "command": "-bracketeer.selectBracketContent"
+  },
 ]
