@@ -34,7 +34,6 @@ key.openApp({ "fn" }, "t", "Wezterm")
 -- Vscode --
 key.openApp({ "fn" }, "o", "Visual Studio Code")
 key.openApp({ "fn" }, "p", "Visual Studio Code")
-key.openApp(right_shift, "c", "Visual Studio Code")
 
 -- Cycle windows of focused app --
 key.createKeybind({ "fn" }, "tab", function()

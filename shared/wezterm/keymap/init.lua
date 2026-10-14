@@ -120,6 +120,9 @@ local bindings = {
   ------ Directory Navigation ------
   ----
   keybind(go_to "HOME", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "h"),
+  keybind(go_to "HOME/.agents/skills", { MOD.UNIQUE }, "a"),
+  keybind(go_to "HOME/.claude/skills", { MOD.UNIQUE }, "c"),
+  ----
   keybind(go_to "DOTFILES/shared/wezterm", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "w"),
   ----
   keybind(go_to "PYPARSER", { MOD.UNIQUE }, "p"),
@@ -134,7 +137,7 @@ local bindings = {
   keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
   keybind(go_to "HOME/rif", MOD.SHIFT_RIGHT, "r"),
   keybind(go_to "HOME/ArchTeX", { MOD.SHIFT_RIGHT }, "a"),
-  keybind(go_to "HOME/.agents/skills", { MOD.SHIFT_RIGHT }, "9"),
+
   keybind(go_to "HOME/projects", MOD.SHIFT_RIGHT, "p"),
   keybind(go_to "HOME/projects/shucked", MOD.SHIFT_RIGHT, "s"),
   keybind(go_to "HOME/projects/wez-plugins/vertical-tabs", MOD.SHIFT_RIGHT, "v"),
