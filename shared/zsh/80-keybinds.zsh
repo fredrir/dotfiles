@@ -53,3 +53,8 @@ selectkey $'\e[1;6F' motion-select-buffer-end
 
 selkey $'\e[99;9u' motion-copy-selection
 selkey $'\e[200~' motion-replace-selection
+selkey '^?' motion-kill-selection
+selkey '^H' motion-kill-selection
+
+selectkey $'\e[5;30022~' wezterm-request-selection-delete
+selectkey $'\e[5;30023~' wezterm-apply-selection-delete

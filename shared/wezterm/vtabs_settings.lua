@@ -12,6 +12,7 @@ return {
       next_space = { "Super+Alt+" },
       previous_space = { "Super+Alt+" },
       quick_terminal = { "Super+Enter" },
+      refresh = {},
     },
     keyboard_shortcuts = true,
     muted = "#98a8be",
@@ -27,7 +28,6 @@ return {
   },
   spaces = {
     { icon = "󰋜", id = "home", name = "Home" },
-    { icon = "", id = "space-119c418dde2da465457f02-1", name = "Vtabs" },
     { icon = "◉", id = "space-1804618de6b360ec2b3382-1", name = "Pyparser" },
   },
   templates = {},

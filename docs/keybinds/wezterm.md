@@ -12,7 +12,7 @@
 
 ## Shared Keybinds
 
-[<code>disable_default_key_bindings = true</code>](../../shared/wezterm/keymap/init.lua#L170)
+[<code>disable_default_key_bindings = true</code>](../../shared/wezterm/keymap/init.lua#L172)
 
 | Key | Action | Description |
 | --- | --- | --- |

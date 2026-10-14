@@ -24,6 +24,7 @@ local go_to = require "utils.keymap.go-to"
 local cd_git_root = require "utils.keymap.cd-git-root"
 local close_window = require "utils.close_window"
 local copy_selection = require "utils.copy-selection"
+local delete_selection = require "utils.delete-selection"
 local clear_screen = require "utils.keymap.clear_screen"
 local adopt_pane = require "utils.mux.adopt_pane"
 local resize_window = require "utils.resize-window"
@@ -32,6 +33,7 @@ local act = wezterm.action
 
 ---@type BindKey[]
 local bindings = {
+  keybind(delete_selection, "NONE", "Backspace"),
   keybind(copy_selection, platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", "c"),
   keybind(act.PasteFrom "Clipboard", platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", "v"),
   keybind(free_cursor.activate, platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", "e"),

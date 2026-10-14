@@ -212,6 +212,50 @@ _wezterm_cd_git_root() {
 
 zle -N wezterm-cd-git-root _wezterm_cd_git_root
 
+_wezterm_selection_start() {
+  [[ -n $WEZTERM_PANE && -z $TMUX ]] || return 0
+  printf '\e]1337;SetUserVar=ZLE_EDIT=MQ==\a'
+}
+
+_wezterm_selection_finish() {
+  unset _WEZTERM_SELECTION_BUFFER _WEZTERM_SELECTION_CURSOR
+  [[ -n $WEZTERM_PANE && -z $TMUX ]] || return 0
+  printf '\e]1337;SetUserVar=ZLE_EDIT=MA==\a'
+}
+
+_wezterm_request_selection_delete() {
+  [[ -n $WEZTERM_PANE && -z $TMUX ]] || return 0
+  typeset -g _WEZTERM_SELECTION_BUFFER=$BUFFER _WEZTERM_SELECTION_CURSOR=$CURSOR
+  ((++_WEZTERM_SELECTION_SERIAL))
+  set_user_var ZLE_SELECTION_REQUEST "$_WEZTERM_SELECTION_SERIAL:$CURSOR:$BUFFER"
+}
+
+_wezterm_apply_selection_delete() {
+  local reply='' char serial start end
+  while read -rs -t 1 -k 1 char && [[ $char != $'\a' ]]; do reply+=$char; done
+  [[ $char == $'\a' ]] || return 1
+  serial=${reply%%:*}
+  [[ $serial == "$_WEZTERM_SELECTION_SERIAL" && -n ${_WEZTERM_SELECTION_CURSOR-} ]] || return 0
+  [[ $BUFFER == "$_WEZTERM_SELECTION_BUFFER" && $CURSOR == "$_WEZTERM_SELECTION_CURSOR" ]] || return 0
+  unset _WEZTERM_SELECTION_BUFFER _WEZTERM_SELECTION_CURSOR
+  if [[ $reply != <->:<->:<-> ]]; then
+    zle -M 'Selection is outside the editable command or cannot be mapped exactly'
+    return 0
+  fi
+  start=${${reply#*:}%%:*} end=${reply##*:}
+  ((start < end && end <= $#BUFFER)) || return 0
+  CURSOR=$start
+  zle .set-mark-command
+  CURSOR=$end
+  zle motion-kill-selection
+}
+
+zle -N wezterm-request-selection-delete _wezterm_request_selection_delete
+zle -N wezterm-apply-selection-delete _wezterm_apply_selection_delete
+autoload -Uz add-zle-hook-widget
+add-zle-hook-widget line-init _wezterm_selection_start
+add-zle-hook-widget line-finish _wezterm_selection_finish
+
 if [[ -n $WEZTERM_GO_TO ]]; then
   () {
     local REPLY

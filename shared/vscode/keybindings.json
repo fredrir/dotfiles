@@ -509,7 +509,7 @@
   },
   {
     "key": "alt+f",
-    "command": "editor.action.selectToBracket",
+    "command": "editor.action.jumpToBracket",
     "args": {
       "selectBrackets": false
     },
@@ -547,4 +547,48 @@
     "command": "-editor.action.toggleScreenReaderAccessibilityMode",
     "when": "accessibilityHelpIsShown"
   },
+  {
+    "key": "ctrl+alt+cmd+tab",
+    "command": "runCommands",
+    "args": {
+      "commands": [
+        "workbench.files.action.showActiveFileInExplorer",
+        "list.focusDown",
+        "workbench.action.closeActiveEditor",
+        "explorer.openAndPassFocus"
+      ]
+    },
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+alt+cmd+shift+tab",
+    "command": "runCommands",
+    "args": {
+      "commands": [
+        "workbench.files.action.showActiveFileInExplorer",
+        "list.focusUp",
+        "workbench.action.closeActiveEditor",
+        "explorer.openAndPassFocus"
+      ]
+    },
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+alt+cmd+r",
+    "command": "editor.action.changeAll",
+    "when": "editorTextFocus && !editorReadonly"
+  },
+  {
+    "key": "cmd+f2",
+    "command": "-editor.action.changeAll",
+    "when": "editorTextFocus && !editorReadonly"
+  },
+  {
+    "key": "ctrl+shift+alt+cmd+i",
+    "command": "bracketeer.removeBrackets"
+  },
+  {
+    "key": "shift+alt+cmd+i",
+    "command": "-bracketeer.removeBrackets"
+  }
 ]
