@@ -12,7 +12,6 @@ wezterm.on("user-var-changed", function(window, pane, name, value)
   end
 
   open_vscode.open(value, pane)
-  -- toggling the shown program hides it and ends yazi
   window:perform_action(quick_yazi, pane)
 end)
 

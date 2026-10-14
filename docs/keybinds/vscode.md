@@ -18,6 +18,8 @@
 | <code>alt+enter</code> | [<code>editor.gotoNextSymbolFromResult</code>](../../shared/vscode/keybindings.json#L376) | Editor goto Next Symbol From Result<br><code>hasSymbols</code> |
 | <code>alt+f5</code> | [<code>-workbench.action.compareEditor.nextChange</code>](../../shared/vscode/keybindings.json#L196) | Compare Editor next Change<br><code>textCompareEditorVisible; remove binding</code> |
 | <code>alt+f8</code> | [<code>-editor.action.marker.next</code>](../../shared/vscode/keybindings.json#L351) | Editor action marker next<br><code>editorFocus; remove binding</code> |
+| <code>alt+p</code> | [<code>-workbench.action.chat.previousQuestion</code>](../../shared/vscode/keybindings.json#L463) | Chat previous Question<br><code>chatHasQuestionCarousel &amp;&amp; inChat &amp;&amp; inChatQuestionCarousel; remove binding</code> |
+| <code>alt+p</code> | [<code>workbench.action.gotoLine</code>](../../shared/vscode/keybindings.json#L468) | Goto Line |
 | <code>alt+shift+down</code> | [<code>editor.action.smartSelect.shrink</code>](../../shared/vscode/keybindings.json#L458) | Editor action smart Select shrink<br><code>editorTextFocus</code> |
 | <code>alt+shift+up</code> | [<code>editor.action.smartSelect.expand</code>](../../shared/vscode/keybindings.json#L453) | Editor action smart Select expand<br><code>editorTextFocus</code> |
 | <code>alt+tab</code> | [<code>workbench.action.switchWindow</code>](../../shared/vscode/keybindings.json#L2) | Switch Window |
@@ -35,6 +37,7 @@
 | <code>ctrl+d</code> | [<code>-markdown.editor.deleteRight</code>](../../shared/vscode/keybindings.json#L229) | Markdown editor delete Right<br><code>markdownEditorFocus &amp;&amp; activeCustomEditorId == 'vscode.markdown.editor'; remove binding</code> |
 | <code>ctrl+d</code> | [<code>workbench.action.closeWindow</code>](../../shared/vscode/keybindings.json#L244) | Close Window<br><code>!editorIsOpen &amp;&amp; !multipleEditorGroups</code> |
 | <code>ctrl+d</code> | [<code>workbench.action.terminal.killEditor</code>](../../shared/vscode/keybindings.json#L249) | Terminal kill Editor<br><code>terminalEditorFocus &amp;&amp; terminalFocus &amp;&amp; terminalHasBeenCreated &#124;&#124; terminalEditorFocus &amp;&amp; terminalFocus &amp;&amp; terminalProcessSupported</code> |
+| <code>ctrl+g</code> | [<code>-workbench.action.gotoLine</code>](../../shared/vscode/keybindings.json#L472) | Goto Line<br><code>global; remove binding</code> |
 | <code>ctrl+shift+alt+c</code> | [<code>copyFilePath</code>](../../shared/vscode/keybindings.json#L100) | Copy File Path<br><code>!editorFocus</code> |
 | <code>ctrl+shift+g</code> | [<code>-workbench.view.scm</code>](../../shared/vscode/keybindings.json#L176) | Workbench view scm<br><code>workbench.scm.active; remove binding</code> |
 | <code>ctrl+w</code> | [<code>-workbench.action.switchWindow</code>](../../shared/vscode/keybindings.json#L6) | Switch Window<br><code>global; remove binding</code> |
@@ -95,7 +98,7 @@
 | <code>shift+cmd+&#91;Backslash&#93;</code> | [<code>explorer.newFolder</code>](../../shared/vscode/keybindings.json#L303) | Explorer new Folder |
 | <code>shift+cmd+&#91;Comma&#93;</code> | [<code>workbench.action.openApplicationSettingsJson</code>](../../shared/vscode/keybindings.json#L258) | Open Application Settings Json |
 | <code>shift+cmd+&#91;Period&#93;</code> | [<code>-breadcrumbs.focus</code>](../../shared/vscode/keybindings.json#L138) | Breadcrumbs focus<br><code>breadcrumbsPossible &amp;&amp; breadcrumbsVisible; remove binding</code> |
-| <code>shift+cmd+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"command":"workbench.action.tasks.runTask","args":"Copy active filename"}&#93;}</code>](../../shared/vscode/keybindings.json#L143) | Run Commands<br><code>editorFocus</code> |
+| <code>shift+cmd+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"command":"workbench.action.tasks.runTask","args":"Copy active relative path"}&#93;}</code>](../../shared/vscode/keybindings.json#L143) | Run Commands<br><code>editorFocus</code> |
 | <code>shift+cmd+&#91;Quote&#93;</code> | [<code>opensshremotes.settings</code>](../../shared/vscode/keybindings.json#L262) | Opensshremotes settings |
 | <code>shift+cmd+&#91;Quote&#93;</code> | [<code>workbench.files.action.collapseExplorerFolders</code>](../../shared/vscode/keybindings.json#L291) | Workbench files action collapse Explorer Folders |
 | <code>shift+cmd+b</code> | [<code>-workbench.action.tasks.build</code>](../../shared/vscode/keybindings.json#L316) | Tasks build<br><code>taskCommandsRegistered; remove binding</code> |

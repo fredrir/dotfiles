@@ -2,12 +2,13 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Copy active filename",
+      "label": "Copy active relative path",
       "type": "shell",
-      "command": "copy-file-pretty",
+      "command": "path",
       "args": [
-        "-n",
-        "${file}"
+        "-g",
+        "${file}",
+        "CP"
       ],
       "options": {
         "shell": {

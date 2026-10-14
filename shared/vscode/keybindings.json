@@ -148,7 +148,7 @@
         "workbench.action.files.save",
         {
           "command": "workbench.action.tasks.runTask",
-          "args": "Copy active filename"
+          "args": "Copy active relative path"
         }
       ]
     },
@@ -459,5 +459,18 @@
     "key": "alt+shift+down",
     "command": "editor.action.smartSelect.shrink",
     "when": "editorTextFocus"
+  },
+  {
+    "key": "alt+p",
+    "command": "-workbench.action.chat.previousQuestion",
+    "when": "chatHasQuestionCarousel && inChat && inChatQuestionCarousel"
+  },
+  {
+    "key": "alt+p",
+    "command": "workbench.action.gotoLine"
+  },
+  {
+    "key": "ctrl+g",
+    "command": "-workbench.action.gotoLine"
   }
 ]

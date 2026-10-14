@@ -113,7 +113,7 @@ local bindings = {
   keybind(open_vscode.cwd, MOD.SUPER_REV, "o"),
   keybind(open_jetbrains.pycharm, MOD.SUPER_REV, "p"),
   keybind(open_jetbrains.rustrover, MOD.UNIQUE_REV, "r"),
-  keybind(open_github, MOD.SUPER_REV, "g"),
+  keybind(open_github, MOD.UNIQUE_REV, "g"),
 
   keybind(act.QuickSelect, MOD.SUPER_REV, "Space"),
 
@@ -135,6 +135,7 @@ local bindings = {
   keybind(go_to "HOME/rif", MOD.SHIFT_RIGHT, "r"),
   keybind(go_to "HOME/ArchTeX", { MOD.SHIFT_RIGHT }, "a"),
   keybind(go_to "HOME/.agents/skills", { MOD.SHIFT_RIGHT }, "9"),
+  keybind(go_to "HOME/projects", MOD.SHIFT_RIGHT, "p"),
   keybind(go_to "HOME/projects/shucked", MOD.SHIFT_RIGHT, "s"),
   keybind(go_to "HOME/projects/wez-plugins/vertical-tabs", MOD.SHIFT_RIGHT, "v"),
 
