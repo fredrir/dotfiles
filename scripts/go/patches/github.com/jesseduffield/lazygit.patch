@@ -304,7 +304,16 @@
  }
 --- a/pkg/gui/controllers.go
 +++ b/pkg/gui/controllers.go
-@@ -190,7 +190,7 @@
+@@ -118,7 +118,7 @@ func (gui *Gui) resetHelpersAndControllers() {
+ 		Confirmation:    helpers.NewConfirmationHelper(helperCommon),
+ 		Mode:            modeHelper,
+ 		AppStatus:       appStatusHelper,
+-		InlineStatus:    helpers.NewInlineStatusHelper(helperCommon, windowHelper),
++		InlineStatus:    helpers.NewInlineStatusHelper(helperCommon, windowHelper, appStatusHelper),
+ 		WindowArrangement: helpers.NewWindowArrangementHelper(
+ 			gui.c,
+ 			windowHelper,
+@@ -190,7 +190,7 @@ func (gui *Gui) resetHelpersAndControllers() {
  	confirmationController := controllers.NewConfirmationController(common)
  	promptController := controllers.NewPromptController(common)
  	suggestionsController := controllers.NewSuggestionsController(common)
@@ -362,6 +371,44 @@
  	return nil
  }
  
+--- a/pkg/gui/controllers/commits_files_controller.go
++++ b/pkg/gui/controllers/commits_files_controller.go
+@@ -90,7 +90,7 @@ func (self *CommitFilesController) GetKeybindings(opts types.KeybindingsOpts) []
+ 		{
+ 			Keys:              opts.GetKeys(opts.Config.Universal.Edit),
+ 			Handler:           self.withItems(self.edit),
+-			GetDisabledReason: self.require(self.itemsSelected(self.canEditFiles)),
++			GetDisabledReason: self.require(self.itemsSelected()),
+ 			Description:       self.c.Tr.Edit,
+ 			Tooltip:           self.c.Tr.EditFileTooltip,
+ 			DisplayOnScreen:   true,
+@@ -431,23 +431,12 @@ func (self *CommitFilesController) open(node *filetree.CommitFileNode) error {
+ }
+ 
+ func (self *CommitFilesController) edit(nodes []*filetree.CommitFileNode) error {
+-	return self.c.Helpers().Diff.EditFilesOfDiff(lo.FilterMap(nodes,
+-		func(node *filetree.CommitFileNode, _ int) (string, bool) {
+-			return node.GetPath(), node.IsFile()
++	return self.c.Helpers().Diff.EditFilesOfDiff(lo.Map(normalisedSelectedCommitFileNodes(nodes),
++		func(node *filetree.CommitFileNode, _ int) string {
++			return node.GetPath()
+ 		}))
+ }
+ 
+-func (self *CommitFilesController) canEditFiles(nodes []*filetree.CommitFileNode) *types.DisabledReason {
+-	if lo.NoneBy(nodes, func(node *filetree.CommitFileNode) bool { return node.IsFile() }) {
+-		return &types.DisabledReason{
+-			Text:             self.c.Tr.ErrCannotEditDirectory,
+-			ShowErrorInPanel: true,
+-		}
+-	}
+-
+-	return nil
+-}
+-
+ func (self *CommitFilesController) openDiffTool(node *filetree.CommitFileNode) error {
+ 	from, to := self.context().GetFromAndToForDiff()
+ 	from, reverse := self.c.Modes().Diffing.GetFromAndReverseArgsForDiff(from)
 --- a/pkg/gui/controllers/files_controller.go
 +++ b/pkg/gui/controllers/files_controller.go
 @@ -13,6 +13,7 @@
@@ -372,6 +419,15 @@
  	"github.com/jesseduffield/lazygit/pkg/utils"
  	"github.com/samber/lo"
  )
+@@ -95,7 +96,7 @@
+ 		{
+ 			Keys:              opts.GetKeys(opts.Config.Universal.Edit),
+ 			Handler:           self.withItems(self.edit),
+-			GetDisabledReason: self.require(self.itemsSelected(self.canEditFiles)),
++			GetDisabledReason: self.require(self.itemsSelected()),
+ 			Description:       self.c.Tr.Edit,
+ 			Tooltip:           self.c.Tr.EditFileTooltip,
+ 			DisplayOnScreen:   true,
 @@ -379,6 +380,14 @@
  	alwaysSplit := self.c.UserConfig().Gui.SplitDiff == "always"
  	showStaged := node.GetHasStagedChanges() || alwaysSplit
@@ -423,28 +479,177 @@
  func (self *FilesController) GetFocusedMainViewDiffSource() types.FocusedMainViewDiffSource {
  	return self.diffActions
  }
-@@ -1543,6 +1567,9 @@
+@@ -1213,23 +1237,12 @@
+ }
+ 
+ func (self *FilesController) edit(nodes []*filetree.FileNode) error {
+-	return self.c.Helpers().Files.EditFiles(lo.FilterMap(nodes,
+-		func(node *filetree.FileNode, _ int) (string, bool) {
+-			return node.GetPath(), node.IsFile()
++	return self.c.Helpers().Files.EditFiles(lo.Map(normalisedSelectedNodes(nodes),
++		func(node *filetree.FileNode, _ int) string {
++			return node.GetPath()
+ 		}))
+ }
+ 
+-func (self *FilesController) canEditFiles(nodes []*filetree.FileNode) *types.DisabledReason {
+-	if lo.NoneBy(nodes, func(node *filetree.FileNode) bool { return node.IsFile() }) {
+-		return &types.DisabledReason{
+-			Text:             self.c.Tr.ErrCannotEditDirectory,
+-			ShowErrorInPanel: true,
+-		}
+-	}
+-
+-	return nil
+-}
+-
+ func (self *FilesController) Open() error {
+ 	node := self.context().GetSelected()
+ 	if node == nil {
+@@ -1543,6 +1556,9 @@
  		if err != nil && strings.Contains(err.Error(), "exit status 128") {
  			return errors.New(self.c.Tr.PassUnameWrong)
  		}
 +		if err == nil {
-+			self.c.SuccessToast("fetched")
++			self.c.SuccessToast("Fetched!")
 +		}
  
  		return self.c.Helpers().BranchesHelper.PostFetchRefresh(err, false, fetchGeneration)
  	})
 --- a/pkg/gui/controllers/helpers/amend_helper.go
 +++ b/pkg/gui/controllers/helpers/amend_helper.go
-@@ -20,5 +20,8 @@
+@@ -18,7 +18,12 @@ func NewAmendHelper(
+ }
+ 
  func (self *AmendHelper) AmendHead() error {
- 	cmdObj := self.c.Git().Commit.AmendHeadCmdObj()
+-	cmdObj := self.c.Git().Commit.AmendHeadCmdObj()
++	cmdObj := self.c.Git().Commit.AmendHeadCmdObj().FinishQuietlyIf(func(err error) bool {
++		return err == nil
++	})
  	self.c.LogAction(self.c.Tr.Actions.AmendCommit)
 -	return self.gpg.WithGpgHandling(cmdObj, git_commands.CommitGpgSign, self.c.Tr.AmendingStatus, nil, nil)
 +	return self.gpg.WithGpgHandling(cmdObj, git_commands.CommitGpgSign, self.c.Tr.AmendingStatus, func() error {
-+		self.c.SuccessToast("amended")
++		self.c.SuccessToast("Amended!")
 +		return nil
 +	}, nil)
  }
+--- a/pkg/gui/controllers/helpers/app_status_helper.go
++++ b/pkg/gui/controllers/helpers/app_status_helper.go
+@@ -6,7 +6,6 @@ import (
+ 	"github.com/jesseduffield/lazygit/pkg/gocui"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/status"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/types"
+-	"github.com/jesseduffield/lazygit/pkg/utils"
+ )
+ 
+ type AppStatusHelper struct {
+@@ -14,6 +13,8 @@ type AppStatusHelper struct {
+ 
+ 	statusMgr  func() *status.StatusManager
+ 	modeHelper *ModeHelper
++	toast      status.ToastAnimation // accessed only on the UI thread
++	toastFrame status.ToastFrame
+ }
+ 
+ func NewAppStatusHelper(c *HelperCommon, statusMgr func() *status.StatusManager, modeHelper *ModeHelper) *AppStatusHelper {
+@@ -77,6 +78,12 @@ func (self *AppStatusHelper) WithWaitingStatusImpl(message string, f func(gocui.
+ 	self.c.PauseBackgroundRefreshes(true)
+ 	defer self.c.PauseBackgroundRefreshes(false)
+ 
++	// The auto-fetch poller supplies no task; it stays quiet while user
++	// operations get a persistent progress toast.
++	if task == nil {
++		return f(nil)
++	}
++
+ 	return self.statusMgr().WithWaitingStatus(message, self.renderAppStatus, func(waitingStatusHandle *status.WaitingStatusHandle) error {
+ 		return f(appStatusHelperTask{task, waitingStatusHandle})
+ 	})
+@@ -146,33 +153,61 @@ func (self *AppStatusHelper) renderAppStatus() {
+ 	}
+ 
+ 	self.c.OnWorkerBackground(func(_ gocui.Task) error {
+-		ticker := time.NewTicker(time.Millisecond * time.Duration(self.c.UserConfig().Gui.Spinner.Rate))
++		ticker := time.NewTicker(time.Second / 60)
+ 		defer ticker.Stop()
+-		prevAppStatus := ""
+-		for range ticker.C {
+-			appStatus, color := self.statusMgr().GetStatusString(self.c.UserConfig())
+-
+-			update := self.c.OnUIThreadContentOnlyBackground
+-			if utils.StringWidth(appStatus) != utils.StringWidth(prevAppStatus) {
+-				// Need a full layout whenever the width of the status string changes. This can't
+-				// happen during normal spinning because we validate that all spinner frames have
+-				// the same width, so typically this will only be triggered at the beginning and end
+-				// of a status, or if the status string changes midway for some reason.
+-				update = self.c.OnUIThreadBackground
++		// Acknowledge each frame before queuing another, so a busy UI never
++		// accumulates animation callbacks. Render once before the first tick.
++		done := make(chan bool, 1)
++		for {
++			self.c.OnUIThreadContentOnlyBackground(func() error {
++				changed, err := self.RenderToast()
++				if changed && err == nil {
++					// Restore underlying cells only when the overlay moves or hides.
++					err = self.c.GocuiGui().ForceLayoutAndRedraw()
++				}
++				finished := !self.toast.Active() && self.statusMgr().ReleaseRenderLoopIfEmpty()
++				done <- finished
++				return err
++			})
++			select {
++			case finished := <-done:
++				if finished {
++					return nil
++				}
++			case <-self.c.GocuiGui().LoopExited():
++				return nil
+ 			}
+-			update(func() error {
+-				self.c.Views().AppStatus.FgColor = color
+-				self.c.SetViewContent(self.c.Views().AppStatus, appStatus)
++			select {
++			case <-ticker.C:
++			case <-self.c.GocuiGui().LoopExited():
+ 				return nil
+-			})
+-			prevAppStatus = appStatus
+-
+-			// Checked after rendering, so that the frame which clears the view
+-			// has already been drawn when we exit.
+-			if self.statusMgr().ReleaseRenderLoopIfEmpty() {
+-				break
+ 			}
+ 		}
+-		return nil
+ 	})
+ }
++
++// RenderToast runs on the UI thread, including after a terminal resize.
++// It returns whether the old bounds need a full redraw to uncover the panels.
++func (self *AppStatusHelper) RenderToast() (bool, error) {
++	g := self.c.GocuiGui()
++	view := self.c.Views().AppStatus
++	width, height := g.Size()
++	message, color := self.statusMgr().GetStatusString(self.c.UserConfig())
++	frame := self.toast.Frame(time.Now(), message, color, width, height)
++	changed := view.Visible != frame.Visible
++	view.Visible = frame.Visible
++	if !frame.Visible {
++		return changed, nil
++	}
++	x0, y0, x1, y1 := view.Dimensions()
++	changed = changed || x0 != frame.X-1 || y0 != 0 || x1 != frame.X+frame.Width || y1 != 4
++	if _, err := g.SetView(view.Name(), frame.X-1, 0, frame.X+frame.Width, 4, 0); err != nil {
++		return changed, err
++	}
++	if changed || frame != self.toastFrame {
++		view.FgColor, view.BgColor = frame.Foreground, frame.Background
++		self.c.SetViewContent(view, frame.Content)
++		self.toastFrame = frame
++	}
++	return changed, nil
++}
 --- a/pkg/gui/controllers/helpers/branches_helper.go
 +++ b/pkg/gui/controllers/helpers/branches_helper.go
 @@ -449,7 +449,13 @@
@@ -456,12 +661,80 @@
 +		if err := fastForward(task); err != nil {
 +			return err
 +		}
-+		self.c.SuccessToast("fast-forwarded")
++		self.c.SuccessToast("Fast-forwarded!")
 +		return nil
 +	})
  }
  
  // Does the part of FastForwardBranches that looks at the model, and so has to
+--- a/pkg/gui/controllers/helpers/files_helper.go
++++ b/pkg/gui/controllers/helpers/files_helper.go
+@@ -54,7 +54,8 @@ func (self *FilesHelper) EditFileAtLineAndWait(filename string, lineNumber int)
+ 	// came back. A refresh in between reads the state from before that, and
+ 	// then races the caller's own refresh to publish it.
+ 	_, err = self.c.RunSubprocess(
+-		self.c.OS().Cmd.NewShell(cmdStr, self.c.UserConfig().OS.ShellFunctionsFile))
++		self.c.OS().Cmd.NewShell(cmdStr, self.c.UserConfig().OS.ShellFunctionsFile).
++			FinishQuietlyIf(func(err error) bool { return err == nil }))
+ 	return err
+ }
+ 
+@@ -71,7 +72,8 @@ func (self *FilesHelper) OpenDirInEditor(path string) error {
+ func (self *FilesHelper) callEditor(cmdStr string, suspend bool) error {
+ 	if suspend {
+ 		return self.c.RunSubprocessAndRefresh(
+-			self.c.OS().Cmd.NewShell(cmdStr, self.c.UserConfig().OS.ShellFunctionsFile),
++			self.c.OS().Cmd.NewShell(cmdStr, self.c.UserConfig().OS.ShellFunctionsFile).
++				FinishQuietlyIf(func(err error) bool { return err == nil }),
+ 		)
+ 	}
+ 
+--- a/pkg/gui/controllers/helpers/inline_status_helper.go
++++ b/pkg/gui/controllers/helpers/inline_status_helper.go
+@@ -14,14 +14,16 @@ type InlineStatusHelper struct {
+ 	c *HelperCommon
+ 
+ 	windowHelper             *WindowHelper
++	appStatusHelper          *AppStatusHelper
+ 	contextsWithInlineStatus map[types.ContextKey]*inlineStatusInfo
+ 	mutex                    deadlock.Mutex
+ }
+ 
+-func NewInlineStatusHelper(c *HelperCommon, windowHelper *WindowHelper) *InlineStatusHelper {
++func NewInlineStatusHelper(c *HelperCommon, windowHelper *WindowHelper, appStatusHelper *AppStatusHelper) *InlineStatusHelper {
+ 	return &InlineStatusHelper{
+ 		c:                        c,
+ 		windowHelper:             windowHelper,
++		appStatusHelper:          appStatusHelper,
+ 		contextsWithInlineStatus: make(map[types.ContextKey]*inlineStatusInfo),
+ 	}
+ }
+@@ -68,18 +70,13 @@ func (self *InlineStatusHelper) WithInlineStatus(opts InlineStatusOpts, f func(g
+ 	visible := view.Visible && self.windowHelper.TopViewInWindow(context.GetWindowName(), false) == view
+ 	if visible && context.IsItemVisible(opts.Item) {
+ 		self.c.OnWorker(func(task gocui.Task) error {
+-			// An inline status is just a waiting status rendered on the item
+-			// rather than in the bottom line, so it gets the same treatment:
+-			// pause the background routines while we drive the operation. (The
+-			// off-screen branch below goes through WithWaitingStatus, which
+-			// already does this.)
+-			self.c.PauseBackgroundRefreshes(true)
+-			defer self.c.PauseBackgroundRefreshes(false)
+-
+-			self.start(opts)
+-			defer self.stop(opts)
+-
+-			return f(inlineStatusHelperTask{task, self, opts})
++			message := presentation.ItemOperationToString(opts.Operation, self.c.Tr)
++			return self.appStatusHelper.WithWaitingStatusImpl(message, func(task gocui.Task) error {
++				self.start(opts)
++				defer self.stop(opts)
++
++				return f(inlineStatusHelperTask{task, self, opts})
++			}, task)
+ 		})
+ 	} else {
+ 		message := presentation.ItemOperationToString(opts.Operation, self.c.Tr)
 --- a/pkg/gui/controllers/helpers/window_arrangement_helper.go
 +++ b/pkg/gui/controllers/helpers/window_arrangement_helper.go
 @@ -10,6 +10,7 @@
@@ -792,7 +1065,7 @@
  				self.commitsHelper.ClearPreservedCommitMessage()
  				return nil
  			})
-+			self.c.SuccessToast("committed")
++			self.c.SuccessToast("Committed!")
  			return nil
  		})
  }
@@ -838,7 +1111,7 @@
 +		return committed || self.commitMessageLeftEmptySince(started)
 +	}))
 +	if committed {
-+		self.c.SuccessToast("committed")
++		self.c.SuccessToast("Committed!")
 +	}
 +	return err
 +}
@@ -936,7 +1209,7 @@
  					self.c.LogAction(self.c.Tr.Actions.AmendCommit)
  					err := self.c.Git().Rebase.AmendTo(commits, selectedIdx)
 +					if err == nil {
-+						self.c.SuccessToast("amended")
++						self.c.SuccessToast("Amended!")
 +					}
  					return self.c.Helpers().MergeAndRebase.CheckMergeOrRebase(err)
  				})
@@ -947,7 +1220,7 @@
  		if err != nil {
  			return err
  		}
-+		self.c.SuccessToast("fetched")
++		self.c.SuccessToast("Fetched!")
  		refreshOptions := types.RefreshOptions{
  			Scope: []types.RefreshableView{types.BRANCHES, types.REMOTES},
  		}
@@ -964,39 +1237,39 @@
  		})
 --- a/pkg/gui/controllers/sync_controller.go
 +++ b/pkg/gui/controllers/sync_controller.go
-@@ -387,6 +387,9 @@
+@@ -387,6 +387,9 @@ func (self *SyncController) pullWithLock(task gocui.Task, opts PullFilesOptions)
  			FastForwardOnly: opts.FastForwardOnly,
  		},
  	)
 +	if err == nil {
-+		self.c.SuccessToast("pulled")
++		self.c.SuccessToast("Pulled!")
 +	}
  
  	return self.c.Helpers().MergeAndRebase.CheckMergeOrRebaseAndSelectHeadCommit(err)
  }
-@@ -452,6 +455,9 @@
+@@ -452,6 +455,9 @@ func (self *SyncController) pushAux(currentBranch *models.Branch, opts pushOpts)
  		}
  
  		err = self.pushBranches(task, opts.branchesBelow, opts.forceWithLeaseBelow)
 +		if err == nil {
-+			self.c.SuccessToast("pushed")
++			self.c.SuccessToast("Pushed!")
 +		}
  		self.c.RefreshFromWorker(types.RefreshOptions{})
  		return err
  	})
-@@ -463,6 +469,9 @@
+@@ -463,6 +469,9 @@ func (self *SyncController) pushBranchesAux(currentBranch *models.Branch, branch
  	return self.withPushingStatus(currentBranch, branchesBelow, func(task gocui.Task) error {
  		branches := append([]*models.Branch{currentBranch}, branchesBelow...)
  		err := self.pushBranches(task, branches, forceWithLease)
 +		if err == nil {
-+			self.c.SuccessToast("pushed")
++			self.c.SuccessToast("Pushed!")
 +		}
  		self.c.RefreshFromWorker(types.RefreshOptions{})
  		return err
  	})
 --- a/pkg/gui/controllers/tags_controller.go
 +++ b/pkg/gui/controllers/tags_controller.go
-@@ -340,7 +340,11 @@
+@@ -340,7 +340,11 @@ func (self *TagsController) push(tags []*models.Tag) error {
  		HandleConfirm: func(response string) error {
  			return helpers.WithInlineStatusOnItems(self.c.HelperCommon, tags, types.ItemOperationPushing, context.TAGS_CONTEXT_KEY, func(task gocui.Task) error {
  				self.c.LogAction(self.c.Tr.Actions.PushTag)
@@ -1004,7 +1277,7 @@
 +				if err := self.c.Git().Tag.Push(task, response, tagNames(tags)); err != nil {
 +					return err
 +				}
-+				self.c.SuccessToast("pushed")
++				self.c.SuccessToast("Pushed!")
 +				return nil
  			})
  		},
@@ -1164,14 +1437,49 @@
  		{
 --- a/pkg/gui/layout.go
 +++ b/pkg/gui/layout.go
-@@ -31,6 +31,7 @@
- 	}
+@@ -5,7 +5,6 @@ import (
  
- 	viewDimensions := gui.getWindowDimensions(informationStr, appStatus)
+ 	"github.com/jesseduffield/lazygit/pkg/gocui"
+ 	"github.com/jesseduffield/lazygit/pkg/gui/types"
+-	"github.com/jesseduffield/lazygit/pkg/utils"
+ 	"github.com/samber/lo"
+ )
+ 
+@@ -24,13 +23,8 @@ func (gui *Gui) layout(g *gocui.Gui) error {
+ 
+ 	informationStr := gui.informationStr()
+ 
+-	var appStatus string
+-	appStatusView, err := g.View("appStatus")
+-	if err == nil {
+-		appStatus = utils.Decolorise(appStatusView.Buffer())
+-	}
+-
+-	viewDimensions := gui.getWindowDimensions(informationStr, appStatus)
++	viewDimensions := gui.getWindowDimensions(informationStr, "")
 +	gui.PrevLayout.WindowDimensions = viewDimensions
  
  	// reading more lines into main view buffers upon resize
  	prevMainView := gui.Views.Main
+@@ -134,7 +128,7 @@ func (gui *Gui) layout(g *gocui.Gui) error {
+ 	}
+ 
+ 	for _, context := range gui.State.Contexts.Flatten() {
+-		if !context.HasControlledBounds() {
++		if !context.HasControlledBounds() || context.GetView() == gui.Views.AppStatus {
+ 			continue
+ 		}
+ 
+@@ -223,6 +217,9 @@ func (gui *Gui) layout(g *gocui.Gui) error {
+ 	gui.helpers.Confirmation.ResizeCurrentPopupPanels()
+ 
+ 	gui.renderContextOptionsMap()
++	if _, err := gui.helpers.AppStatus.RenderToast(); err != nil {
++		return err
++	}
+ 
+ outer:
+ 	for {
 --- a/pkg/gui/main_panels.go
 +++ b/pkg/gui/main_panels.go
 @@ -64,6 +64,7 @@
@@ -1417,7 +1725,13 @@
 +}
 --- a/pkg/gui/popup/popup_handler.go
 +++ b/pkg/gui/popup/popup_handler.go
-@@ -67,6 +67,10 @@
+@@ -64,9 +64,16 @@ func (self *PopupHandler) Toast(message string) {
+ }
+ 
+ func (self *PopupHandler) ErrorToast(message string) {
++	if message == self.Tr.DisabledMenuItemPrefix+self.Tr.NoItemSelected {
++		return
++	}
  	self.toastFn(message, types.ToastKindError)
  }
  
@@ -1519,49 +1833,307 @@
  func fileNameAtDepth(node *filetree.Node[models.File], depth int, showRootItem bool) string {
 --- a/pkg/gui/status/status_manager.go
 +++ b/pkg/gui/status/status_manager.go
-@@ -5,8 +5,8 @@
- 
- 	"github.com/jesseduffield/lazygit/pkg/config"
- 	"github.com/jesseduffield/lazygit/pkg/gocui"
--	"github.com/jesseduffield/lazygit/pkg/gui/presentation"
- 	"github.com/jesseduffield/lazygit/pkg/gui/types"
-+	"github.com/jesseduffield/lazygit/pkg/theme"
- 	"github.com/samber/lo"
- 	"github.com/sasha-s/go-deadlock"
+@@ -12,7 +12,7 @@ import (
  )
-@@ -78,14 +78,13 @@
- 	self.mutex.Lock()
- 	defer self.mutex.Unlock()
  
--	if len(self.statuses) == 0 {
-+	toast, ok := lo.Find(self.statuses, func(status appStatus) bool {
-+		return status.statusType != "waiting"
-+	})
-+	if !ok {
- 		return "", gocui.ColorDefault
+ // StatusManager's job is to handle queuing of loading states and toast notifications
+-// that you see at the bottom left of the screen.
++// displayed in the top-center toast.
+ type StatusManager struct {
+ 	statuses []appStatus
+ 	nextId   int
+@@ -83,7 +83,7 @@ func (self *StatusManager) GetStatusString(userConfig *config.UserConfig) (strin
  	}
--	topStatus := self.statuses[0]
--	if topStatus.statusType == "waiting" {
+ 	topStatus := self.statuses[0]
+ 	if topStatus.statusType == "waiting" {
 -		return topStatus.message + " " + presentation.Loader(time.Now(), userConfig.Gui.Spinner), topStatus.color
--	}
--	return topStatus.message, topStatus.color
-+	return toast.message, toast.color
++		return presentation.Loader(time.Now(), userConfig.Gui.Spinner) + "  " + topStatus.message, topStatus.color
+ 	}
+ 	return topStatus.message, topStatus.color
  }
- 
- func (self *StatusManager) HasStatus() bool {
-@@ -136,8 +135,11 @@
+@@ -135,9 +135,14 @@ func (self *StatusManager) addStatus(message string, statusType string, kind typ
+ 	self.nextId++
  	id := self.nextId
  
- 	color := gocui.ColorCyan
+-	color := gocui.ColorCyan
 -	if kind == types.ToastKindError {
+-		color = gocui.ColorRed
++	color := gocui.GetRGBColor(0x79b8ff)
 +	switch kind {
 +	case types.ToastKindError:
- 		color = gocui.ColorRed
++		color = gocui.GetRGBColor(0xf48771)
++		message = "!  " + message
 +	case types.ToastKindSuccess:
-+		color = theme.OptionsColor
++		color = gocui.GetRGBColor(0x73c991)
++		message = "✓  " + message
  	}
  
  	newStatus := appStatus{
+@@ -146,6 +151,11 @@ func (self *StatusManager) addStatus(message string, statusType string, kind typ
+ 		color:      color,
+ 		id:         id,
+ 	}
++	// A new action replaces old completion messages; they must not resurface
++	// after a later operation fails or pauses for credentials.
++	self.statuses = lo.Filter(self.statuses, func(status appStatus, _ int) bool {
++		return status.statusType == "waiting"
++	})
+ 	self.statuses = append([]appStatus{newStatus}, self.statuses...)
+ 
+ 	return id
+--- /dev/null
++++ b/pkg/gui/status/toast_animation.go
+@@ -0,0 +1,104 @@
++package status
++
++import (
++	"strings"
++	"time"
++	"unicode"
++
++	"github.com/jesseduffield/lazygit/pkg/gocui"
++	"github.com/jesseduffield/lazygit/pkg/utils"
++)
++
++const toastFadeDuration = 150 * time.Millisecond
++
++// ToastAnimation is owned by the UI thread. Changing status keeps the same
++// surface alive, including when a waiting operation becomes a success toast.
++type ToastAnimation struct {
++	message                           string
++	width                             int
++	shownAt, hiddenAt, colorChangedAt time.Time
++	fromColor, color                  gocui.Attribute
++}
++
++type ToastFrame struct {
++	Visible                bool
++	X, Width               int
++	Content                string
++	Foreground, Background gocui.Attribute
++}
++
++func (self *ToastAnimation) Active() bool {
++	return self.message != ""
++}
++
++func (self *ToastAnimation) Frame(now time.Time, message string, color gocui.Attribute, screenWidth, screenHeight int) ToastFrame {
++	if message != "" {
++		if !self.Active() {
++			self.shownAt = now
++			self.width = 0
++			self.fromColor, self.color = color, color
++		}
++		self.hiddenAt = time.Time{}
++		self.message = strings.Map(func(r rune) rune {
++			if unicode.IsControl(r) {
++				return ' '
++			}
++			return r
++		}, utils.Decolorise(message))
++		if self.color != color {
++			self.fromColor = self.currentColor(now)
++			self.color = color
++			self.colorChangedAt = now
++		}
++	} else if self.Active() && self.hiddenAt.IsZero() {
++		self.hiddenAt = now
++	}
++	if !self.Active() {
++		return ToastFrame{}
++	}
++
++	opacity := 0.3 + 0.7*toastEase(now.Sub(self.shownAt))
++	if !self.hiddenAt.IsZero() {
++		if now.Sub(self.hiddenAt) >= toastFadeDuration {
++			*self = ToastAnimation{}
++			return ToastFrame{}
++		}
++		opacity *= 1 - toastEase(now.Sub(self.hiddenAt))
++	}
++	if screenWidth < 10 || screenHeight < 5 {
++		return ToastFrame{}
++	}
++
++	// Retain the width through completion to avoid a distracting resize.
++	self.width = max(self.width, min(72, max(30, utils.StringWidth(self.message)+4)))
++	width := min(self.width, screenWidth-4)
++	text := utils.TruncateWithEllipsis(self.message, width-4)
++	text += strings.Repeat(" ", width-4-utils.StringWidth(text))
++	border := strings.Repeat("─", width-2)
++	color = self.currentColor(now)
++	base := gocui.GetRGBColor(0x202528)
++	return ToastFrame{
++		Visible:    true,
++		X:          (screenWidth - width) / 2,
++		Width:      width,
++		Content:    "╭" + border + "╮\n│ " + text + " │\n╰" + border + "╯",
++		Foreground: toastBlend(base, color, opacity),
++		Background: toastBlend(base, color, 0.1*opacity),
++	}
++}
++
++func (self *ToastAnimation) currentColor(now time.Time) gocui.Attribute {
++	return toastBlend(self.fromColor, self.color, toastEase(now.Sub(self.colorChangedAt)))
++}
++
++func toastEase(elapsed time.Duration) float64 {
++	t := min(1.0, max(0.0, float64(elapsed)/float64(toastFadeDuration)))
++	return 1 - (1-t)*(1-t)*(1-t)
++}
++
++func toastBlend(from, to gocui.Attribute, amount float64) gocui.Attribute {
++	fr, fg, fb := from.RGB()
++	tr, tg, tb := to.RGB()
++	mix := func(a, b int32) int32 { return a + int32(float64(b-a)*amount) }
++	return gocui.NewRGBColor(mix(fr, tr), mix(fg, tg), mix(fb, tb))
++}
+--- /dev/null
++++ b/pkg/gui/status/toast_animation_test.go
+@@ -0,0 +1,143 @@
++package status
++
++import (
++	"errors"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/jesseduffield/lazygit/pkg/config"
++	"github.com/jesseduffield/lazygit/pkg/gocui"
++	"github.com/jesseduffield/lazygit/pkg/gui/types"
++	"github.com/jesseduffield/lazygit/pkg/utils"
++)
++
++func TestToastOperationLifecycle(t *testing.T) {
++	manager := NewStatusManager()
++	userConfig := &config.UserConfig{}
++	userConfig.Gui.Spinner = config.SpinnerConfig{Rate: 80, Frames: []string{"⠋", "⠙"}}
++	renders := 0
++	err := manager.WithWaitingStatus("Pushing", func() { renders++ }, func(handle *WaitingStatusHandle) error {
++		message, _ := manager.GetStatusString(userConfig)
++		if !strings.Contains(message, "Pushing") || renders != 1 {
++			t.Fatalf("progress must be present before the command starts: %q, renders=%d", message, renders)
++		}
++		handle.Hide()
++		if manager.HasStatus() {
++			t.Fatal("credential prompt must pause progress")
++		}
++		handle.Show()
++		manager.AddToastStatus("Pushed!", types.ToastKindSuccess)
++		return nil
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	message, color := manager.GetStatusString(userConfig)
++	if message != "✓  Pushed!" || color != gocui.GetRGBColor(0x73c991) {
++		t.Fatalf("completion should survive waiting handle cleanup and be green: %q %v", message, color)
++	}
++
++	failed := NewStatusManager()
++	failure := errors.New("push rejected")
++	if err := failed.WithWaitingStatus("Pushing", func() {}, func(*WaitingStatusHandle) error { return failure }); !errors.Is(err, failure) {
++		t.Fatalf("lost push failure: %v", err)
++	}
++	if failed.HasStatus() {
++		t.Fatal("failed push left a progress or success toast")
++	}
++}
++
++func TestToastProgressMorphAndDismiss(t *testing.T) {
++	var animation ToastAnimation
++	now := time.Now()
++	blue, green := gocui.GetRGBColor(0x79b8ff), gocui.GetRGBColor(0x73c991)
++	first := animation.Frame(now, "⠋  Pushing", blue, 100, 30)
++	if !first.Visible {
++		t.Fatal("first frame must be visible immediately")
++	}
++	steady := animation.Frame(now.Add(time.Second), "⠙  Pushing", blue, 100, 30)
++	if first.Foreground == steady.Foreground {
++		t.Fatal("entrance did not fade in")
++	}
++	transition := animation.Frame(now.Add(time.Second), "✓  Pushed!", green, 100, 30)
++	if transition.Foreground != steady.Foreground || transition.X != steady.X || transition.Width != steady.Width {
++		t.Fatal("completion restarted the entrance or jumped in size/color")
++	}
++	success := animation.Frame(now.Add(2*time.Second), "✓  Pushed!", green, 100, 30)
++	if success.Foreground != green {
++		t.Fatalf("success did not turn green: %v", success.Foreground)
++	}
++	exit := animation.Frame(now.Add(3*time.Second), "", 0, 100, 30)
++	if !exit.Visible || !strings.Contains(exit.Content, "Pushed!") {
++		t.Fatal("exit discarded content before fading")
++	}
++	fading := animation.Frame(now.Add(3*time.Second+75*time.Millisecond), "", 0, 100, 30)
++	if !fading.Visible || fading.Foreground == success.Foreground {
++		t.Fatal("exit did not fade")
++	}
++	gone := animation.Frame(now.Add(4*time.Second), "", 0, 100, 30)
++	if gone.Visible || animation.Active() {
++		t.Fatal("toast did not finish dismissing")
++	}
++}
++
++func TestToastResizeUnicodeAndReplacement(t *testing.T) {
++	var animation ToastAnimation
++	now := time.Now()
++	color := gocui.GetRGBColor(0x79b8ff)
++	for _, width := range []int{100, 40, 16, 10, 120} {
++		frame := animation.Frame(now, "⠋  推送中 "+strings.Repeat("🚀", 50)+"\nnext line", color, width, 30)
++		if !frame.Visible || frame.X < 0 || frame.X+frame.Width > width || abs(frame.X-(width-frame.X-frame.Width)) > 1 {
++			t.Fatalf("toast is not centered within %d columns: %+v", width, frame)
++		}
++		lines := strings.Split(frame.Content, "\n")
++		if len(lines) != 3 {
++			t.Fatalf("message broke the toast: %q", frame.Content)
++		}
++		for _, line := range lines {
++			if utils.StringWidth(line) != frame.Width {
++				t.Fatalf("clipped Unicode frame: %q", line)
++			}
++		}
++	}
++	if animation.Frame(now, "Pushing", color, 8, 3).Visible {
++		t.Fatal("toast overflows tiny terminal")
++	}
++	animation.Frame(now.Add(time.Second), "", 0, 100, 30)
++	if !animation.Frame(now.Add(time.Second+50*time.Millisecond), "Fetching", color, 100, 30).Visible {
++		t.Fatal("replacement during fade-out disappeared")
++	}
++}
++
++func TestToastDoesNotResurfaceStaleSuccess(t *testing.T) {
++	manager := NewStatusManager()
++	manager.AddToastStatus("Previous push", types.ToastKindSuccess)
++	id := manager.addStatus("Pushing", "waiting", types.ToastKindStatus)
++	manager.removeStatus(id)
++	if manager.HasStatus() {
++		t.Fatal("previous success resurfaced after a later push failed")
++	}
++}
++
++func TestToastRenderLoopHandoff(t *testing.T) {
++	manager := NewStatusManager()
++	if !manager.ClaimRenderLoop() || manager.ClaimRenderLoop() {
++		t.Fatal("duplicate render loop")
++	}
++	id := manager.addStatus("Pushing", "waiting", types.ToastKindStatus)
++	if manager.ReleaseRenderLoopIfEmpty() {
++		t.Fatal("released an active loop")
++	}
++	manager.removeStatus(id)
++	if !manager.ReleaseRenderLoopIfEmpty() || !manager.ClaimRenderLoop() {
++		t.Fatal("could not restart after dismissal")
++	}
++}
++
++func abs(n int) int {
++	if n < 0 {
++		return -n
++	}
++	return n
++}
 --- a/pkg/gui/types/common.go
 +++ b/pkg/gui/types/common.go
 @@ -183,6 +183,7 @@
@@ -1602,6 +2174,26 @@
  
  	Task UpdateTask
  
+--- a/pkg/gui/views.go
++++ b/pkg/gui/views.go
+@@ -49,7 +49,6 @@ func (gui *Gui) orderedViewNameMappings() []viewNameMapping {
+ 
+ 		// bottom line
+ 		{viewPtr: &gui.Views.Options, name: "options"},
+-		{viewPtr: &gui.Views.AppStatus, name: "appStatus"},
+ 		{viewPtr: &gui.Views.Information, name: "information"},
+ 		{viewPtr: &gui.Views.Search, name: "search"},
+ 		// this view shows either the "Search:" prompt when searching, or the "Filter:" prompt when filtering
+@@ -58,6 +57,9 @@ func (gui *Gui) orderedViewNameMappings() []viewNameMapping {
+ 		{viewPtr: &gui.Views.StatusSpacer1, name: "statusSpacer1"},
+ 		{viewPtr: &gui.Views.StatusSpacer2, name: "statusSpacer2"},
+ 
++		// Toasts float above the panels, below interactive popups.
++		{viewPtr: &gui.Views.AppStatus, name: "appStatus"},
++
+ 		// popups.
+ 		{viewPtr: &gui.Views.CommitMessage, name: "commitMessage"},
+ 		{viewPtr: &gui.Views.CommitDescription, name: "commitDescription"},
 --- a/pkg/theme/theme.go
 +++ b/pkg/theme/theme.go
 @@ -46,7 +46,10 @@

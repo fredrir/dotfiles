@@ -75,7 +75,7 @@ local bindings = {
   ),
 
   ---- Pane ----
-  keybind(close_pane, MOD.UNIQUE, "q"),
+  keybind(close_pane, MOD.UNIQUE, { "q", "d" }),
   -- Split --
   keybind(act.SplitHorizontal { domain = "CurrentPaneDomain" }, MOD.PRIMARY, "d"),
   keybind(
