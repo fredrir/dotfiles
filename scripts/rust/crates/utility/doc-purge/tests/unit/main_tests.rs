@@ -162,6 +162,126 @@ fn a_lua_long_comment_goes_whole() {
 }
 
 #[test]
+fn lua_annotation_descriptions_go() {
+    for annotation in [
+        "---@param go_to string",
+        "---@param target? string?",
+        "---@param ... string",
+        "---@field name string",
+        "---@field private name string",
+        "---@field [string] boolean",
+        "---@type string, number",
+        "---@alias Name string",
+        "---@alias (exact) List<T> T[]",
+        "---@class (exact) Child<T>: Parent<T>, Other",
+        "---@vararg string",
+        "---@overload fun(value: string): boolean",
+    ] {
+        for description in [
+            " some comment i made",
+            " # some comment i made",
+            "#some comment i made",
+            "\tbeskrivelse med æøå",
+        ] {
+            assert_eq!(
+                purged(&format!("{annotation}{description}\n"), Dialect::Lua),
+                format!("{annotation}\n"),
+            );
+        }
+        survives(&format!("{annotation}\n"), Dialect::Lua);
+    }
+}
+
+#[test]
+fn lua_annotation_descriptions_leave_complex_types_whole() {
+    for ty in [
+        "string | number | nil",
+        "table<string, table<string, number>>",
+        "(string | number)[]?",
+        "{ name: string, callback: fun(value: number): boolean }",
+        "[string, number]",
+        "[[some text]]",
+        "[=[a]] more text]=]",
+        "table<string, [=[a]] more text]=]>",
+        r#"'some text' | "other text" | 'it\'s quoted'"#,
+        "`T`",
+        "-1 | 0 | 1",
+        "fun(value: string, ...: number): boolean, string?",
+        "fun<T>(value: T): result: T, error: string?",
+        "async fun(): (boolean, string?)",
+        "fun(): fun(value: string): number",
+        "fun(): nil | fun(): nil",
+    ] {
+        let annotation = format!("---@param value {ty}\n");
+        assert_eq!(
+            purged(
+                &format!("---@param value {ty} some comment i made\n"),
+                Dialect::Lua,
+            ),
+            annotation,
+        );
+        survives(&annotation, Dialect::Lua);
+    }
+}
+
+#[test]
+fn lua_return_descriptions_leave_result_names_whole() {
+    for (source, expected) in [
+        ("boolean # whether it worked", "boolean"),
+        ("boolean success whether it worked", "boolean success"),
+        (
+            "string name, number? count # the results",
+            "string name, number? count",
+        ),
+        ("string, number # the results", "string, number"),
+    ] {
+        assert_eq!(
+            purged(&format!("---@return {source}\n"), Dialect::Lua),
+            format!("---@return {expected}\n"),
+        );
+        survives(&format!("---@return {expected}\n"), Dialect::Lua);
+    }
+}
+
+#[test]
+fn lua_annotation_description_cuts_preserve_layout_and_count_as_comments() {
+    let source = "  ---@param go_to string some comment i made\r\nlocal value ---@type string # a value\r\n---@param name string description";
+    let expected =
+        "  ---@param go_to string\r\nlocal value ---@type string\r\n---@param name string";
+    assert_eq!(purged(source, Dialect::Lua), expected);
+    survives(expected, Dialect::Lua);
+    match purge::purge(source.as_bytes(), Dialect::Lua) {
+        Outcome::Changed(edited, saved) => {
+            assert_eq!((edited.minus, edited.plus, edited.comments), (3, 3, 3));
+            assert_eq!(saved.directives, 3);
+        }
+        _ => panic!("expected annotation descriptions to be purged"),
+    }
+}
+
+#[test]
+fn unsupported_or_incomplete_lua_annotations_stay() {
+    for source in [
+        "---@diagnostic disable-next-line: undefined-global\n",
+        "---@generic T: string, U\n",
+        "---@custom name type more arguments\n",
+        "---@param value\n",
+        "---@param value string   \n",
+        "---@param value table<string, number description\n",
+        "---@param value (string | number] description\n",
+        "---@param value string |\n",
+        "---@param value fun():\n",
+        "---@param value 'unterminated description\n",
+        "---@param value [=[unterminated description\n",
+        "--[[-@param value string block contents\nmore contents]]\n",
+        "local text = '---@param value string some description'\n",
+    ] {
+        survives(source, Dialect::Lua);
+    }
+    survives("-- -@param value string description\n", Dialect::Sql);
+}
+
+#[test]
 fn a_haskell_arrow_is_not_a_comment() {
     survives("a --> b\n", Dialect::Haskell);
     assert_eq!(purged("a = 1 -- note\n", Dialect::Haskell), "a = 1\n");

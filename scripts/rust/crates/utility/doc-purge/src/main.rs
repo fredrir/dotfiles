@@ -8,6 +8,7 @@ mod glyphs;
 mod hash;
 mod keep;
 mod lang;
+mod luadoc;
 mod purge;
 mod scan;
 mod walk;

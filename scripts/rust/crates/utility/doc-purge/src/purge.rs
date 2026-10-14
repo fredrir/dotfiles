@@ -2,6 +2,7 @@ use crate::edit::{self, Cut, Edited, Kind};
 use crate::glyphs;
 use crate::keep::{self, Kept};
 use crate::lang::Dialect;
+use crate::luadoc;
 use crate::scan;
 use crate::{docstring, scan::Comment};
 
@@ -62,6 +63,11 @@ pub fn purge(source: &[u8], dialect: Dialect) -> Outcome {
             }
             Some(Kept::Directive) => {
                 saved.directives += 1;
+                if dialect == Dialect::Lua
+                    && let Some(cut) = luadoc::description(source, comment)
+                {
+                    cuts.push(cut);
+                }
                 continue;
             }
             Some(Kept::License) => {
