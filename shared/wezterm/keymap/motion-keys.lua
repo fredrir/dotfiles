@@ -3,30 +3,37 @@ local MOD = require "keymap.modifiers"
 local map = require "keymap.map"
 local act = wezterm.action
 
----@type KeySpec[]
+---@class MotionKey: KeySpec
+---@field free_cursor? CopyModeParams
+
+---@type MotionKey[]
 local motion_keys = {
   { -- Back one word
     key = "LeftArrow",
     mods = MOD.UNIQUE,
     action = act.SendString(map.ctrl_left),
+    free_cursor = "MoveBackwardWord",
     act.SendKey { key = "b", mods = "ALT" },
   },
   { -- Forward one word
     key = "RightArrow",
     mods = MOD.UNIQUE,
     action = act.SendString(map.ctrl_right),
+    free_cursor = "MoveForwardWord",
     act.SendKey { key = "f", mods = "ALT" },
   },
   { -- Line start
     key = "LeftArrow",
     mods = MOD.PRIMARY,
     action = act.SendString(map.home),
+    free_cursor = "MoveToStartOfLine",
     act.SendKey { key = "a", mods = "CTRL" },
   },
   { -- Line end
     key = "RightArrow",
     mods = MOD.PRIMARY,
     action = act.SendString(map.line_end),
+    free_cursor = "MoveToEndOfLineContent",
     act.SendKey { key = "e", mods = "CTRL" },
   },
 
@@ -34,26 +41,88 @@ local motion_keys = {
     key = "UpArrow",
     mods = MOD.PRIMARY,
     action = act.ScrollToTop,
+    free_cursor = "MoveToScrollbackTop",
   },
   { -- Document end
     key = "DownArrow",
     mods = MOD.PRIMARY,
     action = act.ScrollToBottom,
+    free_cursor = "MoveToScrollbackBottom",
   },
-  { key = "LeftArrow", mods = MOD.SUPER_REV, action = act.SendString(map.shift_home) }, -- Select to line start
-  { key = "RightArrow", mods = MOD.SUPER_REV, action = act.SendString(map.shift_end) }, -- Select to line end
-  { key = "UpArrow", mods = MOD.SUPER_REV, action = act.SendString(map.ctrl_shift_home) }, -- Select to document start
-  { key = "DownArrow", mods = MOD.SUPER_REV, action = act.SendString(map.ctrl_shift_end) }, -- Select to document end
+  { -- Select to line start
+    key = "LeftArrow",
+    mods = MOD.SUPER_REV,
+    action = act.SendString(map.shift_home),
+    free_cursor = "MoveToStartOfLine",
+  },
+  { -- Select to line end
+    key = "RightArrow",
+    mods = MOD.SUPER_REV,
+    action = act.SendString(map.shift_end),
+    free_cursor = "MoveToEndOfLineContent",
+  },
+  { -- Select to document start
+    key = "UpArrow",
+    mods = MOD.SUPER_REV,
+    action = act.SendString(map.ctrl_shift_home),
+    free_cursor = "MoveToScrollbackTop",
+  },
+  { -- Select to document end
+    key = "DownArrow",
+    mods = MOD.SUPER_REV,
+    action = act.SendString(map.ctrl_shift_end),
+    free_cursor = "MoveToScrollbackBottom",
+  },
 
-  { key = "UpArrow", mods = MOD.UNIQUE, action = act.ScrollToPrompt(-1) }, -- Previous prompt
-  { key = "DownArrow", mods = MOD.UNIQUE, action = act.ScrollToPrompt(1) }, -- Next prompt
+  { -- Previous prompt
+    key = "UpArrow",
+    mods = MOD.UNIQUE,
+    action = act.ScrollToPrompt(-1),
+    free_cursor = { MoveBackwardZoneOfType = "Prompt" },
+  },
+  { -- Next prompt
+    key = "DownArrow",
+    mods = MOD.UNIQUE,
+    action = act.ScrollToPrompt(1),
+    free_cursor = { MoveForwardZoneOfType = "Prompt" },
+  },
 
-  { key = "LeftArrow", mods = "SHIFT", action = act.SendString(map.shift_left) }, -- Select char left
-  { key = "RightArrow", mods = "SHIFT", action = act.SendString(map.shift_right) }, -- Select char right
-  { key = "UpArrow", mods = "SHIFT", action = act.SendString(map.shift_up) }, -- Select line up
-  { key = "DownArrow", mods = "SHIFT", action = act.SendString(map.shift_down) }, -- Select line down
-  { key = "LeftArrow", mods = MOD.UNIQUE .. "|SHIFT", action = act.SendString(map.ctrl_shift_left) }, -- Select word left
-  { key = "RightArrow", mods = MOD.UNIQUE .. "|SHIFT", action = act.SendString(map.ctrl_shift_right) }, -- Select word right
+  { -- Select char left
+    key = "LeftArrow",
+    mods = "SHIFT",
+    action = act.SendString(map.shift_left),
+    free_cursor = "MoveLeft",
+  },
+  { -- Select char right
+    key = "RightArrow",
+    mods = "SHIFT",
+    action = act.SendString(map.shift_right),
+    free_cursor = "MoveRight",
+  },
+  { -- Select line up
+    key = "UpArrow",
+    mods = "SHIFT",
+    action = act.SendString(map.shift_up),
+    free_cursor = "MoveUp",
+  },
+  { -- Select line down
+    key = "DownArrow",
+    mods = "SHIFT",
+    action = act.SendString(map.shift_down),
+    free_cursor = "MoveDown",
+  },
+  { -- Select word left
+    key = "LeftArrow",
+    mods = MOD.UNIQUE .. "|SHIFT",
+    action = act.SendString(map.ctrl_shift_left),
+    free_cursor = "MoveBackwardWord",
+  },
+  { -- Select word right
+    key = "RightArrow",
+    mods = MOD.UNIQUE .. "|SHIFT",
+    action = act.SendString(map.ctrl_shift_right),
+    free_cursor = "MoveForwardWord",
+  },
   { -- Newline without submit
     key = "Enter",
     mods = "SHIFT",

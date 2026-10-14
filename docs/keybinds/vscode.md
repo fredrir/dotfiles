@@ -56,6 +56,9 @@
 | <code>f4</code> | [<code>-search.action.focusNextSearchResult</code>](../../shared/vscode/keybindings.json#L381) | Search action focus Next Search Result<br><code>hasSearchResult &#124;&#124; inSearchEditor; remove binding</code> |
 | <code>shift+alt+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"command":"workbench.action.tasks.runTask","args":"Copy active file content"}&#93;}</code>](../../shared/vscode/keybindings.json#L137) | Run Commands<br><code>editorFocus</code> |
 | <code>shift+alt+b</code> | [<code>workbench.action.tasks.build</code>](../../shared/vscode/keybindings.json#L291) | Tasks build<br><code>taskCommandsRegistered</code> |
+| <code>shift+alt+d</code> | [<code>-editor.detectLanguage</code>](../../shared/vscode/keybindings.json#L527) | Editor detect Language<br><code>editorTextFocus &amp;&amp; !notebookEditable; remove binding</code> |
+| <code>shift+alt+d</code> | [<code>-notebook.cell.detectLanguage</code>](../../shared/vscode/keybindings.json#L532) | Notebook cell detect Language<br><code>notebookCellEditable &amp;&amp; notebookEditable; remove binding</code> |
+| <code>shift+alt+d</code> | [<code>bracketeer.selectQuotesContent</code>](../../shared/vscode/keybindings.json#L537) | Bracketeer select Quotes Content |
 | <code>shift+alt+e</code> | [<code>editor.action.marker.prev</code>](../../shared/vscode/keybindings.json#L366) | Editor action marker prev<br><code>editorFocus</code> |
 | <code>shift+alt+enter</code> | [<code>-quickInput.accept</code>](../../shared/vscode/keybindings.json#L476) | Quick Input accept<br><code>inQuickInput &amp;&amp; quickInputType != 'quickWidget'; remove binding</code> |
 | <code>shift+alt+enter</code> | [<code>-workbench.action.chat.submitWithoutDispatching</code>](../../shared/vscode/keybindings.json#L481) | Chat submit Without Dispatching<br><code>chatInputHasText &amp;&amp; inChatInput &amp;&amp; !chatSessionRequestInProgress &amp;&amp; !chatTranscriptProgressActive &amp;&amp; chatAgentKind == 'ask'; remove binding</code> |
@@ -87,6 +90,7 @@
 | <code>cmd+b</code> | [<code>-markdown.extension.editing.toggleBold</code>](../../shared/vscode/keybindings.json#L161) | Markdown extension editing toggle Bold<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^markdown$&#124;^rmd$&#124;^quarto$/; remove binding</code> |
 | <code>cmd+b</code> | [<code>-workbench.action.toggleSidebarVisibility</code>](../../shared/vscode/keybindings.json#L301) | Toggle Sidebar Visibility<br><code>global; remove binding</code> |
 | <code>cmd+b</code> | [<code>workbench.action.toggleSidebarVisibility</code>](../../shared/vscode/keybindings.json#L305) | Toggle Sidebar Visibility |
+| <code>cmd+e</code> | [<code>-editor.action.toggleScreenReaderAccessibilityMode</code>](../../shared/vscode/keybindings.json#L545) | Editor action toggle Screen Reader Accessibility Mode<br><code>accessibilityHelpIsShown; remove binding</code> |
 | <code>cmd+e</code> | [<code>editor.action.marker.next</code>](../../shared/vscode/keybindings.json#L423) | Editor action marker next<br><code>editorTextFocus</code> |
 | <code>cmd+e</code> | [<code>runCommands {"commands":&#91;"list.focusDown","list.selectAndPreserveFocus"&#93;}</code>](../../shared/vscode/keybindings.json#L396) | Run Commands<br><code>focusedView == 'workbench.scm' &amp;&amp; listFocus &amp;&amp; !inputFocus</code> |
 | <code>cmd+e</code> | [<code>runCommands {"commands":&#91;"list.focusDown","list.selectAndPreserveFocus"&#93;}</code>](../../shared/vscode/keybindings.json#L412) | Run Commands<br><code>searchViewletFocus &amp;&amp; listFocus &amp;&amp; !inputFocus</code> |
@@ -103,6 +107,7 @@
 | <code>ctrl+alt+cmd+up</code> | [<code>-quickInput.previousSeparator</code>](../../shared/vscode/keybindings.json#L191) | Quick Input previous Separator<br><code>inQuickInput &amp;&amp; quickInputType == 'quickPick' &#124;&#124; inQuickInput &amp;&amp; quickInputType == 'quickTree'; remove binding</code> |
 | <code>ctrl+alt+cmd+up</code> | [<code>workbench.action.compareEditor.previousChange</code>](../../shared/vscode/keybindings.json#L181) | Compare Editor previous Change<br><code>textCompareEditorVisible</code> |
 | <code>ctrl+shift+alt+cmd+k</code> | [<code>bracketeer.swapBrackets</code>](../../shared/vscode/keybindings.json#L502) | Bracketeer swap Brackets |
+| <code>shift+alt+cmd+0</code> | [<code>-bracketeer.selectQuotesContent</code>](../../shared/vscode/keybindings.json#L541) | Bracketeer select Quotes Content<br><code>global; remove binding</code> |
 | <code>shift+alt+cmd+&#91;Period&#93;</code> | [<code>-bracketeer.swapQuotes</code>](../../shared/vscode/keybindings.json#L498) | Bracketeer swap Quotes<br><code>global; remove binding</code> |
 | <code>shift+alt+cmd+h</code> | [<code>-bracketeer.selectBracketContent</code>](../../shared/vscode/keybindings.json#L523) | Bracketeer select Bracket Content<br><code>global; remove binding</code> |
 | <code>shift+alt+cmd+k</code> | [<code>-bracketeer.swapBrackets</code>](../../shared/vscode/keybindings.json#L506) | Bracketeer swap Brackets<br><code>global; remove binding</code> |

@@ -524,4 +524,27 @@
     "key": "shift+alt+cmd+h",
     "command": "-bracketeer.selectBracketContent"
   },
+  {
+    "key": "shift+alt+d",
+    "command": "-editor.detectLanguage",
+    "when": "editorTextFocus && !notebookEditable"
+  },
+  {
+    "key": "shift+alt+d",
+    "command": "-notebook.cell.detectLanguage",
+    "when": "notebookCellEditable && notebookEditable"
+  },
+  {
+    "key": "shift+alt+d",
+    "command": "bracketeer.selectQuotesContent"
+  },
+  {
+    "key": "shift+alt+cmd+0",
+    "command": "-bracketeer.selectQuotesContent"
+  },
+  {
+    "key": "cmd+e",
+    "command": "-editor.action.toggleScreenReaderAccessibilityMode",
+    "when": "accessibilityHelpIsShown"
+  },
 ]

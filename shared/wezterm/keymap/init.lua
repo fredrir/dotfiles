@@ -4,6 +4,7 @@ local bind_keys = require "utils.keymap.bind-keys"
 local keybind = require "utils.keymap.keybind"
 local physical_keys = require "keymap.physical-keys"
 local motion_keys = require "keymap.motion-keys"
+local free_cursor = require "keymap.free-cursor"
 local extend = require "utils.extend"
 local mouse_bindings = require "keymap.mouse-bindings"
 local skip_close_confirmation = require "utils.skip_close_confirmation"
@@ -33,6 +34,7 @@ local act = wezterm.action
 local bindings = {
   keybind(copy_selection, platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", "c"),
   keybind(act.PasteFrom "Clipboard", platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", "v"),
+  keybind(free_cursor.activate, platform.is_mac and MOD.PRIMARY or "CTRL|SHIFT", "e"),
   keybind(act.SpawnWindow, MOD.PRIMARY, "n"),
   keybind(open_yazi, MOD.PRIMARY, "y"),
 
@@ -168,6 +170,7 @@ end
 local keymap_config = {
   disable_default_key_bindings = true,
   keys = keys,
+  key_tables = { copy_mode = free_cursor.key_table(keys) },
   mouse_bindings = mouse_bindings,
   skip_close_confirmation_for_processes_named = skip_close_confirmation,
   use_dead_keys = false,
