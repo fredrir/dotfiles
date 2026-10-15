@@ -11,6 +11,9 @@ use workstation::{Completable, Completions};
 struct Cli {
     #[arg(short = 'C', long, global = true, default_value = ".")]
     directory: PathBuf,
+    /// Leave the mouse with the terminal for native text selection.
+    #[arg(long, global = true)]
+    no_mouse: bool,
     #[command(subcommand)]
     command: Option<Start>,
     #[command(flatten)]
@@ -38,7 +41,7 @@ fn main() -> ExitCode {
             Some(Start::Compare { left, right }) => dogit::app::Start::Compare(left, right),
             None => dogit::app::Start::Changes,
         };
-        dogit::app::run(&cli.directory, start)?;
+        dogit::app::run(&cli.directory, start, !cli.no_mouse)?;
         Ok(ExitCode::SUCCESS)
     })
 }

@@ -131,11 +131,11 @@ local bindings = {
   keybind(go_to "DOTFILES/shared/wezterm", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "w"),
   ----
   keybind(go_to "PYPARSER", { MOD.UNIQUE }, "p"),
-  keybind(go_to "HOME/infra", MOD.UNIQUE, "i"),
   keybind(go_to "LLUNDE", MOD.SUPER_REV, "l"),
   ----
   keybind(go_to "CONFIG", MOD.SHIFT_RIGHT, "c"),
   keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),
+  keybind(go_to "HOME/infra", MOD.SHIFT_RIGHT, "i"),
   keybind(cd_git_root, MOD.SHIFT_RIGHT, "g"),
   keybind(go_to "OLDPWD", MOD.SHIFT_RIGHT, "j"),
   keybind(go_to "PYPARSER", { MOD.SHIFT_RIGHT }, "q"),

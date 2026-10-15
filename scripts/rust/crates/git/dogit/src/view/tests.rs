@@ -528,6 +528,14 @@ fn every_active_tab_remains_visible_and_clickable_at_narrow_widths() {
                 .find(|(tab, _)| *tab == workspace)
                 .expect("the active workspace must always have a tab target");
             assert!(area_text(&buffer, active.1).contains(workspace.label()));
+            let number = Workspace::ALL
+                .iter()
+                .position(|item| *item == workspace)
+                .unwrap()
+                + 1;
+            assert!(
+                area_text(&buffer, active.1).contains(&format!("{number} {}", workspace.label()))
+            );
             for (index, (_, rect)) in geometry.tabs.iter().enumerate() {
                 assert!(!rect.is_empty());
                 assert!(rect.x >= buffer.area.x && rect.right() <= buffer.area.right());
@@ -535,6 +543,51 @@ fn every_active_tab_remains_visible_and_clickable_at_narrow_widths() {
                 for (_, other) in &geometry.tabs[..index] {
                     assert!(rect.intersection(*other).is_empty());
                 }
+            }
+        }
+    }
+}
+
+#[test]
+fn selection_hint_remains_visible_with_overlays_long_metadata_and_small_terminals() {
+    for mouse_capture in [
+        ui_terminal::MouseCapture::Disabled,
+        ui_terminal::MouseCapture::Enabled,
+    ] {
+        for width in [20, 39, 60, 80, 100, 124] {
+            let operation = OperationView {
+                label: "long operation ".repeat(20),
+                ..OperationView::default()
+            };
+            for overlay in [
+                None,
+                Some(Overlay::Input {
+                    title: "Search".into(),
+                    value: "123".into(),
+                    detail: String::new(),
+                }),
+            ] {
+                let mut state = ViewState {
+                    overlay,
+                    ..ViewState::default()
+                };
+                let data = RenderData {
+                    mouse_capture,
+                    repo: "long repository name",
+                    branch: "long/branch/name/with/details",
+                    operation: Some(&operation),
+                    ..RenderData::default()
+                };
+                let (buffer, _) = draw(width, 25, &mut state, &data);
+                let footer = area_text(&buffer, Rect::new(0, 24, width, 1));
+                assert!(
+                    footer.contains(if mouse_capture == ui_terminal::MouseCapture::Enabled {
+                        "Shift+drag"
+                    } else {
+                        "select"
+                    }),
+                    "{footer}"
+                );
             }
         }
     }

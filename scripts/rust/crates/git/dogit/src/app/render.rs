@@ -207,6 +207,7 @@ impl App {
                 })
         };
         let data = RenderData {
+            mouse_capture: self.mouse_capture,
             repo: &repo,
             branch,
             ahead: self.snapshot.status.ahead,

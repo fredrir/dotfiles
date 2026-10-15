@@ -60,13 +60,18 @@ impl App {
             if character.is_ascii_digit() && !(key.modifiers - KeyModifiers::SHIFT).is_empty() {
                 return Ok(());
             }
-            if key.modifiers == KeyModifiers::SHIFT && ('1'..='7').contains(&character) {
+            if (key.modifiers - KeyModifiers::SHIFT).is_empty() && ('1'..='7').contains(&character)
+            {
                 self.workspace(Workspace::ALL[(character as u8 - b'1') as usize]);
                 return Ok(());
             }
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
+                KeyCode::Char('r') => {
+                    self.refresh();
+                    return Ok(());
+                }
                 KeyCode::Char('c') => {
                     if self.operation.is_none() {
                         self.quit = true;
@@ -133,19 +138,11 @@ impl App {
                     value: self.query.clone(),
                 })
             }
-            KeyCode::Tab | KeyCode::BackTab => {
-                let current = Workspace::ALL
-                    .iter()
-                    .position(|workspace| *workspace == self.view.workspace)
-                    .unwrap_or(0);
-                let step = if key.code == KeyCode::BackTab
-                    || key.modifiers.contains(KeyModifiers::SHIFT)
-                {
-                    Workspace::ALL.len() - 1
-                } else {
-                    1
+            KeyCode::Tab | KeyCode::BackTab if (key.modifiers - KeyModifiers::SHIFT).is_empty() => {
+                self.view.focus = match self.view.focus {
+                    Focus::Navigator => Focus::Canvas,
+                    Focus::Canvas => Focus::Navigator,
                 };
-                self.workspace(Workspace::ALL[(current + step) % Workspace::ALL.len()]);
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 self.move_cursor(1, key.modifiers.contains(KeyModifiers::SHIFT))
@@ -197,8 +194,6 @@ impl App {
                 return self.action(Action::FollowChild, terminal, signals);
             }
             KeyCode::Char(']') => self.jump_hunk(true),
-            KeyCode::Char('1') => self.view.focus = Focus::Navigator,
-            KeyCode::Char('2') => self.view.focus = Focus::Canvas,
             KeyCode::Char(character) => {
                 let action = match character {
                     'e' => Some(Action::Edit),
@@ -244,7 +239,6 @@ impl App {
                     return self.action(action, terminal, signals);
                 }
             }
-            KeyCode::F(5) => self.refresh(),
             _ => {}
         }
         Ok(())

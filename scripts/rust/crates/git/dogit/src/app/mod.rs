@@ -389,6 +389,7 @@ struct App {
     dragging: bool,
     drag_offset: i16,
     geometry: Option<Geometry>,
+    mouse_capture: ui_terminal::MouseCapture,
 }
 
 mod clipboard;
@@ -477,6 +478,7 @@ impl App {
             dragging: false,
             drag_offset: 0,
             geometry: None,
+            mouse_capture: ui_terminal::MouseCapture::Enabled,
         }
     }
 
@@ -1474,14 +1476,18 @@ fn nav(label: &str, detail: &str, status: &str, kind: NavKind) -> NavItem {
     }
 }
 
-pub fn run(directory: &Path, start: Start) -> Result<(), String> {
+pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err("dogit needs an interactive terminal".into());
     }
     let repo = Repo::open(directory).map_err(|error| error.to_string())?;
     let mut app = App::new(repo, start);
+    if !mouse {
+        app.mouse_capture = ui_terminal::MouseCapture::Disabled;
+    }
     let mut signals = Some(ui_terminal::SignalGuard::new().map_err(|error| error.to_string())?);
-    let mut terminal = Some(crate::session::Session::new().map_err(|error| error.to_string())?);
+    let mut terminal =
+        Some(crate::session::Session::new(app.mouse_capture).map_err(|error| error.to_string())?);
     let input = ui_terminal::Input::new().map_err(|error| error.to_string())?;
     app.refresh();
     while !app.quit && !ui_terminal::termination_requested() {
@@ -1507,7 +1513,11 @@ pub fn run(directory: &Path, start: Start) -> Result<(), String> {
             ui_terminal::Waited::Event(Event::Key(key)) if key.kind != KeyEventKind::Release => {
                 app.key(key, &mut terminal, &mut signals)?
             }
-            ui_terminal::Waited::Event(Event::Mouse(mouse)) => app.mouse(mouse),
+            ui_terminal::Waited::Event(Event::Mouse(mouse))
+                if app.mouse_capture == ui_terminal::MouseCapture::Enabled =>
+            {
+                app.mouse(mouse)
+            }
             ui_terminal::Waited::Event(Event::Resize(_, _)) => {
                 app.view.divider_hover_row = None;
                 app.dragging = false;

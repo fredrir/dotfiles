@@ -115,7 +115,9 @@ impl App {
         })();
         drop(handoff_signals);
         *signals = Some(ui_terminal::SignalGuard::new().map_err(|error| error.to_string())?);
-        *terminal = Some(crate::session::Session::new().map_err(|error| error.to_string())?);
+        *terminal = Some(
+            crate::session::Session::new(self.mouse_capture).map_err(|error| error.to_string())?,
+        );
         self.operation = None;
         if result.as_ref().is_ok_and(|text| text.is_empty()) {
             self.feedback = None;
@@ -129,9 +131,10 @@ impl App {
 }
 
 fn interactive_command(mut command: Command) -> Result<(std::process::ExitStatus, String), String> {
-    use std::io::Read;
     #[cfg(target_os = "linux")]
     {
+        use std::io::Read;
+
         let transcript = tempfile::NamedTempFile::new().map_err(|error| error.to_string())?;
         let mut recorder = Command::new("script");
         recorder

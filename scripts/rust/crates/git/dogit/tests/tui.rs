@@ -113,6 +113,8 @@ impl Fixture {
         take_controlling_terminal(&mut command);
         let child = command.spawn().unwrap();
         drop(slave);
+        // tcflag_t is u32 on Linux and u64 on macOS.
+        #[allow(clippy::unnecessary_cast)]
         let mut terminal = Terminal {
             child,
             master,
@@ -240,6 +242,10 @@ impl Terminal {
                 self.transcript()
             );
         }
+        self.assert_restored();
+    }
+
+    fn assert_restored(&self) {
         let after = terminal_state(&self.master);
         assert_eq!(
             self.initial_flags,
@@ -304,7 +310,7 @@ fn ordinary_text_drag_does_not_invoke_clipboard_or_mutate_git_or_operation_histo
     let path =
         std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(&inherited_path)))
             .unwrap();
-    let mut terminal = fixture.open_with(&["compare", "HEAD", "HEAD"], |command| {
+    let mut terminal = fixture.open_with(&["--no-mouse", "compare", "HEAD", "HEAD"], |command| {
         command
             .env("PATH", path)
             .env("DOGIT_TEST_CLIPBOARD", &clipboard);
@@ -313,17 +319,27 @@ fn ordinary_text_drag_does_not_invoke_clipboard_or_mutate_git_or_operation_histo
     // Ratatui can skip spaces already present on screen between these words.
     terminal.wait_for("read-only", 0);
     terminal.settle();
+    for mode in [1000, 1002, 1003, 1006, 1015] {
+        let enable = format!("\x1b[?{mode}h");
+        assert!(
+            !terminal
+                .output
+                .windows(enable.len())
+                .any(|bytes| bytes == enable.as_bytes()),
+            "--no-mouse must leave mouse events with the terminal"
+        );
+    }
     // At this fixture's 124×34 size the empty comparison starts at column 39,
-    // row 7 in SGR mouse coordinates. App-delivered drags must not copy text;
+    // row 9 in SGR mouse coordinates. App-delivered drags must not copy text;
     // terminal-native selection and copying are handled outside the PTY.
     let last_column = 39 + message.len() - 1;
-    terminal.send(format!("\x1b[<0;39;7M\x1b[<32;{last_column};7M").as_bytes());
+    terminal.send(format!("\x1b[<0;39;9M\x1b[<32;{last_column};9M").as_bytes());
     terminal.settle();
     assert!(
         !clipboard.exists(),
         "dragging must not invoke the clipboard"
     );
-    terminal.send(format!("\x1b[<0;{last_column};7m").as_bytes());
+    terminal.send(format!("\x1b[<0;{last_column};9m").as_bytes());
     terminal.settle();
     assert!(!clipboard.exists(), "releasing a drag must not copy text");
     terminal.quit();
@@ -340,6 +356,149 @@ fn ordinary_text_drag_does_not_invoke_clipboard_or_mutate_git_or_operation_histo
 }
 
 #[test]
+fn mouse_capture_defaults_on_and_the_choice_survives_editor_handoff() {
+    for args in [&[][..], &["--no-mouse"][..]] {
+        let fixture = Fixture::new();
+        fixture.commit("file", b"original\n");
+        fixture.write("file", b"working preview\n");
+        let mut terminal = fixture.open(args);
+        terminal.wait_for("working preview", 0);
+        let controls = args.is_empty();
+        let start = terminal.send(b"e");
+        terminal.wait_for("DOGIT_EDITOR_FINISHED", start);
+        terminal.handoff_finished(start);
+        terminal.wait_for(
+            if controls {
+                "Shift+drag selects"
+            } else {
+                "Native text selection"
+            },
+            start,
+        );
+        let handoff = &terminal.output[start..];
+        let editor = handoff
+            .windows(b"DOGIT_EDITOR_FINISHED".len())
+            .position(|bytes| bytes == b"DOGIT_EDITOR_FINISHED")
+            .unwrap();
+        if controls {
+            assert!(
+                handoff[..editor]
+                    .windows(8)
+                    .any(|bytes| bytes == b"\x1b[?1000l")
+            );
+        }
+        terminal.quit();
+        for mode in [1000, 1002, 1003, 1006, 1015] {
+            let enable = format!("\x1b[?{mode}h");
+            let captures = terminal
+                .output
+                .windows(enable.len())
+                .filter(|bytes| *bytes == enable.as_bytes())
+                .count();
+            assert_eq!(captures, 2 * usize::from(controls), "mouse mode {mode}");
+            let disable = format!("\x1b[?{mode}l");
+            assert!(
+                terminal
+                    .output
+                    .windows(disable.len())
+                    .any(|bytes| bytes == disable.as_bytes())
+            );
+        }
+    }
+}
+
+#[test]
+fn mouse_clicks_work_by_default_and_no_mouse_keeps_keyboard_navigation() {
+    for args in [&[][..], &["--no-mouse"][..]] {
+        let fixture = Fixture::new();
+        fixture.commit("file", b"original\n");
+        fixture.write("file", b"working preview\n");
+        let mut terminal = fixture.open(args);
+        terminal.wait_for("working preview", 0);
+        let controls = args.is_empty();
+        terminal.wait_for(
+            if controls {
+                "Shift+drag selects"
+            } else {
+                "Native text selection"
+            },
+            0,
+        );
+        // History is the second tab. --no-mouse ignores app-delivered clicks.
+        let start = terminal.send(b"\x1b[<0;17;2M\x1b[<0;17;2m");
+        if controls {
+            terminal.wait_for("initial fixture", start);
+            let start = terminal.send(b"\x1b[<0;4;2M\x1b[<0;4;2m");
+            terminal.wait_for("working preview", start);
+        } else {
+            terminal.settle();
+            assert!(
+                !String::from_utf8_lossy(&terminal.output[start..]).contains("initial fixture")
+            );
+            let start = terminal.send(b"2");
+            terminal.wait_for("initial fixture", start);
+            let start = terminal.send(b"1");
+            terminal.wait_for("working preview", start);
+        }
+        let quitting = terminal.output.len();
+        terminal.exit_with(b"\x03");
+        for mode in [1000, 1002, 1003, 1006, 1015] {
+            let enable = format!("\x1b[?{mode}h");
+            assert_eq!(
+                terminal
+                    .output
+                    .windows(enable.len())
+                    .any(|bytes| bytes == enable.as_bytes()),
+                controls,
+                "mouse mode {mode}",
+            );
+            if controls {
+                let disable = format!("\x1b[?{mode}l");
+                assert!(
+                    terminal.output[quitting..]
+                        .windows(disable.len())
+                        .any(|bytes| bytes == disable.as_bytes())
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn termination_with_mouse_controls_restores_the_terminal() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let fixture = Fixture::new();
+    fixture.commit("file", b"original\n");
+    let mut terminal = fixture.open(&[]);
+    terminal.wait_for("Shift+drag selects", 0);
+    let stopping = terminal.output.len();
+    assert!(
+        Command::new("kill")
+            .args(["-TERM", &terminal.child.id().to_string()])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        read_available(&terminal.master, &mut terminal.output, 20);
+        if let Some(status) = terminal.child.try_wait().unwrap() {
+            assert!(status.signal().is_some());
+            break;
+        }
+        assert!(Instant::now() < deadline, "dogit did not handle SIGTERM");
+    }
+    read_available(&terminal.master, &mut terminal.output, 0);
+    terminal.assert_restored();
+    assert!(
+        terminal.output[stopping..]
+            .windows(8)
+            .any(|bytes| bytes == b"\x1b[?1000l")
+    );
+}
+
+#[test]
 fn direct_line_and_hunk_staging_preserve_worktree_and_can_unstage() {
     let fixture = Fixture::new();
     fixture.commit("file", b"first\nlast\n");
@@ -347,7 +506,7 @@ fn direct_line_and_hunk_staging_preserve_worktree_and_can_unstage() {
     fixture.write("file", worktree);
     let mut terminal = fixture.open(&[]);
     terminal.wait_for("remaining", 0);
-    terminal.send(b"2jj s");
+    terminal.send(b"\tjj s");
     terminal.wait_until(
         |_| fixture.git(&["show", ":file"]) == b"first\nchosen\nlast\n",
         "only chosen line staged",
@@ -390,7 +549,7 @@ fn split_wrapping_shows_long_line_tails_and_stages_from_a_continuation() {
     fixture.write("file", worktree.as_bytes());
     let mut terminal = fixture.open(&[]);
     terminal.wait_for("remaining", 0);
-    let start = terminal.send(b"2v");
+    let start = terminal.send(b"\tv");
     terminal.wait_for("WRAPTAIL", start);
     terminal.settle();
     // Hunk header, first context line, then the addition and its continuation.
@@ -587,9 +746,9 @@ fn dragged_pane_width_survives_workspace_switches_and_restart() {
     // Grab two cells to the right of the divider, retaining the grab offset.
     terminal.send(b"\x1b[<0;38;12M\x1b[<32;50;12M\x1b[<0;50;12m");
     terminal.settle();
-    let start = terminal.send(b"\t");
+    let start = terminal.send(b"2");
     terminal.wait_for("initial fixture", start);
-    let start = terminal.send(b"\x1b[Z");
+    let start = terminal.send(b"1");
     terminal.wait_for("resize fixture", start);
     terminal.quit();
     assert_eq!(fixture.saved_state()["widths"]["Changes"], 46);
@@ -683,21 +842,21 @@ fn escape_closes_composer_then_exits_and_restores_terminal() {
 }
 
 #[test]
-fn shift_number_shortcuts_switch_workspaces_with_explicit_key_reporting() {
+fn plain_number_shortcuts_switch_workspaces_without_enhanced_key_reporting() {
     let fixture = Fixture::new();
     fixture.commit("file", b"original\n");
     fixture.write("file", b"working preview\n");
     let mut terminal = fixture.open(&[]);
     terminal.wait_for("working preview", 0);
-    let start = terminal.send(b"\x1b[50;2u"); // Shift+2
+    let start = terminal.send(b"2");
     terminal.wait_for("initial fixture", start);
-    let start = terminal.send(b"\x1b[49;2u"); // Shift+1
+    let start = terminal.send(b"1");
     terminal.wait_for("working preview", start);
     for number in '2'..='7' {
-        terminal.send(format!("\x1b[{};2u", number as u32).as_bytes());
+        terminal.send(&[number as u8]);
         terminal.settle();
     }
-    let start = terminal.send(b"\x1b[49;2u");
+    let start = terminal.send(b"1");
     terminal.wait_for("working preview", start);
     let start = terminal.send(b"/");
     terminal.wait_for("Search", start);

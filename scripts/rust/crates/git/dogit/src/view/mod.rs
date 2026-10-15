@@ -217,6 +217,7 @@ pub struct NavSummary {
 }
 
 pub struct RenderData<'a> {
+    pub mouse_capture: ui_terminal::MouseCapture,
     pub repo: &'a str,
     pub branch: &'a str,
     pub ahead: usize,
@@ -246,6 +247,7 @@ impl Default for RenderData<'_> {
     fn default() -> Self {
         static EMPTY_SELECTION: OnceLock<BTreeSet<usize>> = OnceLock::new();
         Self {
+            mouse_capture: ui_terminal::MouseCapture::Enabled,
             repo: "",
             branch: "",
             ahead: 0,

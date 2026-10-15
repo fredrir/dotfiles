@@ -1,8 +1,9 @@
 use std::io;
 
 use crossterm::event::{
-    DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
-    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+    EnableFocusChange, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 
@@ -12,11 +13,14 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new() -> io::Result<Self> {
+    pub fn new(mouse: ui_terminal::MouseCapture) -> io::Result<Self> {
         let mut session = Self {
-            screen: ui_terminal::Alternate::new(ui_terminal::MouseCapture::Enabled)?,
+            screen: ui_terminal::Alternate::new(mouse)?,
             keyboard_pushed: false,
         };
+        if mouse == ui_terminal::MouseCapture::Disabled {
+            execute!(io::stdout(), DisableMouseCapture)?;
+        }
         execute!(
             io::stdout(),
             EnableBracketedPaste,

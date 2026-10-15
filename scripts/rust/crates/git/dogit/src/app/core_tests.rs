@@ -404,17 +404,12 @@ fn operation_completion_preserves_selected_record_with_and_without_search() {
 }
 
 #[test]
-fn tab_cycles_workspaces_in_both_directions_and_wraps_without_dialogs() {
+fn plain_numbers_select_every_workspace_without_opening_dialogs() {
     let fixture = Fixture::new();
     let mut app = fixture.app();
-    for expected in Workspace::ALL
-        .into_iter()
-        .cycle()
-        .skip(1)
-        .take(Workspace::ALL.len())
-    {
+    for (number, expected) in ('1'..='7').zip(Workspace::ALL) {
         app.key(
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char(number), KeyModifiers::NONE),
             &mut None,
             &mut None,
         )
@@ -422,27 +417,20 @@ fn tab_cycles_workspaces_in_both_directions_and_wraps_without_dialogs() {
         assert_eq!(app.view.workspace, expected);
         assert!(app.dialog.is_none());
     }
-    for expected in Workspace::ALL.into_iter().rev() {
+    for number in ['0', '8', '9'] {
         app.key(
-            KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT),
+            KeyEvent::new(KeyCode::Char(number), KeyModifiers::NONE),
             &mut None,
             &mut None,
         )
         .unwrap();
-        assert_eq!(app.view.workspace, expected);
+        assert_eq!(app.view.workspace, Workspace::Operations);
         assert!(app.dialog.is_none());
     }
-    app.key(
-        KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT),
-        &mut None,
-        &mut None,
-    )
-    .unwrap();
-    assert_eq!(app.view.workspace, Workspace::Operations);
 }
 
 #[test]
-fn number_keys_focus_existing_panes_without_changing_workspace_or_position() {
+fn tab_and_backtab_cycle_panes_without_changing_workspace_or_position() {
     let fixture = Fixture::new();
     let mut app = fixture.app();
     for workspace in Workspace::ALL {
@@ -450,36 +438,50 @@ fn number_keys_focus_existing_panes_without_changing_workspace_or_position() {
         app.view.selected = 3;
         app.view.diff_cursor = 7;
         app.view.horizontal = 8;
-        app.key(
-            KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE),
-            &mut None,
-            &mut None,
-        )
-        .unwrap();
-        assert_eq!(app.view.focus, Focus::Canvas);
-        for number in '3'..='9' {
-            app.key(
-                KeyEvent::new(KeyCode::Char(number), KeyModifiers::NONE),
-                &mut None,
-                &mut None,
-            )
-            .unwrap();
-            assert_eq!(app.view.focus, Focus::Canvas);
-            assert_eq!(app.view.workspace, workspace);
-            assert!(app.dialog.is_none());
+        for key in [
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT),
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT),
+        ] {
+            for expected in [Focus::Canvas, Focus::Navigator] {
+                app.key(key, &mut None, &mut None).unwrap();
+                assert_eq!(app.view.focus, expected);
+                assert_eq!(app.view.workspace, workspace);
+                assert_eq!(app.view.selected, 3);
+                assert_eq!(app.view.diff_cursor, 7);
+                assert_eq!(app.view.horizontal, 8);
+                assert!(app.dialog.is_none());
+            }
         }
+    }
+}
+
+#[test]
+fn function_keys_are_unbound_and_control_r_refreshes() {
+    let fixture = Fixture::new();
+    let mut app = fixture.app();
+    app.snapshot_pending = true;
+    app.refresh_forced = false;
+    for number in 1..=12 {
         app.key(
-            KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::F(number), KeyModifiers::NONE),
             &mut None,
             &mut None,
         )
         .unwrap();
-        assert_eq!(app.view.focus, Focus::Navigator);
-        assert_eq!(app.view.workspace, workspace);
-        assert_eq!(app.view.selected, 3);
-        assert_eq!(app.view.diff_cursor, 7);
-        assert_eq!(app.view.horizontal, 8);
+        assert!(!app.refresh_forced);
+        assert!(app.dialog.is_none());
+        assert_eq!(app.view.workspace, Workspace::Changes);
+        assert_eq!(app.mouse_capture, ui_terminal::MouseCapture::Enabled);
     }
+    app.key(
+        KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    assert!(app.refresh_forced);
+    assert_eq!(app.mouse_capture, ui_terminal::MouseCapture::Enabled);
 }
 
 #[test]

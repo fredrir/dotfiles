@@ -234,7 +234,7 @@ pub const ACTIONS: &[Definition] = &[
     Definition {
         action: Action::Refresh,
         label: "Refresh repository",
-        key: "F5",
+        key: "Ctrl+r",
     },
     Definition {
         action: Action::CompareSelected,

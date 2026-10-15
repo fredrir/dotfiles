@@ -85,7 +85,7 @@ pub(super) fn render_tabs_at(
         style(Role::Border),
     );
     let available = area.width.saturating_sub(4);
-    let widths = Workspace::ALL.map(|workspace| workspace.label().width() as u16 + 4);
+    let widths = Workspace::ALL.map(|workspace| workspace.label().width() as u16 + 6);
     let selected = Workspace::ALL
         .iter()
         .position(|workspace| *workspace == active)
@@ -154,7 +154,7 @@ pub(super) fn render_tabs_at(
                 rect.x + 1,
                 rect.y,
                 rect.width - 1,
-                workspace.label(),
+                &format!("{} {}", index + 1, workspace.label()),
                 appearance,
             );
         }
@@ -192,7 +192,26 @@ pub(super) fn render_footer(frame: &mut Frame, area: Rect, data: &RenderData<'_>
         return;
     }
     let y = area.bottom() - 1;
-    let available = area.width.saturating_sub(2);
+    let controls = data.mouse_capture == ui_terminal::MouseCapture::Enabled;
+    let mode = if area.width >= 80 {
+        if controls {
+            "Shift+drag selects"
+        } else {
+            "Native text selection"
+        }
+    } else if controls {
+        "Shift+drag"
+    } else {
+        "Text select"
+    };
+    let hint = if area.width >= 100 && data.operation.is_none() {
+        format!(" {mode}  1-7 tabs  Tab panes ")
+    } else {
+        format!(" {mode} ")
+    };
+    let hint_width = (hint.width() as u16).min(area.width.saturating_sub(2));
+    let metadata_x = area.x + 1 + hint_width;
+    let available = area.width.saturating_sub(hint_width + 2);
     let repo_width = if data.repo.is_empty() {
         0
     } else {
@@ -212,7 +231,7 @@ pub(super) fn render_footer(frame: &mut Frame, area: Rect, data: &RenderData<'_>
     let gap = u16::from(repo_width > 0 && !branch.is_empty());
     let branch_room = available.saturating_sub(repo_width + gap);
     let branch_room = if data.operation.is_some() {
-        branch_room.min(available / 3)
+        branch_room.min(area.width / 3)
     } else {
         branch_room
     };
@@ -220,10 +239,10 @@ pub(super) fn render_footer(frame: &mut Frame, area: Rect, data: &RenderData<'_>
     let branch_width = branch.width() as u16;
     let branch_x = badge_x.saturating_sub(branch_width + gap);
     if let Some(operation) = data.operation {
-        let room = branch_x.saturating_sub(area.x + 3);
+        let room = branch_x.saturating_sub(metadata_x + 2);
         render_operation(
             frame.buffer_mut(),
-            Rect::new(area.x, y, room + 2, 1),
+            Rect::new(metadata_x, y, room, 1),
             operation,
         );
     }
@@ -258,6 +277,14 @@ pub(super) fn render_footer(frame: &mut Frame, area: Rect, data: &RenderData<'_>
             repository_style(data.repo),
         );
     }
+    put(
+        frame.buffer_mut(),
+        area.x + 1,
+        y,
+        hint_width,
+        &hint,
+        style(if controls { Role::Accent } else { Role::Plain }),
+    );
 }
 
 pub(super) fn repository_style(name: &str) -> Style {
