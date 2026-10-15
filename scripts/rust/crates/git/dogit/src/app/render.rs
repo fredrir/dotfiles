@@ -3,31 +3,14 @@ use super::*;
 impl App {
     pub(super) fn draw(&mut self, terminal: &mut crate::session::Session) -> Result<(), String> {
         self.view.overlay = self.dialog.as_ref().map(|dialog| match dialog {
-            Dialog::Input {
-                prompt: Prompt::Compose,
-                value,
-                ..
-            } => {
-                let (summary, body) = value.split_once('\n').unwrap_or((value, ""));
-                Overlay::Compose {
-                    summary: summary.into(),
-                    body: body.into(),
-                    body_started: value.contains('\n'),
-                }
-            }
-            Dialog::Input {
-                title,
-                value,
-                prompt,
-            } => Overlay::Input {
+            Dialog::Compose { editor } => Overlay::Compose {
+                value: editor.as_str().into(),
+                cursor: editor.cursor(),
+                selection: editor.selection(),
+            },
+            Dialog::Input { title, value, .. } => Overlay::Input {
                 title: title.clone(),
                 value: value.clone(),
-                detail: if matches!(prompt, Prompt::Search) {
-                    "Filter this workspace"
-                } else {
-                    "Enter to accept"
-                }
-                .into(),
             },
             Dialog::Actions { query, selected } => Overlay::Commands {
                 query: query.clone(),
@@ -79,65 +62,32 @@ impl App {
                 "New repository"
             }
         });
-        let composing = matches!(
-            self.dialog,
-            Some(Dialog::Input {
-                prompt: Prompt::Compose,
-                ..
-            })
-        );
-        let canvas_path = if composing {
-            String::new()
-        } else {
-            match self.selected() {
-                Some(Target::Path(path, _)) | Some(Target::Comparison(path)) => {
-                    path.display().to_string()
-                }
-                Some(Target::Worktree(_)) => String::new(),
-                Some(Target::Commit(oid)) => self
-                    .snapshot
-                    .commits
-                    .iter()
-                    .find(|commit| commit.oid == *oid)
-                    .map_or_else(|| short(oid).into(), |commit| commit.subject.clone()),
-                Some(Target::Stash(name, _)) => name.clone(),
-                Some(Target::Branch(reference, _)) => reference.clone(),
-                Some(Target::Operation(_)) => String::new(),
-                Some(Target::RevisionAll) | None if self.view.workspace == Workspace::Compare => {
-                    self.compare.as_ref().map_or_else(
-                        || "Compare revisions".into(),
-                        |(from, to)| format!("{from}  →  {to}"),
-                    )
-                }
-                Some(Target::RevisionAll) => self.history_commit.as_ref().map_or_else(
-                    || "All changes".into(),
-                    |oid| format!("{}  All changes", short(oid)),
-                ),
-                None => String::new(),
+        let composing = self.composing();
+        let canvas_path = match self.selected() {
+            _ if composing => String::new(),
+            Some(Target::Path(path, _)) | Some(Target::Comparison(path)) => {
+                path.display().to_string()
             }
-        };
-        let title = if composing {
-            "Commit contents"
-        } else {
-            match self.view.workspace {
-                Workspace::Worktrees => "Details",
-                Workspace::Operations => "Output",
-                _ => "Diff",
+            Some(Target::Worktree(_)) => String::new(),
+            Some(Target::Commit(oid)) => self
+                .snapshot
+                .commits
+                .iter()
+                .find(|commit| commit.oid == *oid)
+                .map_or_else(|| short(oid).into(), |commit| commit.subject.clone()),
+            Some(Target::Stash(name, _)) => name.clone(),
+            Some(Target::Branch(reference, _)) => reference.clone(),
+            Some(Target::RevisionAll) | None if self.view.workspace == Workspace::Compare => {
+                self.compare.as_ref().map_or_else(
+                    || "Compare revisions".into(),
+                    |(from, to)| format!("{from}  →  {to}"),
+                )
             }
-        };
-        let nav_title = if self.view.workspace == Workspace::Changes {
-            "File tree"
-        } else {
-            match self.view.workspace {
-                Workspace::History if self.history_commit.is_some() => "Files",
-                Workspace::History => "Commits",
-                Workspace::Branches => "References",
-                Workspace::Stashes => "Saved changes",
-                Workspace::Worktrees => "Directories",
-                Workspace::Compare => "Files",
-                Workspace::Operations => "Actions",
-                Workspace::Changes => unreachable!(),
-            }
+            Some(Target::RevisionAll) => self.history_commit.as_ref().map_or_else(
+                || "All changes".into(),
+                |oid| format!("{}  All changes", short(oid)),
+            ),
+            None => String::new(),
         };
         let diff_scope = (self.view.workspace == Workspace::Changes && !composing)
             .then(|| self.entries.get(self.view.selected)?.item.file_state)
@@ -170,11 +120,7 @@ impl App {
                 .get(self.view.selected)
                 .map_or(String::new(), |entry| entry.item.detail.clone())
         };
-        let operation = if let Some(pending) = self
-            .operation
-            .as_ref()
-            .filter(|pending| pending.started.elapsed() > Duration::from_millis(150))
-        {
+        let operation = if let Some(pending) = self.operation.as_ref() {
             Some(view::OperationView {
                 label: pending.label.clone(),
                 detail: "Running".into(),
@@ -206,18 +152,28 @@ impl App {
                     phase: 0,
                 })
         };
+        let toast = self.notification.as_ref().map(|notification| {
+            notification.view(ui_terminal::reduced_motion_requested(
+                "DOGIT_REDUCED_MOTION",
+            ))
+        });
         let data = RenderData {
-            mouse_capture: self.mouse_capture,
             repo: &repo,
             branch,
             ahead: self.snapshot.status.ahead,
             behind: self.snapshot.status.behind,
-            nav_title,
             items: &self.nav_items,
             nav_summary: Some(self.nav_summary),
             diff_counts: Some(self.diff_counts),
-            canvas_title: title,
             canvas_path: &canvas_path,
+            directory_scope: match self
+                .entries
+                .get(self.view.selected)
+                .map(|entry| &entry.target)
+            {
+                Some(Target::Path(path, true)) if !composing => Some(path.as_path()),
+                _ => None,
+            },
             diff_scope,
             canvas_subtitle: &subtitle,
             diff: self.diff.as_deref(),
@@ -227,6 +183,7 @@ impl App {
             canvas_lines: &self.text,
             structural: self.structural.as_deref(),
             operation: operation.as_ref(),
+            toast: toast.as_ref(),
             selected_lines: &self.marked,
         };
         let mut geometry = None;

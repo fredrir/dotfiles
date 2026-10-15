@@ -3,7 +3,13 @@ use super::*;
 impl App {
     pub(super) fn copy_text(&mut self, value: String) {
         self.clipboard_worker
-            .get_or_insert_with(Worker::default)
+            .get_or_insert_with(|| {
+                let mut worker = Worker::default();
+                if let Some(waker) = &self.waker {
+                    worker.set_waker(waker.clone());
+                }
+                worker
+            })
             .submit(move |_| {
                 let mut input = tempfile::tempfile().map_err(|error| error.to_string())?;
                 input
@@ -17,12 +23,13 @@ impl App {
                     &mut command,
                     hostkit::process::CaptureLimits::default(),
                     Duration::from_secs(5),
-                )
-                .map_err(|error| error.to_string())?;
-                if output.status.success() {
-                    Ok("Copied".into())
+                );
+                if output.is_ok_and(|output| output.status.success()) {
+                    Ok(None)
                 } else {
-                    Err("Clipboard is unavailable".into())
+                    // Standalone installs and remote sessions can copy through
+                    // the terminal even when dclip is unavailable.
+                    Ok(Some(value))
                 }
             });
     }

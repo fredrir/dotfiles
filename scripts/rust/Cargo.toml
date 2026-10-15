@@ -103,6 +103,7 @@ ui-theme = { path = "crates/ui/theme" }
 ui-widgets = { path = "crates/ui/widgets" }
 zsh-build = { path = "crates/zsh/build" }
 unicode-width = "0.2"
+unicode-segmentation = "1.13"
 similar = "2"
 sysinfo_backend = { package = "sysinfo", version = "0.39.6", default-features = false }
 

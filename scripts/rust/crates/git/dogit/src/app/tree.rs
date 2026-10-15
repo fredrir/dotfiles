@@ -4,6 +4,7 @@ use super::*;
 struct Node {
     directory: bool,
     state: view::FileState,
+    children: Vec<PathBuf>,
 }
 
 impl App {
@@ -22,9 +23,20 @@ impl App {
         let query = self.query.to_lowercase();
         let mut tree = BTreeMap::<PathBuf, Node>::new();
         let mut summary = view::NavSummary::default();
+        let mut root: Option<PathBuf> = None;
         for path in paths {
             if !query.is_empty() && !path.to_string_lossy().to_lowercase().contains(&query) {
                 continue;
+            }
+            let parent = path.parent().unwrap_or(Path::new(""));
+            if let Some(root) = &mut root {
+                while !parent.starts_with(&root) {
+                    if !root.pop() {
+                        break;
+                    }
+                }
+            } else {
+                root = Some(parent.to_owned());
             }
             let status = statuses.get(path);
             let state = view::FileState {
@@ -37,66 +49,72 @@ impl App {
             summary.staged += usize::from(state.staged);
             summary.unstaged += usize::from(state.unstaged);
             merge_state(&mut tree.entry(path.to_owned()).or_default().state, state);
-            for parent in path
-                .ancestors()
-                .skip(1)
-                .filter(|path| !path.as_os_str().is_empty())
-            {
+            for parent in path.ancestors().skip(1) {
                 let node = tree.entry(parent.to_owned()).or_default();
                 node.directory = true;
                 merge_state(&mut node.state, state);
             }
         }
-        let mut entries: Vec<Entry> = tree
-            .into_iter()
-            .filter(|(path, _)| {
-                !query.is_empty()
-                    || !path
-                        .ancestors()
-                        .skip(1)
-                        .any(|parent| self.collapsed.contains(parent))
-            })
-            .map(|(path, mut node)| {
-                node.state.expanded =
-                    node.directory && (!query.is_empty() || !self.collapsed.contains(&path));
-                let status = statuses.get(path.as_path());
-                let code = if node.state.conflicted {
-                    "U".into()
-                } else if node.directory {
-                    String::new()
-                } else {
-                    status.map_or_else(String::new, |entry| {
-                        if entry.untracked {
-                            "new".into()
-                        } else if entry.unstaged() {
-                            entry.worktree.to_string()
-                        } else {
-                            entry.index.to_string()
-                        }
-                    })
-                };
-                Entry {
-                    item: NavItem {
-                        label: path
-                            .file_name()
-                            .unwrap_or(path.as_os_str())
-                            .to_string_lossy()
-                            .into_owned(),
-                        status: code,
-                        depth: path.components().count().saturating_sub(1),
-                        kind: if node.directory {
-                            NavKind::Folder
-                        } else {
-                            NavKind::File
-                        },
-                        staged: node.state.staged,
-                        file_state: Some(node.state),
-                        ..Default::default()
-                    },
-                    target: Target::Path(path, node.directory),
+        let root = root.unwrap_or_default();
+        tree.entry(root.clone()).or_default().directory = true;
+        let paths: Vec<_> = tree.keys().cloned().collect();
+        for path in paths {
+            if let Some(parent) = path.parent()
+                && let Some(node) = tree.get_mut(parent)
+            {
+                node.children.push(path);
+            }
+        }
+        let mut entries = Vec::new();
+        let mut pending = vec![(root.clone(), root.clone(), 0)];
+        while let Some((mut path, parent, depth)) = pending.pop() {
+            // Collapse chains of directories, but keep files as distinct rows.
+            while let Some(node) = tree.get(&path) {
+                if node.children.len() != 1 || !tree[&node.children[0]].directory {
+                    break;
                 }
-            })
-            .collect();
+                path = node.children[0].clone();
+            }
+            let node = &tree[&path];
+            let mut state = node.state;
+            state.expanded =
+                node.directory && (!query.is_empty() || !self.collapsed.contains(&path));
+            let label = if depth == 0 {
+                if path.as_os_str().is_empty() {
+                    self.repo
+                        .root
+                        .file_name()
+                        .unwrap_or(self.repo.root.as_os_str())
+                } else {
+                    path.as_os_str()
+                }
+            } else {
+                path.strip_prefix(&parent).unwrap_or(&path).as_os_str()
+            };
+            entries.push(Entry {
+                item: NavItem {
+                    label: label.to_string_lossy().into_owned(),
+                    depth,
+                    kind: if node.directory {
+                        NavKind::Folder
+                    } else {
+                        NavKind::File
+                    },
+                    staged: state.staged,
+                    file_state: Some(state),
+                    ..Default::default()
+                },
+                target: Target::Path(path.clone(), node.directory),
+            });
+            if state.expanded {
+                pending.extend(
+                    node.children
+                        .iter()
+                        .rev()
+                        .map(|child| (child.clone(), path.clone(), depth + 1)),
+                );
+            }
+        }
         let items: Vec<_> = entries.iter().map(|entry| entry.item.clone()).collect();
         for (entry, prefix) in entries.iter_mut().zip(view::tree_prefixes(&items)) {
             entry.item.graph = prefix;
@@ -111,15 +129,7 @@ impl App {
     }
 
     pub(super) fn align_diff_side(&mut self) {
-        if self.view.workspace != Workspace::Changes
-            || matches!(
-                self.dialog,
-                Some(Dialog::Input {
-                    prompt: Prompt::Compose,
-                    ..
-                })
-            )
-        {
+        if self.view.workspace != Workspace::Changes || self.composing() {
             return;
         }
         if let Some(state) = self.selected_file_state() {

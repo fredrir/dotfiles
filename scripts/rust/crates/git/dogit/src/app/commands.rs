@@ -14,6 +14,7 @@ impl App {
         self.snapshot_pending = false;
         self.content_worker.invalidate();
         self.content_pending = false;
+        self.notification = None;
         let repo = self.repo.clone();
         self.prepare_worker.submit(move |_| work(repo));
         self.operation = Some(PendingOperation {
@@ -45,6 +46,7 @@ impl App {
             .iter()
             .filter(|entry| {
                 (entry.path == *path || (*directory && entry.path.starts_with(path)))
+                    && self.matches(&entry.path.to_string_lossy())
                     && if staged {
                         entry.staged()
                     } else {
@@ -65,7 +67,7 @@ impl App {
         match action {
             Action::Changes => self.workspace(Workspace::Changes), Action::History => self.workspace(Workspace::History),
             Action::Branches => self.workspace(Workspace::Branches), Action::Stashes => self.workspace(Workspace::Stashes),
-            Action::Worktrees => self.workspace(Workspace::Worktrees), Action::Operations => self.workspace(Workspace::Operations),
+            Action::Worktrees => self.workspace(Workspace::Worktrees),
             Action::Compare => {
                 self.dialog = Some(Dialog::Input { prompt: Prompt::CompareFrom, title: "Compare from revision".into(), value: self.compare.as_ref().map_or_else(|| "HEAD~1".into(), |(from, _)| from.clone()) });
             }
@@ -79,6 +81,25 @@ impl App {
                     if editor.is_empty() { return Err("No editor configured".into()); }
                     Ok(Prepared::Editor(editor, path))
                 });
+            }
+            Action::ToggleStageAll if self.view.workspace == Workspace::Changes => {
+                self.prepare("Toggle all staging", |repo| {
+                    let status = repo.status().map_err(|error| error.to_string())?;
+                    let stage = status.entries.iter().any(|entry| entry.unstaged() || entry.unmerged);
+                    let paths: Vec<_> = status.entries.iter().filter(|entry| {
+                        if stage { entry.unstaged() || entry.unmerged } else { entry.staged() }
+                    }).map(|entry| entry.path.clone()).collect();
+                    let commands = if paths.is_empty() { Vec::new() } else {
+                        vec![if stage { repo.stage(&paths) } else { repo.unstage(&paths) }.map_err(|error| error.to_string())?]
+                    };
+                    Ok(Prepared::Commands(commands))
+                });
+            }
+            Action::ToggleStage if self.view.workspace == Workspace::Changes => {
+                if let Some(state) = self.selected_file_state() {
+                    let action = if state.unstaged { Action::StageFile } else { Action::UnstageFile };
+                    return self.action(action, terminal, signals);
+                }
             }
             Action::Stage | Action::Unstage | Action::StageFile | Action::UnstageFile if self.view.workspace == Workspace::Changes => {
                 if self.operation.is_some() { self.note("Finish the current operation first"); return Ok(()); }
@@ -97,6 +118,7 @@ impl App {
                         let Some(row) = self.row_map.get(self.view.diff_cursor) else { return Ok(()); };
                         Selection::Hunk(row.hunk)
                     } else { Selection::Lines(self.marked.iter().copied().collect()) };
+                    self.notification = None;
                     self.operation = Some(PendingOperation { label: if unstage { "Unstage selection" } else { "Stage selection" }.into(), started: Instant::now() });
                     self.mutation_worker.submit(move |_| { diff.apply(&selection)?; Ok(if unstage { "Selection unstaged" } else { "Selection staged" }.into()) });
                 } else {
@@ -105,8 +127,15 @@ impl App {
                     self.command(if unstage { "Unstage files" } else { "Stage files" }, move |repo| if unstage { repo.unstage(&paths) } else { repo.stage(&paths) });
                 }
             }
+            Action::Compose => {
+                self.workspace(Workspace::Changes);
+                self.dialog = Some(Dialog::Compose { editor: ui_widgets::EditorBuffer::default() });
+                self.view.editor_offset = 0;
+                self.side = DiffSide::Index;
+                self.view.focus = Focus::Canvas;
+                self.load_content(true);
+            },
             Action::Commit => self.command("Commit", |repo| repo.commit(None, false)),
-            Action::Compose => { self.workspace(Workspace::Changes); self.dialog = Some(Dialog::Input { prompt: Prompt::Compose, title: "Commit".into(), value: String::new() }); self.side = DiffSide::Index; self.view.focus = Focus::Canvas; self.load_content(true); },
             Action::Amend => self.dialog = Some(Dialog::Confirm { action, target: self.snapshot.status.oid.clone().map(Target::Commit), title: "Amend last commit".into(), detail: "Replace the last commit with the staged changes and an edited message. Published history will change.".into(), discard: None, abort: None, scroll: 0 }),
             Action::Fetch => self.command("Fetch", |repo| Ok(repo.fetch())),
             Action::Pull => self.command("Pull", |repo| Ok(repo.pull())),
@@ -154,6 +183,8 @@ impl App {
             }
             Action::ToggleFiles if self.view.workspace == Workspace::Changes => { self.all_files = !self.all_files; self.rebuild(); self.load_content(true); },
             Action::ToggleSide if self.view.workspace == Workspace::Changes => { self.select_diff_side(if self.side == DiffSide::Index { DiffSide::Worktree } else { DiffSide::Index }); },
+            Action::ShowStaged => self.select_diff_side(DiffSide::Index),
+            Action::ShowUnstaged => self.select_diff_side(DiffSide::Worktree),
             Action::ToggleStructural => { self.structure_enabled = !self.structure_enabled; self.load_content(true); },
             Action::ToggleSplit => { self.view.split = !self.view.split; self.split_override = Some(self.view.split); self.update_rows(); self.load_content(false); },
             Action::Copy => {
@@ -298,18 +329,44 @@ impl App {
             return Ok(());
         };
         if key.code == KeyCode::Esc {
-            if matches!(
-                dialog,
-                Dialog::Input {
-                    prompt: Prompt::Compose,
-                    ..
-                }
-            ) {
+            if matches!(dialog, Dialog::Compose { .. }) {
                 self.load_content(true);
             }
             return Ok(());
         }
         match &mut dialog {
+            Dialog::Compose { editor } => {
+                if editor::copy_key(key) {
+                    if key.kind != KeyEventKind::Repeat
+                        && let Some(selection) = editor.selection()
+                    {
+                        self.copy_text(editor.as_str()[selection].to_owned());
+                    }
+                    self.dialog = Some(dialog);
+                    return Ok(());
+                }
+                let submit = key.modifiers.is_empty() && key.code == KeyCode::Enter;
+                if submit {
+                    if key.kind == KeyEventKind::Repeat || editor.as_str().trim().is_empty() {
+                        self.dialog = Some(dialog);
+                        return Ok(());
+                    }
+                    if self.operation.is_some() {
+                        self.note("Finish the current operation first");
+                        self.dialog = Some(dialog);
+                        return Ok(());
+                    }
+                    let value = editor.as_str().to_owned();
+                    self.command("Commit", move |repo| repo.commit(Some(&value), false));
+                    return Ok(());
+                }
+                let width = self
+                    .geometry
+                    .as_ref()
+                    .and_then(|geometry| geometry.editor)
+                    .map_or(72, |area| usize::from(area.width));
+                editor::edit_key(editor, key, width);
+            }
             Dialog::Confirm { scroll, detail, .. }
                 if matches!(
                     key.code,
@@ -325,7 +382,7 @@ impl App {
                     .geometry
                     .as_ref()
                     .map_or(ratatui::layout::Rect::new(1, 6, 78, 20), |geometry| {
-                        geometry.body
+                        geometry.overlay_bounds
                     });
                 let maximum = view::confirmation_scroll_max(detail, body);
                 *scroll = match key.code {
@@ -406,13 +463,7 @@ impl App {
                 }
             }
             Dialog::Input { prompt, value, .. } => {
-                let compose = matches!(prompt, Prompt::Compose);
-                let submit = (key.code == KeyCode::Enter
-                    && (!compose || key.modifiers.contains(KeyModifiers::CONTROL)))
-                    || (compose
-                        && key.code == KeyCode::Char('s')
-                        && key.modifiers.contains(KeyModifiers::CONTROL));
-                if submit {
+                if key.code == KeyCode::Enter {
                     if self.operation.is_some()
                         && !matches!(
                             prompt,
@@ -429,13 +480,6 @@ impl App {
                             self.query = value;
                             self.rebuild();
                             self.load_content(true);
-                        }
-                        Prompt::Compose if !value.trim().is_empty() => {
-                            self.command("Commit", move |repo| repo.commit(Some(&value), false))
-                        }
-                        Prompt::Compose => {
-                            self.dialog = Some(dialog);
-                            return Ok(());
                         }
                         Prompt::Branch => self.command("Create branch", move |repo| {
                             repo.create_branch(&value, None)
@@ -489,7 +533,6 @@ impl App {
                     return Ok(());
                 }
                 match key.code {
-                    KeyCode::Enter if compose => value.push('\n'),
                     KeyCode::Backspace => {
                         value.pop();
                     }

@@ -6,12 +6,13 @@ pub enum Action {
     Stashes,
     Worktrees,
     Compare,
-    Operations,
     Edit,
     Stage,
     Unstage,
     StageFile,
     UnstageFile,
+    ToggleStage,
+    ToggleStageAll,
     Commit,
     Compose,
     Amend,
@@ -33,6 +34,8 @@ pub enum Action {
     Discard,
     ToggleFiles,
     ToggleSide,
+    ShowStaged,
+    ShowUnstaged,
     ToggleStructural,
     ToggleSplit,
     Copy,
@@ -82,11 +85,6 @@ pub const ACTIONS: &[Definition] = &[
         key: "",
     },
     Definition {
-        action: Action::Operations,
-        label: "Operation history",
-        key: "",
-    },
-    Definition {
         action: Action::Edit,
         label: "Edit file or directory",
         key: "e",
@@ -94,12 +92,22 @@ pub const ACTIONS: &[Definition] = &[
     Definition {
         action: Action::Stage,
         label: "Stage selected file, hunk, or lines",
-        key: "s",
+        key: "s (tree)",
     },
     Definition {
         action: Action::Unstage,
         label: "Unstage selected file, hunk, or lines",
-        key: "u",
+        key: "u (tree)",
+    },
+    Definition {
+        action: Action::ShowStaged,
+        label: "Show staged diff",
+        key: "s (diff)",
+    },
+    Definition {
+        action: Action::ShowUnstaged,
+        label: "Show unstaged diff",
+        key: "u (diff)",
     },
     Definition {
         action: Action::StageFile,
@@ -110,6 +118,16 @@ pub const ACTIONS: &[Definition] = &[
         action: Action::UnstageFile,
         label: "Unstage whole selected file or directory",
         key: "U",
+    },
+    Definition {
+        action: Action::ToggleStage,
+        label: "Toggle staging for selected file or directory",
+        key: "Space (tree)",
+    },
+    Definition {
+        action: Action::ToggleStageAll,
+        label: "Toggle staging for all repository changes",
+        key: "Shift+Space",
     },
     Definition {
         action: Action::Commit,

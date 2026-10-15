@@ -202,14 +202,8 @@ impl DiffPaint {
                 buffer,
             );
         }
-        let mut content = chunk.clone();
-        if selected {
-            for span in &mut content.spans {
-                span.style = span.style.add_modifier(Modifier::BOLD);
-            }
-        }
         let horizontal = if self.horizontal { horizontal } else { 0 };
-        Paragraph::new(content)
+        Paragraph::new(chunk.clone())
             .scroll((0, horizontal.min(usize::from(u16::MAX)) as u16))
             .render(
                 Rect::new(

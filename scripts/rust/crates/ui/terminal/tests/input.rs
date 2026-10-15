@@ -190,3 +190,44 @@ fn wait_reports_a_resize_while_the_terminal_sits_idle() {
     drop(master);
     assert_eq!(status.code(), Some(0), "{status:?}");
 }
+
+#[test]
+fn background_work_wakes_a_blocked_wait_and_notifications_coalesce() {
+    const TEST: &str = "background_work_wakes_a_blocked_wait_and_notifications_coalesce";
+    const MARKER: &str = "UI_INPUT_WAKE_CHILD";
+    if std::env::var_os(MARKER).is_some() {
+        let (_session, input) = attached();
+        let wake = input.waker();
+        let worker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            for _ in 0..1000 {
+                wake.wake();
+            }
+        });
+        let start = Instant::now();
+        assert!(matches!(
+            input.wait(Duration::from_secs(5)).unwrap(),
+            Waited::Idle
+        ));
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "worker result waited for the polling timeout"
+        );
+        worker.join().unwrap();
+        input.wait(Duration::ZERO).unwrap();
+        let start = Instant::now();
+        assert!(matches!(
+            input.wait(Duration::from_millis(150)).unwrap(),
+            Waited::Idle
+        ));
+        assert!(
+            start.elapsed() >= Duration::from_millis(100),
+            "wake notifications were not drained"
+        );
+        std::process::exit(0);
+    }
+    let (master, mut child) = ready_child(TEST, MARKER);
+    let status = ended(&mut child, "background work never woke the terminal");
+    drop(master);
+    assert_eq!(status.code(), Some(0), "{status:?}");
+}

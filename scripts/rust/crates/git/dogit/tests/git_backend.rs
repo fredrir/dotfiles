@@ -129,6 +129,7 @@ fn literal_paths_cannot_select_siblings_or_become_options() {
 
 #[cfg(unix)]
 #[test]
+#[cfg(not(target_os = "macos"))]
 fn non_utf8_paths_round_trip_through_status_staging_and_file_list() {
     use std::os::unix::ffi::OsStringExt;
     let fixture = Fixture::new();
@@ -404,6 +405,7 @@ fn worktree_paths_with_newlines_round_trip_and_use_worktree_git_directory() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let worktree = fs::canonicalize(worktree).unwrap();
     assert!(
         fixture
             .repo

@@ -14,8 +14,10 @@ mod imp {
 
     use std::cell::Cell;
     use std::fs::{File, OpenOptions};
-    use std::io::{self, IsTerminal};
+    use std::io::{self, IsTerminal, Read, Write};
     use std::os::fd::{AsFd, BorrowedFd};
+    use std::os::unix::net::UnixStream;
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     use crossterm::event::{self, Event};
@@ -30,6 +32,18 @@ mod imp {
     enum Source {
         Stdin(io::Stdin),
         Device(File),
+    }
+
+    /// Wakes an input wait when background work is ready. Notifications coalesce.
+    #[derive(Clone)]
+    pub struct InputWake(Arc<UnixStream>);
+
+    impl InputWake {
+        pub fn wake(&self) {
+            // A full socket already holds a notification; a closed one means
+            // the input owner has exited. Neither should block a worker.
+            let _ = (&*self.0).write(&[1]);
+        }
     }
 
     /// Terminal input that notices its descriptor going away.
@@ -47,6 +61,8 @@ mod imp {
     /// the case a hangup usually arrives in.
     pub struct Input {
         source: Source,
+        wake_reader: UnixStream,
+        waker: InputWake,
         /// Whether crossterm may still be holding events it has already
         /// parsed. It serves those from its own queue without touching the
         /// descriptor, and one read can yield several.
@@ -71,8 +87,13 @@ mod imp {
         /// a terminal closing during it would strand the very first wait. Get
         /// that out of the way here, while the terminal is known to be alive.
         fn primed(source: Source) -> io::Result<Self> {
+            let (wake_reader, wake_writer) = UnixStream::pair()?;
+            wake_reader.set_nonblocking(true)?;
+            wake_writer.set_nonblocking(true)?;
             let input = Self {
                 source,
+                wake_reader,
+                waker: InputWake(Arc::new(wake_writer)),
                 queued: Cell::new(false),
                 measured: Cell::new(None),
             };
@@ -83,6 +104,10 @@ mod imp {
             Ok(input)
         }
 
+        pub fn waker(&self) -> InputWake {
+            self.waker.clone()
+        }
+
         fn descriptor(&self) -> BorrowedFd<'_> {
             match &self.source {
                 Source::Stdin(stdin) => stdin.as_fd(),
@@ -90,12 +115,27 @@ mod imp {
             }
         }
 
-        fn revents(&self, timeout: PollTimeout) -> io::Result<PollFlags> {
-            let mut watched = [PollFd::new(self.descriptor(), PollFlags::POLLIN)];
-            match poll(&mut watched, timeout) {
+        fn revents(&self, timeout: PollTimeout, wake: bool) -> io::Result<PollFlags> {
+            let mut watched = [
+                PollFd::new(self.descriptor(), PollFlags::POLLIN),
+                PollFd::new(self.wake_reader.as_fd(), PollFlags::POLLIN),
+            ];
+            let count = if wake { 2 } else { 1 };
+            match poll(&mut watched[..count], timeout) {
                 Ok(0) | Err(nix::errno::Errno::EINTR) => return Ok(PollFlags::empty()),
                 Err(error) => return Err(error.into()),
                 Ok(_) => {}
+            }
+            if wake
+                && watched[1]
+                    .revents()
+                    .is_some_and(|flags| flags.contains(PollFlags::POLLIN))
+            {
+                let mut bytes = [0; 256];
+                while (&self.wake_reader)
+                    .read(&mut bytes)
+                    .is_ok_and(|size| size > 0)
+                {}
             }
             Ok(watched[0].revents().unwrap_or_else(PollFlags::empty))
         }
@@ -116,7 +156,7 @@ mod imp {
 
         /// Whether the terminal has gone away, answered without waiting.
         pub fn hung_up(&self) -> io::Result<bool> {
-            let flags = self.revents(PollTimeout::ZERO)?;
+            let flags = self.revents(PollTimeout::ZERO, false)?;
             if flags.intersects(LOST) {
                 return Ok(true);
             }
@@ -145,7 +185,7 @@ mod imp {
 
                 let left = deadline.saturating_duration_since(Instant::now());
                 let timeout = PollTimeout::try_from(left).unwrap_or(PollTimeout::MAX);
-                let ready = self.revents(timeout)?;
+                let ready = self.revents(timeout, true)?;
                 if ready.intersects(LOST) {
                     return Ok(Waited::HangUp);
                 }
@@ -176,30 +216,55 @@ mod imp {
 #[cfg(not(unix))]
 mod imp {
     use super::Waited;
-
-    use std::io;
-    use std::time::Duration;
-
     use crossterm::event;
+    use std::io;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::time::{Duration, Instant};
 
-    pub struct Input;
+    #[derive(Clone)]
+    pub struct InputWake(Arc<AtomicBool>);
+
+    impl InputWake {
+        pub fn wake(&self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    pub struct Input {
+        wake: InputWake,
+    }
 
     impl Input {
         pub fn new() -> io::Result<Self> {
-            Ok(Self)
+            Ok(Self {
+                wake: InputWake(Arc::new(AtomicBool::new(false))),
+            })
         }
-
+        pub fn waker(&self) -> InputWake {
+            self.wake.clone()
+        }
         pub fn hung_up(&self) -> io::Result<bool> {
             Ok(false)
         }
-
         pub fn wait(&self, timeout: Duration) -> io::Result<Waited> {
-            if event::poll(timeout)? {
-                return Ok(Waited::Event(event::read()?));
+            let deadline = Instant::now() + timeout;
+            loop {
+                if self.wake.0.swap(false, Ordering::AcqRel) {
+                    return Ok(Waited::Idle);
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if event::poll(remaining.min(Duration::from_millis(8)))? {
+                    return Ok(Waited::Event(event::read()?));
+                }
+                if Instant::now() >= deadline {
+                    return Ok(Waited::Idle);
+                }
             }
-            Ok(Waited::Idle)
         }
     }
 }
 
-pub use imp::Input;
+pub use imp::{Input, InputWake};

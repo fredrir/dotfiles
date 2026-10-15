@@ -9,6 +9,7 @@ struct Job<T> {
     generation: u64,
     cancel: Arc<AtomicBool>,
     work: Work<T>,
+    wake: Option<ui_terminal::InputWake>,
 }
 
 /// One running read and at most one replacement. Results from old selections
@@ -19,6 +20,7 @@ pub struct Worker<T> {
     output: Receiver<(u64, T)>,
     cancel: Arc<AtomicBool>,
     generation: u64,
+    wake: Option<ui_terminal::InputWake>,
 }
 
 impl<T: Send + 'static> Default for Worker<T> {
@@ -32,10 +34,13 @@ impl<T: Send + 'static> Default for Worker<T> {
                     continue;
                 }
                 let value = (job.work)(Arc::clone(&job.cancel));
-                if !job.cancel.load(Ordering::Acquire)
-                    && results.send((job.generation, value)).is_err()
-                {
-                    break;
+                if !job.cancel.load(Ordering::Acquire) {
+                    if results.send((job.generation, value)).is_err() {
+                        break;
+                    }
+                    if let Some(wake) = job.wake {
+                        wake.wake();
+                    }
                 }
             }
         });
@@ -45,11 +50,16 @@ impl<T: Send + 'static> Default for Worker<T> {
             output,
             cancel: Arc::new(AtomicBool::new(false)),
             generation: 0,
+            wake: None,
         }
     }
 }
 
 impl<T: Send + 'static> Worker<T> {
+    pub fn set_waker(&mut self, wake: ui_terminal::InputWake) {
+        self.wake = Some(wake);
+    }
+
     pub fn submit(&mut self, work: impl FnOnce(Arc<AtomicBool>) -> T + Send + 'static) {
         self.invalidate();
         let _ = self.waiting.try_recv();
@@ -57,6 +67,7 @@ impl<T: Send + 'static> Worker<T> {
             generation: self.generation,
             cancel: Arc::clone(&self.cancel),
             work: Box::new(work),
+            wake: self.wake.clone(),
         };
         let _ = self.sender.try_send(job);
     }

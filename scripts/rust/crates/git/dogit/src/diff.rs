@@ -38,6 +38,7 @@ pub struct DiffLine {
 pub struct Hunk {
     pub header: String,
     pub path: String,
+    pub file_path: PathBuf,
     pub lines: Vec<DiffLine>,
     old_start: usize,
     new_start: usize,
@@ -201,13 +202,20 @@ impl ExactDiff {
         side: DiffSide,
         cancel: Option<&AtomicBool>,
     ) -> Result<Self, String> {
-        validate_path(path)?;
+        if !path.as_os_str().is_empty() {
+            validate_path(path)?;
+        }
+        let pathspec = if path.as_os_str().is_empty() {
+            OsStr::new(".")
+        } else {
+            path.as_os_str()
+        };
         let reader = Reader { root, cancel };
         let mut args = diff_args();
         if side == DiffSide::Index {
             args.push("--cached".into());
         }
-        args.extend([OsString::from("--"), path.as_os_str().to_owned()]);
+        args.extend([OsString::from("--"), pathspec.to_owned()]);
         let mut raw = reader.git(args)?;
         if side == DiffSide::Worktree {
             let untracked = reader.git([
@@ -216,7 +224,7 @@ impl ExactDiff {
                 OsStr::new("--exclude-standard"),
                 OsStr::new("-z"),
                 OsStr::new("--"),
-                path.as_os_str(),
+                pathspec,
             ])?;
             let started = std::time::Instant::now();
             for bytes in untracked
@@ -776,9 +784,62 @@ impl Drop for IndexLock {
     }
 }
 
+fn patch_file_path(raw: &[u8]) -> Option<PathBuf> {
+    let raw = raw.strip_suffix(b"\n").unwrap_or(raw);
+    if raw == b"/dev/null" {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    if raw.first() == Some(&b'"') {
+        let mut input = raw[1..].iter().copied();
+        while let Some(byte) = input.next() {
+            match byte {
+                b'"' => break,
+                b'\\' => {
+                    let escaped = input.next()?;
+                    let decoded = match escaped {
+                        b'a' => 7,
+                        b'b' => 8,
+                        b't' => b'\t',
+                        b'n' => b'\n',
+                        b'v' => 11,
+                        b'f' => 12,
+                        b'r' => b'\r',
+                        b'\\' | b'"' => escaped,
+                        b'0'..=b'3' => {
+                            let second = input.next()?.checked_sub(b'0').filter(|b| *b < 8)?;
+                            let third = input.next()?.checked_sub(b'0').filter(|b| *b < 8)?;
+                            (escaped - b'0') * 64 + second * 8 + third
+                        }
+                        _ => return None,
+                    };
+                    bytes.push(decoded);
+                }
+                _ => bytes.push(byte),
+            }
+        }
+    } else {
+        bytes.extend(raw.split(|byte| *byte == b'\t').next()?);
+    }
+    let bytes = bytes
+        .strip_prefix(b"a/")
+        .or_else(|| bytes.strip_prefix(b"b/"))?
+        .to_vec();
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        Some(PathBuf::from(OsString::from_vec(bytes)))
+    }
+    #[cfg(not(unix))]
+    {
+        Some(PathBuf::from(String::from_utf8_lossy(&bytes).into_owned()))
+    }
+}
+
 fn parse_hunks(raw: &[u8]) -> Result<Vec<Hunk>, String> {
     let mut hunks: Vec<Hunk> = Vec::new();
     let mut path = String::new();
+    let mut file_path = PathBuf::new();
     let mut old_line = 0;
     let mut new_line = 0;
     let mut id = 0;
@@ -787,6 +848,14 @@ fn parse_hunks(raw: &[u8]) -> Result<Vec<Hunk>, String> {
     for line in raw.split_inclusive(|byte| *byte == b'\n') {
         if line.starts_with(b"diff --git ") {
             path = String::from_utf8_lossy(line).trim_end().to_owned();
+            file_path.clear();
+        } else if remaining_old == 0
+            && remaining_new == 0
+            && (line.starts_with(b"--- ") || line.starts_with(b"+++ "))
+        {
+            if let Some(parsed) = patch_file_path(&line[4..]) {
+                file_path = parsed;
+            }
         } else if line.starts_with(b"@@ ") {
             let header = String::from_utf8_lossy(line).trim_end().to_owned();
             let mut ranges = header.split_whitespace().skip(1);
@@ -801,6 +870,7 @@ fn parse_hunks(raw: &[u8]) -> Result<Vec<Hunk>, String> {
             hunks.push(Hunk {
                 header,
                 path: path.clone(),
+                file_path: file_path.clone(),
                 lines: Vec::new(),
                 old_start,
                 new_start,

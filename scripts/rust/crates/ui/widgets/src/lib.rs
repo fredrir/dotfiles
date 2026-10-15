@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
+mod editor;
 mod search;
 mod text;
 mod viewport;
 
+pub use editor::{EditMotion, EditorBuffer, EditorLayout, EditorRow, cell_width};
 pub use search::{MatchMode, SearchIndex, SearchText};
 pub use text::{Line, PromptBuffer, Span};
 pub use ui_theme::Role;

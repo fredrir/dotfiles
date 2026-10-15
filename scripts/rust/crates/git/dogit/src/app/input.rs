@@ -1,6 +1,25 @@
 use super::*;
 
 impl App {
+    pub(super) fn batchable_input(&self, waited: &ui_terminal::Waited) -> bool {
+        match waited {
+            ui_terminal::Waited::Event(Event::Mouse(MouseEvent {
+                kind:
+                    MouseEventKind::Moved
+                    | MouseEventKind::ScrollUp
+                    | MouseEventKind::ScrollDown
+                    | MouseEventKind::ScrollLeft
+                    | MouseEventKind::ScrollRight,
+                ..
+            })) => true,
+            ui_terminal::Waited::Event(Event::Key(key)) if self.composing() => {
+                key.code != KeyCode::Esc
+                    && !(key.modifiers.is_empty() && key.code == KeyCode::Enter)
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn available_actions(
         &self,
         query: &str,
@@ -13,8 +32,12 @@ impl App {
                     | Action::Unstage
                     | Action::StageFile
                     | Action::UnstageFile
+                    | Action::ToggleStage
+                    | Action::ToggleStageAll
                     | Action::Discard
                     | Action::ToggleFiles
+                    | Action::ShowStaged
+                    | Action::ShowUnstaged
                     | Action::ToggleSide => self.view.workspace == Workspace::Changes,
                     Action::StashApply | Action::StashPop | Action::StashDrop => {
                         matches!(self.selected(), Some(Target::Stash(..)))
@@ -49,18 +72,38 @@ impl App {
         terminal: &mut Option<crate::session::Session>,
         signals: &mut Option<ui_terminal::SignalGuard>,
     ) -> Result<(), String> {
+        if key.kind == KeyEventKind::Release {
+            return Ok(());
+        }
         self.dirty = true;
-        if key.code == KeyCode::Char('h') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        if key.code == KeyCode::Char('h') && key.modifiers == KeyModifiers::CONTROL {
             key.code = KeyCode::Backspace;
         }
         if self.dialog.is_some() {
             return self.dialog_key(key, terminal, signals);
         }
+        if key.code == KeyCode::Esc && self.notification.take().is_some() {
+            return Ok(());
+        }
+        if self.view.workspace == Workspace::Changes && self.view.focus == Focus::Navigator {
+            if key.modifiers == KeyModifiers::SUPER
+                && matches!(key.code, KeyCode::Up | KeyCode::Down)
+            {
+                self.move_to_edge(key.code == KeyCode::Down);
+                return Ok(());
+            }
+            if key.code == KeyCode::Char(' ') && key.modifiers == KeyModifiers::SHIFT {
+                if key.kind != KeyEventKind::Repeat {
+                    return self.action(Action::ToggleStageAll, terminal, signals);
+                }
+                return Ok(());
+            }
+        }
         if let KeyCode::Char(character) = key.code {
             if character.is_ascii_digit() && !(key.modifiers - KeyModifiers::SHIFT).is_empty() {
                 return Ok(());
             }
-            if (key.modifiers - KeyModifiers::SHIFT).is_empty() && ('1'..='7').contains(&character)
+            if (key.modifiers - KeyModifiers::SHIFT).is_empty() && ('1'..='6').contains(&character)
             {
                 self.workspace(Workspace::ALL[(character as u8 - b'1') as usize]);
                 return Ok(());
@@ -171,13 +214,15 @@ impl App {
                 }
             }
             KeyCode::Enter => return self.enter(terminal, signals),
-            KeyCode::Char(' ') => {
+            KeyCode::Char(' ') if (key.modifiers - KeyModifiers::SHIFT).is_empty() => {
                 if self.view.focus == Focus::Canvas {
                     self.mark_current(false);
                 } else if matches!(self.selected(), Some(Target::Commit(_))) {
                     return self.action(Action::PinCommit, terminal, signals);
-                } else if matches!(self.selected(), Some(Target::Path(_, true))) {
-                    self.toggle_folder();
+                } else if self.view.workspace == Workspace::Changes
+                    && key.kind != KeyEventKind::Repeat
+                {
+                    return self.action(Action::ToggleStage, terminal, signals);
                 }
             }
             KeyCode::Char('[')
@@ -194,6 +239,21 @@ impl App {
                 return self.action(Action::FollowChild, terminal, signals);
             }
             KeyCode::Char(']') => self.jump_hunk(true),
+            KeyCode::Char(character @ ('s' | 'u'))
+                if self.view.workspace == Workspace::Changes
+                    && self.view.focus == Focus::Canvas
+                    && key.modifiers.is_empty() =>
+            {
+                return self.action(
+                    if character == 's' {
+                        Action::ShowStaged
+                    } else {
+                        Action::ShowUnstaged
+                    },
+                    terminal,
+                    signals,
+                );
+            }
             KeyCode::Char(character) => {
                 let action = match character {
                     'e' => Some(Action::Edit),
@@ -436,12 +496,11 @@ impl App {
                 self.rebuild();
             }
             Some(Target::Path(path, _)) => {
-                if let Some(parent) = path.parent()
-                    && let Some(index) = self
-                        .entries
+                if let Some(index) = path.ancestors().skip(1).find_map(|parent| {
+                    self.entries
                         .iter()
                         .position(|entry| entry.target == Target::Path(parent.to_owned(), true))
-                {
+                }) {
                     self.view.selected = index;
                     self.load_content(true);
                 }
@@ -616,10 +675,10 @@ impl App {
     }
 
     pub(super) fn paste(&mut self, text: &str) {
-        if let Some(Dialog::Input { value, prompt, .. }) = &mut self.dialog {
-            value.extend(text.chars().filter(|character| {
-                !character.is_control() || (matches!(prompt, Prompt::Compose) && *character == '\n')
-            }));
+        if let Some(Dialog::Compose { editor }) = &mut self.dialog {
+            editor.paste(text);
+        } else if let Some(Dialog::Input { value, .. }) = &mut self.dialog {
+            value.extend(text.chars().filter(|character| !character.is_control()));
         } else if let Some(Dialog::Actions { query, selected }) = &mut self.dialog {
             query.extend(text.chars().filter(|character| !character.is_control()));
             *selected = 0;

@@ -591,11 +591,7 @@ fn highlight_builtin(
     for hunk in &diff.hunks {
         cancelled(cancel)?;
         let path = if diff.path.as_os_str().is_empty() {
-            hunk.path
-                .rsplit(" b/")
-                .next()
-                .unwrap_or(&hunk.path)
-                .trim_matches('"')
+            hunk.file_path.to_str().unwrap_or("")
         } else {
             diff.path.to_str().unwrap_or("")
         };

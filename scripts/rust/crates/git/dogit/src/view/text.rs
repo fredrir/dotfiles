@@ -133,7 +133,6 @@ fn parse_ansi_line(text: &str, preserve_colors: bool, tab_width: usize) -> Line<
             while index < codes.len() {
                 match codes[index] {
                     0 => current = style(Role::Plain),
-                    1 => current = current.add_modifier(Modifier::BOLD),
                     3 => current = current.add_modifier(Modifier::ITALIC),
                     4 => current = current.add_modifier(Modifier::UNDERLINED),
                     7 if preserve_colors => current = current.add_modifier(Modifier::REVERSED),

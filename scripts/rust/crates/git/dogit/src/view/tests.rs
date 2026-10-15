@@ -2,7 +2,6 @@ use super::*;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::time::{Duration, Instant};
 
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -19,21 +18,6 @@ fn draw(
         .draw(|frame| geometry = render(frame, state, data))
         .unwrap();
     (terminal.backend().buffer().clone(), geometry)
-}
-
-fn draw_tabs_at(
-    state: &mut ViewState,
-    now: Instant,
-    reduced_motion: bool,
-) -> (Buffer, Vec<(Workspace, Rect)>) {
-    let mut terminal = Terminal::new(TestBackend::new(120, 4)).unwrap();
-    let mut tabs = Vec::new();
-    terminal
-        .draw(|frame| {
-            tabs = chrome::render_tabs_at(frame, frame.area(), state, now, reduced_motion);
-        })
-        .unwrap();
-    (terminal.backend().buffer().clone(), tabs)
 }
 
 fn text(buffer: &Buffer) -> String {
@@ -56,9 +40,17 @@ fn assert_terminal_background_except_badge(buffer: &Buffer) {
         for x in buffer.area.x..buffer.area.right() {
             let cell = &buffer[(x, y)];
             if cell.bg != Color::Reset {
-                assert_eq!(
-                    y,
-                    buffer.area.bottom() - 1,
+                assert!(
+                    y >= buffer.area.bottom().saturating_sub(2)
+                        || (y == 2
+                            && [
+                                style(Role::DiffAdded),
+                                style(Role::DiffRemoved),
+                                file_side_style(DiffSide::Index),
+                                file_side_style(DiffSide::Worktree),
+                            ]
+                            .map(|appearance| chrome::badge_style(appearance, color_depth()).bg)
+                            .contains(&Some(cell.bg))),
                     "unexpected background at {x},{y}"
                 );
             }
@@ -134,7 +126,6 @@ fn resize_preserves_selection_and_reveals_the_focused_pane() {
         repo: "dogit",
         branch: "main",
         items: &items,
-        canvas_title: "Selected patch",
         ..RenderData::default()
     };
     let mut state = ViewState {
@@ -168,6 +159,8 @@ fn very_small_terminals_and_dialogs_do_not_panic_or_escape_the_buffer() {
     let data = RenderData {
         repo: "repository",
         branch: "feature/long-branch",
+        ahead: 12,
+        behind: 3,
         items: &items,
         ..RenderData::default()
     };
@@ -291,8 +284,8 @@ fn selected_diff_lines_retain_their_semantic_color_and_terminal_background() {
         (geometry.canvas.x..geometry.canvas.right()).map(|x| &buffer[(x, geometry.canvas.y + row)]);
     assert!(cells.any(|cell| cell.symbol() == "n"
         && cell.fg == palette().foreground(Role::DiffAdded).ratatui()
-        && cell.modifier.contains(Modifier::BOLD)));
-    assert!(buffer.content.iter().all(|cell| cell.bg == Color::Reset));
+        && !cell.modifier.contains(Modifier::BOLD)));
+    assert_terminal_background_except_badge(&buffer);
     assert!(
         buffer
             .content
@@ -347,7 +340,7 @@ fn structural_output_cannot_change_background_or_inject_terminal_controls() {
         ..RenderData::default()
     };
     let (buffer, _) = draw(110, 25, &mut ViewState::default(), &data);
-    assert!(buffer.content.iter().all(|cell| cell.bg == Color::Reset));
+    assert_terminal_background_except_badge(&buffer);
     assert!(!text(&buffer).contains("ignored"));
     assert!(!text(&buffer).contains("52;c"));
 }
@@ -396,46 +389,6 @@ fn loading_and_directory_selection_do_not_claim_the_working_tree_is_clean() {
 }
 
 #[test]
-fn composer_keeps_staged_patch_visible_and_places_empty_body_cursor_correctly() {
-    let (_root, diff) = diff_fixture();
-    let data = RenderData {
-        diff: Some(&diff),
-        ..RenderData::default()
-    };
-    let mut state = ViewState {
-        overlay: Some(Overlay::Compose {
-            summary: "Review changes".into(),
-            body: String::new(),
-            body_started: false,
-        }),
-        ..ViewState::default()
-    };
-    let mut terminal = Terminal::new(TestBackend::new(130, 36)).unwrap();
-    terminal
-        .draw(|frame| {
-            render(frame, &mut state, &data);
-        })
-        .unwrap();
-    let summary_cursor = terminal.get_cursor_position().unwrap();
-    let contents = text(terminal.backend().buffer());
-    assert!(contents.contains("fn main()"));
-    assert!(contents.contains("Ctrl+S  Create commit"));
-    state.overlay = Some(Overlay::Compose {
-        summary: "Review changes".into(),
-        body: String::new(),
-        body_started: true,
-    });
-    terminal
-        .draw(|frame| {
-            render(frame, &mut state, &data);
-        })
-        .unwrap();
-    let body_cursor = terminal.get_cursor_position().unwrap();
-    assert_eq!(body_cursor.y, summary_cursor.y + 2);
-    assert!(body_cursor.x < summary_cursor.x);
-}
-
-#[test]
 fn sixteen_color_terminals_keep_semantic_colors_distinct() {
     let foregrounds = [
         Role::Plain,
@@ -472,7 +425,7 @@ fn confirmation_exposes_the_last_scoped_file_and_consequences_when_scrolled() {
     assert!(text(&first).contains("src/file-00.rs"));
     assert!(!text(&first).contains("src/file-29.rs"));
     assert!(text(&first).contains(" / 33"));
-    let maximum = confirmation_scroll_max(&detail, geometry.body);
+    let maximum = confirmation_scroll_max(&detail, geometry.overlay_bounds);
     assert!(maximum > 0 && maximum < 33);
     state.overlay = Some(Overlay::Confirm {
         title: "Discard selected changes".into(),
@@ -549,47 +502,118 @@ fn every_active_tab_remains_visible_and_clickable_at_narrow_widths() {
 }
 
 #[test]
-fn selection_hint_remains_visible_with_overlays_long_metadata_and_small_terminals() {
-    for mouse_capture in [
-        ui_terminal::MouseCapture::Disabled,
-        ui_terminal::MouseCapture::Enabled,
+fn changes_counts_replace_hints_and_hide_zero_or_redundant_totals() {
+    for (items, staged, unstaged, expected) in [
+        (0, 0, 0, ""),
+        (4, 4, 0, "4 Staged"),
+        (4, 0, 4, "4 Unstaged"),
+        (6, 2, 4, "6 Files  2 Staged  4 Unstaged"),
+        (1, 1, 1, "1 File  1 Staged  1 Unstaged"),
     ] {
-        for width in [20, 39, 60, 80, 100, 124] {
-            let operation = OperationView {
-                label: "long operation ".repeat(20),
-                ..OperationView::default()
-            };
+        for width in [60, 124] {
             for overlay in [
                 None,
                 Some(Overlay::Input {
                     title: "Search".into(),
                     value: "123".into(),
-                    detail: String::new(),
                 }),
             ] {
-                let mut state = ViewState {
-                    overlay,
-                    ..ViewState::default()
-                };
                 let data = RenderData {
-                    mouse_capture,
-                    repo: "long repository name",
-                    branch: "long/branch/name/with/details",
-                    operation: Some(&operation),
+                    nav_summary: Some(NavSummary {
+                        items,
+                        staged,
+                        unstaged,
+                        ..NavSummary::default()
+                    }),
                     ..RenderData::default()
                 };
-                let (buffer, _) = draw(width, 25, &mut state, &data);
-                let footer = area_text(&buffer, Rect::new(0, 24, width, 1));
+                let (buffer, geometry) = draw(
+                    width,
+                    25,
+                    &mut ViewState {
+                        overlay,
+                        nav_width: 60,
+                        ..ViewState::default()
+                    },
+                    &data,
+                );
+                let footer = area_text(&buffer, geometry.nav_footer);
+                assert_eq!(
+                    footer.split_whitespace().collect::<Vec<_>>().join(" "),
+                    expected.split_whitespace().collect::<Vec<_>>().join(" ")
+                );
+                assert!(!text(&buffer).contains("Shift+drag"));
+                assert!(!text(&buffer).contains("Tab panes"));
+                assert!(!area_text(&buffer, geometry.nav).contains("Staged"));
+            }
+        }
+    }
+}
+
+#[test]
+fn files_badge_shares_the_repository_identity_style() {
+    let data = RenderData {
+        repo: "dotfiles",
+        nav_summary: Some(NavSummary {
+            items: 6,
+            staged: 2,
+            unstaged: 1,
+            ..NavSummary::default()
+        }),
+        ..RenderData::default()
+    };
+    let (buffer, geometry) = draw(120, 25, &mut ViewState::default(), &data);
+    let footer = area_text(&buffer, Rect::new(0, 24, 120, 1));
+    let files_x = footer.find("6 Files").unwrap() as u16;
+    let repo_x = footer.find("Dotfiles").unwrap() as u16;
+    let identity = chrome::identity_style("dotfiles");
+    for x in files_x..files_x + "6 Files".len() as u16 {
+        let cell = &buffer[(x, 24)];
+        let badge = &buffer[(repo_x, 24)];
+        assert_eq!(cell.bg, badge.bg, "{x}");
+        assert_eq!(cell.fg, badge.fg, "{x}");
+        assert_eq!(cell.bg, identity.bg.unwrap(), "{x}");
+        assert_eq!(cell.fg, identity.fg.unwrap(), "{x}");
+        assert!(cell.modifier.contains(Modifier::BOLD));
+    }
+    assert_ne!(buffer[(files_x, 24)].bg, Color::Reset);
+    assert!(geometry.nav_footer.y == 24);
+}
+
+#[test]
+fn every_badge_glyph_renders_bold() {
+    let data = RenderData {
+        nav_summary: Some(NavSummary {
+            items: 6,
+            staged: 2,
+            unstaged: 4,
+            ..NavSummary::default()
+        }),
+        ..RenderData::default()
+    };
+    for width in [60, 120] {
+        let (buffer, geometry) = draw(width, 25, &mut ViewState::default(), &data);
+        let footer = area_text(&buffer, geometry.nav_footer);
+        assert!(footer.contains("2 Staged") && footer.contains("4 Unstaged"));
+        for x in geometry.nav_footer.x..geometry.nav_footer.right() {
+            let cell = &buffer[(x, geometry.nav_footer.y)];
+            if !cell.symbol().trim().is_empty() {
                 assert!(
-                    footer.contains(if mouse_capture == ui_terminal::MouseCapture::Enabled {
-                        "Shift+drag"
-                    } else {
-                        "select"
-                    }),
-                    "{footer}"
+                    cell.modifier.contains(Modifier::BOLD),
+                    "{width}: {x} {:?}",
+                    cell.symbol()
                 );
             }
         }
+    }
+}
+
+#[test]
+fn pane_footer_has_no_separator_and_uses_the_freed_row_for_content() {
+    let (buffer, geometry) = draw(120, 30, &mut ViewState::default(), &RenderData::default());
+    assert_eq!(geometry.nav.bottom(), 29);
+    for x in 1..119 {
+        assert!(!["─", "├", "┤", "┼"].contains(&buffer[(x, 27)].symbol()));
     }
 }
 
@@ -608,8 +632,6 @@ fn metadata_stays_below_content_and_does_not_consume_its_first_row() {
     ];
     let data = RenderData {
         items: &items,
-        nav_title: "Working",
-        canvas_title: "main.rs",
         canvas_subtitle: "Index preview",
         diff: Some(&diff),
         ..RenderData::default()
@@ -621,18 +643,23 @@ fn metadata_stays_below_content_and_does_not_consume_its_first_row() {
             Rect::new(geometry.nav.x, geometry.nav.y, geometry.nav.width, 1),
         );
         assert!(first_row.contains("main.rs"));
-        assert!(!area_text(&buffer, geometry.nav).contains("2 files"));
+        assert!(!area_text(&buffer, geometry.nav).contains("2 Files"));
         assert!(!area_text(&buffer, geometry.canvas).contains("Index preview"));
         let metadata_y = (0..height)
             .find(|y| area_text(&buffer, Rect::new(0, *y, 120, 1)).contains("Index preview"))
             .unwrap();
         let metadata = area_text(&buffer, Rect::new(0, metadata_y, 120, 1));
-        assert!(metadata.contains("2 files"));
-        assert!(metadata.contains("+1") && metadata.contains("-2"));
+        assert!(area_text(&buffer, geometry.nav_footer).contains("2 Files"));
+        assert!(!metadata.contains("+1") && !metadata.contains("-2"));
+        let header = area_text(
+            &buffer,
+            Rect::new(geometry.canvas.x, geometry.body.y, geometry.canvas.width, 1),
+        );
+        assert!(header.contains("+1") && header.contains("-2"));
         assert!(metadata_y >= geometry.nav.bottom());
         assert!(metadata_y >= geometry.canvas.bottom());
         assert_eq!(
-            metadata_y + 2,
+            metadata_y + 1,
             height,
             "metadata and footer should share the bottom border"
         );
@@ -641,11 +668,7 @@ fn metadata_stays_below_content_and_does_not_consume_its_first_row() {
 
 #[test]
 fn tab_rule_spans_the_terminal_with_one_localized_active_segment() {
-    for workspace in [
-        Workspace::Changes,
-        Workspace::Stashes,
-        Workspace::Operations,
-    ] {
+    for workspace in [Workspace::Changes, Workspace::Stashes, Workspace::Compare] {
         let mut state = ViewState {
             workspace,
             ..ViewState::default()
@@ -687,25 +710,135 @@ fn repository_identity_stays_bottom_right_when_feedback_is_long() {
     for width in [60, 120] {
         let (buffer, geometry) = draw(width, 25, &mut ViewState::default(), &data);
         let footer = area_text(&buffer, Rect::new(0, 24, width, 1));
-        assert!(footer.contains("atlas"));
-        assert!(footer.contains("feature/canvas"));
+        assert!(footer.contains("Atlas"));
+        assert!(footer.contains("Feature/canvas"));
         assert!(!text(&buffer).contains("dogit"));
         assert!(geometry.body.bottom() <= 24);
-        let badge_cells = (0..width)
-            .filter(|x| buffer[(*x, 24)].bg != Color::Reset)
-            .collect::<Vec<_>>();
-        assert!(!badge_cells.is_empty());
-        assert!(badge_cells[0] >= width / 2);
-        assert_eq!(
-            badge_cells.len(),
-            usize::from(badge_cells.last().unwrap() - badge_cells[0] + 1)
-        );
-        let badge_text = badge_cells
-            .iter()
-            .map(|x| buffer[(*x, 24)].symbol())
-            .collect::<String>();
-        assert_eq!(badge_text.trim(), "atlas");
+        for (name, label) in [(data.branch, "Feature/canvas"), (data.repo, "Atlas")] {
+            let label_x = footer.find(label).unwrap() as u16;
+            let badge = Rect::new(label_x - 1, 24, label.len() as u16 + 2, 1);
+            assert!(badge.x >= width / 2);
+            assert_eq!(area_text(&buffer, badge), format!(" {label} "));
+            let appearance = chrome::identity_style(name);
+            for x in badge.x..badge.right() {
+                let cell = &buffer[(x, badge.y)];
+                assert_eq!(cell.bg, appearance.bg.unwrap());
+                assert_eq!(cell.fg, appearance.fg.unwrap());
+                assert!(cell.modifier.contains(Modifier::BOLD));
+            }
+            assert_eq!(buffer[(badge.right(), badge.y)].bg, Color::Reset);
+        }
         assert_terminal_background_except_badge(&buffer);
+    }
+}
+
+#[test]
+fn result_toasts_match_diff_badges_and_preserve_the_footer() {
+    for (failed, title, role) in [
+        (false, "Committed!", Role::DiffAdded),
+        (true, "Push failed", Role::DiffRemoved),
+    ] {
+        let toast = ToastView {
+            title,
+            detail: "remote rejected the update",
+            failed,
+            elapsed: std::time::Duration::from_secs(1),
+            reduced_motion: false,
+        };
+        let data = RenderData {
+            repo: "atlas",
+            branch: "main",
+            toast: Some(&toast),
+            ..RenderData::default()
+        };
+        let (buffer, _) = draw(120, 25, &mut ViewState::default(), &data);
+        let appearance = chrome::badge_style(style(role), color_depth());
+        let title_row = (0..buffer.area.height)
+            .find(|y| area_text(&buffer, Rect::new(0, *y, 120, 1)).contains(title))
+            .unwrap();
+        let title_cell = (0..buffer.area.width)
+            .map(|x| &buffer[(x, title_row)])
+            .find(|cell| cell.symbol() == &title[..1])
+            .unwrap();
+        assert_eq!(Some(title_cell.fg), appearance.fg);
+        assert_eq!(Some(title_cell.bg), appearance.bg);
+        assert!(title_cell.modifier.contains(Modifier::BOLD));
+        assert!(text(&buffer).contains(title));
+        assert_eq!(text(&buffer).contains("remote rejected"), failed);
+        assert_eq!(text(&buffer).contains("Esc dismiss"), failed);
+        let footer = area_text(&buffer, Rect::new(0, 24, 120, 1));
+        assert!(footer.contains("Main") && footer.contains("Atlas"));
+    }
+}
+
+#[test]
+fn toast_motion_settles_expires_and_respects_reduced_motion() {
+    use std::time::Duration;
+    let mut toast = ToastView {
+        title: "Pushed!",
+        detail: "",
+        failed: false,
+        elapsed: Duration::ZERO,
+        reduced_motion: false,
+    };
+    let baseline = Buffer::filled(Rect::new(0, 0, 80, 20), ratatui::buffer::Cell::new("·"));
+    let paint = |toast: &ToastView<'_>| {
+        let mut buffer = baseline.clone();
+        toast::render(&mut buffer, baseline.area, toast);
+        buffer
+    };
+    assert!(toast.animating());
+    assert_eq!(paint(&toast), baseline);
+    toast.elapsed = Duration::from_millis(70);
+    let entering = paint(&toast);
+    assert_ne!(entering, baseline);
+    toast.elapsed = Duration::from_millis(250);
+    assert!(!toast.animating());
+    let settled = paint(&toast);
+    assert_ne!(entering, settled);
+    assert!(text(&settled).contains("Pushed!"));
+    toast.elapsed = Duration::from_millis(4930);
+    assert!(toast.animating());
+    assert_ne!(paint(&toast), settled);
+    toast.elapsed = Duration::from_secs(5);
+    assert!(toast.expired());
+    assert_eq!(paint(&toast), baseline);
+
+    toast.reduced_motion = true;
+    for elapsed in [Duration::ZERO, Duration::from_millis(4999)] {
+        toast.elapsed = elapsed;
+        assert!(!toast.animating());
+        assert_eq!(paint(&toast), settled);
+    }
+    toast.failed = true;
+    toast.elapsed = Duration::from_secs(60);
+    assert!(!toast.expired());
+    assert!(text(&paint(&toast)).contains("Esc dismiss"));
+}
+
+#[test]
+fn toasts_clip_unicode_and_controls_in_small_or_offset_viewports() {
+    let toast = ToastView {
+        title: "Push 界 failed\u{1b}[2J",
+        detail: "remote: 拒否された\nsecond line\twith controls",
+        failed: true,
+        elapsed: std::time::Duration::from_secs(1),
+        reduced_motion: true,
+    };
+    for width in [0, 1, 4, 8, 16, 24, 80] {
+        for height in [0, 1, 4, 6, 20] {
+            let mut buffer = Buffer::empty(Rect::new(3, 5, width, height));
+            let area = buffer.area;
+            toast::render(&mut buffer, area, &toast);
+            assert!(!text(&buffer).chars().any(char::is_control));
+            if height > 0 {
+                assert!(
+                    area_text(&buffer, Rect::new(3, area.bottom() - 1, width, 1))
+                        .trim()
+                        .is_empty()
+                );
+            }
+        }
     }
 }
 
@@ -721,7 +854,6 @@ fn overlays_and_structural_output_preserve_the_terminal_background() {
         Overlay::Input {
             title: "Search".into(),
             value: "main".into(),
-            detail: String::new(),
         },
         Overlay::Commands {
             query: "sta".into(),
@@ -730,11 +862,6 @@ fn overlays_and_structural_output_preserve_the_terminal_background() {
                 ..NavItem::default()
             }],
             selected: 0,
-        },
-        Overlay::Compose {
-            summary: "Commit subject".into(),
-            body: "Commit body".into(),
-            body_started: true,
         },
         Overlay::Confirm {
             title: "Discard selected file".into(),
@@ -748,13 +875,16 @@ fn overlays_and_structural_output_preserve_the_terminal_background() {
             overlay: Some(overlay),
             ..ViewState::default()
         };
-        let (buffer, _) = draw(120, 35, &mut state, &data);
+        let (buffer, geometry) = draw(120, 35, &mut state, &data);
         assert_terminal_background_except_badge(&buffer);
+        for y in geometry.body.y..geometry.body.bottom() {
+            assert!((0..120).all(|x| !buffer[(x, y)].modifier.contains(Modifier::BOLD)));
+        }
     }
 }
 
 #[test]
-fn replacing_repository_identity_clears_its_previous_badge_background() {
+fn replacing_identity_badges_preserves_branch_color_and_clears_old_backgrounds() {
     let mut terminal = Terminal::new(TestBackend::new(120, 25)).unwrap();
     let mut state = ViewState::default();
     let mut data = RenderData {
@@ -767,15 +897,62 @@ fn replacing_repository_identity_clears_its_previous_badge_background() {
             render(frame, &mut state, &data);
         })
         .unwrap();
+    let main_color = {
+        let buffer = terminal.backend().buffer();
+        let footer = area_text(buffer, Rect::new(0, 24, 120, 1));
+        let cell = &buffer[(footer.find("Main").unwrap() as u16, 24)];
+        assert_ne!(cell.bg, Color::Reset);
+        (cell.fg, cell.bg)
+    };
     data.repo = "atlas";
-    terminal
-        .draw(|frame| {
-            render(frame, &mut state, &data);
-        })
-        .unwrap();
-    let (fresh, _) = draw(120, 25, &mut ViewState::default(), &data);
-    assert_eq!(terminal.backend().buffer(), &fresh);
+    for (ahead, behind) in [(3, 0), (0, 12), (3, 1234), (0, 0)] {
+        data.ahead = ahead;
+        data.behind = behind;
+        terminal
+            .draw(|frame| {
+                render(frame, &mut state, &data);
+            })
+            .unwrap();
+        let (fresh, _) = draw(120, 25, &mut ViewState::default(), &data);
+        assert_eq!(terminal.backend().buffer(), &fresh);
+        let footer = area_text(&fresh, Rect::new(0, 24, 120, 1));
+        let label_x = |label: &str| footer[..footer.find(label).unwrap()].width() as u16;
+        let cell = &fresh[(label_x("Main"), 24)];
+        assert_eq!((cell.fg, cell.bg), main_color);
+        assert!(!footer.contains("ahead") && !footer.contains("behind"));
+        assert_eq!(footer.contains(''), ahead > 0);
+        assert_eq!(footer.contains(''), behind > 0);
+        let mut next_x = label_x("Main") - 1;
+        assert_eq!(
+            label_x("Atlas") - label_x("Main"),
+            "Main".width() as u16 + 3
+        );
+        for (count, arrow, role) in [
+            (ahead, "", Role::DiffAdded),
+            (behind, "", Role::DiffRemoved),
+        ] {
+            if count == 0 {
+                continue;
+            }
+            let label = format!("{count} {arrow}");
+            let start = label_x(&label) - 1;
+            let end = start + label.width() as u16 + 2;
+            assert_eq!(end + 1, next_x);
+            assert_eq!(fresh[(end, 24)].bg, Color::Reset);
+            let appearance = chrome::badge_style(style(role), color_depth());
+            for x in start..end {
+                let cell = &fresh[(x, 24)];
+                assert_eq!(Some(cell.fg), appearance.fg);
+                assert_eq!(Some(cell.bg), appearance.bg);
+                assert!(cell.modifier.contains(Modifier::BOLD));
+            }
+            next_x = start;
+        }
+    }
     data.repo = "";
+    data.branch = "";
+    data.ahead = 0;
+    data.behind = 0;
     terminal
         .draw(|frame| {
             render(frame, &mut state, &data);
@@ -792,12 +969,12 @@ fn replacing_repository_identity_clears_its_previous_badge_background() {
 }
 
 #[test]
-fn repository_badges_are_stable_distinct_and_readable() {
+fn badges_keep_light_backgrounds_dark_matching_text_and_readable_contrast() {
     fn rgb(color: Color) -> [u8; 3] {
         match color {
             Color::Rgb(red, green, blue) => [red, green, blue],
             Color::Indexed(index) => ui_theme::Color::Ansi(index).rgb().unwrap(),
-            Color::Reset => panic!("repository badges require explicit contrasting colors"),
+            Color::Reset => panic!("identity badges require explicit contrasting colors"),
             other => {
                 let index = match other {
                     Color::Black => 0,
@@ -833,18 +1010,57 @@ fn repository_badges_are_stable_distinct_and_readable() {
         });
         channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
     }
-    let atlas = chrome::repository_style("atlas");
-    assert_eq!(atlas, chrome::repository_style("atlas"));
-    assert_ne!(atlas.bg, chrome::repository_style("dogit").bg);
-    for name in ["atlas", "dogit", "dotfiles", "client", "server", "配置"] {
-        let appearance = chrome::repository_style(name);
+    let assert_contrast = |appearance: Style| {
         let foreground = luminance(appearance.fg.unwrap());
         let background = luminance(appearance.bg.unwrap());
-        let contrast = (foreground.max(background) + 0.05) / (foreground.min(background) + 0.05);
-        assert!(
-            contrast >= 4.5,
-            "{name} has insufficient badge contrast: {contrast}"
-        );
+        assert!(background > foreground, "badge text must always be darker");
+        assert!(background >= 0.4, "badge background should be light");
+        let contrast = (background + 0.05) / (foreground + 0.05);
+        assert!(contrast >= 4.5, "{appearance:?} has contrast {contrast}");
+    };
+    let atlas = chrome::identity_style("atlas");
+    assert_eq!(atlas, chrome::identity_style("atlas"));
+    assert_ne!(atlas.bg, chrome::identity_style("dogit").bg);
+    for name in [
+        "atlas",
+        "dogit",
+        "dotfiles",
+        "client",
+        "server",
+        "配置",
+        "main",
+        "develop",
+        "feature/canvas",
+    ] {
+        let appearance = chrome::identity_style(name);
+        assert_contrast(appearance);
+    }
+    for depth in [
+        ColorDepth::TrueColor,
+        ColorDepth::Ansi256,
+        ColorDepth::Ansi16,
+    ] {
+        for (source, dominant) in [
+            (Color::Rgb(0x83, 0xdc, 0xa2), Some(1)),
+            (Color::Rgb(0x73, 0xc9, 0x91), Some(1)),
+            (Color::Rgb(0xff, 0x8c, 0x87), Some(0)),
+            (Color::Rgb(0xe5, 0xba, 0x7d), Some(0)),
+            (Color::Rgb(0xed, 0xf3, 0xf8), None),
+        ] {
+            let appearance = chrome::badge_style(Style::default().fg(source), depth);
+            assert_contrast(appearance);
+            if depth != ColorDepth::Ansi16
+                && let Some(dominant) = dominant
+            {
+                for color in [appearance.fg.unwrap(), appearance.bg.unwrap()] {
+                    let channels = rgb(color);
+                    assert!(
+                        channels[dominant] > channels[(dominant + 2) % 3],
+                        "{depth:?}: {source:?} lost its hue in {color:?}"
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -856,16 +1072,15 @@ fn divider_hover_has_a_five_cell_target_without_changing_pane_geometry() {
     let target = before.divider_hit.unwrap();
     assert_eq!(target.width, 5);
     assert_eq!(target.x + 2, x);
-    assert!(target.y <= before.body.y && target.bottom() >= before.body.bottom());
+    assert_eq!(target.y, before.body.y + 1);
+    assert_eq!(target.bottom(), before.body.bottom() - 1);
     state.divider_hovered = true;
     state.divider_hover_row = Some(before.body.y + 2);
     let (hovered, after) = draw(120, 30, &mut state, &RenderData::default());
     assert_eq!(before.nav, after.nav);
     assert_eq!(before.canvas, after.canvas);
     assert_eq!(before.divider_hit, after.divider_hit);
-    assert!(
-        (after.body.y..after.body.bottom()).all(|y| hovered[(x, y)].fg == foreground(Role::Accent))
-    );
+    assert!((target.y..target.bottom()).all(|y| hovered[(x, y)].fg == foreground(Role::Accent)));
     assert!(
         (after.body.y..after.body.bottom()).any(|y| {
             hovered[(x - 1, y)].symbol() != plain[(x - 1, y)].symbol()
@@ -910,7 +1125,14 @@ fn current_worktree_is_distinct_without_a_current_text_label() {
     let current = &buffer[(geometry.nav.x + 2, geometry.nav.y)];
     assert_eq!(current.symbol(), "a");
     assert_eq!(current.fg, foreground(Role::Accent));
-    assert!(current.modifier.contains(Modifier::BOLD));
+    assert!(!current.modifier.contains(Modifier::BOLD));
+    let footer = geometry.nav_footer;
+    for x in footer.x..footer.right() {
+        let cell = &buffer[(x, footer.y)];
+        if !cell.symbol().trim().is_empty() {
+            assert!(cell.modifier.contains(Modifier::BOLD));
+        }
+    }
     let selected = &buffer[(geometry.nav.x + 2, geometry.nav.y + 1)];
     assert_ne!(
         current.fg, selected.fg,
@@ -919,108 +1141,48 @@ fn current_worktree_is_distinct_without_a_current_text_label() {
 }
 
 #[test]
-fn resizing_during_a_tab_transition_keeps_its_indicator_in_the_visible_strip() {
+fn resizing_keeps_the_active_tab_in_the_visible_strip() {
     let mut state = ViewState::default();
     draw(120, 25, &mut state, &RenderData::default());
-    assert!(!state.animating());
-    state.workspace = Workspace::Operations;
+    state.workspace = Workspace::Compare;
     draw(120, 25, &mut state, &RenderData::default());
     let (buffer, geometry) = draw(39, 25, &mut state, &RenderData::default());
     let active = geometry
         .tabs
         .iter()
-        .find(|(workspace, _)| *workspace == Workspace::Operations)
+        .find(|(workspace, _)| *workspace == Workspace::Compare)
         .unwrap()
         .1;
     let underline = (active.x..active.right())
         .any(|x| buffer[(x, active.bottom() - 1)].fg == foreground(Role::Accent));
     assert!(
         underline,
-        "resizing must re-anchor the moving indicator to the visible active tab"
+        "resizing must anchor the indicator to the visible active tab"
     );
-    assert!(!state.animating());
-    assert!(area_text(&buffer, active).contains("Operations"));
+    assert!(area_text(&buffer, active).contains("Compare"));
 }
 
 #[test]
-fn tab_text_and_underline_transition_together_and_finish_quickly() {
-    let now = Instant::now();
+fn tabs_switch_label_and_underline_on_the_first_frame() {
     let mut state = ViewState::default();
-    let (initial, tabs) = draw_tabs_at(&mut state, now, false);
-    let old = tabs
-        .iter()
-        .find(|(workspace, _)| *workspace == Workspace::Changes)
-        .unwrap()
-        .1;
-    let new = tabs
-        .iter()
-        .find(|(workspace, _)| *workspace == Workspace::Operations)
-        .unwrap()
-        .1;
-    state.workspace = Workspace::Operations;
-    let (start, _) = draw_tabs_at(&mut state, now, false);
-    assert_eq!(
-        initial, start,
-        "label and indicator must both begin at the previous visual state"
-    );
-    assert!(state.animating());
-    let (middle, _) = draw_tabs_at(&mut state, now + Duration::from_millis(30), false);
-    let old_color = middle[(old.x + 1, old.y)].fg;
-    let new_color = middle[(new.x + 1, new.y)].fg;
-    assert_ne!(old_color, initial[(old.x + 1, old.y)].fg);
-    assert_ne!(new_color, initial[(new.x + 1, new.y)].fg);
-    let line_x = (0..120).find(|x| middle[(*x, 2)].symbol() == "━").unwrap();
-    assert!(line_x > old.x && line_x < new.x);
-    if let (Color::Rgb(plain, _, _), Color::Rgb(accent, _, _), Color::Rgb(current, _, _)) =
-        (foreground(Role::Plain), foreground(Role::Accent), new_color)
-    {
-        let color_progress =
-            (f64::from(current) - f64::from(plain)) / (f64::from(accent) - f64::from(plain));
-        let position_progress = f64::from(line_x - old.x) / f64::from(new.x - old.x);
-        assert!(
-            (color_progress - position_progress).abs() < 0.04,
-            "text and underline must use the same eased progress"
-        );
-    }
-    let (finished, _) = draw_tabs_at(&mut state, now + Duration::from_millis(90), false);
-    assert!(!state.animating());
-    assert_eq!(finished[(new.x + 1, new.y)].fg, foreground(Role::Accent));
-    assert_eq!(finished[(old.x + 1, old.y)].fg, foreground(Role::Plain));
-    assert_eq!(finished[(new.x, 2)].symbol(), "━");
-    let (idle, _) = draw_tabs_at(&mut state, now + Duration::from_secs(1), false);
-    assert_eq!(finished, idle);
-}
-
-#[test]
-fn interrupted_tab_motion_preserves_colors_and_reduced_motion_snaps_both() {
-    let now = Instant::now();
-    let mut state = ViewState::default();
-    draw_tabs_at(&mut state, now, false);
-    state.workspace = Workspace::Operations;
-    draw_tabs_at(&mut state, now, false);
-    let at = now + Duration::from_millis(25);
-    let (before, _) = draw_tabs_at(&mut state, at, false);
-    state.workspace = Workspace::History;
-    let (after, _) = draw_tabs_at(&mut state, at, false);
-    assert_eq!(
-        before, after,
-        "a new destination must not jump the current label colors or underline"
-    );
-    let (snapped, tabs) = draw_tabs_at(&mut state, at, true);
-    assert!(!state.animating());
-    for (workspace, rect) in tabs {
-        assert_eq!(
-            snapped[(rect.x + 1, rect.y)].fg,
-            foreground(if workspace == Workspace::History {
-                Role::Accent
-            } else {
-                Role::Plain
-            })
-        );
-        assert_eq!(
-            snapped[(rect.x, 2)].symbol() == "━",
-            workspace == Workspace::History
-        );
+    draw(120, 25, &mut state, &RenderData::default());
+    for workspace in Workspace::ALL {
+        state.workspace = workspace;
+        let (buffer, geometry) = draw(120, 25, &mut state, &RenderData::default());
+        for (tab, rect) in geometry.tabs {
+            assert_eq!(
+                buffer[(rect.x + 1, rect.y)].fg,
+                foreground(if tab == workspace {
+                    Role::Accent
+                } else {
+                    Role::Plain
+                })
+            );
+            assert_eq!(
+                buffer[(rect.x, rect.bottom() - 1)].symbol() == "━",
+                tab == workspace
+            );
+        }
     }
 }
 
@@ -1105,12 +1267,11 @@ fn connected_tree_distinguishes_staged_unstaged_and_mixed_without_duplicate_path
         },
     ];
     let prefixes = tree_prefixes(&items);
-    assert_eq!(prefixes, ["", "├─ ", "│  └─ ", "└─ ", ""]);
+    assert_eq!(prefixes, ["", "├─", "│ └─", "└─", ""]);
     for (item, prefix) in items.iter_mut().zip(prefixes) {
         item.graph = prefix;
     }
     let data = RenderData {
-        nav_title: "File tree",
         items: &items,
         ..RenderData::default()
     };
@@ -1123,20 +1284,16 @@ fn connected_tree_distinguishes_staged_unstaged_and_mixed_without_duplicate_path
     let text = area_text(&buffer, geometry.nav);
     assert_eq!(text.matches("main.rs").count(), 1);
     assert!(text.contains("▾ src") && text.contains("▸ tests"));
-    let side_x = geometry.nav.right() - 7;
-    assert_eq!(buffer[(side_x, geometry.nav.y + 3)].symbol(), "S");
-    assert_eq!(buffer[(side_x + 2, geometry.nav.y + 3)].symbol(), "U");
+    for row in text.lines() {
+        assert!(
+            !row.split_whitespace()
+                .any(|word| matches!(word, "S" | "U" | "M" | "A"))
+        );
+    }
+    let staged_x = geometry.nav.x + 2 + items[2].graph.width() as u16;
     assert_eq!(
-        buffer[(side_x, geometry.nav.y + 3)].fg,
+        buffer[(staged_x, geometry.nav.y + 2)].fg,
         file_side_style(DiffSide::Index).fg.unwrap()
-    );
-    assert_eq!(
-        buffer[(side_x + 2, geometry.nav.y + 3)].fg,
-        file_side_style(DiffSide::Worktree).fg.unwrap()
-    );
-    assert_eq!(
-        buffer[(side_x + 4, geometry.nav.y + 2)].fg,
-        foreground(Role::Plain)
     );
     assert_eq!(
         buffer[(geometry.nav.x, geometry.nav.y + 3)].fg,
@@ -1149,7 +1306,6 @@ fn connected_tree_distinguishes_staged_unstaged_and_mixed_without_duplicate_path
 fn diff_context_has_stable_title_path_and_scope_controls_outside_patch_hit_rows() {
     let (_root, diff) = diff_fixture();
     let data = RenderData {
-        canvas_title: "Diff",
         canvas_path: "src/main.rs",
         diff_scope: Some(DiffScope {
             side: DiffSide::Worktree,
@@ -1160,18 +1316,7 @@ fn diff_context_has_stable_title_path_and_scope_controls_outside_patch_hit_rows(
         ..RenderData::default()
     };
     let (buffer, geometry) = draw(140, 30, &mut ViewState::default(), &data);
-    assert!(
-        area_text(
-            &buffer,
-            Rect::new(
-                geometry.canvas.x,
-                geometry.body.y - 1,
-                geometry.canvas.width,
-                1
-            )
-        )
-        .contains("Diff")
-    );
+    assert!(!area_text(&buffer, geometry.canvas_footer).contains("Diff"));
     assert!(
         area_text(
             &buffer,
@@ -1293,7 +1438,7 @@ fn configured_diff_has_one_number_column_and_preserves_syntax_styles() {
 #[test]
 fn syntax_spans_keep_configured_emphasis_and_tab_stops_without_terminal_commands() {
     let line = syntax_line(
-        "a\x1b[38;2;123;67;201m\tb\x1b[48;2;45;25;25mX\x1b]52;c;secret\x07\x1b[2JZ",
+        "a\x1b[1;3;38;2;123;67;201m\tb\x1b[48;2;45;25;25mX\x1b]52;c;secret\x07\x1b[2JZ",
         4,
     );
     let content = line
@@ -1311,6 +1456,19 @@ fn syntax_spans_keep_configured_emphasis_and_tab_stops_without_terminal_commands
         )
     );
     assert!(!content.contains("secret") && !content.contains('\x1b'));
+    assert!(
+        line.spans
+            .last()
+            .unwrap()
+            .style
+            .add_modifier
+            .contains(Modifier::ITALIC)
+    );
+    assert!(
+        line.spans
+            .iter()
+            .all(|span| !span.style.add_modifier.contains(Modifier::BOLD))
+    );
 }
 
 #[test]
@@ -1373,13 +1531,21 @@ fn wrapped_split_rows_keep_source_ids_and_reflow_when_cached_width_is_stale() {
         1
     );
     assert_eq!(layout.rows.last().unwrap().right_line, Some(2));
+    let selected_lines = BTreeSet::from([0]);
     let data = RenderData {
         diff: Some(&diff),
         diff_rows: Some((&layout.rows, true, width)),
         diff_paint: Some(&layout.paint),
+        selected_lines: &selected_lines,
         ..RenderData::default()
     };
-    let (_, geometry) = draw(120, 30, &mut state, &data);
+    let (buffer, geometry) = draw(120, 30, &mut state, &data);
+    for y in geometry.canvas.y..geometry.canvas.bottom() {
+        assert!(
+            (geometry.canvas.x..geometry.canvas.right())
+                .all(|x| !buffer[(x, y)].modifier.contains(Modifier::BOLD))
+        );
+    }
     assert_eq!(
         geometry.line_ids,
         layout.rows.iter().map(|row| row.line).collect::<Vec<_>>()
@@ -1436,4 +1602,287 @@ fn predicted_canvas_width_matches_wide_and_compact_focus_geometry() {
             }
         }
     }
+}
+
+#[test]
+fn compact_tree_uses_available_width_and_resizing_recovers_scrolled_names() {
+    let mut items = vec![
+        NavItem {
+            label: "scripts/rust/crates/dclip".into(),
+            kind: ItemKind::Folder,
+            file_state: Some(FileState {
+                expanded: true,
+                ..FileState::default()
+            }),
+            ..NavItem::default()
+        },
+        NavItem {
+            label: "Cargo.toml".into(),
+            depth: 1,
+            file_state: Some(FileState::default()),
+            ..NavItem::default()
+        },
+        NavItem {
+            label: "src".into(),
+            kind: ItemKind::Folder,
+            depth: 1,
+            file_state: Some(FileState {
+                expanded: true,
+                ..FileState::default()
+            }),
+            ..NavItem::default()
+        },
+        NavItem {
+            label: "mode.rs".into(),
+            depth: 2,
+            file_state: Some(FileState::default()),
+            ..NavItem::default()
+        },
+    ];
+    let prefixes = tree_prefixes(&items);
+    for (item, prefix) in items.iter_mut().zip(prefixes) {
+        item.graph = prefix;
+    }
+    for width in [22, 28, 36, 60] {
+        let mut state = ViewState {
+            nav_horizontal: 100,
+            ..ViewState::default()
+        };
+        let area = Rect::new(0, 0, width, 5);
+        let mut buffer = Buffer::empty(area);
+        render_navigator(&mut buffer, area, &mut state, &items);
+        let rendered = area_text(&buffer, area);
+        assert!(rendered.contains("├─Cargo.toml"), "{rendered}");
+        assert!(rendered.contains("└─src/"), "{rendered}");
+        assert!(rendered.contains("  └─mode.rs"), "{rendered}");
+        if width >= 30 {
+            assert!(rendered.contains("scripts/rust/crates/dclip"), "{rendered}");
+            assert_eq!(state.nav_horizontal, 0);
+        }
+    }
+}
+
+#[test]
+fn all_workspaces_share_bottom_left_count_badges_without_outside_borders() {
+    for (workspace, badge) in [
+        (Workspace::Changes, "4 Staged"),
+        (Workspace::Branches, "13 Branches"),
+        (Workspace::History, "13 Commits"),
+        (Workspace::Stashes, "13 Stashes"),
+        (Workspace::Worktrees, "13 Worktrees"),
+        (Workspace::Compare, "13 Files"),
+    ] {
+        let data = RenderData {
+            nav_summary: Some(NavSummary {
+                items: if workspace == Workspace::Changes {
+                    4
+                } else {
+                    13
+                },
+                staged: 4,
+                has_commits: true,
+                ..NavSummary::default()
+            }),
+            ..RenderData::default()
+        };
+        for width in [60, 100, 140] {
+            let (buffer, geometry) = draw(
+                width,
+                25,
+                &mut ViewState {
+                    workspace,
+                    ..ViewState::default()
+                },
+                &data,
+            );
+            assert_eq!(geometry.body.y, 2);
+            assert!(
+                geometry
+                    .tabs
+                    .iter()
+                    .all(|(_, rect)| rect.y == 0 && rect.bottom() == geometry.body.y)
+            );
+            let footer = area_text(&buffer, geometry.nav_footer);
+            assert_eq!(geometry.nav_footer.y, 24);
+            assert_eq!(geometry.nav_footer.x, 0);
+            assert_eq!(geometry.nav.bottom(), 24);
+            assert_eq!(footer.trim(), badge);
+            assert!(footer.ends_with(&format!("{badge} ")), "{footer}");
+            assert!(
+                (geometry.nav_footer.x..geometry.nav_footer.right())
+                    .any(|x| buffer[(x, geometry.nav_footer.y)].bg != Color::Reset)
+            );
+            for y in geometry.body.y..geometry.body.bottom() {
+                assert_eq!(buffer[(0, y)].symbol(), " ");
+                assert_eq!(buffer[(width - 1, y)].symbol(), " ");
+            }
+            if let Some(x) = geometry.divider_x {
+                assert_eq!(buffer[(x, geometry.body.y)].symbol(), " ");
+                assert_eq!(buffer[(x, geometry.body.bottom() - 1)].symbol(), " ");
+                assert!(
+                    (geometry.body.y + 1..geometry.body.bottom() - 1)
+                        .all(|y| buffer[(x, y)].symbol() == "│")
+                );
+                assert!(!area_text(&buffer, geometry.canvas_footer).contains("Diff"));
+            }
+        }
+    }
+}
+
+#[test]
+fn directory_diff_headers_are_relative_and_preserve_quoted_file_identity() {
+    let (root, _) = diff_fixture();
+    let scope = Path::new("shared/wezterm");
+    let names = [
+        "core/init.lua",
+        "keymap/motion keys.lua",
+        "keymap/æ.lua",
+        "keymap/tab\tname.lua",
+        "deleted.lua",
+    ];
+    for name in names {
+        let path = root.path().join(scope).join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "old\n").unwrap();
+    }
+    git(root.path(), &["add", "."]);
+    git(
+        root.path(),
+        &["-c", "commit.gpgsign=false", "commit", "-qm", "Paths"],
+    );
+    for name in names {
+        let path = root.path().join(scope).join(name);
+        if name == "deleted.lua" {
+            fs::remove_file(path).unwrap();
+        } else {
+            fs::write(path, "new\n").unwrap();
+        }
+    }
+    let diff =
+        ExactDiff::directory_cancellable(root.path(), scope, DiffSide::Worktree, None).unwrap();
+    let raw = diff.raw.clone();
+    let paths: BTreeSet<_> = diff
+        .hunks
+        .iter()
+        .map(|hunk| hunk.file_path.clone())
+        .collect();
+    assert_eq!(
+        paths,
+        names.map(|name| scope.join(name)).into_iter().collect()
+    );
+    let data = RenderData {
+        canvas_path: "shared/wezterm",
+        directory_scope: Some(scope),
+        diff: Some(&diff),
+        ..RenderData::default()
+    };
+    let (buffer, geometry) = draw(150, 40, &mut ViewState::default(), &data);
+    let canvas = area_text(
+        &buffer,
+        Rect::new(
+            geometry.canvas.x,
+            geometry.body.y,
+            geometry.canvas.width,
+            geometry.body.height,
+        ),
+    );
+    assert_eq!(canvas.matches("shared/wezterm").count(), 1, "{canvas}");
+    assert!(
+        canvas.contains("core/init.lua") && canvas.contains("keymap/motion keys.lua"),
+        "{canvas}"
+    );
+    assert!(
+        canvas.contains("keymap/æ.lua") && canvas.contains("deleted.lua"),
+        "{canvas}"
+    );
+    assert_eq!(diff.raw, raw);
+}
+
+#[test]
+fn inline_composer_keeps_patch_visible_and_cursor_tracks_wrapping_scrolling_and_resize() {
+    let (_root, diff) = diff_fixture();
+    let data = RenderData {
+        diff: Some(&diff),
+        ..RenderData::default()
+    };
+    let mut state = ViewState::default();
+    let value = format!(
+        "Summary å\n\n{}\nlast 界e\u{301}👩‍💻",
+        "A long body with words. ".repeat(35)
+    );
+    let mut editor = ui_widgets::EditorBuffer::new(&value);
+    for width in [130, 80, 45, 110] {
+        let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+        let mut geometry = Geometry::default();
+        for _ in 0..2 {
+            state.overlay = Some(Overlay::Compose {
+                value: editor.as_str().into(),
+                cursor: editor.cursor(),
+                selection: editor.selection(),
+            });
+            terminal
+                .draw(|frame| {
+                    geometry = render(frame, &mut state, &data);
+                })
+                .unwrap();
+            let area = geometry.editor.unwrap();
+            let cursor = terminal.get_cursor_position().unwrap();
+            assert!(area.contains(cursor));
+            let contents = area_text(terminal.backend().buffer(), area);
+            // The buffer includes a blank continuation cell after the wide glyph.
+            assert!(contents.contains("last 界 e\u{301}👩‍💻"), "{contents}");
+            if width == 130 {
+                assert!(text(terminal.backend().buffer()).contains("fn main()"));
+            }
+            editor.move_cursor(ui_widgets::EditMotion::Left, false, usize::from(area.width));
+        }
+    }
+    editor.move_cursor(ui_widgets::EditMotion::Start, false, 80);
+    state.overlay = Some(Overlay::Compose {
+        value: editor.as_str().into(),
+        cursor: editor.cursor(),
+        selection: None,
+    });
+    let (buffer, geometry) = draw(130, 36, &mut state, &data);
+    assert!(area_text(&buffer, geometry.editor.unwrap()).contains("Summary å"));
+    assert_eq!(state.editor_offset, 0);
+    assert_terminal_background_except_badge(&buffer);
+}
+
+#[test]
+fn inline_selection_has_solid_highlights_for_text_tabs_and_newlines() {
+    let value = "ab\t界e\u{301}\n\nx";
+    let mut state = ViewState {
+        overlay: Some(Overlay::Compose {
+            value: value.into(),
+            cursor: value.len() - 1,
+            selection: Some(1..value.len() - 1),
+        }),
+        ..ViewState::default()
+    };
+    let (buffer, geometry) = draw(130, 36, &mut state, &RenderData::default());
+    let area = geometry.editor.unwrap();
+    for (x, y, selected) in [
+        (0, 0, false),
+        (1, 0, true),
+        (2, 0, true),
+        (3, 0, true),
+        (4, 0, true),
+        (6, 0, true),
+        (7, 0, true),
+        (0, 1, true),
+        (0, 2, false),
+    ] {
+        let cell = &buffer[(area.x + x, area.y + y)];
+        assert_eq!(
+            cell.modifier.contains(Modifier::REVERSED),
+            selected,
+            "{x},{y}"
+        );
+        assert!(!cell.modifier.contains(Modifier::UNDERLINED));
+        assert!(!cell.modifier.contains(Modifier::BOLD));
+    }
+    assert_eq!(buffer[(area.x, area.y + 2)].symbol(), "x");
+    assert!(!text(&buffer).contains("Ctrl+S"));
+    assert!(text(&buffer).contains("Ctrl+C"));
 }

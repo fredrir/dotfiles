@@ -195,12 +195,16 @@ pub(super) fn render_diff(
                 }
                 continue;
             }
-            let header = if diff.path.as_os_str().is_empty() && !hunk.path.is_empty() {
-                let path = hunk.path.rsplit(" b/").next().unwrap_or(&hunk.path);
+            let header = if new_file {
+                let path = data
+                    .directory_scope
+                    .and_then(|root| hunk.file_path.strip_prefix(root).ok())
+                    .unwrap_or(&hunk.file_path);
+                let path = safe_text(&path.to_string_lossy());
                 if config.hunk_headers {
-                    format!("{}   {}", path.trim_matches('"'), hunk.header.trim())
+                    format!("{path}   {}", hunk.header.trim())
                 } else {
-                    path.trim_matches('"').to_string()
+                    path
                 }
             } else {
                 hunk.header.trim().to_string()
@@ -361,12 +365,7 @@ fn draw_diff_line(
         ),
         buffer,
     );
-    let mut content = content_line(line, presentation, config);
-    if selected {
-        for span in &mut content.spans {
-            span.style = span.style.add_modifier(Modifier::BOLD);
-        }
-    }
+    let content = content_line(line, presentation, config);
     Paragraph::new(content)
         .scroll((0, horizontal.min(usize::from(u16::MAX)) as u16))
         .render(

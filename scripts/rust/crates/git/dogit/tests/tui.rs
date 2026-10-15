@@ -11,6 +11,7 @@ use testkit::executable;
 use testkit::pty::{open_pty, read_available, stdio, take_controlling_terminal, terminal_state};
 
 const KEYBOARD_PUSH: &[u8] = b"\x1b[>1u";
+const TREE_KEYBOARD_PUSH: &[u8] = b"\x1b[>15u";
 const KEYBOARD_POP: &[u8] = b"\x1b[<1u";
 
 struct Fixture {
@@ -23,6 +24,7 @@ impl Fixture {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("repo");
         fs::create_dir(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
         let fixture = Self { directory, root };
         fixture.git(&["init", "-q", "-b", "main"]);
         fixture.git(&["config", "user.name", "Dogit integration"]);
@@ -119,6 +121,7 @@ impl Fixture {
             child,
             master,
             output: Vec::new(),
+            parser: vt100::Parser::new(34, 124, 0),
             initial_flags: [
                 before.c_iflag as u64,
                 before.c_oflag as u64,
@@ -148,20 +151,48 @@ struct Terminal {
     child: Child,
     master: File,
     output: Vec<u8>,
+    parser: vt100::Parser,
     initial_flags: [u64; 3],
 }
 
 impl Terminal {
-    fn send(&mut self, keys: &[u8]) -> usize {
-        read_available(&self.master, &mut self.output, 0);
+    fn read(&mut self, timeout: i32) {
         let start = self.output.len();
-        self.master.write_all(keys).unwrap();
+        read_available(&self.master, &mut self.output, timeout);
+        self.parser.process(&self.output[start..]);
+    }
+
+    fn send(&mut self, keys: &[u8]) -> usize {
+        self.read(0);
+        let start = self.output.len();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut remaining = keys;
+        while !remaining.is_empty() {
+            match self.master.write(remaining) {
+                Ok(0) => panic!("terminal closed while sending input"),
+                Ok(written) => remaining = &remaining[written..],
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "terminal stopped accepting input"
+                    );
+                    self.read(1);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => panic!("sending terminal input: {error}"),
+            }
+        }
         start
     }
 
     fn wait_for(&mut self, text: &str, from: usize) {
         self.wait_until(
-            |terminal| String::from_utf8_lossy(&terminal.output[from..]).contains(text),
+            |terminal| {
+                String::from_utf8_lossy(&terminal.output[from..]).contains(text)
+                    || (terminal.output.len() > from
+                        && !text.contains('\x1b')
+                        && terminal.parser.screen().contents().contains(text))
+            },
             text,
         );
     }
@@ -169,7 +200,7 @@ impl Terminal {
     fn wait_until(&mut self, mut condition: impl FnMut(&Self) -> bool, description: &str) {
         let deadline = Instant::now() + Duration::from_secs(8);
         loop {
-            read_available(&self.master, &mut self.output, 20);
+            self.read(20);
             if condition(self) {
                 return;
             }
@@ -189,7 +220,7 @@ impl Terminal {
     fn settle(&mut self) {
         let until = Instant::now() + Duration::from_millis(120);
         while Instant::now() < until {
-            read_available(&self.master, &mut self.output, 20);
+            self.read(20);
         }
     }
 
@@ -231,7 +262,7 @@ impl Terminal {
         self.send(keys);
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            read_available(&self.master, &mut self.output, 20);
+            self.read(20);
             if let Some(status) = self.child.try_wait().unwrap() {
                 assert!(status.success(), "{}", self.transcript());
                 break;
@@ -264,7 +295,20 @@ impl Terminal {
                 .count()
         };
         assert!(occurrences(KEYBOARD_PUSH) > 0);
-        assert_eq!(occurrences(KEYBOARD_PUSH), occurrences(KEYBOARD_POP));
+        assert_eq!(
+            occurrences(KEYBOARD_PUSH) + occurrences(TREE_KEYBOARD_PUSH),
+            occurrences(KEYBOARD_POP)
+        );
+        let on = b"\x1b]1337;SetUserVar=APP_SELECTION=MQ==\x07";
+        let off = b"\x1b]1337;SetUserVar=APP_SELECTION=MA==\x07";
+        if let Some(selected) = self.output.windows(on.len()).rposition(|bytes| bytes == on) {
+            assert!(
+                self.output[selected..]
+                    .windows(off.len())
+                    .any(|bytes| bytes == off),
+                "selection must not stay active after dogit exits"
+            );
+        }
     }
 }
 
@@ -280,7 +324,7 @@ fn startup_palette_history_and_quit_restore_terminal() {
     let fixture = Fixture::new();
     fixture.commit("main.rs", b"fn main() {}\n");
     let mut terminal = fixture.open(&[]);
-    terminal.wait_for("main", 0);
+    terminal.wait_for("Main", 0);
     let start = terminal.send(b"\x10");
     terminal.wait_for("Commands", start);
     terminal.send(b"history\r");
@@ -292,7 +336,7 @@ fn startup_palette_history_and_quit_restore_terminal() {
 }
 
 #[test]
-fn ordinary_text_drag_does_not_invoke_clipboard_or_mutate_git_or_operation_history() {
+fn ordinary_text_drag_does_not_invoke_clipboard_or_mutate_git() {
     let fixture = Fixture::new();
     fixture.commit("file", b"original\n");
     fixture.write("file", b"working changes stay untouched\n");
@@ -347,12 +391,7 @@ fn ordinary_text_drag_does_not_invoke_clipboard_or_mutate_git_or_operation_histo
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
     assert_eq!(fixture.git(&["write-tree"]), index);
     assert_eq!(fs::read(fixture.root.join("file")).unwrap(), worktree);
-    assert!(
-        fixture.saved_state()["operations"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert!(fixture.saved_state().get("operations").is_none());
 }
 
 #[test]
@@ -367,14 +406,7 @@ fn mouse_capture_defaults_on_and_the_choice_survives_editor_handoff() {
         let start = terminal.send(b"e");
         terminal.wait_for("DOGIT_EDITOR_FINISHED", start);
         terminal.handoff_finished(start);
-        terminal.wait_for(
-            if controls {
-                "Shift+drag selects"
-            } else {
-                "Native text selection"
-            },
-            start,
-        );
+        terminal.wait_for("1 Unstaged", start);
         let handoff = &terminal.output[start..];
         let editor = handoff
             .windows(b"DOGIT_EDITOR_FINISHED".len())
@@ -416,14 +448,7 @@ fn mouse_clicks_work_by_default_and_no_mouse_keeps_keyboard_navigation() {
         let mut terminal = fixture.open(args);
         terminal.wait_for("working preview", 0);
         let controls = args.is_empty();
-        terminal.wait_for(
-            if controls {
-                "Shift+drag selects"
-            } else {
-                "Native text selection"
-            },
-            0,
-        );
+        terminal.wait_for("1 Unstaged", 0);
         // History is the second tab. --no-mouse ignores app-delivered clicks.
         let start = terminal.send(b"\x1b[<0;17;2M\x1b[<0;17;2m");
         if controls {
@@ -433,7 +458,11 @@ fn mouse_clicks_work_by_default_and_no_mouse_keeps_keyboard_navigation() {
         } else {
             terminal.settle();
             assert!(
-                !String::from_utf8_lossy(&terminal.output[start..]).contains("initial fixture")
+                !terminal
+                    .parser
+                    .screen()
+                    .contents()
+                    .contains("initial fixture")
             );
             let start = terminal.send(b"2");
             terminal.wait_for("initial fixture", start);
@@ -471,7 +500,11 @@ fn termination_with_mouse_controls_restores_the_terminal() {
     let fixture = Fixture::new();
     fixture.commit("file", b"original\n");
     let mut terminal = fixture.open(&[]);
-    terminal.wait_for("Shift+drag selects", 0);
+    terminal.wait_for("Main", 0);
+    let start = terminal.send(b"C");
+    terminal.wait_for("Create commit", start);
+    terminal.send(b"Draft\x1b[1;2H");
+    terminal.wait_for("\x1b]1337;SetUserVar=APP_SELECTION=MQ==\x07", start);
     let stopping = terminal.output.len();
     assert!(
         Command::new("kill")
@@ -506,23 +539,31 @@ fn direct_line_and_hunk_staging_preserve_worktree_and_can_unstage() {
     fixture.write("file", worktree);
     let mut terminal = fixture.open(&[]);
     terminal.wait_for("remaining", 0);
-    terminal.send(b"\tjj s");
+    terminal.send(b"j");
+    terminal.settle();
+    terminal.send(b"\tjj :Stage selected file, hunk, or lines\r");
     terminal.wait_until(
         |_| fixture.git(&["show", ":file"]) == b"first\nchosen\nlast\n",
         "only chosen line staged",
     );
     terminal.settle();
-    let start = terminal.send(b"b");
-    terminal.wait_for("Staged", start);
+    terminal.send(b"b");
+    terminal.wait_until(
+        |terminal| {
+            let screen = terminal.parser.screen().contents();
+            screen.contains("chosen") && !screen.contains("remaining")
+        },
+        "the staged diff without the remaining unstaged line",
+    );
     terminal.settle();
-    let start = terminal.send(b"jj u");
+    let start = terminal.send(b"jj :Unstage selected file, hunk, or lines\r");
     terminal.wait_until(
         |_| fixture.git(&["show", ":file"]) == b"first\nlast\n",
         "selected line unstaged",
     );
     terminal.wait_for("remaining", start);
     terminal.settle();
-    terminal.send(b"s");
+    terminal.send(b":Stage selected file, hunk, or lines\r");
     terminal.wait_until(
         |_| fixture.git(&["show", ":file"]) == worktree,
         "whole hunk staged",
@@ -530,14 +571,6 @@ fn direct_line_and_hunk_staging_preserve_worktree_and_can_unstage() {
     terminal.settle();
     assert_eq!(fs::read(fixture.root.join("file")).unwrap(), worktree);
     terminal.quit();
-    let state = fixture.saved_state();
-    assert!(
-        state["operations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|operation| operation["action"] == "Stage selection")
-    );
 }
 
 #[test]
@@ -549,11 +582,13 @@ fn split_wrapping_shows_long_line_tails_and_stages_from_a_continuation() {
     fixture.write("file", worktree.as_bytes());
     let mut terminal = fixture.open(&[]);
     terminal.wait_for("remaining", 0);
+    terminal.send(b"j");
+    terminal.settle();
     let start = terminal.send(b"\tv");
     terminal.wait_for("WRAPTAIL", start);
     terminal.settle();
     // Hunk header, first context line, then the addition and its continuation.
-    terminal.send(b"jjj s");
+    terminal.send(b"jjj :Stage selected file, hunk, or lines\r");
     let staged = format!("first\n{chosen}\nlast\n");
     terminal.wait_until(
         |_| fixture.git(&["show", ":file"]) == staged.as_bytes(),
@@ -598,39 +633,29 @@ fn editing_directory_and_literal_filename_hands_off_a_real_terminal() {
         fixture.root.join(file).as_os_str().as_encoded_bytes()
     );
     assert!(!fixture.root.join("sentinel").exists());
-    assert!(
-        fixture.saved_state()["operations"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert!(fixture.saved_state().get("operations").is_none());
 }
 
 #[test]
-fn empty_editor_commit_cancellation_is_quiet_and_preserves_index() {
+fn empty_editor_commit_cancellation_preserves_index() {
     let fixture = Fixture::new();
     fixture.commit("file", b"old\n");
     fixture.write("file", b"staged\n");
     fixture.git(&["add", "file"]);
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let mut terminal = fixture.open(&[]);
-    terminal.wait_for("main", 0);
+    terminal.wait_for("Main", 0);
     let start = terminal.send(b"c");
     terminal.wait_for("DOGIT_EDITOR_FINISHED", start);
     terminal.handoff_finished(start);
     terminal.quit();
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
     assert_eq!(fixture.git(&["show", ":file"]), b"staged\n");
-    assert!(
-        fixture.saved_state()["operations"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert!(fixture.saved_state().get("operations").is_none());
 }
 
 #[test]
-fn inline_commit_runs_interactive_hooks_and_pushes_to_local_remote() {
+fn configured_commit_editor_runs_in_a_native_terminal_with_hooks_and_push() {
     let fixture = Fixture::new();
     fixture.commit("file", b"old\n");
     let remote = fixture.directory.path().join("remote.git");
@@ -646,12 +671,20 @@ fn inline_commit_runs_interactive_hooks_and_pushes_to_local_remote() {
     fixture.git(&["config", "core.hooksPath", hooks.to_str().unwrap()]);
     fixture.write("file", b"committed\n");
     fixture.git(&["add", "file"]);
-    let mut terminal = fixture.open(&[]);
-    terminal.wait_for("main", 0);
-    let start = terminal.send(b"C");
-    terminal.wait_for("Create commit", start);
-    let start = terminal.send(b"Commit 'from' $(touch sentinel) dogit\r\rA useful body.\x13");
+    let editor = fixture.directory.path().join("commit-editor");
+    executable(
+        &editor,
+        "#!/bin/sh\nset -eu\n[ -t 0 ] && [ -t 1 ] && [ -t 2 ]\nstty -a | grep -q -- 'icanon'\nprintf 'NATIVE_COMMIT_EDITOR_READY\\n'\nIFS= read -r subject\nIFS= read -r body\nprintf '%s\\n\\n%s\\n' \"$subject\" \"$body\" > \"$1\"\n",
+    );
+    let mut terminal = fixture.open_with(&[], |command| {
+        command.env("GIT_EDITOR", &editor);
+    });
+    terminal.wait_for("Main", 0);
+    let start = terminal.send(b"c");
+    terminal.wait_for("NATIVE_COMMIT_EDITOR_READY", start);
+    terminal.send(b"Commit 'from' $(touch sentinel) dogiX\x7ft\rA useful body.\r");
     terminal.handoff_finished(start);
+    terminal.wait_for("Committed!", start);
     assert_eq!(
         fixture.git(&["log", "-1", "--format=%B"]),
         b"Commit 'from' $(touch sentinel) dogit\n\nA useful body.\n\n"
@@ -663,6 +696,7 @@ fn inline_commit_runs_interactive_hooks_and_pushes_to_local_remote() {
     assert!(!fixture.root.join("sentinel").exists());
     let start = terminal.send(b"P");
     terminal.handoff_finished(start);
+    terminal.wait_for("Pushed!", start);
     terminal.quit();
     let output = Command::new("git")
         .arg("--git-dir")
@@ -672,18 +706,6 @@ fn inline_commit_runs_interactive_hooks_and_pushes_to_local_remote() {
         .unwrap();
     assert!(output.status.success());
     assert_eq!(output.stdout, fixture.git(&["rev-parse", "HEAD"]));
-    let state = fixture.saved_state();
-    let operations = state["operations"].as_array().unwrap();
-    assert!(
-        operations
-            .iter()
-            .any(|operation| operation["action"] == "Commit" && operation["failed"] == false)
-    );
-    assert!(
-        operations
-            .iter()
-            .any(|operation| operation["action"] == "Push" && operation["failed"] == false)
-    );
 }
 
 #[test]
@@ -701,19 +723,49 @@ fn rejected_hook_returns_to_the_workbench_and_keeps_staged_changes() {
     fixture.git(&["add", "file"]);
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let mut terminal = fixture.open(&[]);
-    terminal.wait_for("main", 0);
+    terminal.wait_for("Main", 0);
     let start = terminal.send(b"C");
-    terminal.wait_for("Create commit", start);
-    let start = terminal.send(b"Blocked commit\x13");
+    terminal.wait_for("Commit Message", start);
+    let start = terminal.send(b"Blocked commit\r");
     terminal.wait_for("fix this before committing", start);
     terminal.handoff_finished(start);
+    terminal.wait_for("Commit failed", start);
     terminal.quit();
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
     assert_eq!(fixture.git(&["show", ":file"]), b"staged\n");
-    assert_eq!(fixture.saved_state()["operations"][0]["failed"], true);
 }
 
 #[test]
+fn result_toast_appears_and_expires_without_keyboard_input() {
+    let fixture = Fixture::new();
+    fixture.commit("file", b"original\n");
+    let mut terminal = fixture.open_with(&[], |command| {
+        for flag in [
+            "DOGIT_REDUCED_MOTION",
+            "PREFERS_REDUCED_MOTION",
+            "REDUCE_MOTION",
+            "REDUCED_MOTION",
+        ] {
+            command.env_remove(flag);
+        }
+    });
+    terminal.wait_for("Main", 0);
+    terminal.send(b"f");
+    terminal.wait_until(
+        |terminal| terminal.parser.screen().contents().contains("Fetched!"),
+        "animated success toast",
+    );
+    let visible = Instant::now();
+    terminal.wait_until(
+        |terminal| !terminal.parser.screen().contents().contains("Fetched!"),
+        "toast expiry without input",
+    );
+    assert!(visible.elapsed() >= Duration::from_secs(4));
+    terminal.quit();
+}
+
+#[test]
+#[cfg(not(target_os = "macos"))]
 fn editor_handoff_preserves_non_utf8_filename_bytes() {
     use std::os::unix::ffi::OsStrExt;
     let fixture = Fixture::new();
@@ -744,7 +796,7 @@ fn dragged_pane_width_survives_workspace_switches_and_restart() {
     let mut terminal = fixture.open(&[]);
     terminal.wait_for("resize fixture", 0);
     // Grab two cells to the right of the divider, retaining the grab offset.
-    terminal.send(b"\x1b[<0;38;12M\x1b[<32;50;12M\x1b[<0;50;12m");
+    terminal.send(b"\x1b[<0;36;12M\x1b[<32;48;12M\x1b[<0;48;12m");
     terminal.settle();
     let start = terminal.send(b"2");
     terminal.wait_for("initial fixture", start);
@@ -766,7 +818,7 @@ fn destructive_confirmation_refuses_external_edits_then_discards_exact_file() {
     fixture.write("unrelated", b"keep this untracked file\n");
     let mut terminal = fixture.open(&[]);
     terminal.wait_for("selected edit", 0);
-    let start = terminal.send(b"d");
+    let start = terminal.send(b"jd");
     terminal.wait_for("Discard selected changes", start);
     fixture.write("file", b"external edit after confirmation\n");
     let start = terminal.send(b"\r");
@@ -777,7 +829,7 @@ fn destructive_confirmation_refuses_external_edits_then_discards_exact_file() {
     );
     assert_eq!(fixture.git(&["show", ":file"]), b"original\n");
     let start = terminal.send(b"d");
-    terminal.wait_for("Discard selected changes", start);
+    terminal.wait_for("Enter to confirm", start);
     terminal.send(b"\r");
     terminal.wait_until(
         |_| fs::read(fixture.root.join("file")).unwrap() == b"original\n",
@@ -793,7 +845,7 @@ fn destructive_confirmation_refuses_external_edits_then_discards_exact_file() {
 }
 
 #[test]
-fn composer_reviews_all_staged_files_without_unstaged_content() {
+fn inline_composer_reviews_all_staged_files_and_cancellation_preserves_both_sides() {
     let fixture = Fixture::new();
     fixture.commit("first.rs", b"fn original() {}\n");
     fixture.write("first.rs", b"fn staged_one() {}\n");
@@ -803,14 +855,11 @@ fn composer_reviews_all_staged_files_without_unstaged_content() {
     let mut terminal = fixture.open(&[]);
     terminal.wait_for("working_only", 0);
     let start = terminal.send(b"C");
-    terminal.wait_for("Commit contents", start);
+    terminal.wait_for("Create commit", start);
     terminal.wait_for("staged_one", start);
     terminal.wait_for("staged_two", start);
-    let composer = String::from_utf8_lossy(&terminal.output[start..]);
-    assert!(composer.contains("first.rs"));
-    assert!(composer.contains("second.rs"));
-    assert!(!composer.contains("working_only"));
-    terminal.send(b"\x1b");
+    assert!(!fixture.directory.path().join("editor-args").exists());
+    terminal.send(b"draft\x1b");
     terminal.settle();
     terminal.quit();
     assert_eq!(fixture.git(&["show", ":first.rs"]), b"fn staged_one() {}\n");
@@ -825,13 +874,13 @@ fn composer_reviews_all_staged_files_without_unstaged_content() {
 }
 
 #[test]
-fn escape_closes_composer_then_exits_and_restores_terminal() {
+fn escape_closes_inline_composer_before_exiting_and_restores_terminal() {
     let fixture = Fixture::new();
     fixture.commit("file", b"original\n");
     fixture.write("file", b"staged\n");
     fixture.git(&["add", "file"]);
     let mut terminal = fixture.open(&[]);
-    terminal.wait_for("main", 0);
+    terminal.wait_for("Main", 0);
     let start = terminal.send(b"C");
     terminal.wait_for("Create commit", start);
     terminal.send(b"\x1b");
@@ -852,7 +901,7 @@ fn plain_number_shortcuts_switch_workspaces_without_enhanced_key_reporting() {
     terminal.wait_for("initial fixture", start);
     let start = terminal.send(b"1");
     terminal.wait_for("working preview", start);
-    for number in '2'..='7' {
+    for number in '2'..='6' {
         terminal.send(&[number as u8]);
         terminal.settle();
     }
@@ -871,11 +920,375 @@ fn plain_number_shortcuts_switch_workspaces_without_enhanced_key_reporting() {
         "Stashes",
         "Worktrees",
         "Compare",
-        "Operations",
     ] {
         assert!(
             saved["widths"][workspace].is_number(),
             "{workspace} was not visited"
         );
+    }
+}
+
+#[test]
+fn compact_changes_tree_space_toggles_files_and_preserves_their_contents() {
+    let fixture = Fixture::new();
+    let cargo = "scripts/rust/crates/dclip/Cargo.toml";
+    let source = "scripts/rust/crates/dclip/src/mode.rs";
+    fixture.commit(cargo, b"original manifest\n");
+    fixture.commit(source, b"original source\n");
+    fixture.write(cargo, b"staged manifest\n");
+    fixture.git(&["add", cargo]);
+    fixture.write(source, b"working source\n");
+    let mut terminal = fixture.open(&[]);
+    terminal.wait_for("scripts/rust/crates/dclip", 0);
+    terminal.wait_for("Cargo.toml", 0);
+    terminal.wait_for("mode.rs", 0);
+    terminal.wait_for("Staged", 0);
+    terminal.send(b"j ");
+    terminal.wait_until(
+        |_| fixture.git(&["diff", "--cached", "--name-only"]).is_empty(),
+        "Space unstages the selected manifest",
+    );
+    terminal.settle();
+    terminal.send(b" ");
+    terminal.wait_until(
+        |_| fixture.git(&["show", &format!(":{cargo}")]) == b"staged manifest\n",
+        "Space stages the selected manifest",
+    );
+    terminal.settle();
+    terminal.send(b"jj ");
+    terminal.wait_until(
+        |_| fixture.git(&["diff", "--name-only"]).is_empty(),
+        "Space stages the nested source file",
+    );
+    terminal.settle();
+    terminal.send(b" ");
+    terminal.wait_until(
+        |_| fixture.git(&["show", &format!(":{source}")]) == b"original source\n",
+        "Space unstages the nested source file",
+    );
+    terminal.settle();
+    terminal.quit();
+    assert_eq!(
+        fs::read(fixture.root.join(cargo)).unwrap(),
+        b"staged manifest\n"
+    );
+    assert_eq!(
+        fs::read(fixture.root.join(source)).unwrap(),
+        b"working source\n"
+    );
+}
+
+#[test]
+fn reopening_selects_root_and_modified_keys_toggle_all_changes_from_either_edge() {
+    let fixture = Fixture::new();
+    fixture.commit("src/a", b"original a\n");
+    fixture.commit("src/z", b"original z\n");
+    fixture.write("src/a", b"working a\n");
+    fixture.write("src/z", b"working z\n");
+    for _ in 0..2 {
+        let mut terminal = fixture.open(&[]);
+        terminal.wait_for("working a", 0);
+        terminal.send(b" ");
+        terminal.wait_until(
+            |_| fixture.git(&["diff", "--cached", "--name-only"]) == b"src/a\nsrc/z\n",
+            "startup root stages both files",
+        );
+        terminal.settle();
+        // Cmd+Down is Super+Down in the keyboard protocol.
+        terminal.send(b"\x1b[1;9B ");
+        terminal.wait_until(
+            |_| fixture.git(&["diff", "--cached", "--name-only"]) == b"src/a\n",
+            "Cmd+Down reaches the last file",
+        );
+        terminal.settle();
+        terminal.send(b"\x1b[32;2u");
+        terminal.wait_until(
+            |_| fixture.git(&["diff", "--name-only"]).is_empty(),
+            "Shift+Space stages every remaining change",
+        );
+        terminal.settle();
+        terminal.send(b"\x1b[32;2:2u\x1b[32;2:3u");
+        terminal.settle();
+        assert!(
+            fixture.git(&["diff", "--name-only"]).is_empty(),
+            "repeat/release must not toggle staging"
+        );
+        terminal.send(b"\x1b[32;2u");
+        terminal.wait_until(
+            |_| fixture.git(&["diff", "--cached", "--name-only"]).is_empty(),
+            "Shift+Space unstages all files from the last row",
+        );
+        terminal.settle();
+        terminal.send(b"\x1b[1;9A ");
+        terminal.wait_until(
+            |_| fixture.git(&["diff", "--cached", "--name-only"]) == b"src/a\nsrc/z\n",
+            "Cmd+Up reaches the root",
+        );
+        terminal.settle();
+        terminal.send(b"\x1b[32;2u");
+        terminal.wait_until(
+            |_| fixture.git(&["diff", "--cached", "--name-only"]).is_empty(),
+            "leave both files unstaged for restart",
+        );
+        terminal.settle();
+        let start = terminal.send(b"/");
+        terminal.wait_for("Search", start);
+        assert!(
+            terminal.output[start..]
+                .windows(KEYBOARD_PUSH.len())
+                .any(|bytes| bytes == KEYBOARD_PUSH),
+            "dialogs restore text-oriented keyboard reporting"
+        );
+        terminal.send(b"Text input: \x1b[200~\xc3\xa5 !\x1b[201~");
+        terminal.settle();
+        let start = terminal.send(b"\x1b");
+        terminal.settle();
+        assert!(
+            terminal.output[start..]
+                .windows(TREE_KEYBOARD_PUSH.len())
+                .any(|bytes| bytes == TREE_KEYBOARD_PUSH)
+        );
+        terminal.send(b"\x1b[1;9B");
+        terminal.settle();
+        terminal.quit();
+    }
+}
+
+#[test]
+fn wheel_bursts_preserve_every_step_and_click_the_newly_visible_row() {
+    let fixture = Fixture::new();
+    for index in 0..400 {
+        fixture.write(&format!("files/f{index:03}"), b"before\n");
+    }
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-qm", "scroll fixture"]);
+    for index in 0..400 {
+        fixture.write(&format!("files/f{index:03}"), b"after\n");
+    }
+    let mut terminal = fixture.open(&[]);
+    terminal.wait_for("f000", 0);
+    terminal.settle();
+    let mut events = b"\x1b[<65;8;4M".repeat(256);
+    // The first visible row is now file 255 (the root occupied row zero).
+    // A click immediately after the wheel burst must use the new viewport.
+    events.extend_from_slice(b"\x1b[<0;8;3M\x1b[<0;8;3m ");
+    terminal.send(&events);
+    terminal.wait_until(
+        |_| fixture.git(&["diff", "--cached", "--name-only"]) == b"files/f255\n",
+        "wheel burst and click target",
+    );
+    terminal.settle();
+    terminal.quit();
+}
+
+#[test]
+fn inline_editor_commits_identical_text_with_legacy_ss3_and_enhanced_terminal_keys() {
+    struct Keys {
+        term: &'static str,
+        open: &'static [u8],
+        left: &'static [u8],
+        home: &'static [u8],
+        right: &'static [u8],
+        end: &'static [u8],
+        delete: &'static [u8],
+        backspace: &'static [u8],
+        undo: &'static [u8],
+        shift_left: &'static [u8],
+        save: &'static [u8],
+    }
+    for keys in [
+        Keys {
+            term: "xterm-256color",
+            open: b"C",
+            left: b"\x1b[D",
+            home: b"\x1b[H",
+            right: b"\x1b[C",
+            end: b"\x1b[F",
+            delete: b"\x1b[3~",
+            backspace: b"\x7f",
+            undo: b"\x1a",
+            shift_left: b"\x1b[1;2D",
+            save: b"\r",
+        },
+        Keys {
+            term: "screen-256color",
+            open: b"C",
+            left: b"\x1bOD",
+            home: b"\x1bOH",
+            right: b"\x1bOC",
+            end: b"\x1bOF",
+            delete: b"\x04",
+            backspace: b"\x08",
+            undo: b"\x1f",
+            shift_left: b"\x1b[1;2D",
+            save: b"\r",
+        },
+        Keys {
+            term: "xterm-kitty",
+            open: b"\x1b[99:67;2u",
+            left: b"\x1b[1;1D",
+            home: b"\x1b[97;5u",
+            right: b"\x1b[102;5u",
+            end: b"\x1b[101;5u",
+            delete: b"\x1b[100;5u",
+            backspace: b"\x1b[127u",
+            undo: b"\x1b[122;5u",
+            shift_left: b"\x1b[1;2D",
+            save: b"\x1b[13u",
+        },
+    ] {
+        let fixture = Fixture::new();
+        // Keep Git on macOS from precomposing command arguments so this checks
+        // the exact Unicode bytes preserved by the inline editor.
+        fixture.git(&["config", "core.precomposeunicode", "false"]);
+        fixture.commit("file", b"before\n");
+        fixture.write("file", b"staged\n");
+        fixture.git(&["add", "file"]);
+        fixture.write("file", b"still unstaged\n");
+        let mut terminal = fixture.open_with(&[], |command| {
+            command.env("TERM", keys.term);
+        });
+        terminal.wait_for("Main", 0);
+        let start = terminal.send(keys.open);
+        terminal.wait_for("Create commit", start);
+        assert!(
+            terminal.output[start..]
+                .windows(KEYBOARD_PUSH.len())
+                .any(|bytes| bytes == KEYBOARD_PUSH)
+        );
+        let mut input = b"Fix wrld".to_vec();
+        input.extend(keys.left.repeat(3));
+        input.extend_from_slice(b"o");
+        input.extend_from_slice(keys.home);
+        input.extend(keys.right.repeat(3));
+        input.extend_from_slice(keys.delete);
+        input.extend_from_slice(b" ");
+        input.extend_from_slice(keys.end);
+        input.extend_from_slice(b"\x1b[13;2u\x0a\x1b[200~");
+        input.extend_from_slice("Body å e\u{301} 👩‍💻".as_bytes());
+        input.extend_from_slice(b"\x1b[201~");
+        input.extend_from_slice(keys.backspace);
+        input.extend_from_slice(keys.undo);
+        input.extend_from_slice(keys.shift_left);
+        input.extend_from_slice("\x1b[200~界\x1b[201~".as_bytes());
+        input.extend_from_slice(b"\x1b[33;1:2u\x1b[33;1:3u"); // Repeat inserts once; release never inserts.
+        input.extend_from_slice(keys.save);
+        let start = terminal.send(&input);
+        terminal.handoff_finished(start);
+        assert_eq!(
+            fixture.git(&["log", "-1", "--format=%B"]),
+            "Fix world\n\nBody å e\u{301} 界!\n\n".as_bytes(),
+            "{}",
+            keys.term
+        );
+        assert_eq!(fixture.git(&["show", "HEAD:file"]), b"staged\n");
+        assert_eq!(
+            fs::read(fixture.root.join("file")).unwrap(),
+            b"still unstaged\n"
+        );
+        assert!(
+            !fixture.directory.path().join("editor-args").exists(),
+            "C must stay inline"
+        );
+        terminal.quit();
+    }
+}
+
+#[test]
+fn inline_selection_copies_exact_text_and_mouse_capture_returns_after_cancel() {
+    for fallback in [false, true] {
+        let fixture = Fixture::new();
+        fixture.commit("file", b"before\n");
+        fixture.write("file", b"staged\n");
+        fixture.git(&["add", "file"]);
+        let head = fixture.git(&["rev-parse", "HEAD"]);
+        let index = fixture.git(&["write-tree"]);
+        let clipboard = fixture.directory.path().join("clipboard");
+        let bin = fixture.directory.path().join("bin");
+        fs::create_dir(&bin).unwrap();
+        executable(
+            &bin.join("dclip"),
+            if fallback {
+                "#!/bin/sh\nexit 1\n"
+            } else {
+                "#!/bin/sh\ncat > \"$DOGIT_TEST_CLIPBOARD\"\n"
+            },
+        );
+        let inherited_path = std::env::var_os("PATH").unwrap_or_default();
+        let path = std::env::join_paths(
+            std::iter::once(bin).chain(std::env::split_paths(&inherited_path)),
+        )
+        .unwrap();
+        let mut terminal = fixture.open_with(&[], |command| {
+            command
+                .env("PATH", &path)
+                .env("DOGIT_TEST_CLIPBOARD", &clipboard);
+        });
+        terminal.wait_for("Main", 0);
+        let start = terminal.send(b"C");
+        terminal.wait_for("Create commit", start);
+        assert!(
+            terminal.output[start..]
+                .windows(8)
+                .any(|bytes| bytes == b"\x1b[?1000l"),
+            "composer should allow native mouse selection"
+        );
+        let draft = "Subject\n\nBody å e\u{301} 界";
+        terminal.send(format!("\x1b[200~{draft}\x1b[201~\x1b[1;5H\x1b[1;6F").as_bytes());
+        terminal.wait_for("\x1b]1337;SetUserVar=APP_SELECTION=MQ==\x07", start);
+        assert!(
+            !clipboard.exists(),
+            "selecting alone must not change the clipboard"
+        );
+        for copy in [
+            &b"\x03"[..],
+            &b"\x1b[99;9u"[..],
+            &b"\x1b[99;6u"[..],
+            &b"\x1b[2;5~"[..],
+        ] {
+            if clipboard.exists() {
+                fs::remove_file(&clipboard).unwrap();
+            }
+            let start = terminal.send(copy);
+            if fallback {
+                use crossterm::Command as _;
+                let mut expected = String::new();
+                crossterm::clipboard::CopyToClipboard::to_clipboard_from(draft)
+                    .write_ansi(&mut expected)
+                    .unwrap();
+                terminal.wait_for(&expected, start);
+            } else {
+                terminal.wait_until(
+                    |_| fs::read(&clipboard).is_ok_and(|copied| copied == draft.as_bytes()),
+                    "copy exact draft selection",
+                );
+            }
+            assert!(
+                terminal.child.try_wait().unwrap().is_none(),
+                "copy must not exit dogit"
+            );
+        }
+        terminal.send(b"\x13");
+        terminal.settle();
+        assert_eq!(
+            fixture.git(&["rev-parse", "HEAD"]),
+            head,
+            "Ctrl+S must not commit"
+        );
+        assert_eq!(fixture.git(&["write-tree"]), index);
+        let start = terminal.send(b"\x1b[D");
+        terminal.wait_for("\x1b]1337;SetUserVar=APP_SELECTION=MA==\x07", start);
+        let start = terminal.send(b"\x1b[1;6F");
+        terminal.wait_for("\x1b]1337;SetUserVar=APP_SELECTION=MQ==\x07", start);
+        let start = terminal.send(b"\x1b");
+        terminal.wait_for("\x1b]1337;SetUserVar=APP_SELECTION=MA==\x07", start);
+        terminal.settle();
+        assert!(
+            terminal.output[start..]
+                .windows(8)
+                .any(|bytes| bytes == b"\x1b[?1000h"),
+            "normal workbench mouse controls must return"
+        );
+        terminal.quit();
     }
 }

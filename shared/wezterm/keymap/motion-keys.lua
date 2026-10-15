@@ -3,6 +3,16 @@ local MOD = require "keymap.modifiers"
 local map = require "keymap.map"
 local act = wezterm.action
 
+---@param key string
+---@param scroll_action Action
+---@return Action
+local function document_edge(key, scroll_action)
+  return wezterm.action_callback(function(window, pane)
+    local action = pane:is_alt_screen_active() and act.SendKey { key = key } or scroll_action
+    window:perform_action(action, pane)
+  end)
+end
+
 ---@class MotionKey: KeySpec
 ---@field free_cursor? CopyModeParams
 
@@ -40,13 +50,13 @@ local motion_keys = {
   { -- Document start
     key = "UpArrow",
     mods = MOD.PRIMARY,
-    action = act.ScrollToTop,
+    action = document_edge("Home", act.ScrollToTop),
     free_cursor = "MoveToScrollbackTop",
   },
   { -- Document end
     key = "DownArrow",
     mods = MOD.PRIMARY,
-    action = act.ScrollToBottom,
+    action = document_edge("End", act.ScrollToBottom),
     free_cursor = "MoveToScrollbackBottom",
   },
   { -- Select to line start

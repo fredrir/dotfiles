@@ -3,7 +3,7 @@ use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime};
 
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -14,7 +14,7 @@ use crate::diff::{DiffSide, ExactDiff, LineKind, Selection};
 use crate::git::{CommandSpec, Repo, Snapshot};
 use crate::jobs::Worker;
 use crate::presentation::{DiffPresentation, DiffPresentationConfig};
-use crate::state::{OperationRecord, SavedState};
+use crate::state::SavedState;
 use crate::view::{
     self, Focus, Geometry, ItemKind as NavKind, NavItem, Overlay, RenderData, ViewState, Workspace,
 };
@@ -32,7 +32,6 @@ enum Target {
     Branch(String, bool),
     Stash(String, String),
     Worktree(PathBuf),
-    Operation(usize),
     Comparison(PathBuf),
     RevisionAll,
 }
@@ -45,7 +44,6 @@ struct Entry {
 #[derive(Clone)]
 enum Prompt {
     Search,
-    Compose,
     Branch,
     Stash,
     Merge,
@@ -56,6 +54,9 @@ enum Prompt {
 }
 
 enum Dialog {
+    Compose {
+        editor: ui_widgets::EditorBuffer,
+    },
     Input {
         prompt: Prompt,
         title: String,
@@ -372,7 +373,8 @@ struct App {
     history_commit: Option<String>,
     revision_paths: Vec<PathBuf>,
     copy_ack: Option<Instant>,
-    clipboard_worker: Option<Worker<Result<String, String>>>,
+    clipboard_worker: Option<Worker<Result<Option<String>, String>>>,
+    waker: Option<ui_terminal::InputWake>,
     snapshot_worker: Worker<Result<Data, String>>,
     content_worker: Worker<Result<Content, String>>,
     mutation_worker: Worker<Result<String, String>>,
@@ -383,6 +385,7 @@ struct App {
     content_pending: bool,
     operation: Option<PendingOperation>,
     feedback: Option<(String, bool, Instant)>,
+    notification: Option<notification::Notification>,
     last_refresh: Instant,
     dirty: bool,
     quit: bool,
@@ -396,8 +399,10 @@ mod clipboard;
 mod commands;
 #[cfg(test)]
 mod core_tests;
+mod editor;
 mod execution;
 mod input;
+mod notification;
 mod render;
 mod tree;
 
@@ -462,6 +467,7 @@ impl App {
             revision_paths: Vec::new(),
             copy_ack: None,
             clipboard_worker: None,
+            waker: None,
             snapshot_worker: Worker::default(),
             content_worker: Worker::default(),
             mutation_worker: Worker::default(),
@@ -472,6 +478,7 @@ impl App {
             content_pending: false,
             operation: None,
             feedback: None,
+            notification: None,
             last_refresh: Instant::now(),
             dirty: true,
             quit: false,
@@ -480,6 +487,14 @@ impl App {
             geometry: None,
             mouse_capture: ui_terminal::MouseCapture::Enabled,
         }
+    }
+
+    fn set_waker(&mut self, wake: ui_terminal::InputWake) {
+        self.snapshot_worker.set_waker(wake.clone());
+        self.content_worker.set_waker(wake.clone());
+        self.prepare_worker.set_waker(wake.clone());
+        self.mutation_worker.set_waker(wake.clone());
+        self.waker = Some(wake);
     }
 
     fn selected(&self) -> Option<&Target> {
@@ -496,6 +511,10 @@ impl App {
         self.request_refresh(false);
     }
 
+    fn composing(&self) -> bool {
+        matches!(self.dialog, Some(Dialog::Compose { .. }))
+    }
+
     fn preview_request(&self) -> PreviewRequest {
         let mut presentation = self.presentation_config.clone().unwrap_or_default();
         presentation.split = self.view.split;
@@ -506,13 +525,7 @@ impl App {
             comparison: self.compare.clone(),
             side: self.side,
             all_files: self.all_files,
-            composing: matches!(
-                self.dialog,
-                Some(Dialog::Input {
-                    prompt: Prompt::Compose,
-                    ..
-                })
-            ),
+            composing: self.composing(),
             structural: self.structure_enabled,
             presentation,
             width: if self.structure_enabled {
@@ -565,7 +578,13 @@ impl App {
                         .widths
                         .insert(format!("{:?}", self.view.workspace), self.view.nav_width);
                     let _ = self.saved.save(&self.repo.root);
+                    let waker = self.waker.clone();
+                    let mouse_capture = self.mouse_capture;
                     *self = Self::new(repo, Start::Changes);
+                    self.mouse_capture = mouse_capture;
+                    if let Some(waker) = waker {
+                        self.set_waker(waker);
+                    }
                     self.refresh();
                     return;
                 }
@@ -620,7 +639,7 @@ impl App {
                         .operation
                         .take()
                         .map_or_else(|| "Git operation".into(), |operation| operation.label);
-                    self.record(&label, Err(error));
+                    self.report_result(&label, Err(error));
                 }
             }
         }
@@ -750,6 +769,18 @@ impl App {
             self.dirty = true;
         }
         if let Some(result) = self.clipboard_worker.as_ref().and_then(Worker::take) {
+            let result = result.and_then(|fallback| {
+                if let Some(value) = fallback {
+                    // Emit the fallback on the UI thread so it cannot interrupt
+                    // an in-progress frame's escape sequences.
+                    crossterm::execute!(
+                        io::stdout(),
+                        crossterm::clipboard::CopyToClipboard::to_clipboard_from(value)
+                    )
+                    .map_err(|error| error.to_string())?;
+                }
+                Ok(())
+            });
             match result {
                 Ok(_) => self.copy_ack = Some(Instant::now()),
                 Err(error) => self.note(&error),
@@ -761,7 +792,7 @@ impl App {
                 .operation
                 .take()
                 .map_or_else(|| "Git operation".into(), |operation| operation.label);
-            self.record(&label, result);
+            self.report_result(&label, result);
             self.snapshot_pending = false;
             self.snapshot_worker.invalidate();
             self.refresh();
@@ -775,6 +806,14 @@ impl App {
             self.dirty = true;
         }
         if self
+            .notification
+            .as_ref()
+            .is_some_and(|notification| notification.view(false).expired())
+        {
+            self.notification = None;
+            self.dirty = true;
+        }
+        if self
             .copy_ack
             .is_some_and(|since| since.elapsed() > Duration::from_millis(1000))
         {
@@ -783,54 +822,25 @@ impl App {
         }
     }
 
-    fn record(&mut self, label: &str, result: Result<String, String>) {
-        let selected_operation = if self.view.workspace == Workspace::Operations {
-            match self.selected() {
-                Some(Target::Operation(index)) => Some(index + 1),
-                _ => None,
-            }
-        } else {
-            None
-        };
+    fn report_result(&mut self, label: &str, result: Result<String, String>) {
         let (detail, failed) = match result {
             Ok(text) => (text, false),
             Err(text) => (text, true),
         };
-        let outcome = if detail.trim().is_empty() {
-            format!("{label} completed")
-        } else {
-            detail
-                .lines()
-                .find(|line| !line.trim().is_empty())
-                .unwrap_or(label)
-                .to_owned()
-        };
-        self.saved.push(OperationRecord {
-            action: label.to_owned(),
-            outcome: outcome.clone(),
-            detail,
-            failed,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-        });
-        let _ = self.saved.save(&self.repo.root);
         if failed || (!label.starts_with("Stage") && !label.starts_with("Unstage")) {
-            self.feedback = Some((outcome, failed, Instant::now()));
+            self.feedback = None;
+            self.notification = Some(notification::Notification {
+                title: if failed {
+                    format!("{} failed", notification::capitalize(label))
+                } else {
+                    notification::success_message(label)
+                },
+                detail: if failed { detail } else { String::new() },
+                failed,
+                started: Instant::now(),
+            });
         }
         self.dirty = true;
-        if self.view.workspace == Workspace::Operations {
-            self.rebuild();
-            if let Some(selected) = selected_operation.and_then(|operation| {
-                self.entries
-                    .iter()
-                    .position(|entry| entry.target == Target::Operation(operation))
-            }) {
-                self.view.selected = selected;
-            }
-            self.load_content(false);
-        }
     }
 
     fn note(&mut self, message: impl Into<String>) {
@@ -937,21 +947,6 @@ impl App {
                     }
                 }
             }
-            Workspace::Operations => {
-                for (index, operation) in self.saved.operations.iter().enumerate() {
-                    if self.matches(&format!("{} {}", operation.action, operation.outcome)) {
-                        entries.push(Entry {
-                            target: Target::Operation(index),
-                            item: nav(
-                                &operation.action,
-                                &operation.outcome,
-                                if operation.failed { "failed" } else { "done" },
-                                NavKind::File,
-                            ),
-                        });
-                    }
-                }
-            }
             Workspace::Compare => self.revision_entries(&mut entries),
         }
         self.entries = entries;
@@ -997,11 +992,7 @@ impl App {
                 })
                 .unwrap_or(self.view.selected);
         } else if self.view.workspace == Workspace::Changes {
-            self.view.selected = self
-                .entries
-                .iter()
-                .position(|entry| matches!(entry.target, Target::Path(_, false)))
-                .unwrap_or(0);
+            self.view.selected = 0;
         }
         self.view.selected = self.view.selected.min(self.entries.len().saturating_sub(1));
         self.align_diff_side();
@@ -1051,13 +1042,7 @@ impl App {
         let root = self.repo.root.clone();
         let side = self.side;
         let all_files = self.all_files;
-        let composing = matches!(
-            self.dialog,
-            Some(Dialog::Input {
-                prompt: Prompt::Compose,
-                ..
-            })
-        );
+        let composing = self.composing();
         let workspace = self.view.workspace;
         let comparison = self.compare.clone();
         let history_commit = self.history_commit.clone();
@@ -1079,27 +1064,6 @@ impl App {
         let width = self.geometry.as_ref().map_or(100, |geometry| {
             geometry.canvas.width.saturating_sub(4) as usize
         });
-        if let Some(Target::Operation(index)) = target {
-            self.content_worker.invalidate();
-            self.content_pending = false;
-            self.diff = None;
-            self.presentation = None;
-            self.structural = None;
-            self.text = self
-                .saved
-                .operations
-                .get(index)
-                .map(|operation| operation.detail.lines().map(str::to_owned).collect())
-                .unwrap_or_default();
-            self.content_line_count = self.text.len();
-            self.loaded_preview = Some(PreviewKey {
-                request,
-                revisions: Vec::new(),
-                stamps: Vec::new(),
-                files: Vec::new(),
-            });
-            return;
-        }
         if let Some(Target::Worktree(_)) = &target {
             self.content_worker.invalidate();
             self.content_pending = false;
@@ -1489,7 +1453,11 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
     let mut terminal =
         Some(crate::session::Session::new(app.mouse_capture).map_err(|error| error.to_string())?);
     let input = ui_terminal::Input::new().map_err(|error| error.to_string())?;
+    app.set_waker(input.waker());
     app.refresh();
+    let mut last_frame = Instant::now();
+    let mut toast_was_animated = false;
+    let mut queued = None;
     while !app.quit && !ui_terminal::termination_requested() {
         app.collect();
         if let Some(prepared) = app.prepared.take() {
@@ -1498,45 +1466,108 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
         if app.last_refresh.elapsed() > Duration::from_secs(3) {
             app.refresh_background();
         }
-        if app.dirty || app.operation.is_some() || app.view.animating() {
+        if let Some(session) = terminal.as_mut() {
+            session
+                .set_editor_selection(matches!(
+                    &app.dialog,
+                    Some(Dialog::Compose { editor }) if editor.selection().is_some()
+                ))
+                .map_err(|error| error.to_string())?;
+            // The composer has no mouse controls. Let the terminal own text
+            // selection and its usual mouse-copy gesture while it is open.
+            session
+                .set_mouse_capture(if app.composing() {
+                    ui_terminal::MouseCapture::Disabled
+                } else {
+                    app.mouse_capture
+                })
+                .map_err(|error| error.to_string())?;
+            session
+                .set_tree_shortcuts(
+                    app.view.workspace == Workspace::Changes
+                        && app.view.focus == Focus::Navigator
+                        && app.dialog.is_none(),
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        let reduced_motion = ui_terminal::reduced_motion_requested("DOGIT_REDUCED_MOTION");
+        let toast_animated = app
+            .notification
+            .as_ref()
+            .is_some_and(|notification| notification.view(reduced_motion).animating());
+        let frame_interval = if toast_animated {
+            Some(Duration::from_millis(16))
+        } else if app.operation.is_some() && !reduced_motion {
+            Some(Duration::from_millis(80))
+        } else {
+            None
+        };
+        if app.dirty
+            || toast_was_animated != toast_animated
+            || frame_interval.is_some_and(|interval| last_frame.elapsed() >= interval)
+        {
             app.dirty = false;
             app.draw(terminal.as_mut().ok_or("terminal unavailable")?)?;
+            last_frame = Instant::now();
         }
-        let wait = if app.view.animating() {
-            Duration::from_millis(16)
-        } else if app.snapshot_pending || app.content_pending || app.operation.is_some() {
-            Duration::from_millis(25)
-        } else {
-            Duration::from_millis(150)
+        toast_was_animated = toast_animated;
+        let mut wait = frame_interval.map_or(Duration::from_millis(150), |interval| {
+            interval.saturating_sub(last_frame.elapsed())
+        });
+        if let Some(notification) = &app.notification {
+            wait = wait.min(notification.view(reduced_motion).next_transition());
+        }
+        // Drain wheel and inline typing bursts before painting, with a bounded budget so
+        // an input flood cannot delay worker results or terminal rendering.
+        let mut waited = match queued.take() {
+            Some(event) => event,
+            None => input.wait(wait).map_err(|error| error.to_string())?,
         };
-        match input.wait(wait).map_err(|error| error.to_string())? {
-            ui_terminal::Waited::Event(Event::Key(key)) if key.kind != KeyEventKind::Release => {
-                app.key(key, &mut terminal, &mut signals)?
-            }
-            ui_terminal::Waited::Event(Event::Mouse(mouse))
-                if app.mouse_capture == ui_terminal::MouseCapture::Enabled =>
-            {
-                app.mouse(mouse)
-            }
-            ui_terminal::Waited::Event(Event::Resize(_, _)) => {
-                app.view.divider_hover_row = None;
-                app.dragging = false;
-                app.view.divider_hovered = false;
-                app.dirty = true;
-                if app.structure_enabled {
-                    app.load_content(false);
+        let burst = Instant::now();
+        for index in 0..128 {
+            let batchable = app.batchable_input(&waited);
+            match waited {
+                ui_terminal::Waited::Event(Event::Key(key))
+                    if key.kind != KeyEventKind::Release =>
+                {
+                    app.key(key, &mut terminal, &mut signals)?
                 }
+                ui_terminal::Waited::Event(Event::Mouse(mouse))
+                    if app.mouse_capture == ui_terminal::MouseCapture::Enabled =>
+                {
+                    app.mouse(mouse)
+                }
+                ui_terminal::Waited::Event(Event::Resize(_, _)) => {
+                    app.view.divider_hover_row = None;
+                    app.dragging = false;
+                    app.view.divider_hovered = false;
+                    app.dirty = true;
+                    if app.structure_enabled {
+                        app.load_content(false);
+                    }
+                }
+                ui_terminal::Waited::Event(Event::FocusGained) => app.refresh(),
+                ui_terminal::Waited::Event(Event::FocusLost) => {
+                    app.view.divider_hover_row = None;
+                    app.dragging = false;
+                    app.view.divider_hovered = false;
+                    app.dirty = true;
+                }
+                ui_terminal::Waited::Event(Event::Paste(text)) => app.paste(&text),
+                ui_terminal::Waited::HangUp => app.quit = true,
+                _ => {}
             }
-            ui_terminal::Waited::Event(Event::FocusGained) => app.refresh(),
-            ui_terminal::Waited::Event(Event::FocusLost) => {
-                app.view.divider_hover_row = None;
-                app.dragging = false;
-                app.view.divider_hovered = false;
-                app.dirty = true;
+            if !batchable || app.quit || index == 127 || burst.elapsed() >= Duration::from_millis(2)
+            {
+                break;
             }
-            ui_terminal::Waited::Event(Event::Paste(text)) => app.paste(&text),
-            ui_terminal::Waited::HangUp => break,
-            _ => {}
+            waited = input
+                .wait(Duration::ZERO)
+                .map_err(|error| error.to_string())?;
+            if !app.batchable_input(&waited) {
+                queued = Some(waited);
+                break;
+            }
         }
     }
     app.saved

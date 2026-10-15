@@ -28,7 +28,7 @@ pub use alternate::{Alternate, MouseCapture};
 #[cfg(feature = "ratatui")]
 pub use inline::{Inline, Teardown};
 #[cfg(feature = "crossterm")]
-pub use input::{Input, Waited};
+pub use input::{Input, InputWake, Waited};
 #[cfg(feature = "crossterm")]
 pub use raw::RawSession;
 pub use screen::{

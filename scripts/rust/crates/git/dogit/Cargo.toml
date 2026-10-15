@@ -10,7 +10,7 @@ workspace = true
 
 [dependencies]
 clap.workspace = true
-crossterm.workspace = true
+crossterm = { workspace = true, features = ["osc52"] }
 crossbeam-channel.workspace = true
 ratatui.workspace = true
 serde.workspace = true
@@ -25,7 +25,9 @@ ui-widgets.workspace = true
 hostkit.workspace = true
 workstation.workspace = true
 unicode-width.workspace = true
+unicode-segmentation.workspace = true
 
 [dev-dependencies]
 testkit.workspace = true
+vt100 = "0.16.2"
 

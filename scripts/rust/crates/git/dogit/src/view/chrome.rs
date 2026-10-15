@@ -1,85 +1,34 @@
 use super::*;
-use std::time::{Duration, Instant};
 
-const TAB_TRANSITION: Duration = Duration::from_millis(90);
-
-#[derive(Clone, Debug)]
-pub struct TabIndicator {
-    from: (f64, f64),
-    to: (f64, f64),
-    emphasis: [f64; Workspace::ALL.len()],
-    workspace: Workspace,
-    started: Instant,
+#[derive(Clone)]
+pub(super) struct Badge {
+    pub label: String,
+    appearance: Style,
 }
 
-impl TabIndicator {
-    pub(super) fn moving(&self) -> bool {
-        self.from != self.to || self.emphasis != tab_emphasis(self.workspace)
+impl Badge {
+    pub fn new(label: String, appearance: Style) -> Self {
+        Self { label, appearance }
     }
 
-    fn settled(workspace: Workspace, bounds: (f64, f64), now: Instant) -> Self {
-        Self {
-            from: bounds,
-            to: bounds,
-            emphasis: tab_emphasis(workspace),
-            workspace,
-            started: now,
-        }
+    fn count(count: usize, noun: &str, appearance: Style) -> Self {
+        Self::new(format!("{count} {noun}"), appearance)
     }
-
-    fn sample(&self, now: Instant) -> ((f64, f64), [f64; Workspace::ALL.len()]) {
-        let progress = (now.saturating_duration_since(self.started).as_secs_f64()
-            / TAB_TRANSITION.as_secs_f64())
-        .min(1.0);
-        let eased = 1.0 - (1.0 - progress).powi(3);
-        let target = tab_emphasis(self.workspace);
-        let emphasis = std::array::from_fn(|index| {
-            self.emphasis[index] + (target[index] - self.emphasis[index]) * eased
-        });
-        (
-            (
-                self.from.0 + (self.to.0 - self.from.0) * eased,
-                self.from.1 + (self.to.1 - self.from.1) * eased,
-            ),
-            emphasis,
-        )
-    }
-}
-
-fn tab_emphasis(workspace: Workspace) -> [f64; Workspace::ALL.len()] {
-    Workspace::ALL.map(|item| f64::from(u8::from(item == workspace)))
 }
 
 pub(super) fn render_tabs(
     frame: &mut Frame,
     area: Rect,
-    state: &mut ViewState,
+    state: &ViewState,
 ) -> Vec<(Workspace, Rect)> {
-    render_tabs_at(
-        frame,
-        area,
-        state,
-        Instant::now(),
-        ui_terminal::reduced_motion_requested("DOGIT_REDUCED_MOTION"),
-    )
-}
-
-pub(super) fn render_tabs_at(
-    frame: &mut Frame,
-    area: Rect,
-    state: &mut ViewState,
-    now: Instant,
-    reduced_motion: bool,
-) -> Vec<(Workspace, Rect)> {
-    if area.height < 3 || area.width < 4 {
-        state.tab_indicator = None;
+    if area.height < 2 || area.width < 4 {
         return Vec::new();
     }
     let active = state.workspace;
     put(
         frame.buffer_mut(),
         area.x,
-        area.y + 2,
+        area.y + 1,
         area.width,
         &"─".repeat(usize::from(area.width)),
         style(Role::Border),
@@ -101,153 +50,123 @@ pub(super) fn render_tabs_at(
         if x + width > area.right().saturating_sub(2) {
             break;
         }
-        tabs.push((workspace, Rect::new(x, area.y + 1, width - 1, 2)));
+        tabs.push((workspace, Rect::new(x, area.y, width - 1, 2)));
         x += width;
     }
-    if let Some((_, target)) = tabs.iter().find(|(workspace, _)| *workspace == active) {
-        let bounds = (f64::from(target.x), f64::from(target.right() - 1));
-        match &mut state.tab_indicator {
-            Some(indicator) if indicator.workspace != active && !reduced_motion => {
-                let (from, emphasis) = indicator.sample(now);
-                *indicator = TabIndicator {
-                    from,
-                    to: bounds,
-                    emphasis,
-                    workspace: active,
-                    started: now,
-                };
-            }
-            Some(indicator)
-                if indicator.to != bounds
-                    || reduced_motion
-                    || now.saturating_duration_since(indicator.started) >= TAB_TRANSITION =>
-            {
-                *indicator = TabIndicator::settled(active, bounds, now);
-            }
-            None => {
-                state.tab_indicator = Some(TabIndicator::settled(active, bounds, now));
-            }
-            _ => {}
-        }
-        let ((left, right), emphasis) = state
-            .tab_indicator
-            .as_ref()
-            .map_or((bounds, tab_emphasis(active)), |indicator| {
-                indicator.sample(now)
-            });
-        for (workspace, rect) in &tabs {
-            let index = Workspace::ALL
-                .iter()
-                .position(|item| item == workspace)
-                .unwrap_or(0);
-            let amount = emphasis[index];
-            let mut appearance = style(Role::Plain).fg(blend_color(
-                foreground(Role::Plain),
-                foreground(Role::Accent),
-                amount,
-            ));
-            if amount >= 0.5 {
-                appearance = appearance.add_modifier(Modifier::BOLD);
-            }
+    for (workspace, rect) in &tabs {
+        let index = Workspace::ALL
+            .iter()
+            .position(|item| item == workspace)
+            .unwrap_or(0);
+        let selected = *workspace == active;
+        put(
+            frame.buffer_mut(),
+            rect.x + 1,
+            rect.y,
+            rect.width - 1,
+            &format!("{} {}", index + 1, workspace.label()),
+            if selected {
+                style(Role::Accent).add_modifier(Modifier::BOLD)
+            } else {
+                style(Role::Plain)
+            },
+        );
+        if selected {
             put(
                 frame.buffer_mut(),
-                rect.x + 1,
-                rect.y,
+                rect.x,
+                rect.y + 1,
                 rect.width - 1,
-                &format!("{} {}", index + 1, workspace.label()),
-                appearance,
+                &"━".repeat(usize::from(rect.width - 1)),
+                style(Role::Accent),
             );
         }
-        for x in left.floor().max(f64::from(area.x)) as u16..(right.ceil() as u16).min(area.right())
-        {
-            let coverage = (right.min(f64::from(x + 1)) - left.max(f64::from(x))).clamp(0.0, 1.0);
-            let appearance = style(Role::Accent).fg(blend_color(
-                foreground(Role::Border),
-                foreground(Role::Accent),
-                coverage,
-            ));
-            put(frame.buffer_mut(), x, area.y + 2, 1, "━", appearance);
-        }
-    } else {
-        state.tab_indicator = None;
     }
     tabs
 }
 
-fn blend_color(from: Color, to: Color, amount: f64) -> Color {
-    match (from, to) {
-        (Color::Rgb(r0, g0, b0), Color::Rgb(r1, g1, b1)) => {
-            let mix = |from: u8, to: u8| {
-                (f64::from(from) + (f64::from(to) - f64::from(from)) * amount).round() as u8
-            };
-            Color::Rgb(mix(r0, r1), mix(g0, g1), mix(b0, b1))
-        }
-        _ if amount >= 0.5 => to,
-        _ => from,
-    }
-}
-
-pub(super) fn render_footer(frame: &mut Frame, area: Rect, data: &RenderData<'_>) {
+pub(super) fn render_footer(
+    frame: &mut Frame,
+    area: Rect,
+    data: &RenderData<'_>,
+    badges: Vec<Badge>,
+    detail: &str,
+) -> Rect {
     if area.width < 4 || area.height == 0 {
-        return;
+        return Rect::default();
     }
     let y = area.bottom() - 1;
-    let controls = data.mouse_capture == ui_terminal::MouseCapture::Enabled;
-    let mode = if area.width >= 80 {
-        if controls {
-            "Shift+drag selects"
-        } else {
-            "Native text selection"
-        }
-    } else if controls {
-        "Shift+drag"
-    } else {
-        "Text select"
-    };
-    let hint = if area.width >= 100 && data.operation.is_none() {
-        format!(" {mode}  1-7 tabs  Tab panes ")
-    } else {
-        format!(" {mode} ")
-    };
-    let hint_width = (hint.width() as u16).min(area.width.saturating_sub(2));
-    let metadata_x = area.x + 1 + hint_width;
-    let available = area.width.saturating_sub(hint_width + 2);
-    let repo_width = if data.repo.is_empty() {
+    let metadata_x = area.x;
+    let available = area.width.saturating_sub(2);
+    let repo_label = identity_label(data.repo);
+    let repo_width = if repo_label.is_empty() {
         0
     } else {
-        (safe_text(data.repo).width() as u16)
+        (repo_label.width() as u16)
             .min(available / 2)
             .saturating_add(2)
             .min(available)
     };
     let badge_x = area.right().saturating_sub(repo_width + 1);
-    let remote = match (data.ahead, data.behind) {
-        (0, 0) => String::new(),
-        (ahead, 0) => format!("  {ahead} ahead"),
-        (0, behind) => format!("  {behind} behind"),
-        (ahead, behind) => format!("  {ahead} ahead  {behind} behind"),
-    };
-    let branch = format!("{}{remote}", data.branch);
+    let branch = identity_label(data.branch);
     let gap = u16::from(repo_width > 0 && !branch.is_empty());
-    let branch_room = available.saturating_sub(repo_width + gap);
-    let branch_room = if data.operation.is_some() {
+    let mut tracking_room =
+        available.saturating_sub(repo_width + gap + u16::from(!branch.is_empty()) * 3);
+    let mut tracking_width = 0;
+    let tracking = [
+        (data.behind, "", Role::DiffRemoved),
+        (data.ahead, "", Role::DiffAdded),
+    ]
+    .into_iter()
+    .filter(|(count, _, _)| *count > 0)
+    .filter_map(|(count, arrow, role)| {
+        let badge = Badge::new(format!("{count} {arrow}"), style(role));
+        let width = badge.label.width() as u16 + 3;
+        // Keep counts intact and leave room for a shortened branch name.
+        if width > tracking_room {
+            return None;
+        }
+        tracking_room -= width;
+        tracking_width += width;
+        Some(badge)
+    })
+    .collect::<Vec<_>>();
+    let branch_room = available.saturating_sub(repo_width + gap + tracking_width);
+    let branch_room = if data.operation.is_some() || !badges.is_empty() {
         branch_room.min(area.width / 3)
     } else {
         branch_room
     };
-    let branch = elide_middle(&branch, usize::from(branch_room));
-    let branch_width = branch.width() as u16;
+    let branch = elide_middle(&branch, usize::from(branch_room.saturating_sub(2)));
+    let branch_width = if branch.is_empty() {
+        0
+    } else {
+        branch.width() as u16 + 2
+    };
     let branch_x = badge_x.saturating_sub(branch_width + gap);
+    let tracking_x = branch_x.saturating_sub(tracking_width);
+    let counts = render_badges(
+        frame.buffer_mut(),
+        Rect::new(metadata_x, y, tracking_x.saturating_sub(metadata_x + 1), 1),
+        badges,
+        true,
+    );
+    let detail_x = counts.right() + u16::from(counts.width > 0);
+    let detail_area = Rect::new(detail_x, y, tracking_x.saturating_sub(detail_x + 1), 1);
     if let Some(operation) = data.operation {
-        let room = branch_x.saturating_sub(metadata_x + 2);
-        render_operation(
+        render_operation(frame.buffer_mut(), detail_area, operation);
+    } else {
+        put(
             frame.buffer_mut(),
-            Rect::new(metadata_x, y, room, 1),
-            operation,
+            detail_area.x,
+            y,
+            detail_area.width,
+            &elide_end(detail, usize::from(detail_area.width)),
+            style(Role::Plain),
         );
     }
-    if repo_width > 0 || branch_width > 0 {
-        let start = branch_x.saturating_sub(1).max(area.x + 1);
+    if repo_width > 0 || branch_width > 0 || tracking_width > 0 {
+        let start = tracking_x.saturating_sub(1).max(area.x + 1);
         let width = area.right().saturating_sub(start + 1);
         put(
             frame.buffer_mut(),
@@ -258,38 +177,176 @@ pub(super) fn render_footer(frame: &mut Frame, area: Rect, data: &RenderData<'_>
             style(Role::Plain),
         );
     }
+    let mut x = tracking_x;
+    for badge in tracking {
+        let width = badge.label.width() as u16 + 2;
+        render_badges(
+            frame.buffer_mut(),
+            Rect::new(x, y, width, 1),
+            vec![badge],
+            true,
+        );
+        x += width + 1;
+    }
     put(
         frame.buffer_mut(),
         branch_x,
         y,
         branch_width,
-        &branch,
-        style(Role::Plain),
+        &format!(" {branch} "),
+        identity_style(data.branch),
     );
     if repo_width > 0 {
-        let repo = elide_middle(data.repo, usize::from(repo_width.saturating_sub(2)));
+        let repo = elide_middle(&repo_label, usize::from(repo_width.saturating_sub(2)));
         put(
             frame.buffer_mut(),
             badge_x,
             y,
             repo_width,
             &format!(" {repo} "),
-            repository_style(data.repo),
+            identity_style(data.repo),
         );
     }
-    put(
-        frame.buffer_mut(),
-        area.x + 1,
-        y,
-        hint_width,
-        &hint,
-        style(if controls { Role::Accent } else { Role::Plain }),
-    );
+    counts
 }
 
-pub(super) fn repository_style(name: &str) -> Style {
-    // Fixed FNV-1a keeps a repository's identity stable across processes and
-    // machines. The full name, not its clipped display label, selects the color.
+pub(super) fn nav_badges(workspace: Workspace, summary: NavSummary, repo: &str) -> Vec<Badge> {
+    let mut counts = Vec::new();
+    if workspace == Workspace::Changes {
+        if summary.items > 0
+            && (summary.staged > 0 && summary.unstaged > 0
+                || summary.items > summary.staged.max(summary.unstaged))
+        {
+            counts.push(Badge::count(
+                summary.items,
+                if summary.items == 1 { "File" } else { "Files" },
+                files_style(repo),
+            ));
+        }
+        if summary.staged > 0 {
+            counts.push(Badge::count(
+                summary.staged,
+                "Staged",
+                file_side_style(DiffSide::Index),
+            ));
+        }
+        if summary.unstaged > 0 {
+            counts.push(Badge::count(
+                summary.unstaged,
+                "Unstaged",
+                file_side_style(DiffSide::Worktree),
+            ));
+        }
+    } else if summary.items > 0 {
+        let (singular, plural) = match workspace {
+            Workspace::History if summary.has_commits => ("Commit", "Commits"),
+            Workspace::Branches => ("Branch", "Branches"),
+            Workspace::Stashes => ("Stash", "Stashes"),
+            Workspace::Worktrees => ("Worktree", "Worktrees"),
+            _ => ("File", "Files"),
+        };
+        let noun = if summary.items == 1 { singular } else { plural };
+        let appearance = if singular == "File" {
+            files_style(repo)
+        } else {
+            style(Role::Plain)
+        };
+        counts.push(Badge::count(summary.items, noun, appearance));
+    }
+    counts
+}
+
+/// The `Files` badge mirrors the repository identity so totals read as one theme
+/// with the repository name in the footer.
+fn files_style(repo: &str) -> Style {
+    if repo.is_empty() {
+        style(Role::Plain)
+    } else {
+        identity_color(repo)
+    }
+}
+
+pub(super) fn render_pane_footer(
+    buffer: &mut Buffer,
+    area: Rect,
+    badges: Vec<Badge>,
+    detail: &str,
+) -> Rect {
+    let rendered = render_badges(buffer, area, badges, false);
+    let detail_x = area.x + 1;
+    let detail_width = rendered.x.saturating_sub(detail_x + 1);
+    put(
+        buffer,
+        detail_x,
+        area.y,
+        detail_width,
+        &elide_end(detail, usize::from(detail_width)),
+        style(Role::Plain),
+    );
+    rendered
+}
+
+fn render_badges(buffer: &mut Buffer, area: Rect, mut badges: Vec<Badge>, left: bool) -> Rect {
+    if area.is_empty() {
+        return area;
+    }
+    let natural_width = |badges: &[Badge]| {
+        badges
+            .iter()
+            .map(|badge| badge.label.width() + 3)
+            .sum::<usize>()
+            .saturating_sub(1)
+    };
+    if badges.len() == 3 && natural_width(&badges) > usize::from(area.width) {
+        badges.remove(0);
+    }
+    let budget = usize::from(area.width);
+    let mut remaining = budget;
+    let count = badges.len();
+    let mut sized = Vec::new();
+    for (index, mut badge) in badges.into_iter().enumerate() {
+        let width = (badge.label.width() + 2).min(remaining / (count - index));
+        if width >= 3 {
+            badge.label = elide_end(&badge.label, width - 2);
+            sized.push((badge, width as u16));
+            remaining = remaining.saturating_sub(width + 1);
+        }
+    }
+    let width = sized
+        .iter()
+        .map(|(_, width)| *width + 1)
+        .sum::<u16>()
+        .saturating_sub(1);
+    let mut x = if left {
+        area.x
+    } else {
+        area.right().saturating_sub(width)
+    };
+    let rendered = Rect::new(x, area.y, width, 1);
+    for (badge, width) in sized {
+        let appearance = badge_style(badge.appearance, color_depth()).add_modifier(Modifier::BOLD);
+        put(
+            buffer,
+            x,
+            area.y,
+            width,
+            &format!(" {} ", badge.label),
+            appearance,
+        );
+        x += width + 1;
+    }
+    rendered
+}
+
+pub(super) fn identity_style(name: &str) -> Style {
+    badge_style(identity_color(name), color_depth())
+}
+
+/// The raw identity color a name maps to, before quantization. Badges that are
+/// rendered through [`badge_style`] reuse it so a name keeps one appearance.
+fn identity_color(name: &str) -> Style {
+    // Fixed FNV-1a keeps each name's color stable across processes and machines.
+    // Only the full name, not its repository, clipping, or sync status, is hashed.
     let hash = name.bytes().fold(0xcbf29ce484222325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
     });
@@ -307,8 +364,89 @@ pub(super) fn repository_style(name: &str) -> Style {
         _ => [chroma, 0.0, secondary],
     }
     .map(|value| ((value + lightness - chroma / 2.0) * 255.0).round() as u8);
-    let background =
-        ui_theme::Color::Rgb(channels[0], channels[1], channels[2]).at_depth(color_depth());
+    Style::default()
+        .fg(Color::Rgb(channels[0], channels[1], channels[2]))
+        .add_modifier(Modifier::BOLD)
+}
+
+fn identity_label(name: &str) -> String {
+    let mut label = safe_text(name);
+    if let Some((index, letter)) = label
+        .char_indices()
+        .find(|(_, letter)| letter.is_alphabetic())
+    {
+        label.replace_range(
+            index..index + letter.len_utf8(),
+            &letter.to_uppercase().to_string(),
+        );
+    }
+    label
+}
+
+pub(super) fn badge_style(appearance: Style, depth: ColorDepth) -> Style {
+    let source = match appearance.fg.unwrap_or(Color::Gray) {
+        Color::Rgb(red, green, blue) => [red, green, blue],
+        color => {
+            let index = match color {
+                Color::Black => 0,
+                Color::Red => 1,
+                Color::Green => 2,
+                Color::Yellow => 3,
+                Color::Blue => 4,
+                Color::Magenta => 5,
+                Color::Cyan => 6,
+                Color::Gray => 7,
+                Color::DarkGray => 8,
+                Color::LightRed => 9,
+                Color::LightGreen => 10,
+                Color::LightYellow => 11,
+                Color::LightBlue => 12,
+                Color::LightMagenta => 13,
+                Color::LightCyan => 14,
+                Color::White => 15,
+                Color::Indexed(index) => index,
+                _ => 7,
+            };
+            ui_theme::Color::Ansi(index).rgb().unwrap_or([192; 3])
+        }
+    };
+    let quantized = |channels: [u8; 3]| {
+        let color = ui_theme::Color::Rgb(channels[0], channels[1], channels[2]);
+        let Some(hue) = badge_hue(channels).filter(|_| depth != ColorDepth::TrueColor) else {
+            return color.at_depth(depth);
+        };
+        let range = if depth == ColorDepth::Ansi16 {
+            0..16
+        } else {
+            16..256
+        };
+        // Nearest RGB alone can turn a dark green or red shade gray. Keep
+        // colored badge text and backgrounds in their original hue family.
+        range
+            .filter_map(|index| {
+                let candidate = ui_theme::Color::Ansi(index as u8);
+                let rgb = candidate.rgb()?;
+                let distance = (badge_hue(rgb)? - hue).abs();
+                if distance.min(6.0 - distance) > 0.5 {
+                    return None;
+                }
+                let error = rgb
+                    .into_iter()
+                    .zip(channels)
+                    .map(|(left, right)| (i32::from(left) - i32::from(right)).pow(2))
+                    .sum::<i32>();
+                Some((candidate, error))
+            })
+            .min_by_key(|(_, error)| *error)
+            .map_or_else(|| color.at_depth(depth), |(candidate, _)| candidate)
+    };
+    let tint = |amount: f64| {
+        quantized(source.map(|channel| {
+            (f64::from(channel) + (255.0 - f64::from(channel)) * amount).round() as u8
+        }))
+    };
+    let shade =
+        |amount: f64| quantized(source.map(|channel| (f64::from(channel) * amount).round() as u8));
     let luminance = |rgb: [u8; 3]| {
         let linear = rgb.map(|channel| {
             let value = f64::from(channel) / 255.0;
@@ -320,27 +458,45 @@ pub(super) fn repository_style(name: &str) -> Style {
         });
         0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
     };
-    let base = luminance(background.rgb().unwrap_or(channels));
-    let contrast = |rgb| {
-        let value = luminance(rgb);
-        (value.max(base) + 0.05) / (value.min(base) + 0.05)
+    let contrast = |background: ui_theme::Color, foreground: ui_theme::Color| {
+        (luminance(background.rgb().unwrap_or([255; 3])) + 0.05)
+            / (luminance(foreground.rgb().unwrap_or([0; 3])) + 0.05)
     };
-    let tint = [40, 48, 56].map(|shift| ((hash >> shift) & 15) as u8);
-    let quantized =
-        |rgb: [u8; 3]| ui_theme::Color::Rgb(rgb[0], rgb[1], rgb[2]).at_depth(color_depth());
-    let light = quantized(tint.map(|channel| 240 + channel));
-    let dark = quantized(tint.map(|channel| 8 + channel));
-    let mut foreground =
-        if contrast(light.rgb().unwrap_or([255; 3])) > contrast(dark.rgb().unwrap_or([0; 3])) {
-            light
-        } else {
-            dark
-        };
-    if contrast(foreground.rgb().unwrap_or([255; 3])) < 4.5 {
-        foreground = ui_theme::Color::Ansi(if base > 0.179 { 0 } else { 15 });
+    let mut background = tint(0.65);
+    let mut foreground = shade(0.35);
+    // Lighten first to keep colored text on limited palettes; only darken the
+    // foreground further when the quantized pair still lacks enough contrast.
+    for amount in [0.75, 0.85, 0.95, 1.0] {
+        if contrast(background, foreground) >= 4.5 {
+            break;
+        }
+        background = tint(amount);
+    }
+    for amount in [0.30, 0.25, 0.20, 0.15, 0.10, 0.0] {
+        if contrast(background, foreground) >= 4.5 {
+            break;
+        }
+        foreground = shade(amount);
     }
     Style::default()
         .bg(background.ratatui())
         .fg(foreground.ratatui())
-        .add_modifier(Modifier::BOLD)
+        .add_modifier(appearance.add_modifier)
+}
+
+fn badge_hue([red, green, blue]: [u8; 3]) -> Option<f64> {
+    let maximum = red.max(green).max(blue);
+    let chroma = maximum - red.min(green).min(blue);
+    if chroma == 0 || u16::from(chroma) * 10 < u16::from(maximum) {
+        return None;
+    }
+    let [r, g, b] = [red, green, blue].map(f64::from);
+    let chroma = f64::from(chroma);
+    Some(if maximum == red {
+        ((g - b) / chroma).rem_euclid(6.0)
+    } else if maximum == green {
+        (b - r) / chroma + 2.0
+    } else {
+        (r - g) / chroma + 4.0
+    })
 }

@@ -409,6 +409,7 @@ fn partial_staging_preserves_non_utf8_content() {
 
 #[test]
 #[cfg(unix)]
+#[cfg(not(target_os = "macos"))]
 fn non_utf8_filenames_round_trip_through_partial_patches() {
     use std::os::unix::ffi::OsStrExt;
     let repo = Repo::new();

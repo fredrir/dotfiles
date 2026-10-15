@@ -67,27 +67,16 @@ impl App {
                 Prepared::Commands(commands) => {
                     let mut result = Ok(String::new());
                     for spec in commands {
-                        let command = self.repo.command(&spec);
-                        let (status, output) = interactive_command(command)?;
+                        let status = self
+                            .repo
+                            .command(&spec)
+                            .status()
+                            .map_err(|error| error.to_string())?;
                         if !status.success() {
-                            if matches!(spec.label.as_str(), "Commit" | "Amend")
-                                && output.contains("Aborting commit due to empty commit message")
-                            {
-                                result = Ok(String::new());
-                            } else {
-                                result = Err(format!(
-                                    "{} did not complete\n{}",
-                                    spec.label,
-                                    output.trim()
-                                ));
-                            }
+                            result = Err(format!("{} did not complete", spec.label));
                             break;
                         }
-                        result = Ok(if output.trim().is_empty() {
-                            format!("{} completed", spec.label)
-                        } else {
-                            format!("{} completed\n{}", spec.label, output.trim())
-                        });
+                        result = Ok(format!("{} completed", spec.label));
                     }
                     result
                 }
@@ -101,7 +90,7 @@ impl App {
                         .arg(format!("exec {editor} \"$@\""))
                         .arg("dogit-editor")
                         .arg(path);
-                    let (status, _) = interactive_command(command)?;
+                    let status = command.status().map_err(|error| error.to_string())?;
                     if status.success() {
                         Ok(String::new())
                     } else {
@@ -122,80 +111,10 @@ impl App {
         if result.as_ref().is_ok_and(|text| text.is_empty()) {
             self.feedback = None;
         } else if !editor || result.is_err() {
-            self.record(&label, result);
+            self.report_result(&label, result);
         }
         self.refresh();
         self.dirty = true;
         Ok(())
     }
-}
-
-fn interactive_command(mut command: Command) -> Result<(std::process::ExitStatus, String), String> {
-    #[cfg(target_os = "linux")]
-    {
-        use std::io::Read;
-
-        let transcript = tempfile::NamedTempFile::new().map_err(|error| error.to_string())?;
-        let mut recorder = Command::new("script");
-        recorder
-            .args(["-q", "-e", "-c"])
-            .arg(quoted_command(&command))
-            .arg(transcript.path());
-        if let Some(directory) = command.get_current_dir() {
-            recorder.current_dir(directory);
-        }
-        for (name, value) in command.get_envs() {
-            if let Some(value) = value {
-                recorder.env(name, value);
-            } else {
-                recorder.env_remove(name);
-            }
-        }
-        match recorder.status() {
-            Ok(status) => {
-                let mut bytes = Vec::new();
-                std::fs::File::open(transcript.path())
-                    .map_err(|error| error.to_string())?
-                    .take(256 * 1024)
-                    .read_to_end(&mut bytes)
-                    .map_err(|error| error.to_string())?;
-                let output = String::from_utf8_lossy(&bytes)
-                    .lines()
-                    .filter(|line| {
-                        !line.starts_with("Script started on ")
-                            && !line.starts_with("Script done on ")
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                return Ok((status, output));
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
-        }
-    }
-    command
-        .status()
-        .map(|status| (status, String::new()))
-        .map_err(|error| error.to_string())
-}
-
-#[cfg(target_os = "linux")]
-fn quoted_command(command: &Command) -> std::ffi::OsString {
-    use std::os::unix::ffi::OsStringExt;
-    let mut bytes = Vec::new();
-    for argument in std::iter::once(command.get_program()).chain(command.get_args()) {
-        if !bytes.is_empty() {
-            bytes.push(b' ');
-        }
-        bytes.push(b'\'');
-        for byte in argument.as_encoded_bytes() {
-            if *byte == b'\'' {
-                bytes.extend_from_slice(b"'\\''");
-            } else {
-                bytes.push(*byte);
-            }
-        }
-        bytes.push(b'\'');
-    }
-    std::ffi::OsString::from_vec(bytes)
 }

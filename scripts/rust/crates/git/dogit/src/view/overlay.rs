@@ -1,9 +1,10 @@
 use super::*;
+use unicode_segmentation::UnicodeSegmentation;
 
-pub fn confirmation_scroll_max(detail: &str, body: Rect) -> u16 {
-    let width = body.width.saturating_add(2).saturating_sub(8).min(78);
+pub fn confirmation_scroll_max(detail: &str, outer: Rect) -> u16 {
+    let width = outer.width.saturating_sub(8).min(78);
     let rows = wrap_detail(detail, width.saturating_sub(6)).len();
-    let height = confirmation_height(rows).min(body.height.saturating_add(2));
+    let height = confirmation_height(rows).min(outer.height.saturating_sub(2));
     rows.saturating_sub(usize::from(height.saturating_sub(4)))
         .min(usize::from(u16::MAX)) as u16
 }
@@ -12,27 +13,37 @@ fn confirmation_height(rows: usize) -> u16 {
     rows.saturating_add(4).clamp(8, usize::from(u16::MAX)) as u16
 }
 
-pub(super) fn render_overlay(frame: &mut Frame, outer: Rect, canvas: Rect, overlay: &Overlay) {
-    let docked =
-        matches!(overlay, Overlay::Compose { .. }) && canvas.width >= 36 && outer.height >= 18;
-    let width = if docked {
-        canvas.width
-    } else {
-        outer.width.saturating_sub(8).min(78)
-    };
+pub(super) fn render_overlay(
+    frame: &mut Frame,
+    outer: Rect,
+    canvas: Rect,
+    overlay: &Overlay,
+    editor_offset: &mut usize,
+) -> Option<Rect> {
+    if let Overlay::Compose {
+        value,
+        cursor,
+        selection,
+    } = overlay
+    {
+        return render_compose(
+            frame,
+            outer,
+            canvas,
+            value,
+            *cursor,
+            selection.as_ref(),
+            editor_offset,
+        );
+    }
+    let width = outer.width.saturating_sub(8).min(78);
     let confirmation = match overlay {
         Overlay::Confirm { detail, .. } => Some(wrap_detail(detail, width.saturating_sub(6))),
         _ => None,
     };
     let desired_height = match overlay {
+        Overlay::Compose { .. } => unreachable!(),
         Overlay::Commands { items, .. } => (items.len() as u16 + 7).min(19),
-        Overlay::Compose { .. } => {
-            if docked {
-                (outer.height / 2).clamp(9, 14)
-            } else {
-                16
-            }
-        }
         Overlay::Input { value, .. } => (value.lines().count() as u16 + 7).clamp(8, 16),
         Overlay::Confirm { .. } => confirmation
             .as_ref()
@@ -40,20 +51,14 @@ pub(super) fn render_overlay(frame: &mut Frame, outer: Rect, canvas: Rect, overl
     };
     let height = desired_height.min(outer.height.saturating_sub(2));
     if width < 12 || height < 4 {
-        return;
+        return None;
     }
-    let x = if docked {
-        canvas.x
-    } else if canvas.width > width + 4 {
+    let x = if canvas.width > width + 4 {
         canvas.x + (canvas.width - width) / 2
     } else {
         outer.x + (outer.width - width) / 2
     };
-    let y = if docked {
-        canvas.bottom().saturating_sub(height)
-    } else {
-        outer.y + (outer.height - height) / 2
-    };
+    let y = outer.y + (outer.height - height) / 2;
     let area = Rect::new(x, y, width, height);
     Clear.render(area, frame.buffer_mut());
     frame.buffer_mut().set_style(area, style(Role::Background));
@@ -65,11 +70,8 @@ pub(super) fn render_overlay(frame: &mut Frame, outer: Rect, canvas: Rect, overl
         area.height.saturating_sub(4),
     );
     match overlay {
-        Overlay::Input {
-            title,
-            value,
-            detail,
-        } => {
+        Overlay::Compose { .. } => unreachable!(),
+        Overlay::Input { title, value } => {
             border_title(
                 frame.buffer_mut(),
                 area.x + 2,
@@ -79,90 +81,11 @@ pub(super) fn render_overlay(frame: &mut Frame, outer: Rect, canvas: Rect, overl
                 true,
             );
             Paragraph::new(safe_text_multiline(value))
-                .style(strong())
+                .style(style(Role::Plain))
                 .wrap(Wrap { trim: false })
                 .render(content, frame.buffer_mut());
-            if !detail.is_empty() && area.height >= 6 {
-                put(
-                    frame.buffer_mut(),
-                    content.x,
-                    area.bottom() - 2,
-                    content.width,
-                    detail,
-                    style(Role::Plain),
-                );
-            }
+
             set_input_cursor(frame, content, value);
-        }
-        Overlay::Compose {
-            summary,
-            body,
-            body_started,
-        } => {
-            let clean_summary = safe_text(summary);
-            let summary_width = usize::from(content.width.saturating_sub(1));
-            let visible_summary = window(
-                &clean_summary,
-                clean_summary.width().saturating_sub(summary_width),
-                summary_width,
-            );
-            border_title(
-                frame.buffer_mut(),
-                area.x + 2,
-                area.y,
-                area.width - 4,
-                "Create commit",
-                true,
-            );
-            put(
-                frame.buffer_mut(),
-                content.x,
-                content.y,
-                content.width,
-                if summary.is_empty() {
-                    "Commit message"
-                } else {
-                    &visible_summary
-                },
-                strong(),
-            );
-            if content.height > 2 {
-                put(
-                    frame.buffer_mut(),
-                    content.x,
-                    content.y + 1,
-                    content.width,
-                    &"─".repeat(usize::from(content.width)),
-                    style(Role::Border),
-                );
-                let body_area =
-                    Rect::new(content.x, content.y + 2, content.width, content.height - 2);
-                Paragraph::new(safe_text_multiline(body))
-                    .style(style(Role::Plain))
-                    .wrap(Wrap { trim: false })
-                    .render(body_area, frame.buffer_mut());
-                set_input_cursor(
-                    frame,
-                    if *body_started {
-                        body_area
-                    } else {
-                        Rect::new(content.x, content.y, content.width, 1)
-                    },
-                    if *body_started {
-                        body
-                    } else {
-                        &visible_summary
-                    },
-                );
-            }
-            border_title(
-                frame.buffer_mut(),
-                area.x + 2,
-                area.bottom() - 1,
-                area.width - 4,
-                "Ctrl+S  Create commit",
-                true,
-            );
         }
         Overlay::Commands {
             query,
@@ -183,7 +106,7 @@ pub(super) fn render_overlay(frame: &mut Frame, outer: Rect, canvas: Rect, overl
                 content.y,
                 content.width,
                 query,
-                strong(),
+                style(Role::Plain),
             );
             if content.height > 2 {
                 put(
@@ -217,7 +140,7 @@ pub(super) fn render_overlay(frame: &mut Frame, outer: Rect, canvas: Rect, overl
                         content.width.saturating_sub(detail_width + 2),
                         &item.label,
                         if index == *selected {
-                            strong()
+                            style(Role::Accent)
                         } else {
                             style(Role::Plain)
                         },
@@ -308,6 +231,129 @@ pub(super) fn render_overlay(frame: &mut Frame, outer: Rect, canvas: Rect, overl
             }
         }
     }
+    None
+}
+
+fn render_compose(
+    frame: &mut Frame,
+    outer: Rect,
+    canvas: Rect,
+    value: &str,
+    cursor: usize,
+    selection: Option<&std::ops::Range<usize>>,
+    offset: &mut usize,
+) -> Option<Rect> {
+    let docked = canvas.width >= 36 && outer.height >= 18;
+    let width = if docked {
+        canvas.width
+    } else {
+        outer.width.saturating_sub(8).min(78)
+    };
+    let height = if docked {
+        (outer.height / 2).clamp(9, 14)
+    } else {
+        16
+    }
+    .min(outer.height.saturating_sub(2));
+    if width < 12 || height < 5 {
+        return None;
+    }
+    let x = if docked {
+        canvas.x
+    } else {
+        outer.x + (outer.width - width) / 2
+    };
+    let y = if docked {
+        canvas.bottom().saturating_sub(height)
+    } else {
+        outer.y + (outer.height - height) / 2
+    };
+    let area = Rect::new(x, y, width, height);
+    Clear.render(area, frame.buffer_mut());
+    frame.buffer_mut().set_style(area, style(Role::Background));
+    draw_overlay_frame(frame.buffer_mut(), area);
+    border_title(
+        frame.buffer_mut(),
+        x + 2,
+        y,
+        width - 4,
+        "Commit Message",
+        true,
+    );
+    let content = Rect::new(x + 3, y + 2, width - 6, height - 4);
+    let layout = ui_widgets::EditorLayout::new(value, usize::from(content.width));
+    let (cursor_row, column) = layout.position(value, cursor);
+    let total = layout.rows.len();
+    let visible = usize::from(content.height);
+    *offset = (*offset).min(total.saturating_sub(visible));
+    if cursor_row < *offset {
+        *offset = cursor_row;
+    } else if cursor_row >= *offset + visible {
+        *offset = cursor_row + 1 - visible;
+    }
+    for visible_row in 0..visible {
+        let row = *offset + visible_row;
+        let y = content.y + visible_row as u16;
+        let Some(row) = layout.rows.get(row) else {
+            break;
+        };
+        let appearance = style(Role::Plain);
+        let mut column = 0;
+        for (index, grapheme) in value[row.range.clone()].grapheme_indices(true) {
+            let start = row.range.start + index;
+            let length = ui_widgets::cell_width(grapheme, column);
+            let selected = selection.is_some_and(|selected| {
+                start < selected.end && start + grapheme.len() > selected.start
+            });
+            let appearance = if selected {
+                style(Role::Selection).add_modifier(Modifier::REVERSED)
+            } else {
+                appearance
+            };
+            let text = if grapheme == "\t" {
+                " ".repeat(length)
+            } else {
+                grapheme.into()
+            };
+            put(
+                frame.buffer_mut(),
+                content.x + column as u16,
+                y,
+                content.width.saturating_sub(column as u16),
+                &text,
+                appearance,
+            );
+            column += length;
+        }
+        if column < usize::from(content.width)
+            && value.as_bytes().get(row.range.end) == Some(&b'\n')
+            && selection.is_some_and(|selected| selected.contains(&row.range.end))
+        {
+            put(
+                frame.buffer_mut(),
+                content.x + column as u16,
+                y,
+                1,
+                " ",
+                style(Role::Selection).add_modifier(Modifier::REVERSED),
+            );
+        }
+    }
+    if value.is_empty() {
+        put(
+            frame.buffer_mut(),
+            content.x,
+            content.y,
+            content.width,
+            "Commit message",
+            style(Role::Muted),
+        );
+    }
+    frame.set_cursor_position((
+        content.x + column as u16,
+        content.y + (cursor_row - *offset) as u16,
+    ));
+    Some(content)
 }
 
 // Keep every path's printable representation accessible, including long

@@ -64,6 +64,48 @@ fn collect_until(app: &mut App, done: impl Fn(&App) -> bool) {
 }
 
 #[test]
+fn results_use_action_titles_and_errors_remain_until_dismissed() {
+    let fixture = Fixture::new();
+    let mut app = fixture.app();
+    for (label, expected) in [
+        ("commit", "Committed!"),
+        ("Push", "Pushed!"),
+        ("Create branch", "Branch created!"),
+    ] {
+        app.report_result(label, Ok("noisy git output".into()));
+        let notification = app.notification.as_ref().unwrap();
+        assert_eq!(notification.title, expected);
+        assert!(notification.detail.is_empty());
+        assert!(!notification.failed);
+    }
+    app.notification.as_mut().unwrap().started = Instant::now() - Duration::from_secs(6);
+    app.collect();
+    assert!(app.notification.is_none());
+
+    app.report_result(
+        "push",
+        Err("remote rejected the update\nretry after pulling".into()),
+    );
+    let notification = app.notification.as_mut().unwrap();
+    assert_eq!(notification.title, "Push failed");
+    assert_eq!(
+        notification.detail,
+        "remote rejected the update\nretry after pulling"
+    );
+    notification.started = Instant::now() - Duration::from_secs(60);
+    app.collect();
+    assert!(app.notification.as_ref().unwrap().failed);
+    app.key(
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    assert!(app.notification.is_none());
+    assert!(!app.quit);
+}
+
+#[test]
 fn background_refresh_preserves_slow_preview_and_explicit_refresh_supersedes_it() {
     let fixture = Fixture::new();
     fixture.write("modified\n");
@@ -207,12 +249,12 @@ fn busy_prompt_keeps_draft_and_confirmation_scroll_remains_available() {
         started: Instant::now(),
     });
     app.dialog = Some(Dialog::Input {
-        prompt: Prompt::Compose,
+        prompt: Prompt::Branch,
         title: "Commit".into(),
         value: "keep this draft".into(),
     });
     app.key(
-        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
         &mut None,
         &mut None,
     )
@@ -342,7 +384,9 @@ fn pasted_search_updates_results_and_shift_down_selects_intervening_lines() {
     });
     app.paste("missing");
     assert_eq!(app.query, "missing");
-    assert!(app.entries.is_empty());
+    assert_eq!(app.entries.len(), 1);
+    assert_eq!(app.selected(), Some(&Target::Path(PathBuf::new(), true)));
+    assert_eq!(app.nav_summary.items, 0);
     app.dialog = None;
     app.diff = Some(Arc::new(
         ExactDiff::load(&app.repo.root, Path::new("file.txt"), DiffSide::Worktree).unwrap(),
@@ -373,41 +417,10 @@ fn pasted_search_updates_results_and_shift_down_selects_intervening_lines() {
 }
 
 #[test]
-fn operation_completion_preserves_selected_record_with_and_without_search() {
-    let fixture = Fixture::new();
-    for query in ["", "keep"] {
-        let mut app = fixture.app();
-        app.saved.operations = ["newer", "keep selected", "older"]
-            .into_iter()
-            .enumerate()
-            .map(|(timestamp, action)| OperationRecord {
-                action: action.into(),
-                outcome: action.into(),
-                detail: format!("{action} output"),
-                failed: false,
-                timestamp: timestamp as u64,
-            })
-            .collect();
-        app.view.workspace = Workspace::Operations;
-        app.query = query.into();
-        app.rebuild();
-        app.view.selected = app
-            .entries
-            .iter()
-            .position(|entry| entry.target == Target::Operation(1))
-            .unwrap();
-        app.record("Fetch", Ok("Fetched".into()));
-        assert_eq!(app.selected(), Some(&Target::Operation(2)));
-        assert_eq!(app.text, ["keep selected output"]);
-        assert_eq!(app.entries[app.view.selected].item.label, "keep selected");
-    }
-}
-
-#[test]
 fn plain_numbers_select_every_workspace_without_opening_dialogs() {
     let fixture = Fixture::new();
     let mut app = fixture.app();
-    for (number, expected) in ('1'..='7').zip(Workspace::ALL) {
+    for (number, expected) in ('1'..='6').zip(Workspace::ALL) {
         app.key(
             KeyEvent::new(KeyCode::Char(number), KeyModifiers::NONE),
             &mut None,
@@ -417,14 +430,14 @@ fn plain_numbers_select_every_workspace_without_opening_dialogs() {
         assert_eq!(app.view.workspace, expected);
         assert!(app.dialog.is_none());
     }
-    for number in ['0', '8', '9'] {
+    for number in ['0', '7', '8', '9'] {
         app.key(
             KeyEvent::new(KeyCode::Char(number), KeyModifiers::NONE),
             &mut None,
             &mut None,
         )
         .unwrap();
-        assert_eq!(app.view.workspace, Workspace::Operations);
+        assert_eq!(app.view.workspace, Workspace::Compare);
         assert!(app.dialog.is_none());
     }
 }
@@ -488,7 +501,7 @@ fn function_keys_are_unbound_and_control_r_refreshes() {
 fn explicit_shifted_number_events_select_workspaces() {
     let fixture = Fixture::new();
     let mut app = fixture.app();
-    for (number, workspace) in ('1'..='7').zip(Workspace::ALL) {
+    for (number, workspace) in ('1'..='6').zip(Workspace::ALL) {
         app.key(
             KeyEvent::new(KeyCode::Char(number), KeyModifiers::SHIFT),
             &mut None,
@@ -521,9 +534,9 @@ fn punctuation_is_not_guessed_to_be_a_workspace_shortcut() {
 }
 
 #[test]
-fn shifted_numbers_and_symbols_remain_text_in_compose_and_search() {
+fn shifted_numbers_and_symbols_remain_text_in_prompts_and_search() {
     let fixture = Fixture::new();
-    for prompt in [Prompt::Compose, Prompt::Search] {
+    for prompt in [Prompt::Branch, Prompt::Search] {
         let mut app = fixture.app();
         app.dialog = Some(Dialog::Input {
             prompt,
@@ -604,7 +617,7 @@ fn escape_closes_modal_before_quitting_from_canvas() {
             selected: 0,
         },
         Dialog::Input {
-            prompt: Prompt::Compose,
+            prompt: Prompt::Branch,
             title: "Commit".into(),
             value: "draft".into(),
         },
@@ -878,6 +891,7 @@ fn manual_viewport_scroll_survives_render_until_keyboard_navigation_resumes() {
     );
     let mut app = fixture.app();
     populate_navigation(&mut app, 100);
+    app.view.selected = 0;
     app.diff = Some(Arc::new(
         ExactDiff::load(&app.repo.root, Path::new("file.txt"), DiffSide::Worktree).unwrap(),
     ));
@@ -986,6 +1000,11 @@ fn staging_preserves_selected_path_and_auto_selects_available_diff_side() {
     std::fs::write(fixture.directory.path().join("later"), "unrelated\n").unwrap();
     let mut app = fixture.app();
     let target = Target::Path("file.txt".into(), false);
+    app.view.selected = app
+        .entries
+        .iter()
+        .position(|entry| entry.target == target)
+        .unwrap();
     assert_eq!(app.selected(), Some(&target));
     app.action(Action::StageFile, &mut None, &mut None).unwrap();
     collect_until(&mut app, |app| {
@@ -1006,18 +1025,20 @@ fn staging_preserves_selected_path_and_auto_selects_available_diff_side() {
 }
 
 #[test]
-fn tree_arrows_expand_enter_collapse_and_return_to_parent() {
+fn tree_arrows_navigate_compacted_directories_and_return_to_visible_parent() {
     let fixture = Fixture::new();
     let root = fixture.directory.path();
     std::fs::create_dir_all(root.join("src/nested")).unwrap();
     std::fs::write(root.join("src/nested/new"), "new\n").unwrap();
+    fixture.write("root change\n");
     let mut app = fixture.app();
-    app.view.selected = 0;
-    app.collapsed.insert("src".into());
-    app.rebuild();
-    app.expand_selected();
-    assert_eq!(app.selected(), Some(&Target::Path("src".into(), true)));
-    assert!(!app.collapsed.contains(Path::new("src")));
+    app.view.selected = app
+        .entries
+        .iter()
+        .position(|entry| entry.target == Target::Path("src/nested".into(), true))
+        .unwrap();
+    app.collapse_selected();
+    assert!(app.collapsed.contains(Path::new("src/nested")));
     app.expand_selected();
     assert_eq!(
         app.selected(),
@@ -1034,9 +1055,8 @@ fn tree_arrows_expand_enter_collapse_and_return_to_parent() {
         Some(&Target::Path("src/nested".into(), true))
     );
     app.collapse_selected();
-    assert!(app.collapsed.contains(Path::new("src/nested")));
     app.collapse_selected();
-    assert_eq!(app.selected(), Some(&Target::Path("src".into(), true)));
+    assert_eq!(app.selected(), Some(&Target::Path(PathBuf::new(), true)));
 }
 
 #[test]
@@ -1273,6 +1293,11 @@ fn wrapped_continuation_reflow_preserves_cursor_viewport_marks_and_exact_staging
     let working = format!("original\n{source}\nneighbor\n");
     fixture.write(&working);
     let mut app = fixture.app();
+    app.view.selected = app
+        .entries
+        .iter()
+        .position(|entry| entry.target == Target::Path("file.txt".into(), false))
+        .unwrap();
     app.presentation_config = Some(DiffPresentationConfig::default());
     app.diff = Some(Arc::new(
         ExactDiff::load(&app.repo.root, Path::new("file.txt"), DiffSide::Worktree).unwrap(),
@@ -1427,4 +1452,486 @@ fn unlimited_split_wrapping_prevents_horizontal_keyboard_and_mouse_scrolling() {
         modifiers: KeyModifiers::NONE,
     });
     assert_eq!(app.view.horizontal, 9);
+}
+
+#[test]
+fn changes_tree_uses_one_shared_root_and_compacts_directory_chains() {
+    let fixture = Fixture::new();
+    let mut app = fixture.app();
+    for (paths, expected) in [
+        (
+            vec![
+                "scripts/rust/crates/dclip/Cargo.toml",
+                "scripts/rust/crates/dclip/src/mode.rs",
+            ],
+            vec![
+                ("scripts/rust/crates/dclip", 0),
+                ("Cargo.toml", 1),
+                ("src", 1),
+                ("mode.rs", 2),
+            ],
+        ),
+        (
+            vec!["src/one/two/file.rs", "src/other/deep/test.rs"],
+            vec![
+                ("src", 0),
+                ("one/two", 1),
+                ("file.rs", 2),
+                ("other/deep", 1),
+                ("test.rs", 2),
+            ],
+        ),
+        (
+            vec!["src/only/one.rs"],
+            vec![("src/only", 0), ("one.rs", 1)],
+        ),
+    ] {
+        app.snapshot.status.entries = paths
+            .iter()
+            .map(|path| crate::git::StatusEntry {
+                path: path.into(),
+                original_path: None,
+                index: '.',
+                worktree: 'M',
+                unmerged: false,
+                untracked: false,
+                submodule: None,
+            })
+            .collect();
+        app.rebuild();
+        assert_eq!(
+            app.entries
+                .iter()
+                .map(|entry| (entry.item.label.as_str(), entry.item.depth))
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            app.entries
+                .iter()
+                .filter(|entry| entry.item.depth == 0)
+                .count(),
+            1
+        );
+        assert_eq!(app.nav_summary.items, paths.len());
+        for path in paths {
+            assert!(
+                app.entries
+                    .iter()
+                    .any(|entry| entry.target == Target::Path(path.into(), false))
+            );
+        }
+    }
+    app.query = "one.rs".into();
+    app.rebuild();
+    assert_eq!(app.entries[0].item.label, "src/only");
+    app.query = "missing".into();
+    app.rebuild();
+    assert_eq!(app.entries.len(), 1);
+    assert_eq!(app.entries[0].target, Target::Path(PathBuf::new(), true));
+}
+
+#[test]
+fn space_stages_mixed_content_then_unstages_without_changing_the_worktree() {
+    let fixture = Fixture::new();
+    fixture.write("staged version\n");
+    git(fixture.directory.path(), &["add", "file.txt"]);
+    fixture.write("working version\n");
+    let mut app = fixture.app();
+    let target = app.selected().cloned();
+    assert!(
+        app.selected_file_state().unwrap().staged && app.selected_file_state().unwrap().unstaged
+    );
+    for staged in [true, false] {
+        app.key(
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+            &mut None,
+            &mut None,
+        )
+        .unwrap();
+        collect_until(&mut app, |app| {
+            app.operation.is_none() && !app.snapshot_pending && !app.content_pending
+        });
+        assert_eq!(app.selected(), target.as_ref());
+        let state = app.selected_file_state().unwrap();
+        assert_eq!((state.staged, state.unstaged), (staged, !staged));
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("file.txt")).unwrap(),
+            "working version\n"
+        );
+    }
+}
+
+#[test]
+fn repository_root_previews_and_space_toggles_all_changed_files() {
+    let fixture = Fixture::new();
+    fixture.write("root change\n");
+    std::fs::create_dir_all(fixture.directory.path().join("nested/deep")).unwrap();
+    std::fs::write(
+        fixture.directory.path().join("nested/deep/new"),
+        "new content\n",
+    )
+    .unwrap();
+    let mut app = fixture.app();
+    app.view.selected = 0;
+    assert_eq!(app.selected(), Some(&Target::Path(PathBuf::new(), true)));
+    app.load_content(true);
+    collect_until(&mut app, |app| !app.content_pending);
+    let diff = app.diff.as_ref().unwrap();
+    let patch = String::from_utf8_lossy(&diff.raw);
+    assert!(patch.contains("root change") && patch.contains("new content"));
+    for staged in [true, false] {
+        app.key(
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+            &mut None,
+            &mut None,
+        )
+        .unwrap();
+        collect_until(&mut app, |app| {
+            app.operation.is_none() && !app.snapshot_pending && !app.content_pending
+        });
+        assert_eq!(app.nav_summary.items, 2);
+        assert_eq!(
+            (app.nav_summary.staged, app.nav_summary.unstaged),
+            if staged { (2, 0) } else { (0, 2) }
+        );
+        assert_eq!(app.selected(), Some(&Target::Path(PathBuf::new(), true)));
+    }
+}
+
+#[test]
+fn space_on_a_filtered_root_only_stages_matching_changes() {
+    let fixture = Fixture::new();
+    fixture.write("visible change\n");
+    std::fs::write(
+        fixture.directory.path().join("hidden.txt"),
+        "hidden change\n",
+    )
+    .unwrap();
+    let mut app = fixture.app();
+    app.query = "file.txt".into();
+    app.rebuild();
+    app.view.selected = 0;
+    app.key(
+        KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    collect_until(&mut app, |app| {
+        app.operation.is_none() && !app.snapshot_pending && !app.content_pending
+    });
+    let snapshot = fixture.repo.snapshot(300).unwrap();
+    assert!(
+        snapshot
+            .status
+            .entries
+            .iter()
+            .find(|entry| entry.path == Path::new("file.txt"))
+            .unwrap()
+            .staged()
+    );
+    assert!(
+        snapshot
+            .status
+            .entries
+            .iter()
+            .find(|entry| entry.path == Path::new("hidden.txt"))
+            .unwrap()
+            .untracked
+    );
+}
+
+#[test]
+fn reopening_changes_starts_at_the_root_and_command_arrows_reach_both_edges() {
+    let fixture = Fixture::new();
+    fixture.write("changed\n");
+    std::fs::write(fixture.directory.path().join("last.txt"), "new\n").unwrap();
+    for _ in 0..2 {
+        let mut app = fixture.app();
+        assert_eq!(app.view.selected, 0);
+        assert_eq!(app.selected(), Some(&Target::Path(PathBuf::new(), true)));
+        for (key, expected) in [(KeyCode::Down, app.entries.len() - 1), (KeyCode::Up, 0)] {
+            app.view.nav_manual_scroll = true;
+            app.key(
+                KeyEvent::new(key, KeyModifiers::SUPER),
+                &mut None,
+                &mut None,
+            )
+            .unwrap();
+            assert_eq!(app.view.selected, expected);
+            assert!(!app.view.nav_manual_scroll);
+            assert!(app.operation.is_none());
+        }
+        app.key(
+            KeyEvent::new(KeyCode::End, KeyModifiers::NONE),
+            &mut None,
+            &mut None,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn shift_space_toggles_all_current_changes_independent_of_cursor_and_search() {
+    let fixture = Fixture::new();
+    fixture.write("staged\n");
+    git(fixture.directory.path(), &["add", "file.txt"]);
+    fixture.write("mixed\n");
+    let mut app = fixture.app();
+    app.query = "file.txt".into();
+    app.rebuild();
+    app.view.selected = 1;
+    // This change is absent from both the filtered tree and its last snapshot.
+    std::fs::write(fixture.directory.path().join("hidden.txt"), "hidden\n").unwrap();
+    let target = app.selected().cloned();
+    for staged in [true, false] {
+        app.key(
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::SHIFT),
+            &mut None,
+            &mut None,
+        )
+        .unwrap();
+        collect_until(&mut app, |app| {
+            app.operation.is_none() && !app.snapshot_pending && !app.content_pending
+        });
+        let status = fixture.repo.status().unwrap();
+        assert_eq!(status.entries.len(), 2);
+        assert!(
+            status
+                .entries
+                .iter()
+                .all(|entry| entry.staged() == staged && entry.unstaged() != staged)
+        );
+        assert_eq!(app.selected(), target.as_ref());
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("file.txt")).unwrap(),
+            "mixed\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("hidden.txt")).unwrap(),
+            "hidden\n"
+        );
+    }
+    app.key(
+        KeyEvent::new_with_kind(
+            KeyCode::Char(' '),
+            KeyModifiers::SHIFT,
+            KeyEventKind::Repeat,
+        ),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    assert!(app.operation.is_none());
+    app.dialog = Some(Dialog::Input {
+        prompt: Prompt::Search,
+        title: "Search".into(),
+        value: String::new(),
+    });
+    app.key(
+        KeyEvent::new(KeyCode::Char(' '), KeyModifiers::SHIFT),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    assert!(matches!(app.dialog, Some(Dialog::Input { ref value, .. }) if value == " "));
+    assert!(app.operation.is_none());
+}
+
+#[test]
+fn inline_commit_accepts_normal_text_editing_without_activating_workbench_shortcuts() {
+    let fixture = Fixture::new();
+    let mut app = fixture.app();
+    app.action(Action::Compose, &mut None, &mut None).unwrap();
+    app.paste("Hello wrld\r\n\r\nBody å e\u{301} 👩‍💻");
+    let keys = [
+        KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL),
+        KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL),
+        KeyEvent::new(KeyCode::End, KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL),
+        KeyEvent::new(KeyCode::Char(' '), KeyModifiers::SHIFT),
+        KeyEvent::new(
+            KeyCode::Char('@'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ),
+    ];
+    for key in keys {
+        app.key(key, &mut None, &mut None).unwrap();
+    }
+    let Some(Dialog::Compose { editor }) = &app.dialog else {
+        panic!("inline editor closed");
+    };
+    assert_eq!(editor.as_str(), "Hello world\n\nBody å e\u{301} 👩‍💻 @");
+    assert_eq!(app.view.workspace, Workspace::Changes);
+    assert!(app.operation.is_none());
+    app.key(
+        KeyEvent::new_with_kind(
+            KeyCode::Char('!'),
+            KeyModifiers::SHIFT,
+            KeyEventKind::Release,
+        ),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    let Some(Dialog::Compose { editor }) = &app.dialog else {
+        panic!();
+    };
+    assert!(!editor.as_str().ends_with('!'));
+    app.key(
+        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    assert!(app.composing(), "Ctrl+S must not commit");
+    assert!(app.operation.is_none());
+    app.operation = Some(PendingOperation {
+        label: "Fetch".into(),
+        started: Instant::now(),
+    });
+    app.key(
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    assert!(matches!(app.dialog, Some(Dialog::Compose { .. })));
+    app.operation = None;
+    app.key(
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    assert!(!app.composing());
+}
+
+#[test]
+fn inline_editing_supports_selection_word_motion_delete_and_terminal_shortcut_variants() {
+    let mut editor = ui_widgets::EditorBuffer::new("one two three");
+    for key in [
+        KeyEvent::new(KeyCode::Left, KeyModifiers::ALT),
+        KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+        KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT),
+        KeyEvent::new(KeyCode::Left, KeyModifiers::SUPER),
+        KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE),
+        KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL),
+    ] {
+        editor::edit_key(&mut editor, key, 80);
+    }
+    assert_eq!(editor.as_str(), "one two X");
+    editor::edit_key(
+        &mut editor,
+        KeyEvent::new(KeyCode::Right, KeyModifiers::SUPER),
+        80,
+    );
+    assert_eq!(editor.cursor(), editor.as_str().len());
+    editor::edit_key(
+        &mut editor,
+        KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT),
+        80,
+    );
+    editor::edit_key(
+        &mut editor,
+        KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT),
+        80,
+    );
+    assert_eq!(editor.as_str(), "one two ");
+}
+
+#[test]
+fn inline_enter_commits_but_modified_enter_and_paste_keep_multiline_drafts() {
+    let fixture = Fixture::new();
+    let mut app = fixture.app();
+    app.action(Action::Compose, &mut None, &mut None).unwrap();
+    app.key(
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    assert!(app.composing());
+    assert!(app.operation.is_none());
+    app.paste("Subject");
+    app.key(
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    app.key(
+        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    app.paste("Body\nMore");
+    app.key(
+        KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Repeat),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    let Some(Dialog::Compose { editor }) = &app.dialog else {
+        panic!("draft submitted early")
+    };
+    assert_eq!(editor.as_str(), "Subject\n\nBody\nMore");
+    assert!(app.operation.is_none());
+    app.key(
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    assert!(!app.composing());
+    assert!(app.operation.is_some());
+}
+
+#[test]
+fn diff_s_and_u_switch_views_without_staging_files_or_marked_lines() {
+    let fixture = Fixture::new();
+    fixture.write("staged\n");
+    git(fixture.directory.path(), &["add", "file.txt"]);
+    fixture.write("working\n");
+    let index = std::fs::read(fixture.directory.path().join(".git/index")).unwrap();
+    let mut app = fixture.app();
+    app.view.focus = Focus::Canvas;
+    let selected = app.selected().cloned();
+    for (key, side) in [
+        ('s', DiffSide::Index),
+        ('u', DiffSide::Worktree),
+        ('s', DiffSide::Index),
+        ('s', DiffSide::Index),
+        ('u', DiffSide::Worktree),
+    ] {
+        app.marked.insert(1);
+        app.key(
+            KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE),
+            &mut None,
+            &mut None,
+        )
+        .unwrap();
+        collect_until(&mut app, |app| !app.content_pending);
+        assert_eq!(app.side, side);
+        assert_eq!(app.diff.as_ref().unwrap().side, side);
+        assert_eq!(app.selected(), selected.as_ref());
+        assert!(app.operation.is_none());
+        assert_eq!(
+            std::fs::read(fixture.directory.path().join(".git/index")).unwrap(),
+            index
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("file.txt")).unwrap(),
+            "working\n"
+        );
+    }
 }
