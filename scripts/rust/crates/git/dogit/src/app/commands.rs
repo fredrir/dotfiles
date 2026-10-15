@@ -69,7 +69,8 @@ impl App {
             Action::Branches => self.workspace(Workspace::Branches), Action::Stashes => self.workspace(Workspace::Stashes),
             Action::Worktrees => self.workspace(Workspace::Worktrees),
             Action::Compare => {
-                self.dialog = Some(Dialog::Input { prompt: Prompt::CompareFrom, title: "Compare from revision".into(), value: self.compare.as_ref().map_or_else(|| "HEAD~1".into(), |(from, _)| from.clone()) });
+                let value = self.compare.as_ref().map_or_else(|| "HEAD~1".into(), |(from, _)| from.clone());
+                self.prompt(Prompt::CompareFrom, "Compare from revision", &value);
             }
             Action::Edit if self.view.workspace == Workspace::Changes => {
                 let path = match target { Some(Target::Path(path, _)) => self.repo.root.join(path), _ => self.repo.root.clone() };
@@ -183,8 +184,8 @@ impl App {
             }
             Action::ToggleFiles if self.view.workspace == Workspace::Changes => { self.all_files = !self.all_files; self.rebuild(); self.load_content(true); },
             Action::ToggleSide if self.view.workspace == Workspace::Changes => { self.select_diff_side(if self.side == DiffSide::Index { DiffSide::Worktree } else { DiffSide::Index }); },
-            Action::ShowStaged => self.select_diff_side(DiffSide::Index),
-            Action::ShowUnstaged => self.select_diff_side(DiffSide::Worktree),
+            Action::ShowStaged => self.toggle_changes_filter(DiffSide::Index),
+            Action::ShowUnstaged => self.toggle_changes_filter(DiffSide::Worktree),
             Action::ToggleStructural => { self.structure_enabled = !self.structure_enabled; self.load_content(true); },
             Action::ToggleSplit => { self.view.split = !self.view.split; self.split_override = Some(self.view.split); self.update_rows(); self.load_content(false); },
             Action::Copy => {
@@ -288,10 +289,19 @@ impl App {
     }
 
     pub(super) fn prompt(&mut self, prompt: Prompt, title: &str, value: &str) {
+        self.view.editor_offset = 0;
         self.dialog = Some(Dialog::Input {
             prompt,
             title: title.into(),
-            value: value.into(),
+            editor: ui_widgets::EditorBuffer::new(value),
+        });
+    }
+
+    pub(super) fn open_actions(&mut self) {
+        self.view.editor_offset = 0;
+        self.dialog = Some(Dialog::Actions {
+            editor: ui_widgets::EditorBuffer::default(),
+            selected: 0,
         });
     }
 
@@ -334,20 +344,31 @@ impl App {
             }
             return Ok(());
         }
+        if let Some(editor) = dialog.editor()
+            && editor::copy_key(key)
+        {
+            if key.kind != KeyEventKind::Repeat
+                && let Some(selection) = editor.selection()
+            {
+                self.copy_text(editor.as_str()[selection].to_owned());
+            }
+            self.dialog = Some(dialog);
+            return Ok(());
+        }
+        let submit = key.modifiers.is_empty() && key.code == KeyCode::Enter;
+        if submit && key.kind == KeyEventKind::Repeat {
+            self.dialog = Some(dialog);
+            return Ok(());
+        }
+        let width = self
+            .geometry
+            .as_ref()
+            .and_then(|geometry| geometry.editor)
+            .map_or(72, |area| usize::from(area.width));
         match &mut dialog {
             Dialog::Compose { editor } => {
-                if editor::copy_key(key) {
-                    if key.kind != KeyEventKind::Repeat
-                        && let Some(selection) = editor.selection()
-                    {
-                        self.copy_text(editor.as_str()[selection].to_owned());
-                    }
-                    self.dialog = Some(dialog);
-                    return Ok(());
-                }
-                let submit = key.modifiers.is_empty() && key.code == KeyCode::Enter;
                 if submit {
-                    if key.kind == KeyEventKind::Repeat || editor.as_str().trim().is_empty() {
+                    if editor.as_str().trim().is_empty() {
                         self.dialog = Some(dialog);
                         return Ok(());
                     }
@@ -360,11 +381,6 @@ impl App {
                     self.command("Commit", move |repo| repo.commit(Some(&value), false));
                     return Ok(());
                 }
-                let width = self
-                    .geometry
-                    .as_ref()
-                    .and_then(|geometry| geometry.editor)
-                    .map_or(72, |area| usize::from(area.width));
                 editor::edit_key(editor, key, width);
             }
             Dialog::Confirm { scroll, detail, .. }
@@ -414,56 +430,48 @@ impl App {
                 }
                 return Ok(());
             }
-            Dialog::Actions { query, selected } => {
-                let actions = self.available_actions(query);
+            Dialog::Actions { editor, selected } => {
+                let actions = self.available_actions(editor.as_str());
                 match key.code {
-                    KeyCode::Enter => {
+                    KeyCode::Enter if submit => {
                         if let Some(definition) = actions.get(*selected) {
                             self.action(definition.action, terminal, signals)?;
                         }
                         return Ok(());
                     }
-                    KeyCode::Down | KeyCode::Char('j')
-                        if key.code == KeyCode::Down
-                            || key.modifiers.contains(KeyModifiers::CONTROL) =>
-                    {
+                    KeyCode::Down if key.modifiers.is_empty() => {
                         *selected = if *selected >= actions.len().saturating_sub(1) {
                             0
                         } else {
                             *selected + 1
                         };
                     }
-                    KeyCode::Up | KeyCode::Char('k')
-                        if key.code == KeyCode::Up
-                            || key.modifiers.contains(KeyModifiers::CONTROL) =>
-                    {
+                    KeyCode::Up if key.modifiers.is_empty() => {
                         *selected = if *selected == 0 {
                             actions.len().saturating_sub(1)
                         } else {
                             *selected - 1
                         };
                     }
-                    KeyCode::Home => *selected = 0,
-                    KeyCode::End => *selected = actions.len().saturating_sub(1),
-                    KeyCode::PageDown => {
+                    KeyCode::PageDown if key.modifiers.is_empty() => {
                         *selected = selected
                             .saturating_add(8)
                             .min(actions.len().saturating_sub(1))
                     }
-                    KeyCode::PageUp => *selected = selected.saturating_sub(8),
-                    KeyCode::Backspace => {
-                        query.pop();
-                        *selected = 0;
+                    KeyCode::PageUp if key.modifiers.is_empty() => {
+                        *selected = selected.saturating_sub(8)
                     }
-                    KeyCode::Char(character) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        query.push(character);
-                        *selected = 0;
+                    _ => {
+                        let previous = editor.as_str().to_owned();
+                        editor::edit_single_line_key(editor, key, width);
+                        if editor.as_str() != previous {
+                            *selected = 0;
+                        }
                     }
-                    _ => {}
                 }
             }
-            Dialog::Input { prompt, value, .. } => {
-                if key.code == KeyCode::Enter {
+            Dialog::Input { prompt, editor, .. } => {
+                if submit {
                     if self.operation.is_some()
                         && !matches!(
                             prompt,
@@ -474,7 +482,7 @@ impl App {
                         self.dialog = Some(dialog);
                         return Ok(());
                     }
-                    let value = value.clone();
+                    let value = editor.as_str().to_owned();
                     match prompt.clone() {
                         Prompt::Search => {
                             self.query = value;
@@ -532,28 +540,9 @@ impl App {
                     }
                     return Ok(());
                 }
-                match key.code {
-                    KeyCode::Backspace => {
-                        value.pop();
-                    }
-                    KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        value.clear()
-                    }
-                    KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        *value = value.trim_end().to_owned();
-                        value.truncate(
-                            value
-                                .rfind(char::is_whitespace)
-                                .map_or(0, |position| position + 1),
-                        );
-                    }
-                    KeyCode::Char(character) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        value.push(character)
-                    }
-                    _ => {}
-                }
-                if matches!(prompt, Prompt::Search) {
-                    self.query = value.clone();
+                editor::edit_single_line_key(editor, key, width);
+                if matches!(prompt, Prompt::Search) && self.query != editor.as_str() {
+                    self.query = editor.as_str().to_owned();
                     self.rebuild();
                     self.load_content(true);
                 }

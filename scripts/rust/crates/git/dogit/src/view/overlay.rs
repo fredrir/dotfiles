@@ -1,6 +1,10 @@
 use super::*;
 use unicode_segmentation::UnicodeSegmentation;
 
+#[cfg(test)]
+#[path = "../../tests/unit/overlay_tests.rs"]
+mod tests;
+
 pub fn confirmation_scroll_max(detail: &str, outer: Rect) -> u16 {
     let width = outer.width.saturating_sub(8).min(78);
     let rows = wrap_detail(detail, width.saturating_sub(6)).len();
@@ -16,48 +20,27 @@ fn confirmation_height(rows: usize) -> u16 {
 pub(super) fn render_overlay(
     frame: &mut Frame,
     outer: Rect,
-    canvas: Rect,
     overlay: &Overlay,
     editor_offset: &mut usize,
 ) -> Option<Rect> {
-    if let Overlay::Compose {
-        value,
-        cursor,
-        selection,
-    } = overlay
-    {
-        return render_compose(
-            frame,
-            outer,
-            canvas,
-            value,
-            *cursor,
-            selection.as_ref(),
-            editor_offset,
-        );
-    }
     let width = outer.width.saturating_sub(8).min(78);
     let confirmation = match overlay {
         Overlay::Confirm { detail, .. } => Some(wrap_detail(detail, width.saturating_sub(6))),
         _ => None,
     };
     let desired_height = match overlay {
-        Overlay::Compose { .. } => unreachable!(),
+        Overlay::Compose { .. } => 16,
         Overlay::Commands { items, .. } => (items.len() as u16 + 7).min(19),
-        Overlay::Input { value, .. } => (value.lines().count() as u16 + 7).clamp(8, 16),
+        Overlay::Input { .. } => 8,
         Overlay::Confirm { .. } => confirmation
             .as_ref()
             .map_or(8, |lines| confirmation_height(lines.len())),
     };
     let height = desired_height.min(outer.height.saturating_sub(2));
-    if width < 12 || height < 4 {
+    if width < 12 || height < 5 {
         return None;
     }
-    let x = if canvas.width > width + 4 {
-        canvas.x + (canvas.width - width) / 2
-    } else {
-        outer.x + (outer.width - width) / 2
-    };
+    let x = outer.x + (outer.width - width) / 2;
     let y = outer.y + (outer.height - height) / 2;
     let area = Rect::new(x, y, width, height);
     Clear.render(area, frame.buffer_mut());
@@ -70,8 +53,19 @@ pub(super) fn render_overlay(
         area.height.saturating_sub(4),
     );
     match overlay {
-        Overlay::Compose { .. } => unreachable!(),
-        Overlay::Input { title, value } => {
+        Overlay::Compose { editor } => {
+            border_title(
+                frame.buffer_mut(),
+                area.x + 2,
+                area.y,
+                area.width - 4,
+                "Commit Message",
+                true,
+            );
+            render_editor(frame, content, editor, editor_offset, "Commit message");
+            return Some(content);
+        }
+        Overlay::Input { title, editor } => {
             border_title(
                 frame.buffer_mut(),
                 area.x + 2,
@@ -80,15 +74,11 @@ pub(super) fn render_overlay(
                 title,
                 true,
             );
-            Paragraph::new(safe_text_multiline(value))
-                .style(style(Role::Plain))
-                .wrap(Wrap { trim: false })
-                .render(content, frame.buffer_mut());
-
-            set_input_cursor(frame, content, value);
+            render_editor(frame, content, editor, editor_offset, "");
+            return Some(content);
         }
         Overlay::Commands {
-            query,
+            editor,
             items,
             selected,
         } => {
@@ -99,14 +89,6 @@ pub(super) fn render_overlay(
                 area.width - 4,
                 "Commands",
                 true,
-            );
-            put(
-                frame.buffer_mut(),
-                content.x,
-                content.y,
-                content.width,
-                query,
-                style(Role::Plain),
             );
             if content.height > 2 {
                 put(
@@ -155,11 +137,9 @@ pub(super) fn render_overlay(
                     );
                 }
             }
-            set_input_cursor(
-                frame,
-                Rect::new(content.x, content.y, content.width, 1),
-                query,
-            );
+            let input = Rect::new(content.x, content.y, content.width, 1);
+            render_editor(frame, input, editor, editor_offset, "Search commands");
+            return Some(input);
         }
         Overlay::Confirm {
             title,
@@ -234,53 +214,19 @@ pub(super) fn render_overlay(
     None
 }
 
-fn render_compose(
+fn render_editor(
     frame: &mut Frame,
-    outer: Rect,
-    canvas: Rect,
-    value: &str,
-    cursor: usize,
-    selection: Option<&std::ops::Range<usize>>,
+    content: Rect,
+    editor: &EditorView,
     offset: &mut usize,
-) -> Option<Rect> {
-    let docked = canvas.width >= 36 && outer.height >= 18;
-    let width = if docked {
-        canvas.width
-    } else {
-        outer.width.saturating_sub(8).min(78)
-    };
-    let height = if docked {
-        (outer.height / 2).clamp(9, 14)
-    } else {
-        16
+    placeholder: &str,
+) {
+    if content.is_empty() {
+        return;
     }
-    .min(outer.height.saturating_sub(2));
-    if width < 12 || height < 5 {
-        return None;
-    }
-    let x = if docked {
-        canvas.x
-    } else {
-        outer.x + (outer.width - width) / 2
-    };
-    let y = if docked {
-        canvas.bottom().saturating_sub(height)
-    } else {
-        outer.y + (outer.height - height) / 2
-    };
-    let area = Rect::new(x, y, width, height);
-    Clear.render(area, frame.buffer_mut());
-    frame.buffer_mut().set_style(area, style(Role::Background));
-    draw_overlay_frame(frame.buffer_mut(), area);
-    border_title(
-        frame.buffer_mut(),
-        x + 2,
-        y,
-        width - 4,
-        "Commit Message",
-        true,
-    );
-    let content = Rect::new(x + 3, y + 2, width - 6, height - 4);
+    let value = editor.value.as_str();
+    let cursor = editor.cursor;
+    let selection = editor.selection.as_ref();
     let layout = ui_widgets::EditorLayout::new(value, usize::from(content.width));
     let (cursor_row, column) = layout.position(value, cursor);
     let total = layout.rows.len();
@@ -345,7 +291,7 @@ fn render_compose(
             content.x,
             content.y,
             content.width,
-            "Commit message",
+            placeholder,
             style(Role::Muted),
         );
     }
@@ -353,7 +299,6 @@ fn render_compose(
         content.x + column as u16,
         content.y + (cursor_row - *offset) as u16,
     ));
-    Some(content)
 }
 
 fn wrap_detail(detail: &str, width: u16) -> Vec<String> {
@@ -403,28 +348,4 @@ fn draw_overlay_frame(buffer: &mut Buffer, area: Rect) {
     ] {
         put(buffer, x, y, 1, symbol, border);
     }
-}
-
-fn set_input_cursor(frame: &mut Frame, area: Rect, value: &str) {
-    if area.is_empty() {
-        return;
-    }
-    let mut row = 0usize;
-    let mut column = 0usize;
-    for character in value.chars() {
-        if character == '\n' {
-            row += 1;
-            column = 0;
-        } else {
-            column += character.width().unwrap_or(0);
-            if column >= usize::from(area.width) {
-                row += column / usize::from(area.width);
-                column %= usize::from(area.width);
-            }
-        }
-    }
-    frame.set_cursor_position((
-        area.x + column.min(usize::from(area.width - 1)) as u16,
-        area.y + row.min(usize::from(area.height - 1)) as u16,
-    ));
 }

@@ -4,19 +4,17 @@ impl App {
     pub(super) fn draw(&mut self, terminal: &mut crate::session::Session) -> Result<(), String> {
         self.view.overlay = self.dialog.as_ref().map(|dialog| match dialog {
             Dialog::Compose { editor } => Overlay::Compose {
-                value: editor.as_str().into(),
-                cursor: editor.cursor(),
-                selection: editor.selection(),
+                editor: editor.into(),
             },
-            Dialog::Input { title, value, .. } => Overlay::Input {
+            Dialog::Input { title, editor, .. } => Overlay::Input {
                 title: title.clone(),
-                value: value.clone(),
+                editor: editor.into(),
             },
-            Dialog::Actions { query, selected } => Overlay::Commands {
-                query: query.clone(),
+            Dialog::Actions { editor, selected } => Overlay::Commands {
+                editor: editor.into(),
                 selected: *selected,
                 items: self
-                    .available_actions(query)
+                    .available_actions(editor.as_str())
                     .iter()
                     .map(|definition| nav(definition.label, definition.key, "", NavKind::File))
                     .collect(),
@@ -56,10 +54,8 @@ impl App {
         let branch = self.snapshot.status.branch.as_deref().unwrap_or_else(|| {
             if self.snapshot.status.oid.is_some() {
                 "Detached HEAD"
-            } else if self.snapshot_pending {
-                "Loading"
             } else {
-                "New repository"
+                "New Repository"
             }
         });
         let composing = self.composing();
@@ -99,12 +95,14 @@ impl App {
             });
         let subtitle = if self.copy_ack.is_some() {
             "Copied".into()
-        } else if self.content_pending {
-            "Loading".to_owned()
         } else if self.structure_enabled && self.structural.is_some() {
             "Structural comparison".into()
         } else if self.view.workspace == Workspace::Changes {
-            String::new()
+            match self.changes_filter {
+                Some(DiffSide::Index) => "Staged files · s show all".into(),
+                Some(DiffSide::Worktree) => "Unstaged files · u show all".into(),
+                None => String::new(),
+            }
         } else if let Some(Target::Commit(oid)) = self.selected() {
             self.snapshot
                 .commits

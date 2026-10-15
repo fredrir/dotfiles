@@ -67,9 +67,9 @@ pub(super) fn render(buffer: &mut Buffer, area: Rect, toast: &ToastView<'_>) {
     let margin = u16::from(area.width >= 24) * 2;
     let room = Rect::new(
         area.x + margin,
-        area.y + 2,
+        area.y,
         area.width - margin * 2,
-        area.height - 3,
+        area.height - 1,
     );
     let title = safe_text(toast.title);
     let detail = safe_text_multiline(toast.detail);
@@ -142,15 +142,13 @@ pub(super) fn render(buffer: &mut Buffer, area: Rect, toast: &ToastView<'_>) {
             appearance,
         );
     }
-    let offset =
-        ((f64::from(width) + f64::from(margin)) * (1.0 - toast.visibility())).round() as u16;
-    let left = (room.right() - width).saturating_add(offset);
-    let top = room.bottom() - height;
-    for row in 0..height {
-        for column in 0..width.min(room.right().saturating_sub(left)) {
+    let offset = (f64::from(height) * (1.0 - toast.visibility())).round() as u16;
+    let left = room.x + (room.width - width) / 2;
+    for row in offset..height {
+        for column in 0..width {
             let cell = &painted[(column, row)];
-            if cell.symbol().width() <= usize::from(room.right() - left - column) {
-                buffer[(left + column, top + row)] = cell.clone();
+            if cell.symbol().width() <= usize::from(width - column) {
+                buffer[(left + column, room.y + row - offset)] = cell.clone();
             }
         }
     }

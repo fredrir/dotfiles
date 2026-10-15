@@ -262,6 +262,8 @@ fn render_tree_item(
     );
     let label = if horizontal > 0 {
         window(&safe_text(&label), horizontal, usize::from(label_width))
+    } else if root {
+        elide_root_path(&label, usize::from(label_width))
     } else {
         elide_middle(&label, usize::from(label_width))
     };
@@ -273,6 +275,39 @@ fn render_tree_item(
         &label,
         appearance,
     );
+}
+
+fn elide_root_path(path: &str, width: usize) -> String {
+    let clean = safe_text(path);
+    if clean.width() <= width {
+        return clean;
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let parts: Vec<_> = clean.split('/').collect();
+    let keep_first =
+        parts.len() > 2 && parts[0].width() + parts[parts.len() - 1].width() + 3 <= width;
+    let prefix = if keep_first {
+        format!("{}/…", parts[0])
+    } else {
+        "…".into()
+    };
+    let mut used = prefix.width();
+    let mut start = parts.len();
+    while start > if keep_first { 2 } else { 1 } {
+        let next_width = parts[start - 1].width() + 1;
+        if used + next_width > width {
+            break;
+        }
+        used += next_width;
+        start -= 1;
+    }
+    if start < parts.len() {
+        format!("{prefix}/{}", parts[start..].join("/"))
+    } else {
+        prefix
+    }
 }
 
 fn tree_label(item: &NavItem, file: FileState) -> String {

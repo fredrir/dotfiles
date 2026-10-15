@@ -92,22 +92,22 @@ pub const ACTIONS: &[Definition] = &[
     Definition {
         action: Action::Stage,
         label: "Stage selected file, hunk, or lines",
-        key: "s (tree)",
+        key: "",
     },
     Definition {
         action: Action::Unstage,
         label: "Unstage selected file, hunk, or lines",
-        key: "u (tree)",
+        key: "",
     },
     Definition {
         action: Action::ShowStaged,
-        label: "Show staged diff",
-        key: "s (diff)",
+        label: "Toggle staged files filter",
+        key: "s",
     },
     Definition {
         action: Action::ShowUnstaged,
-        label: "Show unstaged diff",
-        key: "u (diff)",
+        label: "Toggle unstaged files filter",
+        key: "u",
     },
     Definition {
         action: Action::StageFile,

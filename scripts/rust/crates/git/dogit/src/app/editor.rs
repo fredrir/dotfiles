@@ -83,3 +83,21 @@ pub(super) fn edit_key(editor: &mut EditorBuffer, key: KeyEvent, width: usize) {
         _ => {}
     }
 }
+
+pub(super) fn edit_single_line_key(editor: &mut EditorBuffer, key: KeyEvent, width: usize) {
+    if matches!(key.code, KeyCode::Enter | KeyCode::Tab)
+        || (key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('j' | 'm')))
+    {
+        return;
+    }
+    edit_key(editor, key, width);
+}
+
+pub(super) fn paste_single_line(editor: &mut EditorBuffer, text: &str) {
+    let text: String = text
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect();
+    editor.paste(&text);
+}

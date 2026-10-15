@@ -131,18 +131,33 @@ pub struct OperationView {
 }
 
 #[derive(Clone, Debug)]
+pub struct EditorView {
+    pub value: String,
+    pub cursor: usize,
+    pub selection: Option<std::ops::Range<usize>>,
+}
+
+impl From<&ui_widgets::EditorBuffer> for EditorView {
+    fn from(editor: &ui_widgets::EditorBuffer) -> Self {
+        Self {
+            value: editor.as_str().into(),
+            cursor: editor.cursor(),
+            selection: editor.selection(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum Overlay {
     Compose {
-        value: String,
-        cursor: usize,
-        selection: Option<std::ops::Range<usize>>,
+        editor: EditorView,
     },
     Input {
         title: String,
-        value: String,
+        editor: EditorView,
     },
     Commands {
-        query: String,
+        editor: EditorView,
         items: Vec<NavItem>,
         selected: usize,
     },
@@ -380,11 +395,19 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
 
     if area.width < 20 || area.height < 10 {
         render_footer(frame, area, data, Vec::new(), "");
-        if let Some(toast) = data.toast {
+        let editor = state
+            .overlay
+            .as_ref()
+            .and_then(|overlay| render_overlay(frame, area, overlay, &mut state.editor_offset));
+        if state.overlay.is_none()
+            && let Some(toast) = data.toast
+        {
             toast::render(frame.buffer_mut(), area, toast);
         }
         return Geometry {
             tabs,
+            overlay_bounds: area,
+            editor,
             ..Geometry::default()
         };
     }
@@ -479,7 +502,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         (canvas, Vec::new())
     };
     let mut geometry = Geometry {
-        overlay_bounds: outer,
+        overlay_bounds: area,
         body,
         nav,
         canvas,
@@ -503,9 +526,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             render_structural(frame.buffer_mut(), canvas, state, structural);
         } else if let Some(diff) = data.diff {
             render_diff(frame.buffer_mut(), canvas, state, data, diff, &mut geometry);
-        } else if !data.canvas_lines.is_empty()
-            || (data.items.is_empty() && data.canvas_subtitle != "Loading")
-        {
+        } else if !data.canvas_lines.is_empty() {
             render_text(frame.buffer_mut(), canvas, state, data.canvas_lines);
         }
     }
@@ -516,7 +537,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         render_divider_hover(frame.buffer_mut(), body, x, state.divider_hover_row);
     }
     if let Some(overlay) = &state.overlay {
-        geometry.editor = render_overlay(frame, outer, canvas, overlay, &mut state.editor_offset);
+        geometry.editor = render_overlay(frame, area, overlay, &mut state.editor_offset);
     }
     geometry.nav_footer = render_footer(
         frame,
@@ -594,17 +615,18 @@ fn render_canvas_context(
             sides.push((side, rect));
             left = rect.right() + 1;
         }
+    } else {
+        let path_x = area.x + 2;
+        let path_width = right.saturating_sub(path_x);
+        put(
+            buffer,
+            path_x,
+            area.y,
+            path_width,
+            &elide_middle(data.canvas_path, usize::from(path_width)),
+            style(Role::Plain),
+        );
     }
-    let path_x = left.max(area.x + 2);
-    let path_width = right.saturating_sub(path_x);
-    put(
-        buffer,
-        path_x,
-        area.y,
-        path_width,
-        &elide_middle(data.canvas_path, usize::from(path_width)),
-        style(Role::Plain),
-    );
     if area.height > 1 {
         let controls_width = sides.last().map_or(0, |(_, rect)| rect.right() - area.x);
         put(

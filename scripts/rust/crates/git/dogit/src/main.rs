@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use workstation::{Completable, Completions};
 
 #[derive(Parser)]
-#[command(version, about = "A deliberate Git workbench")]
+#[command(version, about = "A Git Workbench")]
 struct Cli {
     #[arg(short = 'C', long, global = true, default_value = ".")]
     directory: PathBuf,

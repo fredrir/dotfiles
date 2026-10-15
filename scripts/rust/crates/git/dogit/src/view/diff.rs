@@ -185,8 +185,7 @@ pub(super) fn render_diff(
         let cursor = state.focus == Focus::Canvas && position == state.diff_cursor;
         if row.line.is_none() && row.right_line.is_none() {
             let hunk = &diff.hunks[row.hunk];
-            let new_file = diff.path.as_os_str().is_empty()
-                && !hunk.path.is_empty()
+            let new_file = !hunk.path.is_empty()
                 && (row.hunk == 0 || diff.hunks[row.hunk - 1].path != hunk.path);
             if !config.hunk_headers && !new_file {
                 if cursor {
@@ -197,6 +196,7 @@ pub(super) fn render_diff(
             let header = if new_file {
                 let path = data
                     .directory_scope
+                    .or_else(|| diff.path.parent())
                     .and_then(|root| hunk.file_path.strip_prefix(root).ok())
                     .unwrap_or(&hunk.file_path);
                 let path = safe_text(&path.to_string_lossy());

@@ -60,10 +60,10 @@ enum Dialog {
     Input {
         prompt: Prompt,
         title: String,
-        value: String,
+        editor: ui_widgets::EditorBuffer,
     },
     Actions {
-        query: String,
+        editor: ui_widgets::EditorBuffer,
         selected: usize,
     },
     Confirm {
@@ -75,6 +75,17 @@ enum Dialog {
         abort: Option<Box<crate::git::OperationGuard>>,
         scroll: u16,
     },
+}
+
+impl Dialog {
+    fn editor(&self) -> Option<&ui_widgets::EditorBuffer> {
+        match self {
+            Self::Compose { editor }
+            | Self::Input { editor, .. }
+            | Self::Actions { editor, .. } => Some(editor),
+            Self::Confirm { .. } => None,
+        }
+    }
 }
 
 enum Prepared {
@@ -346,6 +357,7 @@ struct App {
     unresolved_count: usize,
     saved: SavedState,
     side: DiffSide,
+    changes_filter: Option<DiffSide>,
     all_files: bool,
     collapsed: BTreeSet<PathBuf>,
     query: String,
@@ -404,6 +416,14 @@ mod notification;
 mod render;
 mod tree;
 
+#[cfg(test)]
+#[path = "../../tests/unit/changes_filter_tests.rs"]
+mod changes_filter_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/dialog_tests.rs"]
+mod dialog_tests;
+
 use execution::execute_captured;
 
 impl App {
@@ -437,6 +457,7 @@ impl App {
             unresolved_count: 0,
             saved,
             side: DiffSide::Worktree,
+            changes_filter: None,
             all_files: false,
             collapsed: BTreeSet::new(),
             query: String::new(),
@@ -1462,13 +1483,15 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
         }
         if let Some(session) = terminal.as_mut() {
             session
-                .set_editor_selection(matches!(
-                    &app.dialog,
-                    Some(Dialog::Compose { editor }) if editor.selection().is_some()
-                ))
+                .set_editor_selection(
+                    app.dialog
+                        .as_ref()
+                        .and_then(Dialog::editor)
+                        .is_some_and(|editor| editor.selection().is_some()),
+                )
                 .map_err(|error| error.to_string())?;
             session
-                .set_mouse_capture(if app.composing() {
+                .set_mouse_capture(if app.dialog.as_ref().and_then(Dialog::editor).is_some() {
                     ui_terminal::MouseCapture::Disabled
                 } else {
                     app.mouse_capture

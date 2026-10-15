@@ -272,7 +272,6 @@ impl ExactDiff {
             DiffSide::Index,
             reader.git(args)?,
         )?;
-        document.partial_reason = Some("History comparisons are read-only".into());
         document.comparison = Some(RevisionComparison {
             old: Some(old),
             new,
@@ -388,10 +387,7 @@ impl ExactDiff {
         if let Some(reason) = &self.partial_reason {
             return Err(reason.clone());
         }
-        let snapshot = self
-            .snapshot
-            .as_ref()
-            .ok_or("History comparisons are read-only")?;
+        let snapshot = self.snapshot.as_ref().ok_or("")?;
         let patch = self.selected_patch(selection)?;
         let lock_path = append_suffix(&snapshot.index_path, ".lock");
         let mut lock = OpenOptions::new()

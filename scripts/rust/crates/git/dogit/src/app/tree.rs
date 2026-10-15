@@ -28,6 +28,19 @@ impl App {
             if !query.is_empty() && !path.to_string_lossy().to_lowercase().contains(&query) {
                 continue;
             }
+            let status = statuses.get(path);
+            let state = view::FileState {
+                staged: status.is_some_and(|entry| entry.staged() && !entry.unmerged),
+                unstaged: status.is_some_and(|entry| entry.unstaged() || entry.unmerged),
+                conflicted: status.is_some_and(|entry| entry.unmerged),
+                expanded: false,
+            };
+            if self.changes_filter.is_some_and(|side| match side {
+                DiffSide::Index => !state.staged,
+                DiffSide::Worktree => !state.unstaged,
+            }) {
+                continue;
+            }
             let parent = path.parent().unwrap_or(Path::new(""));
             if let Some(root) = &mut root {
                 while !parent.starts_with(&root) {
@@ -38,13 +51,6 @@ impl App {
             } else {
                 root = Some(parent.to_owned());
             }
-            let status = statuses.get(path);
-            let state = view::FileState {
-                staged: status.is_some_and(|entry| entry.staged() && !entry.unmerged),
-                unstaged: status.is_some_and(|entry| entry.unstaged() || entry.unmerged),
-                conflicted: status.is_some_and(|entry| entry.unmerged),
-                expanded: false,
-            };
             summary.items += 1;
             summary.staged += usize::from(state.staged);
             summary.unstaged += usize::from(state.unstaged);
@@ -54,6 +60,9 @@ impl App {
                 node.directory = true;
                 merge_state(&mut node.state, state);
             }
+        }
+        if self.changes_filter.is_some() && tree.is_empty() {
+            return (Vec::new(), summary);
         }
         let root = root.unwrap_or_default();
         tree.entry(root.clone()).or_default().directory = true;
@@ -131,6 +140,10 @@ impl App {
         if self.view.workspace != Workspace::Changes || self.composing() {
             return;
         }
+        if let Some(side) = self.changes_filter {
+            self.side = side;
+            return;
+        }
         if let Some(state) = self.selected_file_state() {
             if state.unstaged && !state.staged {
                 self.side = DiffSide::Worktree;
@@ -141,14 +154,35 @@ impl App {
     }
 
     pub(super) fn select_diff_side(&mut self, side: DiffSide) {
+        if self.view.workspace != Workspace::Changes {
+            return;
+        }
+        if self.changes_filter.is_some() && self.changes_filter != Some(side) {
+            self.set_changes_filter(Some(side));
+            return;
+        }
         let available = self.selected_file_state().is_some_and(|state| match side {
             DiffSide::Worktree => state.unstaged || state.conflicted,
             DiffSide::Index => state.staged,
         });
-        if self.view.workspace == Workspace::Changes && available && self.side != side {
+        if available && self.side != side {
             self.side = side;
             self.load_content(true);
         }
+    }
+
+    pub(super) fn toggle_changes_filter(&mut self, side: DiffSide) {
+        if self.view.workspace == Workspace::Changes {
+            self.set_changes_filter((self.changes_filter != Some(side)).then_some(side));
+        }
+    }
+
+    fn set_changes_filter(&mut self, filter: Option<DiffSide>) {
+        self.changes_filter = filter;
+        self.view.nav_manual_scroll = false;
+        self.view.nav_horizontal = 0;
+        self.rebuild();
+        self.load_content(true);
     }
 }
 

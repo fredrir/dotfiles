@@ -12,7 +12,9 @@ impl App {
                     | MouseEventKind::ScrollRight,
                 ..
             })) => true,
-            ui_terminal::Waited::Event(Event::Key(key)) if self.composing() => {
+            ui_terminal::Waited::Event(Event::Key(key))
+                if self.dialog.as_ref().and_then(Dialog::editor).is_some() =>
+            {
                 key.code != KeyCode::Esc
                     && !(key.modifiers.is_empty() && key.code == KeyCode::Enter)
             }
@@ -124,10 +126,7 @@ impl App {
                     return Ok(());
                 }
                 KeyCode::Char('p') => {
-                    self.dialog = Some(Dialog::Actions {
-                        query: String::new(),
-                        selected: 0,
-                    });
+                    self.open_actions();
                     return Ok(());
                 }
                 KeyCode::Enter | KeyCode::Char('g') => {
@@ -169,17 +168,10 @@ impl App {
             }
             KeyCode::Backspace => self.leave_commit(),
             KeyCode::Char(':') | KeyCode::Char('?') => {
-                self.dialog = Some(Dialog::Actions {
-                    query: String::new(),
-                    selected: 0,
-                })
+                self.open_actions();
             }
             KeyCode::Char('/') => {
-                self.dialog = Some(Dialog::Input {
-                    prompt: Prompt::Search,
-                    title: "Search".into(),
-                    value: self.query.clone(),
-                })
+                self.prompt(Prompt::Search, "Search", &self.query.clone());
             }
             KeyCode::Tab | KeyCode::BackTab if (key.modifiers - KeyModifiers::SHIFT).is_empty() => {
                 self.view.focus = match self.view.focus {
@@ -240,10 +232,11 @@ impl App {
             }
             KeyCode::Char(']') => self.jump_hunk(true),
             KeyCode::Char(character @ ('s' | 'u'))
-                if self.view.workspace == Workspace::Changes
-                    && self.view.focus == Focus::Canvas
-                    && key.modifiers.is_empty() =>
+                if self.view.workspace == Workspace::Changes && key.modifiers.is_empty() =>
             {
+                if key.kind == KeyEventKind::Repeat {
+                    return Ok(());
+                }
                 return self.action(
                     if character == 's' {
                         Action::ShowStaged
@@ -257,12 +250,7 @@ impl App {
             KeyCode::Char(character) => {
                 let action = match character {
                     'e' => Some(Action::Edit),
-                    's' => Some(if self.view.workspace == Workspace::Stashes {
-                        Action::StashApply
-                    } else {
-                        Action::Stage
-                    }),
-                    'u' => Some(Action::Unstage),
+                    's' if self.view.workspace == Workspace::Stashes => Some(Action::StashApply),
                     'S' => Some(Action::StageFile),
                     'U' => Some(Action::UnstageFile),
                     'c' => Some(Action::Commit),
@@ -677,19 +665,20 @@ impl App {
     pub(super) fn paste(&mut self, text: &str) {
         if let Some(Dialog::Compose { editor }) = &mut self.dialog {
             editor.paste(text);
-        } else if let Some(Dialog::Input { value, .. }) = &mut self.dialog {
-            value.extend(text.chars().filter(|character| !character.is_control()));
-        } else if let Some(Dialog::Actions { query, selected }) = &mut self.dialog {
-            query.extend(text.chars().filter(|character| !character.is_control()));
+        } else if let Some(Dialog::Input { editor, .. }) = &mut self.dialog {
+            editor::paste_single_line(editor, text);
+        } else if let Some(Dialog::Actions { editor, selected }) = &mut self.dialog {
+            editor::paste_single_line(editor, text);
             *selected = 0;
         }
         if let Some(Dialog::Input {
             prompt: Prompt::Search,
-            value,
+            editor,
             ..
         }) = &self.dialog
+            && self.query != editor.as_str()
         {
-            self.query = value.clone();
+            self.query = editor.as_str().to_owned();
             self.rebuild();
             self.load_content(true);
         }
