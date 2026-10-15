@@ -31,7 +31,6 @@ SIZE_FUZZ_CASES=1000000 SIZE_FUZZ_SEED=12345 cargo test -p size --test bulk_deco
 
 | Validation | Scope |
 | --- | --- |
-| macOS and Linux | Filesystem, process, terminal, environment, and decoder tests |
 | Decoder fuzzing | Seeded mutations of valid records, random bytes, and truncations; portable to Linux |
 | `size` performance | Interleave baseline and changed release binaries against the same tree; compare output and median time |
 | Standalone benchmarks | Run separately from nextest; their custom harnesses do not support test enumeration |

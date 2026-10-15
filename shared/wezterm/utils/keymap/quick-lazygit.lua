@@ -4,7 +4,7 @@ local vtabs = require "plugins.vtabs"
 ---@param command string
 ---@return Action
 local function action(command)
-  local lazygit = vtabs.action {
+  local quick_lazygit = vtabs.action {
     QuickTerminal = { args = { "zsh", "-lc", command }, width = 0.94, height = 0.94 },
   }
 
@@ -12,7 +12,7 @@ local function action(command)
     if pane:get_user_vars().WEZTERM_GIT == "0" then
       return
     end
-    window:perform_action(lazygit, pane)
+    window:perform_action(quick_lazygit, pane)
   end)
 end
 

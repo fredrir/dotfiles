@@ -4,7 +4,7 @@ local bind_keys = require "utils.keymap.bind-keys"
 local keybind = require "utils.keymap.keybind"
 local physical_keys = require "keymap.physical-keys"
 local motion_keys = require "keymap.motion-keys"
-local free_cursor = require "keymap.free-cursor"
+local free_cursor = require "utils.keymap.free-cursor"
 local extend = require "utils.extend"
 local mouse_bindings = require "keymap.mouse-bindings"
 local skip_close_confirmation = require "utils.skip_close_confirmation"
@@ -19,7 +19,7 @@ local open_github = require "utils.keymap.open-github"
 local git_add = require "utils.keymap.git-add"
 local open_yazi = require "utils.keymap.open-yazi"
 local quick_yazi = require "utils.keymap.quick-yazi"
-local lazygit = require "utils.keymap.lazygit"
+local quick_lazygit = require "utils.keymap.quick-lazygit"
 local go_to = require "utils.keymap.go-to"
 local cd_git_root = require "utils.keymap.cd-git-root"
 local close_window = require "utils.close_window"
@@ -28,6 +28,7 @@ local delete_selection = require "utils.delete-selection"
 local clear_screen = require "utils.keymap.clear_screen"
 local adopt_pane = require "utils.mux.adopt_pane"
 local resize_window = require "utils.resize-window"
+local quick_glyph = require "utils.keymap.quick-glyph"
 
 local act = wezterm.action
 
@@ -149,9 +150,11 @@ local bindings = {
   ------ Git & Quick Actions ------
   keybind(git_add, MOD.UNIQUE, "g"),
   ----
-  keybind(lazygit.open, MOD.PRIMARY, "g"),
-  keybind(lazygit.log, MOD.SUPER_REV, "g"),
+  keybind(quick_lazygit.open, MOD.PRIMARY, "g"),
+  keybind(quick_lazygit.log, MOD.SUPER_REV, "g"),
   keybind(quick_yazi, MOD.PRIMARY, "y"),
+  keybind(quick_glyph, MOD.UNIQUE, "g"),
+
   ----
 }
 

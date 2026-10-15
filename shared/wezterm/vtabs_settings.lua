@@ -28,7 +28,7 @@ return {
   },
   spaces = {
     { icon = "󰋜", id = "home", name = "Home" },
-    { icon = "◉", id = "space-1804618de6b360ec2b3382-1", name = "Pyparser" },
+    { icon = "󰌠", id = "space-1804618de6b360ec2b3382-1", name = "Pyparser" },
   },
   templates = {},
 }
