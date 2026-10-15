@@ -27,8 +27,6 @@ impl App {
                 if output.is_ok_and(|output| output.status.success()) {
                     Ok(None)
                 } else {
-                    // Standalone installs and remote sessions can copy through
-                    // the terminal even when dclip is unavailable.
                     Ok(Some(value))
                 }
             });

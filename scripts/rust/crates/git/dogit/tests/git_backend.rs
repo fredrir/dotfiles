@@ -557,7 +557,6 @@ fn discard_confirmation_detects_changes_behind_a_symbolic_index() {
     fs::rename(&index, &target).unwrap();
     symlink("actual-index", &index).unwrap();
     let guard = DiscardGuard::capture(&fixture.repo, &paths(&["file"])).unwrap();
-    // Mutate the target in place, keeping the symlink itself unchanged.
     let mut contents = fs::read(&target).unwrap();
     contents.push(0);
     fs::write(&target, contents).unwrap();

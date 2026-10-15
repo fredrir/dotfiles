@@ -201,7 +201,6 @@ impl App {
             .as_ref()
             .map_or(0, |geometry| geometry.canvas.width);
         if self.row_width != actual_width {
-            // The terminal may resize between its size query and this frame.
             self.view.diff_cursor = previous_cursor;
             self.view.diff_offset = previous_offset;
             self.update_rows_for_width(actual_width);

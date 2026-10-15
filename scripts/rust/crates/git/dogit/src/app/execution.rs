@@ -17,8 +17,6 @@ pub(super) fn execute_captured(repo: &Repo, specs: &[CommandSpec]) -> Result<Str
         } else {
             command.stdin(Stdio::null());
         }
-        // Mutations run to completion: a timeout must not turn a slow hook or
-        // filesystem into an indeterminate repository operation.
         let status = command.status().map_err(|error| error.to_string())?;
         output.rewind().map_err(|error| error.to_string())?;
         let mut bytes = Vec::new();
@@ -82,8 +80,6 @@ impl App {
                 }
                 Prepared::Editor(editor, path) => {
                     let mut command = Command::new("sh");
-                    // Git's editor value is a user-authored shell command. The
-                    // selected path is passed separately, never interpolated.
                     command
                         .current_dir(&self.repo.root)
                         .arg("-c")

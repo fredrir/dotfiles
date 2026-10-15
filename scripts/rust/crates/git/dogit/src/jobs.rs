@@ -12,8 +12,6 @@ struct Job<T> {
     wake: Option<ui_terminal::InputWake>,
 }
 
-/// One running read and at most one replacement. Results from old selections
-/// never update the current view, even when an external process finishes late.
 pub struct Worker<T> {
     sender: Sender<Job<T>>,
     waiting: Receiver<Job<T>>,

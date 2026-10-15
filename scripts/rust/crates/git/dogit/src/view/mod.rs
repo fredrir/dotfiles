@@ -211,7 +211,6 @@ pub struct RenderData<'a> {
     pub ahead: usize,
     pub behind: usize,
     pub items: &'a [NavItem],
-    /// Totals cached when navigator contents change.
     pub nav_summary: Option<NavSummary>,
     pub canvas_path: &'a str,
     pub directory_scope: Option<&'a std::path::Path>,
@@ -219,10 +218,8 @@ pub struct RenderData<'a> {
     pub canvas_subtitle: &'a str,
     pub diff: Option<&'a ExactDiff>,
     pub presentation: Option<&'a crate::presentation::DiffPresentation>,
-    /// Cached display rows with their split mode and canvas width.
     pub diff_rows: Option<(&'a [DiffRow], bool, u16)>,
     pub diff_paint: Option<&'a DiffPaint>,
-    /// Added and removed line counts cached with the exact patch.
     pub diff_counts: Option<(usize, usize)>,
     pub canvas_lines: &'a [String],
     pub structural: Option<&'a str>,
@@ -271,9 +268,7 @@ pub struct Geometry {
     pub divider_x: Option<u16>,
     pub divider_hit: Option<Rect>,
     pub nav_start: usize,
-    /// Exact Git line ID at each visible canvas row. Hunk headings have no ID.
     pub line_ids: Vec<Option<usize>>,
-    /// Right-hand line IDs when a split diff is visible.
     pub right_line_ids: Vec<Option<usize>>,
     pub hunk_indices: Vec<Option<usize>>,
     pub tabs: Vec<(Workspace, Rect)>,
@@ -291,7 +286,6 @@ pub struct DiffRow {
     pub right_part: usize,
 }
 
-/// The patch width is independent of the path/scope header height.
 pub fn canvas_width(area: Rect, state: &ViewState) -> u16 {
     if area.width < 20 || area.height < 10 {
         return 0;
@@ -310,7 +304,6 @@ pub fn canvas_width(area: Rect, state: &ViewState) -> u16 {
 fn palette() -> &'static Palette {
     static PALETTE: OnceLock<Palette> = OnceLock::new();
     PALETTE.get_or_init(|| {
-        // Main panes inherit the terminal background; badges and toasts use tinted surfaces.
         Palette::from_json(
             r##"{"version":1,"profile":"dogit","dark":true,"colors":{"fg":"#edf3f8"},"ui":{"foreground":"#edf3f8","muted":"#b0bdcc","accent":"#82d7e9","success":"#edf3f8","warning":"#f4c66a","danger":"#f4c66a","info":"#edf3f8","border":"#53667e","selection_foreground":"#edf3f8","diff_added":"#83dca2","diff_removed":"#ff8c87","diff_context":"#edf3f8","diff_header":"#b0bdcc","ours":"#edf3f8","theirs":"#edf3f8","conflict":"#f4c66a","panel_foreground":"#edf3f8","surface_foreground":"#edf3f8","focus":"#82d7e9"}}"##,
         )
@@ -335,8 +328,6 @@ fn style_at_depth(role: Role, depth: ColorDepth) -> Style {
     if depth != ColorDepth::Ansi16 {
         return appearance;
     }
-    // Nearest-RGB quantization turns several pale semantic colors white. Keep
-    // their meanings distinct even when a terminal advertises only 16 colors.
     let foreground = match role {
         Role::Accent | Role::Focus => Color::LightCyan,
         Role::DiffAdded => Color::LightGreen,

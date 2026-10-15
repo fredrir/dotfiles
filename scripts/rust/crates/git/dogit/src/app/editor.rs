@@ -71,7 +71,6 @@ pub(super) fn edit_key(editor: &mut EditorBuffer, key: KeyEvent, width: usize) {
         KeyCode::Char('k') if control && !alt => editor.kill(Motion::LineEnd),
         KeyCode::Char('y') if control && !alt => editor.yank(),
         KeyCode::Char('z' | 'Z') if (control || command) && shift => editor.redo(),
-        // Crossterm decodes the traditional Ctrl+_ byte (0x1f) as Ctrl+7.
         KeyCode::Char('z' | '_' | '/' | '7') if (control || command) && !alt => editor.undo(),
         KeyCode::Char('_') if alt => editor.redo(),
         KeyCode::Char(character)

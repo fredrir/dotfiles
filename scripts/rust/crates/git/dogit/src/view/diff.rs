@@ -54,7 +54,6 @@ pub fn text_horizontal_limit<'a>(lines: impl IntoIterator<Item = &'a str>, width
         .saturating_sub(usize::from(width.saturating_sub(4)))
 }
 
-/// Display order is shared by rendering and keyboard/mouse navigation.
 pub fn diff_rows(diff: &ExactDiff, split: bool) -> Vec<DiffRow> {
     let mut rows = Vec::new();
     for (hunk, block) in diff.hunks.iter().enumerate() {
@@ -276,8 +275,6 @@ pub(super) fn render_diff(
     }
 }
 
-// Jump across whole hunks and slice directly into the first visible one. Large
-// unified patches require work proportional to the viewport on each redraw.
 fn unified_window(diff: &ExactDiff, mut offset: usize, height: usize) -> Vec<DiffRow> {
     let mut rows = Vec::with_capacity(height);
     for (hunk, block) in diff.hunks.iter().enumerate() {

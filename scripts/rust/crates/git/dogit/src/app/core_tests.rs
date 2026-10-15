@@ -123,7 +123,7 @@ fn background_refresh_preserves_slow_preview_and_explicit_refresh_supersedes_it(
     collect_until(&mut app, |app| !app.snapshot_pending);
     assert!(!cancel.load(Ordering::Acquire));
     app.refresh_background();
-    app.refresh(); // A forced refresh must survive an already pending timer read.
+    app.refresh();
     collect_until(&mut app, |app| !app.snapshot_pending);
     assert!(cancel.load(Ordering::Acquire));
     release.send(()).unwrap();
@@ -142,7 +142,7 @@ fn preview_keys_track_worktree_content_and_moving_refs_but_cache_commits() {
     commit.target = Some(Target::Commit(app.snapshot.status.oid.clone().unwrap()));
     let immutable =
         PreviewKey::capture(&app.repo, commit.clone(), &app.snapshot, &app.files).unwrap();
-    fixture.write("replaced\n"); // Same path, length, and Git status.
+    fixture.write("replaced\n");
     assert_ne!(
         before,
         PreviewKey::capture(&app.repo, request, &app.snapshot, &app.files).unwrap()
@@ -1682,7 +1682,6 @@ fn shift_space_toggles_all_current_changes_independent_of_cursor_and_search() {
     app.query = "file.txt".into();
     app.rebuild();
     app.view.selected = 1;
-    // This change is absent from both the filtered tree and its last snapshot.
     std::fs::write(fixture.directory.path().join("hidden.txt"), "hidden\n").unwrap();
     let target = app.selected().cloned();
     for staged in [true, false] {
@@ -1744,7 +1743,7 @@ fn inline_commit_accepts_normal_text_editing_without_activating_workbench_shortc
     let fixture = Fixture::new();
     let mut app = fixture.app();
     app.action(Action::Compose, &mut None, &mut None).unwrap();
-    app.paste("Hello wrld\r\n\r\nBody å e\u{301} 👩‍💻");
+    app.paste("Hello wrld\r\n\r\nBody å e\u{301} 👩💻");
     let keys = [
         KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL),
         KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
@@ -1769,7 +1768,7 @@ fn inline_commit_accepts_normal_text_editing_without_activating_workbench_shortc
     let Some(Dialog::Compose { editor }) = &app.dialog else {
         panic!("inline editor closed");
     };
-    assert_eq!(editor.as_str(), "Hello world\n\nBody å e\u{301} 👩‍💻 @");
+    assert_eq!(editor.as_str(), "Hello world\n\nBody å e\u{301} 👩💻 @");
     assert_eq!(app.view.workspace, Workspace::Changes);
     assert!(app.operation.is_none());
     app.key(

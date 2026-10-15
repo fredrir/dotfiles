@@ -115,7 +115,6 @@ impl Fixture {
         take_controlling_terminal(&mut command);
         let child = command.spawn().unwrap();
         drop(slave);
-        // tcflag_t is u32 on Linux and u64 on macOS.
         #[allow(clippy::unnecessary_cast)]
         let mut terminal = Terminal {
             child,
@@ -360,7 +359,6 @@ fn ordinary_text_drag_does_not_invoke_clipboard_or_mutate_git() {
             .env("DOGIT_TEST_CLIPBOARD", &clipboard);
     });
     let message = "History comparisons are read-only";
-    // Ratatui can skip spaces already present on screen between these words.
     terminal.wait_for("read-only", 0);
     terminal.settle();
     for mode in [1000, 1002, 1003, 1006, 1015] {
@@ -373,9 +371,6 @@ fn ordinary_text_drag_does_not_invoke_clipboard_or_mutate_git() {
             "--no-mouse must leave mouse events with the terminal"
         );
     }
-    // At this fixture's 124×34 size the empty comparison starts at column 39,
-    // row 9 in SGR mouse coordinates. App-delivered drags must not copy text;
-    // terminal-native selection and copying are handled outside the PTY.
     let last_column = 39 + message.len() - 1;
     terminal.send(format!("\x1b[<0;39;9M\x1b[<32;{last_column};9M").as_bytes());
     terminal.settle();
@@ -449,7 +444,6 @@ fn mouse_clicks_work_by_default_and_no_mouse_keeps_keyboard_navigation() {
         terminal.wait_for("working preview", 0);
         let controls = args.is_empty();
         terminal.wait_for("1 Unstaged", 0);
-        // History is the second tab. --no-mouse ignores app-delivered clicks.
         let start = terminal.send(b"\x1b[<0;17;2M\x1b[<0;17;2m");
         if controls {
             terminal.wait_for("initial fixture", start);
@@ -587,7 +581,6 @@ fn split_wrapping_shows_long_line_tails_and_stages_from_a_continuation() {
     let start = terminal.send(b"\tv");
     terminal.wait_for("WRAPTAIL", start);
     terminal.settle();
-    // Hunk header, first context line, then the addition and its continuation.
     terminal.send(b"jjj :Stage selected file, hunk, or lines\r");
     let staged = format!("first\n{chosen}\nlast\n");
     terminal.wait_until(
@@ -795,7 +788,6 @@ fn dragged_pane_width_survives_workspace_switches_and_restart() {
     fixture.write("file", b"resize fixture\n");
     let mut terminal = fixture.open(&[]);
     terminal.wait_for("resize fixture", 0);
-    // Grab two cells to the right of the divider, retaining the grab offset.
     terminal.send(b"\x1b[<0;36;12M\x1b[<32;48;12M\x1b[<0;48;12m");
     terminal.settle();
     let start = terminal.send(b"2");
@@ -994,7 +986,6 @@ fn reopening_selects_root_and_modified_keys_toggle_all_changes_from_either_edge(
             "startup root stages both files",
         );
         terminal.settle();
-        // Cmd+Down is Super+Down in the keyboard protocol.
         terminal.send(b"\x1b[1;9B ");
         terminal.wait_until(
             |_| fixture.git(&["diff", "--cached", "--name-only"]) == b"src/a\n",
@@ -1069,8 +1060,6 @@ fn wheel_bursts_preserve_every_step_and_click_the_newly_visible_row() {
     terminal.wait_for("f000", 0);
     terminal.settle();
     let mut events = b"\x1b[<65;8;4M".repeat(256);
-    // The first visible row is now file 255 (the root occupied row zero).
-    // A click immediately after the wheel burst must use the new viewport.
     events.extend_from_slice(b"\x1b[<0;8;3M\x1b[<0;8;3m ");
     terminal.send(&events);
     terminal.wait_until(
@@ -1138,8 +1127,6 @@ fn inline_editor_commits_identical_text_with_legacy_ss3_and_enhanced_terminal_ke
         },
     ] {
         let fixture = Fixture::new();
-        // Keep Git on macOS from precomposing command arguments so this checks
-        // the exact Unicode bytes preserved by the inline editor.
         fixture.git(&["config", "core.precomposeunicode", "false"]);
         fixture.commit("file", b"before\n");
         fixture.write("file", b"staged\n");
@@ -1165,13 +1152,13 @@ fn inline_editor_commits_identical_text_with_legacy_ss3_and_enhanced_terminal_ke
         input.extend_from_slice(b" ");
         input.extend_from_slice(keys.end);
         input.extend_from_slice(b"\x1b[13;2u\x0a\x1b[200~");
-        input.extend_from_slice("Body å e\u{301} 👩‍💻".as_bytes());
+        input.extend_from_slice("Body å e\u{301} 👩💻".as_bytes());
         input.extend_from_slice(b"\x1b[201~");
         input.extend_from_slice(keys.backspace);
         input.extend_from_slice(keys.undo);
         input.extend_from_slice(keys.shift_left);
         input.extend_from_slice("\x1b[200~界\x1b[201~".as_bytes());
-        input.extend_from_slice(b"\x1b[33;1:2u\x1b[33;1:3u"); // Repeat inserts once; release never inserts.
+        input.extend_from_slice(b"\x1b[33;1:2u\x1b[33;1:3u");
         input.extend_from_slice(keys.save);
         let start = terminal.send(&input);
         terminal.handoff_finished(start);

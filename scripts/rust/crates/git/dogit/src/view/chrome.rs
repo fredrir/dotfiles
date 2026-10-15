@@ -122,7 +122,6 @@ pub(super) fn render_footer(
     .filter_map(|(count, arrow, role)| {
         let badge = Badge::new(format!("{count} {arrow}"), style(role));
         let width = badge.label.width() as u16 + 3;
-        // Keep counts intact and leave room for a shortened branch name.
         if width > tracking_room {
             return None;
         }
@@ -256,8 +255,6 @@ pub(super) fn nav_badges(workspace: Workspace, summary: NavSummary, repo: &str) 
     counts
 }
 
-/// The `Files` badge mirrors the repository identity so totals read as one theme
-/// with the repository name in the footer.
 fn files_style(repo: &str) -> Style {
     if repo.is_empty() {
         style(Role::Plain)
@@ -342,11 +339,7 @@ pub(super) fn identity_style(name: &str) -> Style {
     badge_style(identity_color(name), color_depth())
 }
 
-/// The raw identity color a name maps to, before quantization. Badges that are
-/// rendered through [`badge_style`] reuse it so a name keeps one appearance.
 fn identity_color(name: &str) -> Style {
-    // Fixed FNV-1a keeps each name's color stable across processes and machines.
-    // Only the full name, not its repository, clipping, or sync status, is hashed.
     let hash = name.bytes().fold(0xcbf29ce484222325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
     });
@@ -420,8 +413,6 @@ pub(super) fn badge_style(appearance: Style, depth: ColorDepth) -> Style {
         } else {
             16..256
         };
-        // Nearest RGB alone can turn a dark green or red shade gray. Keep
-        // colored badge text and backgrounds in their original hue family.
         range
             .filter_map(|index| {
                 let candidate = ui_theme::Color::Ansi(index as u8);
@@ -464,8 +455,6 @@ pub(super) fn badge_style(appearance: Style, depth: ColorDepth) -> Style {
     };
     let mut background = tint(0.65);
     let mut foreground = shade(0.35);
-    // Lighten first to keep colored text on limited palettes; only darken the
-    // foreground further when the quantized pair still lacks enough contrast.
     for amount in [0.75, 0.85, 0.95, 1.0] {
         if contrast(background, foreground) >= 4.5 {
             break;

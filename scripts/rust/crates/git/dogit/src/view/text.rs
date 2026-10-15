@@ -67,13 +67,10 @@ pub(super) fn window(text: &str, offset: usize, width: usize) -> String {
     output
 }
 
-/// Retains semantic foreground and emphasis, never external colors or backgrounds.
 pub(super) fn ansi_line(text: &str) -> Line<'static> {
     parse_ansi_line(text, false, 4)
 }
 
-/// Delta is a presentation renderer: retain its configured syntax and diff
-/// emphasis while interpreting only SGR, never terminal commands.
 pub(super) fn syntax_line(text: &str, tab_width: usize) -> Line<'static> {
     parse_ansi_line(text, true, tab_width)
 }
@@ -246,8 +243,6 @@ fn ansi_rgb(red: u16, green: u16, blue: u16) -> Color {
     .ratatui()
 }
 
-/// Segment the whole line, so an SGR change inside a combining character or
-/// emoji cannot split that grapheme. Its base character supplies the style.
 pub(super) fn visit_graphemes(line: &Line<'_>, mut visit: impl FnMut(&str, Style) -> bool) {
     let plain: String = line
         .spans
@@ -257,8 +252,6 @@ pub(super) fn visit_graphemes(line: &Line<'_>, mut visit: impl FnMut(&str, Style
     let mut span = 0;
     let mut end = line.spans.first().map_or(0, |value| value.content.len());
     let mut offset = 0;
-    // Ratatui intentionally filters tabs from its grapheme iterator. Retain
-    // them here until expansion, including their byte positions for styles.
     for segment in plain.split_inclusive('\t') {
         let plain_line = Line::raw(segment.trim_end_matches('\t'));
         let symbols = plain_line

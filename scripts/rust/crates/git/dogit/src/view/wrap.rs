@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use super::*;
 use crate::presentation::{DiffPresentation, DiffPresentationConfig, WrapPolicy};
 
-/// Rebuilt with the preview or pane width, never with cursor movement.
 #[derive(Clone, Debug)]
 pub struct DiffPaint {
     pub width: u16,
@@ -103,8 +102,6 @@ fn wrapped_chunks(
     if policy == WrapPolicy::Disabled {
         return (vec![content.clone()], vec![0]);
     }
-    // An oversized custom gutter may leave no content cells. Keep one source
-    // row for navigation, without trying to make progress through zero width.
     if width == 0 {
         return (vec![Line::default()], vec![0]);
     }
@@ -230,8 +227,6 @@ mod tests {
 
     #[test]
     fn wrapping_preserves_graphemes_tabs_styles_and_cell_offsets() {
-        // Both the combining accent and emoji have SGR transitions inside a
-        // grapheme; neither may become an independent wrapped fragment.
         let line = syntax_line(
             "abce\x1b[31m\u{301}\x1b[0m界\x1b[38;5;45m👩\x1b[1m\u{200d}💻\tZ",
             4,

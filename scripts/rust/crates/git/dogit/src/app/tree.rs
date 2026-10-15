@@ -68,7 +68,6 @@ impl App {
         let mut entries = Vec::new();
         let mut pending = vec![(root.clone(), root.clone(), 0)];
         while let Some((mut path, parent, depth)) = pending.pop() {
-            // Collapse chains of directories, but keep files as distinct rows.
             while let Some(node) = tree.get(&path) {
                 if node.children.len() != 1 || !tree[&node.children[0]].directory {
                     break;

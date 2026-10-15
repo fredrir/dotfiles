@@ -610,7 +610,6 @@ fn selected_line_after_an_unterminated_line_cannot_silently_concatenate_content(
         fs::read(repo.path("file")).unwrap(),
         b"unterminated\nadded\n"
     );
-    // The suggested whole-hunk action includes the necessary newline change.
     diff.apply(&Selection::Hunk(0)).unwrap();
     assert_eq!(repo.index("file"), b"unterminated\nadded\n");
 }

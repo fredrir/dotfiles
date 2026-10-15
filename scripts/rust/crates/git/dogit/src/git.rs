@@ -79,7 +79,6 @@ pub struct Repo {
     cancellation: Option<Arc<AtomicBool>>,
 }
 
-/// Binds a destructive confirmation to the exact content that was previewed.
 #[derive(Clone, Debug)]
 pub struct DiscardGuard {
     pub paths: Vec<PathBuf>,
@@ -152,8 +151,6 @@ impl DiscardGuard {
     }
 }
 
-/// An abort applies only to the operation the user reviewed, including its
-/// sequencer state. A restarted operation may have the same HEAD and kind.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OperationGuard {
     pub operation: Operation,
@@ -348,9 +345,6 @@ impl Repo {
         command
             .current_dir(&self.root)
             .args(["--no-pager", "-c", "color.ui=false"]);
-        // Internal Git workflows (notably stash's untracked cleanup) use
-        // their own magic pathspecs. Restrict literal mode to our path-based
-        // operations rather than exporting it into every Git subprocess.
         if spec.literal_paths {
             command.arg("--literal-pathspecs");
         }
@@ -534,7 +528,6 @@ impl Repo {
     }
 
     pub fn operation(&self) -> Result<Option<Operation>, GitError> {
-        // Git's administrative directory is specific to this worktree.
         for (name, operation) in [
             ("rebase-merge", Operation::Rebase),
             ("rebase-apply", Operation::Rebase),
@@ -547,7 +540,6 @@ impl Repo {
                 return Ok(Some(operation));
             }
         }
-        // A multi-commit sequence may be between commits without *_HEAD.
         let todo = self.git_dir.join("sequencer/todo");
         if todo.try_exists()? {
             let bytes = std::fs::read(todo)?;
@@ -665,7 +657,6 @@ impl Repo {
             if message.trim().is_empty() {
                 return Err(GitError::new("Write a commit message"));
             }
-            // -m keeps stdin available to hooks and interactive signing tools.
             spec.args.extend(["--message".into(), message.into()]);
         }
         Ok(spec)
@@ -836,8 +827,6 @@ impl Repo {
     }
 
     pub fn merge(&self, revision: &str) -> Result<CommandSpec, GitError> {
-        // Keep the reference so Git can retain branch names in merge messages
-        // and apply its normal annotated-tag semantics.
         self.verify_revision(revision)?;
         Ok(CommandSpec::new("Merge", ["merge", "--", revision]).interactive())
     }
@@ -916,7 +905,6 @@ impl Repo {
                 ));
             }
             if entry.untracked {
-                // Never turn a directory selection into recursive deletion.
                 let metadata = std::fs::symlink_metadata(self.root.join(path))?;
                 if metadata.is_dir() {
                     return Err(GitError::new(

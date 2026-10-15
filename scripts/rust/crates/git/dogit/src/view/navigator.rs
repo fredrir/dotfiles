@@ -1,6 +1,5 @@
 use super::*;
 
-/// Precompute branch guides once when the flattened tree changes.
 pub fn tree_prefixes(items: &[NavItem]) -> Vec<String> {
     let mut last = vec![true; items.len()];
     let mut following = Vec::new();
@@ -240,7 +239,6 @@ fn render_tree_item(
             "▸ ".to_owned()
         }
     } else {
-        // Keep the nearest branch visible when deep trees meet a narrow pane.
         window(
             &item.graph,
             item.graph.width().saturating_sub(usize::from(guide_width)),
@@ -296,7 +294,6 @@ fn tree_widths(item: &NavItem, width: u16) -> (u16, u16) {
     (guide, available.saturating_sub(guide))
 }
 
-/// A compact lane graph with one row per commit; parent IDs preserve branches.
 pub fn graph_rows(commits: &[crate::git::Commit]) -> Vec<String> {
     let mut lanes = Vec::<Option<String>>::new();
     let mut rows = Vec::with_capacity(commits.len());
@@ -323,7 +320,6 @@ pub fn graph_rows(commits: &[crate::git::Commit]) -> Vec<String> {
                 .iter()
                 .position(|oid| oid.as_ref() == Some(parent))
                 .unwrap_or_else(|| {
-                    // Keep continuing branches in their lanes, including across joins.
                     let target = if lanes[lane].is_none() {
                         lane
                     } else {

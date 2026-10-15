@@ -70,8 +70,6 @@ impl Session {
 
     pub fn set_editor_selection(&mut self, selected: bool) -> io::Result<()> {
         if self.editor_selection != selected {
-            // A boolean only: terminal copy handlers can forward their usual
-            // shortcut without receiving the draft or requiring enhanced keys.
             let value = if selected { "MQ==" } else { "MA==" };
             let mut output = io::stdout().lock();
             write!(output, "\x1b]1337;SetUserVar=APP_SELECTION={value}\x07")?;

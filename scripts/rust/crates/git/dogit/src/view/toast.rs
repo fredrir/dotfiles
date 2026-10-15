@@ -142,8 +142,6 @@ pub(super) fn render(buffer: &mut Buffer, area: Rect, toast: &ToastView<'_>) {
             appearance,
         );
     }
-    // Move the fully laid-out card, clipping at the edge instead of reflowing
-    // its text on every frame. The underlying frame restores its previous cells.
     let offset =
         ((f64::from(width) + f64::from(margin)) * (1.0 - toast.visibility())).round() as u16;
     let left = (room.right() - width).saturating_add(offset);

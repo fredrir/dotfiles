@@ -695,8 +695,6 @@ impl App {
                             self.loaded_preview.is_none()
                         }
                     });
-                    // Timer refreshes must not repeatedly cancel a slow preview.
-                    // Explicit refresh and selection changes still supersede it.
                     if selected_changed || data.force || force || (!self.content_pending && stale) {
                         self.load_content(selected_changed);
                     }
@@ -771,8 +769,6 @@ impl App {
         if let Some(result) = self.clipboard_worker.as_ref().and_then(Worker::take) {
             let result = result.and_then(|fallback| {
                 if let Some(value) = fallback {
-                    // Emit the fallback on the UI thread so it cannot interrupt
-                    // an in-progress frame's escape sequences.
                     crossterm::execute!(
                         io::stdout(),
                         crossterm::clipboard::CopyToClipboard::to_clipboard_from(value)
@@ -1473,8 +1469,6 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
                     Some(Dialog::Compose { editor }) if editor.selection().is_some()
                 ))
                 .map_err(|error| error.to_string())?;
-            // The composer has no mouse controls. Let the terminal own text
-            // selection and its usual mouse-copy gesture while it is open.
             session
                 .set_mouse_capture(if app.composing() {
                     ui_terminal::MouseCapture::Disabled
@@ -1517,8 +1511,6 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
         if let Some(notification) = &app.notification {
             wait = wait.min(notification.view(reduced_motion).next_transition());
         }
-        // Drain wheel and inline typing bursts before painting, with a bounded budget so
-        // an input flood cannot delay worker results or terminal rendering.
         let mut waited = match queued.take() {
             Some(event) => event,
             None => input.wait(wait).map_err(|error| error.to_string())?,

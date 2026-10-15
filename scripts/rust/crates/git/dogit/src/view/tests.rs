@@ -1558,7 +1558,6 @@ fn wrapped_split_rows_keep_source_ids_and_reflow_when_cached_width_is_stale() {
             .map(|row| row.right_line)
             .collect::<Vec<_>>()
     );
-    // Old cached fragments must never be reused after a narrower pane resize.
     let (_, resized) = draw(110, 30, &mut state, &data);
     let expected = configured_diff_layout(&diff, resized.canvas.width, true, None, &config);
     assert!(expected.rows.len() > layout.rows.len());
@@ -1807,7 +1806,7 @@ fn inline_composer_keeps_patch_visible_and_cursor_tracks_wrapping_scrolling_and_
     };
     let mut state = ViewState::default();
     let value = format!(
-        "Summary å\n\n{}\nlast 界e\u{301}👩‍💻",
+        "Summary å\n\n{}\nlast 界e\u{301}👩💻",
         "A long body with words. ".repeat(35)
     );
     let mut editor = ui_widgets::EditorBuffer::new(&value);
@@ -1829,8 +1828,7 @@ fn inline_composer_keeps_patch_visible_and_cursor_tracks_wrapping_scrolling_and_
             let cursor = terminal.get_cursor_position().unwrap();
             assert!(area.contains(cursor));
             let contents = area_text(terminal.backend().buffer(), area);
-            // The buffer includes a blank continuation cell after the wide glyph.
-            assert!(contents.contains("last 界 e\u{301}👩‍💻"), "{contents}");
+            assert!(contents.contains("last 界 e\u{301}👩💻"), "{contents}");
             if width == 130 {
                 assert!(text(terminal.backend().buffer()).contains("fn main()"));
             }

@@ -1,5 +1,3 @@
-//! Syntax and layout are presentation only. ExactDiff remains the sole source
-//! of patch identities and bytes for staging.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Seek, Write};
@@ -29,12 +27,10 @@ pub struct DiffPresentationConfig {
     pub syntax_theme: Option<String>,
     pub hunk_headers: bool,
     pub keep_markers: bool,
-    /// SGR prefixes for minus/plus/zero numbers and left/right format literals.
     pub number_styles: BTreeMap<String, String>,
     pub delta: Option<DeltaCommand>,
 }
 
-/// Delta's numeric limit counts continuation rows, excluding the first row.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum WrapPolicy {
     Disabled,
@@ -100,16 +96,11 @@ pub enum Renderer {
 
 #[derive(Clone, Debug)]
 pub struct DiffPresentation {
-    /// ANSI SGR styles and original content, without patch prefixes or newlines.
-    /// Keys are exact patch line IDs, never external renderer row numbers.
     pub lines: BTreeMap<usize, String>,
     pub config: DiffPresentationConfig,
     pub renderer: Renderer,
 }
 
-/// Read the actual configured delta feature/layout settings in a worker. Pager
-/// commands are parsed as arguments and never passed to a shell. Other pagers
-/// are left alone; their presence does not enable delta.
 pub fn load_config(
     root: &Path,
     cancel: Option<&AtomicBool>,
@@ -136,7 +127,6 @@ fn load_config_with_pager(
         ..DiffPresentationConfig::default()
     };
     if let Some(delta) = &config.delta {
-        // Keep useful layout preferences even when delta is not installed.
         let resolved = resolve_git_features(&settings);
         let mut command = delta.command(root, false);
         command.args([
@@ -159,8 +149,6 @@ fn load_config_with_pager(
     Ok(config)
 }
 
-/// Render in a cancellable worker. A missing or incompatible delta falls back
-/// to built-in syntax highlighting without surfacing low-level notifications.
 pub fn render(
     root: &Path,
     diff: &ExactDiff,
@@ -171,8 +159,6 @@ pub fn render(
     cancelled(cancel)?;
     if let Some(delta) = &config.delta {
         let mut command = delta.command(root, true);
-        // color-only still honors configured gutters and omitted hunk headers.
-        // Suppress those here: dogit draws the resolved formats exactly once.
         command.args([
             "--color-only",
             "--paging=never",
@@ -263,8 +249,6 @@ fn configured_delta(
 }
 
 fn parse_delta_command(value: &str) -> Option<DeltaCommand> {
-    // Shell operators/expansions are intentionally unsupported. Quoted style
-    // arguments remain supported, and all arguments go straight to exec.
     if value.contains(['\n', '\r', '\0']) || contains_shell_syntax(value) {
         return None;
     }
@@ -379,8 +363,6 @@ fn resolve_git_features(settings: &BTreeMap<String, String>) -> BTreeMap<String,
     resolved
 }
 
-// Delta 0.20's --show-config omits wrap settings. Resolve the explicitly
-// configured value separately; do not activate unrelated/inactive presets.
 fn resolve_wrap_policy(
     settings: &BTreeMap<String, String>,
     delta: &DeltaCommand,
@@ -405,8 +387,6 @@ fn resolve_wrap_policy(
     let mut features = configured_features.split_whitespace().collect::<Vec<_>>();
     if let Some(value) = features_env {
         if let Some(appended) = value.strip_prefix('+') {
-            // Delta gathers appended environment features in reverse order;
-            // the first appended feature has the highest lookup priority.
             features.extend(appended.split_whitespace().rev());
         } else {
             features = value.split_whitespace().collect();
@@ -489,8 +469,6 @@ fn apply_settings(config: &mut DiffPresentationConfig, settings: &BTreeMap<Strin
     }
 }
 
-/// Strip terminal controls for structural validation. The view separately
-/// accepts SGR styles and drops all executable terminal escape sequences.
 fn strip_ansi(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
     let mut chars = value.chars().peekable();
@@ -543,7 +521,6 @@ fn map_delta_lines(diff: &ExactDiff, output: &[u8]) -> Option<BTreeMap<usize, St
             && let Some(line) = lines.as_mut().and_then(Iterator::next)
         {
             let mut colored = colored.trim_end_matches(['\n', '\r']).to_owned();
-            // Find the first printable byte, retaining all preceding SGR.
             let mut index = 0;
             let bytes = colored.as_bytes();
             while bytes.get(index) == Some(&0x1b) && bytes.get(index + 1) == Some(&b'[') {
@@ -607,9 +584,6 @@ fn highlight_builtin(
         let mut new = HighlightLines::new(syntax, theme);
         for line in &hunk.lines {
             cancelled(cancel)?;
-            // A source file can itself contain ANSI/OSC escapes. Feed only
-            // literal printable content to the syntax engine, never styles
-            // supplied by repository text.
             let text = String::from_utf8_lossy(&line.content)
                 .chars()
                 .filter(|character| !character.is_control() || matches!(character, '\t' | '\n'))
@@ -619,7 +593,6 @@ fn highlight_builtin(
                 result.insert(line.id, text.trim_end_matches(['\r', '\n']).to_owned());
                 continue;
             }
-            // Keep old and new parser states independent across replacements.
             let spans = match line.kind {
                 LineKind::Deletion => old.highlight_line(&text, syntaxes),
                 LineKind::Addition => new.highlight_line(&text, syntaxes),
@@ -631,7 +604,6 @@ fn highlight_builtin(
             let colored = spans.map_or_else(
                 |_| text.trim_end_matches(['\r', '\n']).to_owned(),
                 |spans| {
-                    // Foreground only: fallback never paints an opaque pane.
                     syntect::util::as_24_bit_terminal_escaped(&spans, false)
                         .trim_end_matches(['\r', '\n'])
                         .to_owned()
@@ -799,7 +771,6 @@ mod tests {
             ("delta.small.wrap-max-lines".into(), "1".into()),
             ("delta.large.wrap-max-lines".into(), "4".into()),
         ]);
-        // An inactive side-by-side preset must not silently disable wrapping.
         assert_eq!(
             resolve_wrap_policy(&settings, &delta, None),
             WrapPolicy::Unlimited
@@ -846,8 +817,6 @@ mod tests {
             resolve_wrap_policy(&settings, &delta, Some("+")),
             WrapPolicy::Unlimited
         );
-        // The environment feature selection replaces the CLI list when not
-        // prefixed with +. An empty override therefore restores our default.
         let delta = parse_delta_command("delta --features=compact").unwrap();
         assert_eq!(
             resolve_wrap_policy(&settings, &delta, Some("")),
@@ -1018,8 +987,6 @@ mod tests {
         ] {
             git(repo.path(), &["config", key, value]);
         }
-        // Test runners commonly set GIT_PAGER=cat. Inject the absent override
-        // locally instead of mutating the process environment shared by tests.
         let config = load_config_with_pager(repo.path(), None, None).unwrap();
         assert!(config.delta.is_some());
         assert!(!config.split);

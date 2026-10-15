@@ -201,7 +201,7 @@ pub(super) fn render_overlay(
             );
             if lines.len() > usize::from(content.height) && content.height > 0 {
                 let label = format!(
-                    "{}–{} / {}",
+                    "{}{} / {}",
                     offset + 1,
                     (offset + usize::from(content.height)).min(lines.len()),
                     lines.len()
@@ -356,8 +356,6 @@ fn render_compose(
     Some(content)
 }
 
-// Keep every path's printable representation accessible, including long
-// paths with spaces. Explicit wrapping also makes scroll bounds deterministic.
 fn wrap_detail(detail: &str, width: u16) -> Vec<String> {
     if width == 0 {
         return Vec::new();

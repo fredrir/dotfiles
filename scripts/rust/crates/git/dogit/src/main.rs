@@ -11,7 +11,6 @@ use workstation::{Completable, Completions};
 struct Cli {
     #[arg(short = 'C', long, global = true, default_value = ".")]
     directory: PathBuf,
-    /// Leave the mouse with the terminal for native text selection.
     #[arg(long, global = true)]
     no_mouse: bool,
     #[command(subcommand)]
@@ -22,9 +21,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Start {
-    /// Explore commits and their changes.
     Log,
-    /// Compare two revisions.
     Compare { left: String, right: String },
 }
 

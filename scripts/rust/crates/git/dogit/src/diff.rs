@@ -27,7 +27,6 @@ pub enum LineKind {
 pub struct DiffLine {
     pub id: usize,
     pub kind: LineKind,
-    /// Exact bytes after the patch prefix, including the line terminator.
     pub content: Vec<u8>,
     pub old_line: Option<usize>,
     pub new_line: Option<usize>,
@@ -179,8 +178,6 @@ impl ExactDiff {
         Self::between_cancellable(root, old_revision, new_revision, path, None)
     }
 
-    /// An exact aggregate preview of the next commit. Partial index mutations
-    /// require an individual file and its corresponding index snapshot.
     pub fn staged(root: &Path) -> Result<Self, String> {
         Self::staged_cancellable(root, None)
     }
@@ -194,8 +191,6 @@ impl ExactDiff {
         Ok(document)
     }
 
-    /// Inspect a directory across either side of the index. Aggregates never
-    /// carry the single-file snapshot required for partial index mutations.
     pub fn directory_cancellable(
         root: &Path,
         path: &Path,
@@ -389,8 +384,6 @@ impl ExactDiff {
         })
     }
 
-    /// Apply to a temporary index, then publish it under Git's index lock.
-    /// The working tree is never modified by either staging or unstaging.
     pub fn apply(&self, selection: &Selection) -> Result<(), String> {
         if let Some(reason) = &self.partial_reason {
             return Err(reason.clone());
@@ -433,8 +426,6 @@ impl ExactDiff {
         if fresh.raw != self.raw {
             return Err("The diff changed; refresh before staging or unstaging".into());
         }
-        // A split index locates sharedindex.* beside its own index file. Keep
-        // this copy in that same directory, then remove its shared dependency.
         let temp_index = tempfile::Builder::new()
             .prefix("dogit-index-")
             .tempfile_in(
@@ -590,8 +581,6 @@ impl ExactDiff {
         Ok(patch)
     }
 
-    /// Structural presentation is inspection only; staging always uses exact hunks.
-    /// Missing Difftastic is an ordinary fallback, represented by `None`.
     pub fn structural(&self, width: usize) -> Result<Option<String>, String> {
         self.structural_cancellable(width, None)
     }
@@ -681,8 +670,6 @@ impl ExactDiff {
             .iter()
             .any(|path| before_dir.join(path).is_dir() || after_dir.join(path).is_dir())
         {
-            // Difftastic's directory walker cannot compare a file replaced by
-            // a directory. Its Git external-diff interface handles each leaf.
             for path in paths {
                 let before = before_dir.join(&path);
                 let after = after_dir.join(&path);
@@ -1051,8 +1038,6 @@ fn read_revision_file(
             format!("Subproject commit {}\n", String::from_utf8_lossy(oid)).into_bytes(),
         ));
     }
-    // A path can be a blob on one side and a directory on the other. Its
-    // descendant blobs are separate entries in the changed-path list.
     if kind == Some(b"tree".as_slice()) {
         return Ok(None);
     }
