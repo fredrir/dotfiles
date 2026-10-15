@@ -116,22 +116,25 @@ fn a_prompted_reference_signs_out_first_so_1password_prompts() {
 }
 
 #[test]
-fn a_prompted_reference_is_sent_without_asking_again_within_the_grant() {
+fn a_prompted_reference_is_sent_without_asking_again_while_used_within_the_grant() {
     let prompts = Cell::new(0);
     let sign_out = || {
         prompts.set(prompts.get() + 1);
         Ok(())
     };
     let mut broker = broker();
-    let start = Instant::now();
-    broker.resolve(SECURE, start, sign_out, |_| secret());
-    let later = start + GRANT - Duration::from_secs(1);
+    let mut last = Instant::now();
+    broker.resolve(SECURE, last, sign_out, |_| secret());
     let refetch = |_: &str| Err("should not fetch".to_string());
-    assert_eq!(
-        value(broker.resolve(SECURE, later, sign_out, refetch)),
-        "s3cret"
-    );
-    broker.resolve(SECURE, start + GRANT, sign_out, |_| secret());
+    for _ in 0..3 {
+        last += GRANT - Duration::from_secs(1);
+        assert_eq!(
+            value(broker.resolve(SECURE, last, sign_out, refetch)),
+            "s3cret"
+        );
+    }
+    assert_eq!(prompts.get(), 1);
+    broker.resolve(SECURE, last + GRANT, sign_out, |_| secret());
     assert_eq!(prompts.get(), 2);
 }
 

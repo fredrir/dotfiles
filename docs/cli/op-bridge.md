@@ -43,7 +43,7 @@ op read op://Dev/… (macie) ─────────────────
 | Name | `Dev` (`--vault`) | `Secure` (`--prompt-vault`) |
 | --- | --- | --- |
 | 1Password Touch ID | first fetch after startup or wake | per reference |
-| Held in memory | until macie sleeps | 30 min, or until macie sleeps |
+| Held in memory | until macie sleeps | 4 h after last use, or until macie sleeps |
 | Callers | archie and macie | archie and macie |
 | Refill | with the first fetch after startup or wake | never |
 

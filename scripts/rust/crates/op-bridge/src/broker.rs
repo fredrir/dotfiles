@@ -5,13 +5,13 @@ use zeroize::Zeroizing;
 
 use crate::protocol::{self, Response};
 
-pub const GRANT: Duration = Duration::from_secs(30 * 60);
+pub const GRANT: Duration = Duration::from_secs(4 * 60 * 60);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tier {
     // Served from memory until macie sleeps
     Silent,
-    // 1Password's prompt per reference, then a grant
+    // 1Password's prompt per reference, then a grant that each use renews
     Prompt,
 }
 
@@ -119,8 +119,11 @@ impl Broker {
             Err(reason) => return Response::Refused(reason),
         };
 
-        if self.cached(reference, now) {
-            return Response::Value(self.cached[reference].value.clone());
+        if self.cached(reference, now)
+            && let Some(entry) = self.cached.get_mut(reference)
+        {
+            entry.until = entry.until.map(|_| now + self.grant);
+            return Response::Value(entry.value.clone());
         }
         if tier == Tier::Prompt
             && let Err(reason) = sign_out()
