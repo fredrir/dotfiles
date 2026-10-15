@@ -356,14 +356,13 @@ fn direct_line_and_hunk_staging_preserve_worktree_and_can_unstage() {
     let start = terminal.send(b"b");
     terminal.wait_for("Staged", start);
     terminal.settle();
-    terminal.send(b"jj u");
+    let start = terminal.send(b"jj u");
     terminal.wait_until(
         |_| fixture.git(&["show", ":file"]) == b"first\nlast\n",
         "selected line unstaged",
     );
-    terminal.settle();
-    let start = terminal.send(b"b");
     terminal.wait_for("remaining", start);
+    terminal.settle();
     terminal.send(b"s");
     terminal.wait_until(
         |_| fixture.git(&["show", ":file"]) == worktree,
@@ -380,6 +379,33 @@ fn direct_line_and_hunk_staging_preserve_worktree_and_can_unstage() {
             .iter()
             .any(|operation| operation["action"] == "Stage selection")
     );
+}
+
+#[test]
+fn split_wrapping_shows_long_line_tails_and_stages_from_a_continuation() {
+    let fixture = Fixture::new();
+    fixture.commit("file", b"first\nlast\n");
+    let chosen = format!("{}{}", "long addition ".repeat(10), "WRAPTAIL ".repeat(4));
+    let worktree = format!("first\n{chosen}\nremaining\nlast\n");
+    fixture.write("file", worktree.as_bytes());
+    let mut terminal = fixture.open(&[]);
+    terminal.wait_for("remaining", 0);
+    let start = terminal.send(b"2v");
+    terminal.wait_for("WRAPTAIL", start);
+    terminal.settle();
+    // Hunk header, first context line, then the addition and its continuation.
+    terminal.send(b"jjj s");
+    let staged = format!("first\n{chosen}\nlast\n");
+    terminal.wait_until(
+        |_| fixture.git(&["show", ":file"]) == staged.as_bytes(),
+        "the original long line staged from its wrapped continuation",
+    );
+    assert_eq!(
+        fs::read(fixture.root.join("file")).unwrap(),
+        worktree.as_bytes()
+    );
+    terminal.settle();
+    terminal.quit();
 }
 
 #[test]

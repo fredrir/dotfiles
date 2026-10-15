@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{
@@ -13,6 +13,7 @@ use crate::actions::{ACTIONS, Action};
 use crate::diff::{DiffSide, ExactDiff, LineKind, Selection};
 use crate::git::{CommandSpec, Repo, Snapshot};
 use crate::jobs::Worker;
+use crate::presentation::{DiffPresentation, DiffPresentationConfig};
 use crate::state::{OperationRecord, SavedState};
 use crate::view::{
     self, Focus, Geometry, ItemKind as NavKind, NavItem, Overlay, RenderData, ViewState, Workspace,
@@ -88,9 +89,11 @@ struct Data {
     files: Vec<PathBuf>,
     preview: Option<PreviewKey>,
     force: bool,
+    presentation_config: Option<DiffPresentationConfig>,
 }
 struct Content {
     diff: Option<ExactDiff>,
+    presentation: Option<DiffPresentation>,
     text: Vec<String>,
     structural: Option<String>,
     paths: Option<Vec<PathBuf>>,
@@ -107,6 +110,7 @@ struct PreviewRequest {
     all_files: bool,
     composing: bool,
     structural: bool,
+    presentation: DiffPresentationConfig,
     width: usize,
 }
 
@@ -167,6 +171,9 @@ impl PreviewKey {
                         .filter(|file| file.starts_with(path))
                         .cloned()
                         .collect();
+                    for file in &key.files {
+                        key.stamps.push(path_stamp(&repo.root.join(file), false)?);
+                    }
                 }
             }
         } else if let Some(Target::Commit(oid) | Target::Stash(_, oid)) = &key.request.target {
@@ -313,6 +320,13 @@ struct LineAnchor {
     path: String,
     line: crate::diff::DiffLine,
     header: bool,
+    cell_offset: usize,
+}
+
+#[derive(Clone, Copy)]
+struct RowAnchor {
+    hunk: usize,
+    source: Option<(usize, usize)>,
 }
 struct PendingOperation {
     label: String,
@@ -337,10 +351,16 @@ struct App {
     dialog: Option<Dialog>,
     marked: BTreeSet<usize>,
     row_map: Vec<view::DiffRow>,
+    row_paint: Option<view::DiffPaint>,
+    row_width: u16,
+    row_config: Option<DiffPresentationConfig>,
     changed_lines: BTreeSet<usize>,
     diff_counts: (usize, usize),
     row_split: bool,
     diff: Option<Arc<ExactDiff>>,
+    presentation: Option<DiffPresentation>,
+    presentation_config: Option<DiffPresentationConfig>,
+    split_override: Option<bool>,
     text: Vec<String>,
     structural: Option<String>,
     content_line_count: usize,
@@ -378,6 +398,7 @@ mod core_tests;
 mod execution;
 mod input;
 mod render;
+mod tree;
 
 use execution::execute_captured;
 
@@ -418,11 +439,17 @@ impl App {
             dialog: None,
             marked: BTreeSet::new(),
             diff: None,
+            presentation: None,
+            presentation_config: None,
+            split_override: None,
             text: Vec::new(),
             structural: None,
             content_line_count: 0,
             loaded_preview: None,
             row_map: Vec::new(),
+            row_paint: None,
+            row_width: 0,
+            row_config: None,
             changed_lines: BTreeSet::new(),
             diff_counts: (0, 0),
             row_split: false,
@@ -468,6 +495,8 @@ impl App {
     }
 
     fn preview_request(&self) -> PreviewRequest {
+        let mut presentation = self.presentation_config.clone().unwrap_or_default();
+        presentation.split = self.view.split;
         PreviewRequest {
             target: self.selected().cloned(),
             workspace: self.view.workspace,
@@ -483,6 +512,7 @@ impl App {
                 })
             ),
             structural: self.structure_enabled,
+            presentation,
             width: if self.structure_enabled {
                 self.geometry.as_ref().map_or(100, |geometry| {
                     geometry.canvas.width.saturating_sub(4) as usize
@@ -504,8 +534,12 @@ impl App {
         let repo = self.repo.clone();
         let limit = self.history_limit;
         let request = self.preview_request();
+        let read_presentation_config = force || self.presentation_config.is_none();
         self.snapshot_worker.submit(move |cancel| {
-            let repo = repo.with_cancel(cancel);
+            let repo = repo.with_cancel(Arc::clone(&cancel));
+            let presentation_config = read_presentation_config.then(|| {
+                crate::presentation::load_config(&repo.root, Some(&cancel)).unwrap_or_default()
+            });
             let snapshot = repo.snapshot(limit).map_err(|error| error.to_string())?;
             let files = repo.files().map_err(|error| error.to_string())?;
             let preview = PreviewKey::capture(&repo, request, &snapshot, &files).ok();
@@ -514,6 +548,7 @@ impl App {
                 files,
                 preview,
                 force,
+                presentation_config,
             })
         });
         self.snapshot_pending = true;
@@ -592,7 +627,17 @@ impl App {
             let force = std::mem::take(&mut self.refresh_forced);
             match result {
                 Ok(data) => {
+                    let reread_config = force && data.presentation_config.is_none();
+                    if let Some(config) = data.presentation_config {
+                        let previous_split = self.view.split;
+                        self.view.split = self.split_override.unwrap_or(config.split);
+                        self.presentation_config = Some(config);
+                        if previous_split != self.view.split {
+                            self.update_rows();
+                        }
+                    }
                     let previous = self.selected().cloned();
+                    let previous_side = self.side;
                     let changed = self.snapshot.status != data.snapshot.status
                         || self.snapshot.branches != data.snapshot.branches
                         || self.snapshot.commits != data.snapshot.commits
@@ -608,7 +653,7 @@ impl App {
                             .status
                             .entries
                             .iter()
-                            .filter(|entry| entry.staged())
+                            .filter(|entry| entry.staged() && !entry.unmerged)
                             .count();
                         self.unresolved_count = self
                             .snapshot
@@ -619,7 +664,8 @@ impl App {
                             .count();
                         self.rebuild();
                     }
-                    let selected_changed = previous != self.selected().cloned();
+                    let selected_changed =
+                        previous != self.selected().cloned() || previous_side != self.side;
                     let request = self.preview_request();
                     let stale = data.preview.as_ref().is_none_or(|key| {
                         if key.request == request {
@@ -632,6 +678,9 @@ impl App {
                     // Explicit refresh and selection changes still supersede it.
                     if selected_changed || data.force || force || (!self.content_pending && stale) {
                         self.load_content(selected_changed);
+                    }
+                    if reread_config {
+                        self.request_refresh(true);
                     }
                 }
                 Err(error) => {
@@ -659,8 +708,10 @@ impl App {
                     if changed {
                         self.marked.clear();
                         self.row_map.clear();
+                        self.row_paint = None;
                     }
                     self.diff = content.diff.map(Arc::new);
+                    self.presentation = content.presentation;
                     self.update_rows();
                     if let Some(anchor) = anchor {
                         self.restore_line_anchor(&anchor);
@@ -685,7 +736,9 @@ impl App {
                 }
                 Err(error) => {
                     self.diff = None;
+                    self.presentation = None;
                     self.row_map.clear();
+                    self.row_paint = None;
                     self.text = vec![error];
                     self.structural = None;
                     self.content_line_count = self.text.len();
@@ -786,105 +839,12 @@ impl App {
     fn rebuild(&mut self) {
         let selected = self.selected().cloned();
         let mut entries = Vec::new();
+        let mut changes_summary = None;
         match self.view.workspace {
             Workspace::Changes => {
-                let statuses: BTreeMap<_, _> = self
-                    .snapshot
-                    .status
-                    .entries
-                    .iter()
-                    .map(|entry| (entry.path.clone(), entry))
-                    .collect();
-                let paths: Vec<_> = if self.all_files {
-                    self.files.clone()
-                } else {
-                    self.snapshot
-                        .status
-                        .entries
-                        .iter()
-                        .filter(|entry| {
-                            entry.unmerged
-                                || match self.side {
-                                    DiffSide::Worktree => entry.unstaged(),
-                                    DiffSide::Index => entry.staged(),
-                                }
-                        })
-                        .map(|entry| entry.path.clone())
-                        .collect()
-                };
-                let mut tree = BTreeMap::<PathBuf, bool>::new();
-                for path in paths {
-                    if !self.query.is_empty()
-                        && !path
-                            .to_string_lossy()
-                            .to_lowercase()
-                            .contains(&self.query.to_lowercase())
-                    {
-                        continue;
-                    }
-                    let mut parent = path.parent();
-                    while let Some(dir) = parent.filter(|dir| !dir.as_os_str().is_empty()) {
-                        tree.insert(dir.to_owned(), true);
-                        parent = dir.parent();
-                    }
-                    tree.entry(path).or_insert(false);
-                }
-                for (path, directory) in tree {
-                    if path
-                        .ancestors()
-                        .skip(1)
-                        .any(|parent| self.collapsed.contains(parent))
-                    {
-                        continue;
-                    }
-                    let status = statuses.get(&path);
-                    let label = path
-                        .file_name()
-                        .unwrap_or(path.as_os_str())
-                        .to_string_lossy()
-                        .into_owned();
-                    let detail = if directory {
-                        if self.collapsed.contains(&path) {
-                            "closed"
-                        } else {
-                            ""
-                        }
-                        .into()
-                    } else if status.is_some_and(|entry| entry.unmerged) {
-                        "conflict".into()
-                    } else if status.is_some_and(|entry| entry.staged() && entry.unstaged()) {
-                        "mixed".into()
-                    } else {
-                        String::new()
-                    };
-                    let code = status.map_or(String::new(), |entry| {
-                        if entry.untracked {
-                            "new".into()
-                        } else {
-                            match self.side {
-                                DiffSide::Worktree => entry.worktree,
-                                DiffSide::Index => entry.index,
-                            }
-                            .to_string()
-                        }
-                    });
-                    entries.push(Entry {
-                        target: Target::Path(path.clone(), directory),
-                        item: NavItem {
-                            label,
-                            detail,
-                            status: code,
-                            depth: path.components().count().saturating_sub(1),
-                            kind: if directory {
-                                NavKind::Folder
-                            } else {
-                                NavKind::File
-                            },
-                            staged: status.is_some_and(|entry| entry.staged()),
-                            graph: String::new(),
-                        },
-                    });
-                }
+                let (tree, summary) = self.changes_entries();
+                entries = tree;
+                changes_summary = Some(summary);
             }
             Workspace::History => {
                 if self.history_commit.is_some() {
@@ -912,6 +872,7 @@ impl App {
                                 depth: 0,
                                 kind: NavKind::Commit,
                                 staged: false,
+                                file_state: None,
                                 graph: graphs.get(index).cloned().unwrap_or_default(),
                             },
                         });
@@ -1002,16 +963,37 @@ impl App {
                 .iter()
                 .fold(view::NavSummary::default(), |mut summary, item| {
                     summary.items += usize::from(item.kind != NavKind::Folder);
-                    summary.staged += usize::from(item.staged);
+                    if item.kind != NavKind::Folder {
+                        summary.staged += usize::from(item.staged);
+                        summary.unstaged +=
+                            usize::from(item.file_state.is_some_and(|state| state.unstaged));
+                    }
                     summary.has_commits |= item.kind == NavKind::Commit;
                     summary
                 });
+        if let Some(summary) = changes_summary {
+            self.nav_summary = summary;
+        }
         if let Some(index) = selected.as_ref().and_then(|target| {
             self.entries
                 .iter()
                 .position(|entry| entry.target == *target)
         }) {
             self.view.selected = index;
+        } else if self.view.workspace == Workspace::Changes && selected.is_some() {
+            self.view.selected = selected
+                .as_ref()
+                .and_then(|target| {
+                    let Target::Path(path, _) = target else {
+                        return None;
+                    };
+                    path.ancestors().skip(1).find_map(|parent| {
+                        self.entries
+                            .iter()
+                            .position(|entry| entry.target == Target::Path(parent.to_owned(), true))
+                    })
+                })
+                .unwrap_or(self.view.selected);
         } else if self.view.workspace == Workspace::Changes {
             self.view.selected = self
                 .entries
@@ -1020,6 +1002,7 @@ impl App {
                 .unwrap_or(0);
         }
         self.view.selected = self.view.selected.min(self.entries.len().saturating_sub(1));
+        self.align_diff_side();
         self.dirty = true;
     }
 
@@ -1043,6 +1026,9 @@ impl App {
     }
 
     fn load_content(&mut self, reset: bool) {
+        let previous_side = self.side;
+        self.align_diff_side();
+        let reset = reset || previous_side != self.side;
         if reset {
             self.view.canvas_manual_scroll = false;
             self.view.diff_offset = 0;
@@ -1050,7 +1036,9 @@ impl App {
             self.view.horizontal = 0;
             self.marked.clear();
             self.diff = None;
+            self.presentation = None;
             self.row_map.clear();
+            self.row_paint = None;
             self.structural = None;
             self.text.clear();
             self.content_line_count = 0;
@@ -1093,6 +1081,7 @@ impl App {
             self.content_worker.invalidate();
             self.content_pending = false;
             self.diff = None;
+            self.presentation = None;
             self.structural = None;
             self.text = self
                 .saved
@@ -1113,6 +1102,7 @@ impl App {
             self.content_worker.invalidate();
             self.content_pending = false;
             self.diff = None;
+            self.presentation = None;
             self.structural = None;
             self.text.clear();
             self.content_line_count = self.text.len();
@@ -1126,6 +1116,7 @@ impl App {
         }
         self.content_worker.submit(move |cancel| {
             let repo = repo.with_cancel(Arc::clone(&cancel));
+            let presentation_config = request.presentation.clone();
             let key = PreviewKey::capture(&repo, request, &source_snapshot, &source_files)?;
             let paths = match &target {
                 Some(Target::Commit(oid)) => {
@@ -1151,6 +1142,12 @@ impl App {
             let mut diff = match target {
                 _ if composing => Some(ExactDiff::staged_cancellable(&root, Some(&cancel))?),
                 Some(Target::Path(path, false)) => Some(ExactDiff::load_cancellable(
+                    &root,
+                    &path,
+                    side,
+                    Some(&cancel),
+                )?),
+                Some(Target::Path(path, true)) => Some(ExactDiff::directory_cancellable(
                     &root,
                     &path,
                     side,
@@ -1210,30 +1207,18 @@ impl App {
                 _ => None,
             };
             let mut text = Vec::new();
-            if let Some((path, directory)) = preview_path {
-                if directory {
-                    text = key
-                        .files
-                        .iter()
-                        .filter(|file| file.starts_with(&path))
-                        .map(|file| {
-                            file.strip_prefix(&path)
-                                .unwrap_or(file)
-                                .display()
-                                .to_string()
-                        })
-                        .collect();
-                } else if !composing
-                    && (all_files && diff.as_ref().is_some_and(|diff| diff.raw.is_empty())
-                        || diff.as_ref().is_some_and(|diff| {
-                            diff.partial_reason.as_deref()
-                                == Some("Resolve the conflict before staging individual lines")
-                        }))
-                    && let Some(lines) = preview_file(&root.join(&path))?
-                {
-                    text = lines;
-                    diff = None;
-                }
+            if let Some((path, directory)) = preview_path
+                && !directory
+                && !composing
+                && (all_files && diff.as_ref().is_some_and(|diff| diff.raw.is_empty())
+                    || diff.as_ref().is_some_and(|diff| {
+                        diff.partial_reason.as_deref()
+                            == Some("Resolve the conflict before staging individual lines")
+                    }))
+                && let Some(lines) = preview_file(&root.join(&path))?
+            {
+                text = lines;
+                diff = None;
             }
             let structure = if structural {
                 if let Some(document) = &diff {
@@ -1251,8 +1236,21 @@ impl App {
             } else {
                 None
             };
+            let presentation = diff
+                .as_ref()
+                .map(|document| {
+                    crate::presentation::render(
+                        &root,
+                        document,
+                        width,
+                        &presentation_config,
+                        Some(&cancel),
+                    )
+                })
+                .transpose()?;
             Ok(Content {
                 diff,
+                presentation,
                 text,
                 structural: structure,
                 paths,
@@ -1310,6 +1308,11 @@ impl App {
             path: hunk.path.clone(),
             line: line.clone(),
             header: id.is_none(),
+            cell_offset: if row.line.is_some() {
+                row.left_offset
+            } else {
+                row.right_offset
+            },
         })
     }
 
@@ -1336,12 +1339,9 @@ impl App {
                         .abs_diff(anchor.line.new_line.unwrap_or(0))
             });
         if let Some((hunk, line)) = candidate
-            && let Some(index) = self.row_map.iter().position(|row| {
-                if anchor.header {
-                    row.hunk == hunk && row.line.is_none() && row.right_line.is_none()
-                } else {
-                    row.line == Some(line.id) || row.right_line == Some(line.id)
-                }
+            && let Some(index) = self.row_for_anchor(RowAnchor {
+                hunk,
+                source: (!anchor.header).then_some((line.id, anchor.cell_offset)),
             })
         {
             self.view.diff_cursor = index;
@@ -1349,19 +1349,87 @@ impl App {
     }
 
     fn update_rows(&mut self) {
-        let anchor = self
-            .row_map
-            .get(self.view.diff_cursor)
-            .and_then(|row| row.line.or(row.right_line));
-        self.row_split = self.view.split
-            && self
-                .geometry
-                .as_ref()
-                .is_some_and(|geometry| geometry.canvas.width >= 72);
-        self.row_map = self
-            .diff
+        let width = self
+            .geometry
             .as_ref()
-            .map_or_else(Vec::new, |diff| view::diff_rows(diff, self.row_split));
+            .map_or(0, |geometry| geometry.canvas.width);
+        self.update_rows_for_width(width);
+    }
+
+    fn diff_config(&self) -> &DiffPresentationConfig {
+        static DEFAULT: OnceLock<DiffPresentationConfig> = OnceLock::new();
+        self.presentation
+            .as_ref()
+            .map(|value| &value.config)
+            .or(self.presentation_config.as_ref())
+            .unwrap_or_else(|| DEFAULT.get_or_init(DiffPresentationConfig::default))
+    }
+
+    fn row_anchor(&self, index: usize) -> Option<RowAnchor> {
+        let row = self.row_map.get(index)?;
+        Some(RowAnchor {
+            hunk: row.hunk,
+            source: row
+                .line
+                .map(|id| (id, row.left_offset))
+                .or_else(|| row.right_line.map(|id| (id, row.right_offset))),
+        })
+    }
+
+    fn row_for_anchor(&self, anchor: RowAnchor) -> Option<usize> {
+        if let Some((id, offset)) = anchor.source {
+            self.row_map
+                .iter()
+                .enumerate()
+                .filter_map(|(index, row)| {
+                    let start = if row.line == Some(id) {
+                        row.left_offset
+                    } else if row.right_line == Some(id) {
+                        row.right_offset
+                    } else {
+                        return None;
+                    };
+                    Some((index, start))
+                })
+                .min_by_key(|(_, start)| (*start > offset, start.abs_diff(offset)))
+                .map(|(index, _)| index)
+        } else {
+            self.row_map.iter().position(|row| {
+                row.hunk == anchor.hunk && row.line.is_none() && row.right_line.is_none()
+            })
+        }
+    }
+
+    fn update_rows_for_width(&mut self, width: u16) {
+        let cursor = self.row_anchor(self.view.diff_cursor);
+        let viewport = self.row_anchor(self.view.diff_offset);
+        let config = self.diff_config().clone();
+        self.row_width = width;
+        self.row_split = self.view.split && width >= 72;
+        if let Some(diff) = &self.diff {
+            let layout = view::configured_diff_layout(
+                diff,
+                width,
+                self.row_split,
+                self.presentation.as_ref(),
+                &config,
+            );
+            self.row_map = layout.rows;
+            self.row_paint = Some(layout.paint);
+            self.view.horizontal =
+                self.view
+                    .horizontal
+                    .min(view::configured_diff_horizontal_limit(
+                        diff,
+                        width,
+                        self.row_split,
+                        &config,
+                    ));
+        } else {
+            self.row_map.clear();
+            self.row_paint = None;
+        }
+        self.row_config = Some(config);
         self.changed_lines.clear();
         self.diff_counts = (0, 0);
         if let Some(diff) = &self.diff {
@@ -1374,12 +1442,11 @@ impl App {
                 self.changed_lines.insert(line.id);
             }
         }
-        if let Some(index) = anchor.and_then(|id| {
-            self.row_map
-                .iter()
-                .position(|row| row.line == Some(id) || row.right_line == Some(id))
-        }) {
+        if let Some(index) = cursor.and_then(|anchor| self.row_for_anchor(anchor)) {
             self.view.diff_cursor = index;
+        }
+        if let Some(index) = viewport.and_then(|anchor| self.row_for_anchor(anchor)) {
+            self.view.diff_offset = index;
         }
     }
 
@@ -1402,6 +1469,7 @@ fn nav(label: &str, detail: &str, status: &str, kind: NavKind) -> NavItem {
         depth: 0,
         kind,
         staged: false,
+        file_state: None,
         graph: String::new(),
     }
 }

@@ -1,9 +1,45 @@
 use super::*;
 
+/// Precompute branch guides once when the flattened tree changes.
+pub fn tree_prefixes(items: &[NavItem]) -> Vec<String> {
+    let mut last = vec![true; items.len()];
+    let mut following = Vec::new();
+    for (index, item) in items.iter().enumerate().rev() {
+        let depth = item.depth.min(8);
+        following.resize(depth + 1, false);
+        last[index] = !following[depth];
+        following[depth] = true;
+    }
+    let mut branches = [false; 9];
+    items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let depth = item.depth.min(8);
+            let mut prefix = String::new();
+            for continuation in branches.iter().take(depth).skip(1) {
+                prefix.push_str(if *continuation { "│  " } else { "   " });
+            }
+            if depth > 0 {
+                prefix.push_str(if last[index] { "└─ " } else { "├─ " });
+            }
+            branches[depth] = !last[index];
+            prefix
+        })
+        .collect()
+}
+
 pub fn nav_horizontal_limit(items: &[NavItem], width: u16, workspace: Workspace) -> usize {
     items
         .iter()
         .map(|item| {
+            if item.file_state.is_some() {
+                let guide_width = (item.graph.width() as u16).min(width.saturating_sub(14));
+                let label_width = width.saturating_sub(guide_width + 12);
+                return safe_text(&item.label)
+                    .width()
+                    .saturating_sub(usize::from(label_width));
+            }
             let width = width.saturating_sub((item.depth.min(8) * 2) as u16 + 3);
             let current = item.kind == ItemKind::Worktree && item.status == "current";
             let status_width = if current || matches!(item.status.as_str(), "." | " ") {
@@ -78,6 +114,10 @@ pub(super) fn render_navigator(
                     style(Role::Border)
                 },
             );
+        }
+        if let Some(file) = item.file_state {
+            render_tree_item(buffer, area, y, item, file, selected, state.nav_horizontal);
+            continue;
         }
         let indent = (item.depth.min(8) * 2) as u16;
         let x = area.x + 2 + indent;
@@ -181,6 +221,105 @@ pub(super) fn render_navigator(
                 style(Role::Accent),
             );
         }
+    }
+}
+
+fn render_tree_item(
+    buffer: &mut Buffer,
+    area: Rect,
+    y: u16,
+    item: &NavItem,
+    file: FileState,
+    selected: bool,
+    horizontal: usize,
+) {
+    let guide_width = (item.graph.width() as u16).min(area.width.saturating_sub(14));
+    let start = area.x + 2;
+    put(
+        buffer,
+        start,
+        y,
+        guide_width,
+        &item.graph,
+        style(Role::Border),
+    );
+    let marker_x = start + guide_width;
+    if item.kind == ItemKind::Folder {
+        put(
+            buffer,
+            marker_x,
+            y,
+            1,
+            if file.expanded { "▾" } else { "▸" },
+            if selected {
+                style(Role::Accent)
+            } else {
+                style(Role::Plain)
+            },
+        );
+    }
+    let mut appearance = match (file.staged, file.unstaged) {
+        (true, false) => file_side_style(DiffSide::Index),
+        (false, true) => file_side_style(DiffSide::Worktree),
+        _ => strong(),
+    };
+    if file.conflicted {
+        appearance = style(Role::DiffRemoved);
+    }
+    if selected || item.kind == ItemKind::Folder {
+        appearance = appearance.add_modifier(Modifier::BOLD);
+    }
+    let label_width = area.width.saturating_sub(guide_width + 12);
+    let label = if horizontal > 0 {
+        window(
+            &safe_text(&item.label),
+            horizontal,
+            usize::from(label_width),
+        )
+    } else {
+        elide_middle(&item.label, usize::from(label_width))
+    };
+    put(buffer, marker_x + 2, y, label_width, &label, appearance);
+    let side_x = area.right().saturating_sub(7);
+    if file.staged {
+        put(
+            buffer,
+            side_x,
+            y,
+            1,
+            "S",
+            file_side_style(DiffSide::Index).add_modifier(Modifier::BOLD),
+        );
+    }
+    if file.unstaged {
+        put(
+            buffer,
+            side_x + 2,
+            y,
+            1,
+            "U",
+            file_side_style(DiffSide::Worktree).add_modifier(Modifier::BOLD),
+        );
+    }
+    if item.kind != ItemKind::Folder {
+        let code = match item.status.as_str() {
+            "new" | "?" | "??" => "A",
+            "deleted" => "D",
+            "conflict" => "U",
+            value => value,
+        };
+        put(
+            buffer,
+            side_x + 4,
+            y,
+            1,
+            code,
+            if file.conflicted {
+                style(Role::DiffRemoved)
+            } else {
+                style(Role::Plain)
+            },
+        );
     }
 }
 

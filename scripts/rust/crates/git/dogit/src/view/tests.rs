@@ -224,14 +224,14 @@ fn exact_line_ids_follow_visible_unified_and_split_rows() {
     let cached_unified = diff_rows(&diff, false);
     let stale_mode = RenderData {
         diff: Some(&diff),
-        diff_rows: Some((&cached_unified, false)),
+        diff_rows: Some((&cached_unified, false, 123)),
         ..RenderData::default()
     };
     let (_, resized) = draw(160, 30, &mut state, &stale_mode);
     assert_eq!(resized.right_line_ids, split.right_line_ids);
     let cached_split = RenderData {
         diff: Some(&diff),
-        diff_rows: Some((&rows, true)),
+        diff_rows: Some((&rows, true, 123)),
         ..RenderData::default()
     };
     let (_, cached) = draw(160, 30, &mut state, &cached_split);
@@ -999,4 +999,388 @@ fn divider_grip_follows_pointer_row_and_stays_inside_the_frame() {
     state.divider_hover_row = None;
     let (buffer, _) = draw(120, 30, &mut state, &RenderData::default());
     assert!(!text(&buffer).contains("╫"));
+}
+
+#[test]
+fn connected_tree_distinguishes_staged_unstaged_and_mixed_without_duplicate_paths() {
+    let staged = FileState {
+        staged: true,
+        expanded: true,
+        ..FileState::default()
+    };
+    let unstaged = FileState {
+        unstaged: true,
+        ..FileState::default()
+    };
+    let mixed = FileState {
+        unstaged: true,
+        ..staged
+    };
+    let mut items = vec![
+        NavItem {
+            label: "src".into(),
+            kind: ItemKind::Folder,
+            file_state: Some(mixed),
+            ..NavItem::default()
+        },
+        NavItem {
+            label: "lib".into(),
+            kind: ItemKind::Folder,
+            depth: 1,
+            file_state: Some(staged),
+            ..NavItem::default()
+        },
+        NavItem {
+            label: "a.rs".into(),
+            status: "A".into(),
+            depth: 2,
+            file_state: Some(staged),
+            ..NavItem::default()
+        },
+        NavItem {
+            label: "main.rs".into(),
+            status: "M".into(),
+            depth: 1,
+            file_state: Some(mixed),
+            ..NavItem::default()
+        },
+        NavItem {
+            label: "tests".into(),
+            kind: ItemKind::Folder,
+            file_state: Some(unstaged),
+            ..NavItem::default()
+        },
+    ];
+    let prefixes = tree_prefixes(&items);
+    assert_eq!(prefixes, ["", "├─ ", "│  └─ ", "└─ ", ""]);
+    for (item, prefix) in items.iter_mut().zip(prefixes) {
+        item.graph = prefix;
+    }
+    let data = RenderData {
+        nav_title: "File tree",
+        items: &items,
+        ..RenderData::default()
+    };
+    let mut state = ViewState {
+        selected: 3,
+        nav_width: 44,
+        ..ViewState::default()
+    };
+    let (buffer, geometry) = draw(140, 30, &mut state, &data);
+    let text = area_text(&buffer, geometry.nav);
+    assert_eq!(text.matches("main.rs").count(), 1);
+    assert!(text.contains("▾ src") && text.contains("▸ tests"));
+    let side_x = geometry.nav.right() - 7;
+    assert_eq!(buffer[(side_x, geometry.nav.y + 3)].symbol(), "S");
+    assert_eq!(buffer[(side_x + 2, geometry.nav.y + 3)].symbol(), "U");
+    assert_eq!(
+        buffer[(side_x, geometry.nav.y + 3)].fg,
+        file_side_style(DiffSide::Index).fg.unwrap()
+    );
+    assert_eq!(
+        buffer[(side_x + 2, geometry.nav.y + 3)].fg,
+        file_side_style(DiffSide::Worktree).fg.unwrap()
+    );
+    assert_eq!(
+        buffer[(side_x + 4, geometry.nav.y + 2)].fg,
+        foreground(Role::Plain)
+    );
+    assert_eq!(
+        buffer[(geometry.nav.x, geometry.nav.y + 3)].fg,
+        foreground(Role::Accent)
+    );
+    assert_terminal_background_except_badge(&buffer);
+}
+
+#[test]
+fn diff_context_has_stable_title_path_and_scope_controls_outside_patch_hit_rows() {
+    let (_root, diff) = diff_fixture();
+    let data = RenderData {
+        canvas_title: "Diff",
+        canvas_path: "src/main.rs",
+        diff_scope: Some(DiffScope {
+            side: DiffSide::Worktree,
+            staged: true,
+            unstaged: true,
+        }),
+        diff: Some(&diff),
+        ..RenderData::default()
+    };
+    let (buffer, geometry) = draw(140, 30, &mut ViewState::default(), &data);
+    assert!(
+        area_text(
+            &buffer,
+            Rect::new(
+                geometry.canvas.x,
+                geometry.body.y - 1,
+                geometry.canvas.width,
+                1
+            )
+        )
+        .contains("Diff")
+    );
+    assert!(
+        area_text(
+            &buffer,
+            Rect::new(geometry.canvas.x, geometry.body.y, geometry.canvas.width, 1)
+        )
+        .contains("src/main.rs")
+    );
+    assert_eq!(geometry.canvas.y, geometry.body.y + 2);
+    assert_eq!(geometry.diff_sides.len(), 2);
+    for (side, rect) in geometry.diff_sides {
+        assert!(rect.intersection(geometry.canvas).is_empty());
+        assert!(
+            area_text(&buffer, rect).contains(if side == DiffSide::Index {
+                "Staged"
+            } else {
+                "Unstaged"
+            })
+        );
+    }
+    assert_eq!(
+        geometry.line_ids,
+        diff_rows(&diff, false)
+            .iter()
+            .map(|row| row.line)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn configured_diff_has_one_number_column_and_preserves_syntax_styles() {
+    let (_root, diff) = diff_fixture();
+    let lines = diff
+        .hunks
+        .iter()
+        .flat_map(|hunk| &hunk.lines)
+        .map(|line| {
+            (
+                line.id,
+                format!(
+                    "\x1b[38;2;123;67;201m{}\x1b[0m",
+                    String::from_utf8_lossy(&line.content).trim_end_matches(['\r', '\n'])
+                ),
+            )
+        })
+        .collect();
+    let mut presentation = crate::presentation::DiffPresentation {
+        lines,
+        config: crate::presentation::DiffPresentationConfig {
+            left_format: String::new(),
+            right_format: "{np:>2}│".into(),
+            keep_markers: false,
+            hunk_headers: false,
+            ..crate::presentation::DiffPresentationConfig::default()
+        },
+        renderer: crate::presentation::Renderer::Delta,
+    };
+    let mut state = ViewState::default();
+    let data = RenderData {
+        diff: Some(&diff),
+        presentation: Some(&presentation),
+        ..RenderData::default()
+    };
+    let (buffer, geometry) = draw(160, 30, &mut state, &data);
+    let row = area_text(
+        &buffer,
+        Rect::new(
+            geometry.canvas.x,
+            geometry.canvas.y + 1,
+            geometry.canvas.width,
+            1,
+        ),
+    );
+    assert_eq!(row.matches('│').count(), 1);
+    assert!(row.contains("1│ fn main()"));
+    assert!(!area_text(&buffer, geometry.canvas).contains("@@"));
+    let x = geometry.canvas.x + 5;
+    assert_eq!(
+        buffer[(x, geometry.canvas.y + 1)].fg,
+        ui_theme::Color::Rgb(123, 67, 201)
+            .at_depth(color_depth())
+            .ratatui()
+    );
+    state.split = true;
+    let (buffer, geometry) = draw(160, 30, &mut state, &data);
+    let row = area_text(
+        &buffer,
+        Rect::new(
+            geometry.canvas.x,
+            geometry.canvas.y + 1,
+            geometry.canvas.width,
+            1,
+        ),
+    );
+    assert_eq!(
+        row.matches("1│").count(),
+        2,
+        "split has exactly one number column on either side"
+    );
+    presentation.config.line_numbers = false;
+    state.split = false;
+    let data = RenderData {
+        diff: Some(&diff),
+        presentation: Some(&presentation),
+        ..RenderData::default()
+    };
+    let (buffer, geometry) = draw(160, 30, &mut state, &data);
+    let row = area_text(
+        &buffer,
+        Rect::new(
+            geometry.canvas.x,
+            geometry.canvas.y + 1,
+            geometry.canvas.width,
+            1,
+        ),
+    );
+    assert_eq!(row.trim(), "fn main() {");
+}
+
+#[test]
+fn syntax_spans_keep_configured_emphasis_and_tab_stops_without_terminal_commands() {
+    let line = syntax_line(
+        "a\x1b[38;2;123;67;201m\tb\x1b[48;2;45;25;25mX\x1b]52;c;secret\x07\x1b[2JZ",
+        4,
+    );
+    let content = line
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+    assert_eq!(content, "a   bXZ");
+    assert_eq!(
+        line.spans.last().unwrap().style.bg,
+        Some(
+            ui_theme::Color::Rgb(45, 25, 25)
+                .at_depth(color_depth())
+                .ratatui()
+        )
+    );
+    assert!(!content.contains("secret") && !content.contains('\x1b'));
+}
+
+#[test]
+fn wrapped_split_rows_keep_source_ids_and_reflow_when_cached_width_is_stale() {
+    use crate::presentation::{DiffPresentationConfig, WrapPolicy};
+    let (_root, mut diff) = diff_fixture();
+    diff.hunks.truncate(1);
+    diff.hunks[0].lines = vec![
+        crate::diff::DiffLine {
+            id: 0,
+            kind: LineKind::Deletion,
+            content: format!("{}\n", "old ".repeat(40)).into_bytes(),
+            old_line: Some(1),
+            new_line: None,
+            no_newline: false,
+        },
+        crate::diff::DiffLine {
+            id: 1,
+            kind: LineKind::Addition,
+            content: b"\n".to_vec(),
+            old_line: None,
+            new_line: Some(1),
+            no_newline: false,
+        },
+        crate::diff::DiffLine {
+            id: 2,
+            kind: LineKind::Context,
+            content: b"unchanged\n".to_vec(),
+            old_line: Some(2),
+            new_line: Some(2),
+            no_newline: false,
+        },
+    ];
+    let config = DiffPresentationConfig::default();
+    let mut state = ViewState {
+        split: true,
+        ..ViewState::default()
+    };
+    let width = canvas_width(Rect::new(0, 0, 120, 30), &state);
+    let layout = configured_diff_layout(&diff, width, true, None, &config);
+    assert_eq!(layout.rows[1].line, Some(0));
+    assert_eq!(
+        layout.rows[1].right_line,
+        Some(1),
+        "empty added source line keeps its identity"
+    );
+    let continuation = &layout.rows[2];
+    assert_eq!(continuation.line, Some(0));
+    assert_eq!(
+        continuation.right_line, None,
+        "exhausted half has no invisible source identity"
+    );
+    assert!(continuation.left_offset > 0);
+    assert_eq!(
+        layout
+            .rows
+            .iter()
+            .filter(|row| row.line.is_none() && row.right_line.is_none())
+            .count(),
+        1
+    );
+    assert_eq!(layout.rows.last().unwrap().right_line, Some(2));
+    let data = RenderData {
+        diff: Some(&diff),
+        diff_rows: Some((&layout.rows, true, width)),
+        diff_paint: Some(&layout.paint),
+        ..RenderData::default()
+    };
+    let (_, geometry) = draw(120, 30, &mut state, &data);
+    assert_eq!(
+        geometry.line_ids,
+        layout.rows.iter().map(|row| row.line).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        geometry.right_line_ids,
+        layout
+            .rows
+            .iter()
+            .map(|row| row.right_line)
+            .collect::<Vec<_>>()
+    );
+    // Old cached fragments must never be reused after a narrower pane resize.
+    let (_, resized) = draw(110, 30, &mut state, &data);
+    let expected = configured_diff_layout(&diff, resized.canvas.width, true, None, &config);
+    assert!(expected.rows.len() > layout.rows.len());
+    assert_eq!(
+        resized.line_ids,
+        expected.rows.iter().map(|row| row.line).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        configured_diff_horizontal_limit(&diff, width, true, &config),
+        0
+    );
+    let disabled = DiffPresentationConfig {
+        split_wrap: WrapPolicy::Disabled,
+        ..config
+    };
+    assert!(configured_diff_horizontal_limit(&diff, width, true, &disabled) > 0);
+    assert_eq!(
+        configured_diff_layout(&diff, width, true, None, &disabled)
+            .rows
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn predicted_canvas_width_matches_wide_and_compact_focus_geometry() {
+    for width in [19, 20, 79, 80, 110, 160] {
+        for focus in [Focus::Navigator, Focus::Canvas] {
+            for nav_width in [22, 34, u16::MAX] {
+                let mut state = ViewState {
+                    focus,
+                    nav_width,
+                    ..ViewState::default()
+                };
+                let predicted = canvas_width(Rect::new(0, 0, width, 30), &state);
+                let (_, geometry) = draw(width, 30, &mut state, &RenderData::default());
+                assert_eq!(
+                    predicted, geometry.canvas.width,
+                    "width={width}, focus={focus:?}, navigator={nav_width}"
+                );
+            }
+        }
+    }
 }

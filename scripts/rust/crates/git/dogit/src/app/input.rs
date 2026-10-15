@@ -159,17 +159,16 @@ impl App {
             KeyCode::End => self.move_to_edge(true),
             KeyCode::Left | KeyCode::Char('h') => {
                 if self.view.focus == Focus::Canvas {
-                    self.view.horizontal = self.view.horizontal.saturating_sub(8);
+                    self.scroll_canvas_horizontal(-8);
                 } else {
                     self.collapse_selected();
                 }
             }
             KeyCode::Right | KeyCode::Char('l') => {
                 if self.view.focus == Focus::Canvas {
-                    self.view.horizontal = self.view.horizontal.saturating_add(8);
-                } else if let Some(Target::Path(path, true)) = self.selected().cloned() {
-                    self.collapsed.remove(&path);
-                    self.rebuild();
+                    self.scroll_canvas_horizontal(8);
+                } else if matches!(self.selected(), Some(Target::Path(_, true))) {
+                    self.expand_selected();
                 } else {
                     self.view.focus = Focus::Canvas;
                 }
@@ -249,6 +248,31 @@ impl App {
             _ => {}
         }
         Ok(())
+    }
+
+    fn scroll_canvas_horizontal(&mut self, amount: isize) {
+        let maximum = self.geometry.as_ref().and_then(|geometry| {
+            let width = geometry.canvas.width;
+            if let Some(text) = &self.structural {
+                Some(view::text_horizontal_limit(text.lines(), width))
+            } else if let Some(diff) = &self.diff {
+                Some(view::configured_diff_horizontal_limit(
+                    diff,
+                    width,
+                    self.view.split,
+                    self.diff_config(),
+                ))
+            } else if !self.text.is_empty() {
+                Some(view::text_horizontal_limit(
+                    self.text.iter().map(String::as_str),
+                    width,
+                ))
+            } else {
+                None
+            }
+        });
+        let offset = self.view.horizontal.saturating_add_signed(amount);
+        self.view.horizontal = maximum.map_or(offset, |maximum| offset.min(maximum));
     }
 
     pub(super) fn move_cursor(&mut self, amount: isize, select: bool) {
@@ -378,6 +402,21 @@ impl App {
         }
     }
 
+    pub(super) fn expand_selected(&mut self) {
+        let Some(Target::Path(path, true)) = self.selected().cloned() else {
+            return;
+        };
+        self.view.nav_manual_scroll = false;
+        if self.query.is_empty() && self.collapsed.remove(&path) {
+            self.rebuild();
+        } else if self.entries.get(self.view.selected + 1).is_some_and(
+            |entry| matches!(&entry.target, Target::Path(child, _) if child.starts_with(&path)),
+        ) {
+            self.view.selected += 1;
+            self.load_content(true);
+        }
+    }
+
     pub(super) fn leave_commit(&mut self) {
         if let Some(oid) = self.history_commit.take() {
             self.view.nav_manual_scroll = false;
@@ -396,7 +435,9 @@ impl App {
 
     pub(super) fn collapse_selected(&mut self) {
         match self.selected().cloned() {
-            Some(Target::Path(path, true)) if !self.collapsed.contains(&path) => {
+            Some(Target::Path(path, true))
+                if self.query.is_empty() && !self.collapsed.contains(&path) =>
+            {
                 self.collapsed.insert(path);
                 self.rebuild();
             }
@@ -485,21 +526,7 @@ impl App {
                 }
             } else if geometry.canvas.contains(point) {
                 if horizontal {
-                    let maximum = if let Some(text) = &self.structural {
-                        view::text_horizontal_limit(text.lines(), geometry.canvas.width)
-                    } else if let Some(diff) = &self.diff {
-                        view::diff_horizontal_limit(diff, geometry.canvas.width, self.view.split)
-                    } else {
-                        view::text_horizontal_limit(
-                            self.text.iter().map(String::as_str),
-                            geometry.canvas.width,
-                        )
-                    };
-                    self.view.horizontal = self
-                        .view
-                        .horizontal
-                        .saturating_add_signed(amount)
-                        .min(maximum);
+                    self.scroll_canvas_horizontal(amount);
                 } else {
                     let maximum = self
                         .row_map
@@ -528,6 +555,12 @@ impl App {
                     geometry.tabs.iter().find(|(_, area)| area.contains(point))
                 {
                     self.workspace(*workspace);
+                } else if let Some((side, _)) = geometry
+                    .diff_sides
+                    .iter()
+                    .find(|(_, area)| area.contains(point))
+                {
+                    self.select_diff_side(*side);
                 } else if geometry
                     .divider_hit
                     .is_some_and(|area| area.contains(point))

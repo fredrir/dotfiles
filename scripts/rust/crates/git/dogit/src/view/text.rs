@@ -69,6 +69,16 @@ pub(super) fn window(text: &str, offset: usize, width: usize) -> String {
 
 /// Retains semantic foreground and emphasis, never external colors or backgrounds.
 pub(super) fn ansi_line(text: &str) -> Line<'static> {
+    parse_ansi_line(text, false, 4)
+}
+
+/// Delta is a presentation renderer: retain its configured syntax and diff
+/// emphasis while interpreting only SGR, never terminal commands.
+pub(super) fn syntax_line(text: &str, tab_width: usize) -> Line<'static> {
+    parse_ansi_line(text, true, tab_width)
+}
+
+fn parse_ansi_line(text: &str, preserve_colors: bool, tab_width: usize) -> Line<'static> {
     let mut spans = Vec::new();
     let mut current = style(Role::Plain);
     let mut pending = String::new();
@@ -81,8 +91,7 @@ pub(super) fn ansi_line(text: &str) -> Line<'static> {
             continue;
         }
         if !pending.is_empty() {
-            spans.push(Span::styled(safe_text(&pending), current));
-            pending.clear();
+            spans.push(Span::styled(std::mem::take(&mut pending), current));
         }
         match characters.next() {
             Some('[') => {}
@@ -127,18 +136,32 @@ pub(super) fn ansi_line(text: &str) -> Line<'static> {
                     1 => current = current.add_modifier(Modifier::BOLD),
                     3 => current = current.add_modifier(Modifier::ITALIC),
                     4 => current = current.add_modifier(Modifier::UNDERLINED),
+                    7 if preserve_colors => current = current.add_modifier(Modifier::REVERSED),
                     22 => current = current.remove_modifier(Modifier::BOLD | Modifier::DIM),
                     23 => current = current.remove_modifier(Modifier::ITALIC),
                     24 => current = current.remove_modifier(Modifier::UNDERLINED),
+                    27 => current = current.remove_modifier(Modifier::REVERSED),
+                    30..=37 | 90..=97 if preserve_colors => {
+                        let value = if codes[index] < 90 {
+                            codes[index] - 30
+                        } else {
+                            codes[index] - 90 + 8
+                        };
+                        current = current.fg(ui_theme::Color::Ansi(value as u8).ratatui());
+                    }
                     31 | 91 => current = current.fg(foreground(Role::DiffRemoved)),
                     32 | 92 => current = current.fg(foreground(Role::DiffAdded)),
                     33..=37 | 90 | 93..=97 | 39 => current = current.fg(foreground(Role::Plain)),
                     38 if codes.get(index + 1) == Some(&2) && codes.len() > index + 4 => {
-                        current = current.fg(foreground(inspection_color(
-                            codes[index + 2],
-                            codes[index + 3],
-                            codes[index + 4],
-                        )));
+                        current = current.fg(if preserve_colors {
+                            ansi_rgb(codes[index + 2], codes[index + 3], codes[index + 4])
+                        } else {
+                            foreground(inspection_color(
+                                codes[index + 2],
+                                codes[index + 3],
+                                codes[index + 4],
+                            ))
+                        });
                         index += 4;
                     }
                     38 if codes.get(index + 1) == Some(&5) && codes.len() > index + 2 => {
@@ -157,11 +180,38 @@ pub(super) fn ansi_line(text: &str) -> Line<'static> {
                             }
                             _ => Role::Plain,
                         };
-                        current = current.fg(foreground(role));
+                        current = current.fg(if preserve_colors {
+                            Color::Indexed(value as u8)
+                        } else {
+                            foreground(role)
+                        });
                         index += 2;
                     }
-                    48 if codes.get(index + 1) == Some(&2) => index = (index + 4).min(codes.len()),
-                    48 if codes.get(index + 1) == Some(&5) => index = (index + 2).min(codes.len()),
+                    40..=47 | 100..=107 if preserve_colors => {
+                        let value = if codes[index] < 100 {
+                            codes[index] - 40
+                        } else {
+                            codes[index] - 100 + 8
+                        };
+                        current = current.bg(ui_theme::Color::Ansi(value as u8).ratatui());
+                    }
+                    48 if codes.get(index + 1) == Some(&2) && codes.len() > index + 4 => {
+                        if preserve_colors {
+                            current = current.bg(ansi_rgb(
+                                codes[index + 2],
+                                codes[index + 3],
+                                codes[index + 4],
+                            ));
+                        }
+                        index += 4;
+                    }
+                    48 if codes.get(index + 1) == Some(&5) && codes.len() > index + 2 => {
+                        if preserve_colors {
+                            current = current.bg(Color::Indexed(codes[index + 2].min(255) as u8));
+                        }
+                        index += 2;
+                    }
+                    49 => current = current.bg(Color::Reset),
                     _ => {}
                 }
                 index += 1;
@@ -169,9 +219,80 @@ pub(super) fn ansi_line(text: &str) -> Line<'static> {
         }
     }
     if !pending.is_empty() {
-        spans.push(Span::styled(safe_text(&pending), current));
+        spans.push(Span::styled(pending, current));
     }
-    Line::from(spans)
+    let mut expanded = Line::default();
+    let mut column = 0;
+    visit_graphemes(&Line::from(spans), |symbol, appearance| {
+        if symbol == "\t" {
+            let count = tab_width.max(1) - column % tab_width.max(1);
+            push_styled(&mut expanded, &" ".repeat(count), appearance);
+            column += count;
+        } else {
+            push_styled(&mut expanded, symbol, appearance);
+            column += symbol.width();
+        }
+        true
+    });
+    expanded
+}
+
+fn ansi_rgb(red: u16, green: u16, blue: u16) -> Color {
+    ui_theme::Color::Rgb(
+        red.min(255) as u8,
+        green.min(255) as u8,
+        blue.min(255) as u8,
+    )
+    .at_depth(color_depth())
+    .ratatui()
+}
+
+/// Segment the whole line, so an SGR change inside a combining character or
+/// emoji cannot split that grapheme. Its base character supplies the style.
+pub(super) fn visit_graphemes(line: &Line<'_>, mut visit: impl FnMut(&str, Style) -> bool) {
+    let plain: String = line
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect();
+    let mut span = 0;
+    let mut end = line.spans.first().map_or(0, |value| value.content.len());
+    let mut offset = 0;
+    // Ratatui intentionally filters tabs from its grapheme iterator. Retain
+    // them here until expansion, including their byte positions for styles.
+    for segment in plain.split_inclusive('\t') {
+        let plain_line = Line::raw(segment.trim_end_matches('\t'));
+        let symbols = plain_line
+            .styled_graphemes(Style::default())
+            .map(|grapheme| grapheme.symbol)
+            .chain(segment.ends_with('\t').then_some("\t"));
+        for symbol in symbols {
+            while offset >= end && span + 1 < line.spans.len() {
+                span += 1;
+                end += line.spans[span].content.len();
+            }
+            let appearance = line
+                .spans
+                .get(span)
+                .map_or(line.style, |value| line.style.patch(value.style));
+            if !visit(symbol, appearance) {
+                return;
+            }
+            offset += symbol.len();
+        }
+    }
+}
+
+pub(super) fn push_styled(line: &mut Line<'static>, text: &str, appearance: Style) {
+    if let Some(last) = line
+        .spans
+        .last_mut()
+        .filter(|span| span.style == appearance)
+    {
+        last.content.to_mut().push_str(text);
+    } else {
+        line.spans.push(Span::styled(text.to_string(), appearance));
+    }
 }
 
 fn inspection_color(red: u16, green: u16, blue: u16) -> Role {

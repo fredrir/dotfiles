@@ -85,11 +85,14 @@ impl App {
                 let unstage = matches!(action, Action::Unstage | Action::UnstageFile);
                 let whole = matches!(action, Action::StageFile | Action::UnstageFile) || self.view.focus == Focus::Navigator;
                 if !whole {
-                    if self.structural.is_some() { self.structure_enabled = false; self.load_content(false); self.note("Exact patch opened for staging"); return Ok(()); }
-                    if (unstage && self.side != DiffSide::Index) || (!unstage && self.side != DiffSide::Worktree) {
-                        self.side = if unstage { DiffSide::Index } else { DiffSide::Worktree }; self.rebuild(); self.load_content(true); return Ok(());
+                    if self.structural.is_some() { self.structure_enabled = false; self.load_content(false); self.note("Exact diff opened for staging"); return Ok(()); }
+                    let side = if unstage { DiffSide::Index } else { DiffSide::Worktree };
+                    if self.side != side {
+                        self.select_diff_side(side); return Ok(());
                     }
+                    if self.content_pending { return Ok(()); }
                     let Some(diff) = self.diff.clone() else { return Ok(()); };
+                    if diff.side != side { self.load_content(true); return Ok(()); }
                     let selection = if self.marked.is_empty() {
                         let Some(row) = self.row_map.get(self.view.diff_cursor) else { return Ok(()); };
                         Selection::Hunk(row.hunk)
@@ -103,7 +106,7 @@ impl App {
                 }
             }
             Action::Commit => self.command("Commit", |repo| repo.commit(None, false)),
-            Action::Compose => { self.workspace(Workspace::Changes); self.side = DiffSide::Index; self.rebuild(); self.view.focus = Focus::Canvas; self.dialog = Some(Dialog::Input { prompt: Prompt::Compose, title: "Commit".into(), value: String::new() }); self.load_content(true); },
+            Action::Compose => { self.workspace(Workspace::Changes); self.dialog = Some(Dialog::Input { prompt: Prompt::Compose, title: "Commit".into(), value: String::new() }); self.side = DiffSide::Index; self.view.focus = Focus::Canvas; self.load_content(true); },
             Action::Amend => self.dialog = Some(Dialog::Confirm { action, target: self.snapshot.status.oid.clone().map(Target::Commit), title: "Amend last commit".into(), detail: "Replace the last commit with the staged changes and an edited message. Published history will change.".into(), discard: None, abort: None, scroll: 0 }),
             Action::Fetch => self.command("Fetch", |repo| Ok(repo.fetch())),
             Action::Pull => self.command("Pull", |repo| Ok(repo.pull())),
@@ -150,9 +153,9 @@ impl App {
                 if !paths.is_empty() { self.prepare("Review discard", move |repo| crate::git::DiscardGuard::capture(&repo, &paths).map(|guard| Prepared::Discard(Box::new(guard))).map_err(|error| error.to_string())); }
             }
             Action::ToggleFiles if self.view.workspace == Workspace::Changes => { self.all_files = !self.all_files; self.rebuild(); self.load_content(true); },
-            Action::ToggleSide if self.view.workspace == Workspace::Changes => { self.side = if self.side == DiffSide::Index { DiffSide::Worktree } else { DiffSide::Index }; self.rebuild(); self.load_content(true); },
+            Action::ToggleSide if self.view.workspace == Workspace::Changes => { self.select_diff_side(if self.side == DiffSide::Index { DiffSide::Worktree } else { DiffSide::Index }); },
             Action::ToggleStructural => { self.structure_enabled = !self.structure_enabled; self.load_content(true); },
-            Action::ToggleSplit => { self.view.split = !self.view.split; },
+            Action::ToggleSplit => { self.view.split = !self.view.split; self.split_override = Some(self.view.split); self.update_rows(); self.load_content(false); },
             Action::Copy => {
                 let value = match target {
                     Some(Target::Commit(oid)) => Some(short(&oid).to_owned()),
@@ -307,8 +310,23 @@ impl App {
             return Ok(());
         }
         match &mut dialog {
-            Dialog::Confirm { scroll, detail, .. } if matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End) => {
-                let body = self.geometry.as_ref().map_or(ratatui::layout::Rect::new(1, 6, 78, 20), |geometry| geometry.body);
+            Dialog::Confirm { scroll, detail, .. }
+                if matches!(
+                    key.code,
+                    KeyCode::Up
+                        | KeyCode::Down
+                        | KeyCode::PageUp
+                        | KeyCode::PageDown
+                        | KeyCode::Home
+                        | KeyCode::End
+                ) =>
+            {
+                let body = self
+                    .geometry
+                    .as_ref()
+                    .map_or(ratatui::layout::Rect::new(1, 6, 78, 20), |geometry| {
+                        geometry.body
+                    });
                 let maximum = view::confirmation_scroll_max(detail, body);
                 *scroll = match key.code {
                     KeyCode::Up => scroll.saturating_sub(1),
@@ -349,16 +367,32 @@ impl App {
                         return Ok(());
                     }
                     KeyCode::Down | KeyCode::Char('j')
-                        if key.code == KeyCode::Down || key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        *selected = if *selected >= actions.len().saturating_sub(1) { 0 } else { *selected + 1 };
+                        if key.code == KeyCode::Down
+                            || key.modifiers.contains(KeyModifiers::CONTROL) =>
+                    {
+                        *selected = if *selected >= actions.len().saturating_sub(1) {
+                            0
+                        } else {
+                            *selected + 1
+                        };
                     }
                     KeyCode::Up | KeyCode::Char('k')
-                        if key.code == KeyCode::Up || key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        *selected = if *selected == 0 { actions.len().saturating_sub(1) } else { *selected - 1 };
+                        if key.code == KeyCode::Up
+                            || key.modifiers.contains(KeyModifiers::CONTROL) =>
+                    {
+                        *selected = if *selected == 0 {
+                            actions.len().saturating_sub(1)
+                        } else {
+                            *selected - 1
+                        };
                     }
                     KeyCode::Home => *selected = 0,
                     KeyCode::End => *selected = actions.len().saturating_sub(1),
-                    KeyCode::PageDown => *selected = selected.saturating_add(8).min(actions.len().saturating_sub(1)),
+                    KeyCode::PageDown => {
+                        *selected = selected
+                            .saturating_add(8)
+                            .min(actions.len().saturating_sub(1))
+                    }
                     KeyCode::PageUp => *selected = selected.saturating_sub(8),
                     KeyCode::Backspace => {
                         query.pop();
@@ -379,7 +413,12 @@ impl App {
                         && key.code == KeyCode::Char('s')
                         && key.modifiers.contains(KeyModifiers::CONTROL));
                 if submit {
-                    if self.operation.is_some() && !matches!(prompt, Prompt::Search | Prompt::CompareFrom | Prompt::CompareTo(_)) {
+                    if self.operation.is_some()
+                        && !matches!(
+                            prompt,
+                            Prompt::Search | Prompt::CompareFrom | Prompt::CompareTo(_)
+                        )
+                    {
                         self.note("Finish the current operation first");
                         self.dialog = Some(dialog);
                         return Ok(());
@@ -414,7 +453,8 @@ impl App {
                                     "Rewrite current branch commits onto {value}. Published commit identities may change."
                                 ),
                                 discard: None,
-                                abort: None, scroll: 0,
+                                abort: None,
+                                scroll: 0,
                             })
                         }
                         Prompt::CompareFrom => {

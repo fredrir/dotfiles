@@ -193,6 +193,60 @@ impl ExactDiff {
         Ok(document)
     }
 
+    /// Inspect a directory across either side of the index. Aggregates never
+    /// carry the single-file snapshot required for partial index mutations.
+    pub fn directory_cancellable(
+        root: &Path,
+        path: &Path,
+        side: DiffSide,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Self, String> {
+        validate_path(path)?;
+        let reader = Reader { root, cancel };
+        let mut args = diff_args();
+        if side == DiffSide::Index {
+            args.push("--cached".into());
+        }
+        args.extend([OsString::from("--"), path.as_os_str().to_owned()]);
+        let mut raw = reader.git(args)?;
+        if side == DiffSide::Worktree {
+            let untracked = reader.git([
+                OsStr::new("ls-files"),
+                OsStr::new("--others"),
+                OsStr::new("--exclude-standard"),
+                OsStr::new("-z"),
+                OsStr::new("--"),
+                path.as_os_str(),
+            ])?;
+            let started = std::time::Instant::now();
+            for bytes in untracked
+                .split(|byte| *byte == 0)
+                .filter(|path| !path.is_empty())
+            {
+                if started.elapsed() > PROCESS_TIMEOUT {
+                    return Err("Directory preview took too long; select an individual file".into());
+                }
+                let file = path_from_bytes(bytes)?;
+                validate_path(&file)?;
+                if file.starts_with(path) {
+                    let patch = untracked_diff(reader, &file)?;
+                    if raw.len().saturating_add(patch.len()) > OUTPUT_LIMIT as usize {
+                        return Err(
+                            "Directory preview exceeds 32 MiB; select an individual file".into(),
+                        );
+                    }
+                    raw.extend(patch);
+                }
+            }
+        }
+        let mut document = Self::parse(root, Path::new(""), side, raw)?;
+        if !document.raw.is_empty() {
+            document.partial_reason =
+                Some("Select an individual file to stage or unstage lines".into());
+        }
+        Ok(document)
+    }
+
     pub fn between_cancellable(
         root: &Path,
         old_revision: &str,

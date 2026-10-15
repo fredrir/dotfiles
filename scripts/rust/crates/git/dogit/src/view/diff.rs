@@ -1,30 +1,45 @@
 use super::*;
+use crate::presentation::{DiffPresentation, DiffPresentationConfig, WrapPolicy};
 
 pub fn diff_horizontal_limit(diff: &ExactDiff, width: u16, split: bool) -> usize {
+    configured_diff_horizontal_limit(diff, width, split, &DiffPresentationConfig::default())
+}
+
+pub fn configured_diff_horizontal_limit(
+    diff: &ExactDiff,
+    width: u16,
+    split: bool,
+    config: &DiffPresentationConfig,
+) -> usize {
     let split = split && width >= 72;
+    if split && config.split_wrap != WrapPolicy::Disabled {
+        return 0;
+    }
     let width = usize::from(if split {
         width.saturating_sub(1) / 2
     } else {
         width
     });
-    let digits = |number: Option<usize>| number.map_or(4, |value| value.to_string().len().max(4));
     diff.hunks
         .iter()
         .flat_map(|hunk| &hunk.lines)
         .map(|line| {
             let gutter = if split {
-                digits(line.old_line).max(digits(line.new_line)) + 3
+                number_gutter(line, Some(false), config)
+                    .width()
+                    .max(number_gutter(line, Some(true), config).width())
             } else {
-                digits(line.old_line) + digits(line.new_line) + 4
+                number_gutter(line, None, config).width()
             };
             let content = String::from_utf8_lossy(&line.content);
-            let length = safe_text(content.trim_end_matches(['\r', '\n'])).width()
+            let length = syntax_line(content.trim_end_matches(['\r', '\n']), config.tab_width)
+                .width()
                 + if line.no_newline {
                     "  [no final newline]".width()
                 } else {
                     0
                 };
-            length.saturating_sub(width.saturating_sub(gutter + 2))
+            length.saturating_sub(width.saturating_sub(gutter + 3))
         })
         .max()
         .unwrap_or(0)
@@ -47,12 +62,14 @@ pub fn diff_rows(diff: &ExactDiff, split: bool) -> Vec<DiffRow> {
             hunk,
             line: None,
             right_line: None,
+            ..DiffRow::default()
         });
         if !split {
             rows.extend(block.lines.iter().map(|line| DiffRow {
                 hunk,
                 line: Some(line.id),
                 right_line: None,
+                ..DiffRow::default()
             }));
             continue;
         }
@@ -64,6 +81,7 @@ pub fn diff_rows(diff: &ExactDiff, split: bool) -> Vec<DiffRow> {
                     hunk,
                     line: Some(line.id),
                     right_line: Some(line.id),
+                    ..DiffRow::default()
                 });
                 index += 1;
                 continue;
@@ -84,6 +102,7 @@ pub fn diff_rows(diff: &ExactDiff, split: bool) -> Vec<DiffRow> {
                     hunk,
                     line: removed.get(position).copied(),
                     right_line: added.get(position).copied(),
+                    ..DiffRow::default()
                 });
             }
         }
@@ -103,12 +122,26 @@ pub(super) fn render_diff(
         return;
     }
     let split = state.split && area.width >= 72;
+    let default_config = DiffPresentationConfig::default();
+    let config = data
+        .presentation
+        .map_or(&default_config, |value| &value.config);
+    let cached_paint = data
+        .diff_paint
+        .filter(|paint| paint.split == split && paint.width == area.width);
     let cached = data
         .diff_rows
-        .filter(|(_, mode)| *mode == split)
-        .map(|(rows, _)| rows);
-    let aligned = (split && cached.is_none()).then(|| diff_rows(diff, true));
-    let all_rows = cached.or(aligned.as_deref());
+        .filter(|(_, mode, width)| {
+            *mode == split && (!split || (*width == area.width && cached_paint.is_some()))
+        })
+        .map(|(rows, _, _)| rows);
+    let fallback = (split && cached.is_none())
+        .then(|| configured_diff_layout(diff, area.width, split, data.presentation, config));
+    let all_rows = cached.or_else(|| fallback.as_ref().map(|layout| layout.rows.as_slice()));
+    let paint = fallback
+        .as_ref()
+        .map(|layout| &layout.paint)
+        .or(cached_paint);
     let row_count = all_rows.map_or_else(
         || diff.hunks.iter().map(|hunk| hunk.lines.len() + 1).sum(),
         <[DiffRow]>::len,
@@ -153,9 +186,22 @@ pub(super) fn render_diff(
         let cursor = state.focus == Focus::Canvas && position == state.diff_cursor;
         if row.line.is_none() && row.right_line.is_none() {
             let hunk = &diff.hunks[row.hunk];
+            let new_file = diff.path.as_os_str().is_empty()
+                && !hunk.path.is_empty()
+                && (row.hunk == 0 || diff.hunks[row.hunk - 1].path != hunk.path);
+            if !config.hunk_headers && !new_file {
+                if cursor {
+                    put(buffer, area.x, y, 1, "┃", style(Role::Accent));
+                }
+                continue;
+            }
             let header = if diff.path.as_os_str().is_empty() && !hunk.path.is_empty() {
                 let path = hunk.path.rsplit(" b/").next().unwrap_or(&hunk.path);
-                format!("{}   {}", path.trim_matches('"'), hunk.header.trim())
+                if config.hunk_headers {
+                    format!("{}   {}", path.trim_matches('"'), hunk.header.trim())
+                } else {
+                    path.trim_matches('"').to_string()
+                }
             } else {
                 hunk.header.trim().to_string()
             };
@@ -183,24 +229,28 @@ pub(super) fn render_diff(
         }
         if split {
             put(buffer, area.x + half, y, 1, "│", style(Role::Border));
-            for (id, x, width, right) in [
-                (row.line, area.x, half, false),
+            for (id, x, width, right, part) in [
+                (row.line, area.x, half, false, row.left_part),
                 (
                     row.right_line,
                     area.x + half + 1,
                     area.width - half - 1,
                     true,
+                    row.right_part,
                 ),
             ] {
-                if let Some(line) = id.and_then(|id| find_line(&diff.hunks[row.hunk], id)) {
-                    draw_diff_line(
+                if let Some((id, paint)) = id.zip(paint) {
+                    paint.draw(
                         buffer,
                         Rect::new(x, y, width, 1),
-                        line,
-                        cursor,
-                        data.selected_lines.contains(&line.id),
-                        state.horizontal,
-                        Some(right),
+                        wrap::PaintedCell {
+                            id,
+                            right,
+                            part,
+                            cursor,
+                            selected: data.selected_lines.contains(&id),
+                            horizontal: state.horizontal,
+                        },
                     );
                 }
             }
@@ -209,10 +259,14 @@ pub(super) fn render_diff(
                 buffer,
                 Rect::new(area.x, y, area.width, 1),
                 line,
-                cursor,
-                data.selected_lines.contains(&line.id),
-                state.horizontal,
-                None,
+                LineAppearance {
+                    cursor,
+                    selected: data.selected_lines.contains(&line.id),
+                    horizontal: state.horizontal,
+                    right: None,
+                    presentation: data.presentation,
+                    config,
+                },
             );
         }
     }
@@ -235,6 +289,7 @@ fn unified_window(diff: &ExactDiff, mut offset: usize, height: usize) -> Vec<Dif
                 hunk,
                 line: None,
                 right_line: None,
+                ..DiffRow::default()
             });
         }
         rows.extend(
@@ -247,6 +302,7 @@ fn unified_window(diff: &ExactDiff, mut offset: usize, height: usize) -> Vec<Dif
                     hunk,
                     line: Some(line.id),
                     right_line: None,
+                    ..DiffRow::default()
                 }),
         );
         offset = 0;
@@ -261,20 +317,29 @@ fn find_line(hunk: &crate::diff::Hunk, id: usize) -> Option<&crate::diff::DiffLi
         .map(|index| &hunk.lines[index])
 }
 
-fn draw_diff_line(
-    buffer: &mut Buffer,
-    area: Rect,
-    line: &crate::diff::DiffLine,
+struct LineAppearance<'a> {
     cursor: bool,
     selected: bool,
     horizontal: usize,
     right: Option<bool>,
+    presentation: Option<&'a DiffPresentation>,
+    config: &'a DiffPresentationConfig,
+}
+
+fn draw_diff_line(
+    buffer: &mut Buffer,
+    area: Rect,
+    line: &crate::diff::DiffLine,
+    appearance: LineAppearance<'_>,
 ) {
-    let role = match line.kind {
-        LineKind::Addition => Role::DiffAdded,
-        LineKind::Deletion => Role::DiffRemoved,
-        LineKind::Context => Role::DiffContext,
-    };
+    let LineAppearance {
+        cursor,
+        selected,
+        horizontal,
+        right,
+        presentation,
+        config,
+    } = appearance;
     if selected || cursor {
         put(
             buffer,
@@ -285,56 +350,162 @@ fn draw_diff_line(
             style(Role::Accent),
         );
     }
-    let marker = match line.kind {
-        LineKind::Addition => "+",
-        LineKind::Deletion => "-",
-        LineKind::Context => " ",
-    };
-    let number = |value: Option<usize>| value.map_or(String::new(), |value| value.to_string());
-    let gutter = match right {
-        Some(true) => format!("{:>4} {marker} ", number(line.new_line)),
-        Some(false) => format!("{:>4} {marker} ", number(line.old_line)),
-        None => format!(
-            "{:>4} {:>4} {marker} ",
-            number(line.old_line),
-            number(line.new_line)
+    let gutter = number_gutter(line, right, config);
+    let gutter_width = gutter.width() as u16;
+    Paragraph::new(gutter).render(
+        Rect::new(
+            area.x + 1,
+            area.y,
+            gutter_width.min(area.width.saturating_sub(1)),
+            1,
         ),
-    };
-    let gutter_width = gutter.len() as u16;
-    put(
         buffer,
-        area.x + 1,
-        area.y,
-        area.width.saturating_sub(1),
-        &gutter,
-        if line.kind == LineKind::Context {
-            style(Role::Muted)
-        } else {
-            style(role)
-        },
     );
-    let content = String::from_utf8_lossy(&line.content);
-    let mut content = safe_text(content.trim_end_matches(['\r', '\n']));
-    if line.no_newline {
-        content.push_str("  [no final newline]");
+    let mut content = content_line(line, presentation, config);
+    if selected {
+        for span in &mut content.spans {
+            span.style = span.style.add_modifier(Modifier::BOLD);
+        }
     }
-    let text = window(
-        &content,
-        horizontal,
-        usize::from(area.width.saturating_sub(gutter_width + 2)),
-    );
-    put(
-        buffer,
-        area.x + gutter_width + 1,
-        area.y,
-        area.width.saturating_sub(gutter_width + 2),
-        &text,
-        if selected {
-            style(role).add_modifier(Modifier::BOLD)
+    Paragraph::new(content)
+        .scroll((0, horizontal.min(usize::from(u16::MAX)) as u16))
+        .render(
+            Rect::new(
+                area.x + gutter_width + 2,
+                area.y,
+                area.width.saturating_sub(gutter_width + 3),
+                1,
+            ),
+            buffer,
+        );
+}
+
+pub(super) fn content_line(
+    line: &crate::diff::DiffLine,
+    presentation: Option<&DiffPresentation>,
+    config: &DiffPresentationConfig,
+) -> Line<'static> {
+    let raw = String::from_utf8_lossy(&line.content);
+    let content = presentation
+        .and_then(|value| value.lines.get(&line.id))
+        .map_or(raw.trim_end_matches(['\r', '\n']), String::as_str);
+    let mut content = syntax_line(content, config.tab_width);
+    if line.no_newline {
+        content
+            .spans
+            .push(Span::styled("  [no final newline]", style(Role::Plain)));
+    }
+    if presentation.is_none() {
+        let role = match line.kind {
+            LineKind::Addition => Role::DiffAdded,
+            LineKind::Deletion => Role::DiffRemoved,
+            LineKind::Context => Role::DiffContext,
+        };
+        for span in &mut content.spans {
+            span.style.fg = style(role).fg;
+        }
+    }
+    content
+}
+
+pub(super) fn number_gutter(
+    line: &crate::diff::DiffLine,
+    right: Option<bool>,
+    config: &DiffPresentationConfig,
+) -> Line<'static> {
+    let mut spans = Vec::new();
+    if config.line_numbers {
+        let old_format = if right == Some(false) && config.left_format.is_empty() {
+            std::borrow::Cow::Owned(config.right_format.replace("np", "nm"))
         } else {
-            style(role)
-        },
-    );
+            std::borrow::Cow::Borrowed(config.left_format.as_str())
+        };
+        if right != Some(true) {
+            number_format(&mut spans, &old_format, "left", line, config);
+        }
+        if right != Some(false) {
+            number_format(&mut spans, &config.right_format, "right", line, config);
+        }
+    }
+    if config.keep_markers {
+        spans.push(Span::styled(
+            match line.kind {
+                LineKind::Addition => "+",
+                LineKind::Deletion => "-",
+                LineKind::Context => " ",
+            },
+            match line.kind {
+                LineKind::Addition => style(Role::DiffAdded),
+                LineKind::Deletion => style(Role::DiffRemoved),
+                LineKind::Context => style(Role::Plain),
+            },
+        ));
+    }
+    Line::from(spans)
+}
+
+fn number_format(
+    spans: &mut Vec<Span<'static>>,
+    format: &str,
+    side: &str,
+    line: &crate::diff::DiffLine,
+    config: &DiffPresentationConfig,
+) {
+    let kind = match line.kind {
+        LineKind::Addition => "plus",
+        LineKind::Deletion => "minus",
+        LineKind::Context => "zero",
+    };
+    let push = |spans: &mut Vec<Span<'static>>, value: &str, key: &str| {
+        if let Some(prefix) = config.number_styles.get(key) {
+            spans.extend(syntax_line(&format!("{prefix}{value}\x1b[0m"), config.tab_width).spans);
+        } else {
+            let role = match key {
+                "plus" => Role::DiffAdded,
+                "minus" => Role::DiffRemoved,
+                "zero" => Role::Plain,
+                _ => Role::Border,
+            };
+            spans.push(Span::styled(value.to_string(), style(role)));
+        }
+    };
+    let mut remaining = format;
+    while let Some(start) = remaining.find('{') {
+        push(spans, &remaining[..start], side);
+        let Some(end) = remaining[start..].find('}').map(|end| start + end) else {
+            push(spans, &remaining[start..], side);
+            return;
+        };
+        let token = &remaining[start + 1..end];
+        let (name, layout) = token.split_once(':').unwrap_or((token, ""));
+        let number = match name {
+            "nm" => line.old_line,
+            "np" => line.new_line,
+            _ => {
+                push(spans, &remaining[start..=end], side);
+                remaining = &remaining[end + 1..];
+                continue;
+            }
+        };
+        let text = number.map_or(String::new(), |number| number.to_string());
+        let alignment = layout
+            .chars()
+            .next()
+            .filter(|ch| matches!(ch, '<' | '>' | '^'));
+        let width = layout
+            .trim_start_matches(['<', '>', '^'])
+            .parse::<usize>()
+            .unwrap_or(0)
+            .min(64);
+        let text = match alignment {
+            Some('<') => format!("{text:<width$}"),
+            Some('^') => format!("{text:^width$}"),
+            _ => format!("{text:>width$}"),
+        };
+        push(spans, &text, kind);
+        remaining = &remaining[end + 1..];
+    }
+    push(spans, remaining, side);
 }
 
 pub(super) fn render_text(buffer: &mut Buffer, area: Rect, state: &ViewState, lines: &[String]) {

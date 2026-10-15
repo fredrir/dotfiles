@@ -213,7 +213,7 @@ pub const ACTIONS: &[Definition] = &[
     },
     Definition {
         action: Action::ToggleSide,
-        label: "Toggle working / staged changes",
+        label: "Switch unstaged / staged diff",
         key: "b",
     },
     Definition {

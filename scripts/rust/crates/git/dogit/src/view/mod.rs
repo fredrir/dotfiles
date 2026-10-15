@@ -10,23 +10,29 @@ use ratatui::widgets::{Clear, Paragraph, Widget, Wrap};
 use ui_theme::{ColorDepth, Palette, Role};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::diff::{ExactDiff, LineKind};
+use crate::diff::{DiffSide, ExactDiff, LineKind};
 
 mod chrome;
 mod diff;
 mod navigator;
 mod overlay;
 mod text;
+mod wrap;
 
-pub use diff::{diff_horizontal_limit, diff_rows, text_horizontal_limit};
-pub use navigator::{graph_rows, nav_horizontal_limit};
+pub use diff::{
+    configured_diff_horizontal_limit, diff_horizontal_limit, diff_rows, text_horizontal_limit,
+};
+pub use navigator::{graph_rows, nav_horizontal_limit, tree_prefixes};
 pub use overlay::confirmation_scroll_max;
+pub use wrap::{DiffLayout, DiffPaint, configured_diff_layout};
 
 use chrome::{render_footer, render_tabs};
 use diff::{render_diff, render_structural, render_text};
 use navigator::render_navigator;
 use overlay::render_overlay;
-use text::{ansi_line, elide_end, elide_middle, safe_text, safe_text_multiline, window};
+use text::{
+    ansi_line, elide_end, elide_middle, safe_text, safe_text_multiline, syntax_line, window,
+};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Workspace {
@@ -92,6 +98,22 @@ pub struct NavItem {
     pub kind: ItemKind,
     pub staged: bool,
     pub graph: String,
+    pub file_state: Option<FileState>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FileState {
+    pub staged: bool,
+    pub unstaged: bool,
+    pub conflicted: bool,
+    pub expanded: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct DiffScope {
+    pub side: DiffSide,
+    pub staged: bool,
+    pub unstaged: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -190,6 +212,7 @@ impl ViewState {
 pub struct NavSummary {
     pub items: usize,
     pub staged: usize,
+    pub unstaged: usize,
     pub has_commits: bool,
 }
 
@@ -203,10 +226,14 @@ pub struct RenderData<'a> {
     /// Totals cached when navigator contents change.
     pub nav_summary: Option<NavSummary>,
     pub canvas_title: &'a str,
+    pub canvas_path: &'a str,
+    pub diff_scope: Option<DiffScope>,
     pub canvas_subtitle: &'a str,
     pub diff: Option<&'a ExactDiff>,
-    /// Cached display rows with the split mode used to align them.
-    pub diff_rows: Option<(&'a [DiffRow], bool)>,
+    pub presentation: Option<&'a crate::presentation::DiffPresentation>,
+    /// Cached display rows with their split mode and canvas width.
+    pub diff_rows: Option<(&'a [DiffRow], bool, u16)>,
+    pub diff_paint: Option<&'a DiffPaint>,
     /// Added and removed line counts cached with the exact patch.
     pub diff_counts: Option<(usize, usize)>,
     pub canvas_lines: &'a [String],
@@ -227,9 +254,13 @@ impl Default for RenderData<'_> {
             items: &[],
             nav_summary: None,
             canvas_title: "",
+            canvas_path: "",
+            diff_scope: None,
             canvas_subtitle: "",
             diff: None,
+            presentation: None,
             diff_rows: None,
+            diff_paint: None,
             diff_counts: None,
             canvas_lines: &[],
             structural: None,
@@ -253,13 +284,34 @@ pub struct Geometry {
     pub right_line_ids: Vec<Option<usize>>,
     pub hunk_indices: Vec<Option<usize>>,
     pub tabs: Vec<(Workspace, Rect)>,
+    pub diff_sides: Vec<(DiffSide, Rect)>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DiffRow {
     pub hunk: usize,
     pub line: Option<usize>,
     pub right_line: Option<usize>,
+    pub left_offset: usize,
+    pub right_offset: usize,
+    pub left_part: usize,
+    pub right_part: usize,
+}
+
+/// The patch width is independent of the path/scope header height.
+pub fn canvas_width(area: Rect, state: &ViewState) -> u16 {
+    if area.width < 20 || area.height < 10 {
+        return 0;
+    }
+    if area.width < 80 {
+        return if state.focus == Focus::Canvas {
+            area.width.saturating_sub(2)
+        } else {
+            0
+        };
+    }
+    let navigator = state.nav_width.clamp(22, area.width.saturating_sub(34));
+    area.width.saturating_sub(navigator + 3)
 }
 
 fn palette() -> &'static Palette {
@@ -310,6 +362,20 @@ fn foreground(role: Role) -> Color {
 
 fn strong() -> Style {
     style(Role::Plain).add_modifier(Modifier::BOLD)
+}
+
+fn file_side_style(side: DiffSide) -> Style {
+    let color = match (side, color_depth()) {
+        (DiffSide::Index, ColorDepth::Ansi16) => Color::LightGreen,
+        (DiffSide::Worktree, ColorDepth::Ansi16) => Color::Yellow,
+        (DiffSide::Index, depth) => ui_theme::Color::Rgb(0x73, 0xc9, 0x91)
+            .at_depth(depth)
+            .ratatui(),
+        (DiffSide::Worktree, depth) => ui_theme::Color::Rgb(0xe5, 0xba, 0x7d)
+            .at_depth(depth)
+            .ratatui(),
+    };
+    style(Role::Plain).fg(color)
 }
 
 pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -> Geometry {
@@ -368,7 +434,11 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
                 .iter()
                 .fold(NavSummary::default(), |mut totals, item| {
                     totals.items += usize::from(item.kind != ItemKind::Folder);
-                    totals.staged += usize::from(item.staged);
+                    totals.staged += usize::from(item.kind != ItemKind::Folder && item.staged);
+                    totals.unstaged += usize::from(
+                        item.kind != ItemKind::Folder
+                            && item.file_state.is_some_and(|file| file.unstaged),
+                    );
                     totals.has_commits |= item.kind == ItemKind::Commit;
                     totals
                 })
@@ -390,14 +460,27 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
                 Workspace::Compare => format!("{count} files"),
             }
         };
-        put(
-            frame.buffer_mut(),
-            nav.x + 2,
-            outer.bottom() - 2,
-            nav.width.saturating_sub(3),
-            &summary,
-            style(Role::Plain),
-        );
+        if state.workspace == Workspace::Changes {
+            render_tree_summary(
+                frame.buffer_mut(),
+                Rect::new(
+                    nav.x + 2,
+                    outer.bottom() - 2,
+                    nav.width.saturating_sub(3),
+                    1,
+                ),
+                totals,
+            );
+        } else {
+            put(
+                frame.buffer_mut(),
+                nav.x + 2,
+                outer.bottom() - 2,
+                nav.width.saturating_sub(3),
+                &summary,
+                style(Role::Plain),
+            );
+        }
         render_navigator(frame.buffer_mut(), nav, state, data.items);
     }
     if show_canvas {
@@ -454,6 +537,11 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             );
         }
     }
+    let (canvas, diff_sides) = if show_canvas {
+        render_canvas_context(frame.buffer_mut(), canvas, data)
+    } else {
+        (canvas, Vec::new())
+    };
     let mut geometry = Geometry {
         body,
         nav,
@@ -463,6 +551,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             .map(|x| Rect::new(x.saturating_sub(2), outer.y + 1, 5, outer.height - 2)),
         nav_start: state.offset,
         tabs,
+        diff_sides,
         ..Geometry::default()
     };
     if show_canvas {
@@ -487,6 +576,124 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     }
     render_footer(frame, area, data);
     geometry
+}
+
+fn render_tree_summary(buffer: &mut Buffer, area: Rect, summary: NavSummary) {
+    let staged = format!("{} Staged", summary.staged);
+    let unstaged = format!("{} Unstaged", summary.unstaged);
+    let total = format!("{} files", summary.items);
+    let full = total.width() + staged.width() + unstaged.width() + 4;
+    let mut x = area.x;
+    if full <= usize::from(area.width) {
+        put(buffer, x, area.y, area.width, &total, style(Role::Plain));
+        x += total.width() as u16 + 2;
+    }
+    let compact = staged.width() + unstaged.width() + 2 > usize::from(area.width);
+    let staged = if compact {
+        format!("{} S", summary.staged)
+    } else {
+        staged
+    };
+    let unstaged = if compact {
+        format!("{} U", summary.unstaged)
+    } else {
+        unstaged
+    };
+    put(
+        buffer,
+        x,
+        area.y,
+        area.right().saturating_sub(x),
+        &staged,
+        file_side_style(DiffSide::Index),
+    );
+    x += staged.width() as u16 + 2;
+    put(
+        buffer,
+        x,
+        area.y,
+        area.right().saturating_sub(x),
+        &unstaged,
+        file_side_style(DiffSide::Worktree),
+    );
+}
+
+fn render_canvas_context(
+    buffer: &mut Buffer,
+    area: Rect,
+    data: &RenderData<'_>,
+) -> (Rect, Vec<(DiffSide, Rect)>) {
+    if area.is_empty() || (data.canvas_path.is_empty() && data.diff_scope.is_none()) {
+        return (area, Vec::new());
+    }
+    let mut sides = Vec::new();
+    let mut right = area.right().saturating_sub(1);
+    if let Some(scope) = data.diff_scope {
+        for (side, available, label) in [
+            (DiffSide::Index, scope.staged, " Staged "),
+            (DiffSide::Worktree, scope.unstaged, " Unstaged "),
+        ] {
+            if !available {
+                continue;
+            }
+            let width = label.width() as u16;
+            if right < area.x + width + 2 {
+                continue;
+            }
+            let rect = Rect::new(right - width, area.y, width, area.height.min(2));
+            let appearance = file_side_style(side);
+            put(
+                buffer,
+                rect.x,
+                rect.y,
+                rect.width,
+                label,
+                if scope.side == side {
+                    appearance.add_modifier(Modifier::BOLD)
+                } else {
+                    appearance
+                },
+            );
+            sides.push((side, rect));
+            right = rect.x.saturating_sub(1);
+        }
+    }
+    let path_width = right.saturating_sub(area.x + 3);
+    put(
+        buffer,
+        area.x + 2,
+        area.y,
+        path_width,
+        &elide_middle(data.canvas_path, usize::from(path_width)),
+        strong(),
+    );
+    if area.height > 1 {
+        put(
+            buffer,
+            area.x,
+            area.y + 1,
+            area.width,
+            &"─".repeat(usize::from(area.width)),
+            style(Role::Border),
+        );
+        for (side, rect) in &sides {
+            if data.diff_scope.is_some_and(|scope| scope.side == *side) {
+                put(
+                    buffer,
+                    rect.x,
+                    area.y + 1,
+                    rect.width,
+                    &"━".repeat(usize::from(rect.width)),
+                    file_side_style(*side),
+                );
+            }
+        }
+    }
+    let used = area.height.min(2);
+    (
+        Rect::new(area.x, area.y + used, area.width, area.height - used),
+        sides,
+    )
 }
 
 fn draw_frame(buffer: &mut Buffer, area: Rect, divider: Option<u16>, focus: Focus) {

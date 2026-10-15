@@ -1,0 +1,1060 @@
+//! Syntax and layout are presentation only. ExactDiff remains the sole source
+//! of patch identities and bytes for staging.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::{Seek, Write};
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+use syntect::easy::HighlightLines;
+use syntect::highlighting::ThemeSet;
+use syntect::parsing::SyntaxSet;
+
+use crate::diff::{ExactDiff, LineKind};
+
+const OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
+const TIMEOUT: Duration = Duration::from_secs(10);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DiffPresentationConfig {
+    pub split: bool,
+    pub split_wrap: WrapPolicy,
+    pub line_numbers: bool,
+    pub left_format: String,
+    pub right_format: String,
+    pub tab_width: usize,
+    pub syntax_theme: Option<String>,
+    pub hunk_headers: bool,
+    pub keep_markers: bool,
+    /// SGR prefixes for minus/plus/zero numbers and left/right format literals.
+    pub number_styles: BTreeMap<String, String>,
+    pub delta: Option<DeltaCommand>,
+}
+
+/// Delta's numeric limit counts continuation rows, excluding the first row.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum WrapPolicy {
+    Disabled,
+    Limited(usize),
+    #[default]
+    Unlimited,
+}
+
+impl WrapPolicy {
+    pub fn row_limit(self) -> Option<usize> {
+        match self {
+            Self::Disabled => Some(1),
+            Self::Limited(continuations) => Some(continuations.saturating_add(1)),
+            Self::Unlimited => None,
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        let value = value.trim();
+        if value == "unlimited" || value == "∞" || value.starts_with("inf") {
+            Some(Self::Unlimited)
+        } else {
+            value.parse::<usize>().ok().map(|count| {
+                if count == 0 {
+                    Self::Disabled
+                } else {
+                    Self::Limited(count)
+                }
+            })
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeltaCommand {
+    program: String,
+    args: Vec<String>,
+}
+
+impl Default for DiffPresentationConfig {
+    fn default() -> Self {
+        Self {
+            split: false,
+            split_wrap: WrapPolicy::Unlimited,
+            line_numbers: true,
+            left_format: String::new(),
+            right_format: "{np:>4}│".into(),
+            tab_width: 4,
+            syntax_theme: None,
+            hunk_headers: true,
+            keep_markers: true,
+            number_styles: BTreeMap::new(),
+            delta: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Renderer {
+    Builtin,
+    Delta,
+}
+
+#[derive(Clone, Debug)]
+pub struct DiffPresentation {
+    /// ANSI SGR styles and original content, without patch prefixes or newlines.
+    /// Keys are exact patch line IDs, never external renderer row numbers.
+    pub lines: BTreeMap<usize, String>,
+    pub config: DiffPresentationConfig,
+    pub renderer: Renderer,
+}
+
+/// Read the actual configured delta feature/layout settings in a worker. Pager
+/// commands are parsed as arguments and never passed to a shell. Other pagers
+/// are left alone; their presence does not enable delta.
+pub fn load_config(
+    root: &Path,
+    cancel: Option<&AtomicBool>,
+) -> Result<DiffPresentationConfig, String> {
+    let pager_env = std::env::var("GIT_PAGER").ok();
+    load_config_with_pager(root, cancel, pager_env.as_deref())
+}
+
+fn load_config_with_pager(
+    root: &Path,
+    cancel: Option<&AtomicBool>,
+    pager_env: Option<&str>,
+) -> Result<DiffPresentationConfig, String> {
+    cancelled(cancel)?;
+    let mut git = Command::new("git");
+    git.current_dir(root)
+        .args(["config", "--null", "--list"])
+        .env("GIT_OPTIONAL_LOCKS", "0");
+    let output = run(git, None, cancel)?;
+    let settings = parse_git_config(&output);
+    let delta = configured_delta(&settings, pager_env);
+    let mut config = DiffPresentationConfig {
+        delta,
+        ..DiffPresentationConfig::default()
+    };
+    if let Some(delta) = &config.delta {
+        // Keep useful layout preferences even when delta is not installed.
+        let resolved = resolve_git_features(&settings);
+        let mut command = delta.command(root, false);
+        command.args([
+            "--show-config",
+            "--paging=never",
+            "--detect-dark-light=never",
+        ]);
+        let active = run(command, None, cancel);
+        let features_env = std::env::var("DELTA_FEATURES").ok();
+        config.split_wrap = resolve_wrap_policy(&settings, delta, features_env.as_deref());
+        apply_settings(&mut config, &resolved);
+        match active {
+            Ok(output) => {
+                apply_settings(&mut config, &parse_show_config(&output));
+                config.number_styles = parse_number_styles(&output);
+            }
+            Err(_) => cancelled(cancel)?,
+        }
+    }
+    Ok(config)
+}
+
+/// Render in a cancellable worker. A missing or incompatible delta falls back
+/// to built-in syntax highlighting without surfacing low-level notifications.
+pub fn render(
+    root: &Path,
+    diff: &ExactDiff,
+    width: usize,
+    config: &DiffPresentationConfig,
+    cancel: Option<&AtomicBool>,
+) -> Result<DiffPresentation, String> {
+    cancelled(cancel)?;
+    if let Some(delta) = &config.delta {
+        let mut command = delta.command(root, true);
+        // color-only still honors configured gutters and omitted hunk headers.
+        // Suppress those here: dogit draws the resolved formats exactly once.
+        command.args([
+            "--color-only",
+            "--paging=never",
+            "--detect-dark-light=never",
+            "--true-color=always",
+            "--line-numbers-left-format=",
+            "--line-numbers-right-format=",
+            "--hunk-header-style=raw",
+            "--hunk-header-decoration-style=none",
+            "--file-style=raw",
+            "--file-decoration-style=none",
+            "--inspect-raw-lines=false",
+            "--tabs=0",
+        ]);
+        command.arg(format!("--width={}", width.max(1)));
+        if let Ok(output) = run(command, Some(&diff.raw), cancel)
+            && let Some(lines) = map_delta_lines(diff, &output)
+        {
+            return Ok(DiffPresentation {
+                lines,
+                config: config.clone(),
+                renderer: Renderer::Delta,
+            });
+        }
+        cancelled(cancel)?;
+    }
+    Ok(DiffPresentation {
+        lines: highlight_builtin(diff, config, cancel)?,
+        config: config.clone(),
+        renderer: Renderer::Builtin,
+    })
+}
+
+impl DeltaCommand {
+    fn command(&self, root: &Path, color_only: bool) -> Command {
+        let mut command = Command::new(&self.program);
+        command.current_dir(root);
+        let mut arguments = self.args.iter();
+        while let Some(argument) = arguments.next() {
+            let option = argument.split('=').next().unwrap_or(argument);
+            let valued_override = matches!(option, "--paging" | "--detect-dark-light")
+                || color_only
+                    && matches!(
+                        option,
+                        "--true-color"
+                            | "--24-bit-color"
+                            | "--line-numbers-left-format"
+                            | "--line-numbers-right-format"
+                            | "--hunk-header-style"
+                            | "--hunk-header-decoration-style"
+                            | "--file-style"
+                            | "--file-decoration-style"
+                            | "--inspect-raw-lines"
+                            | "--tabs"
+                            | "--width"
+                            | "-w"
+                    );
+            if valued_override {
+                if !argument.contains('=') {
+                    arguments.next();
+                }
+            } else if !matches!(option, "--show-config")
+                && !(color_only && option == "--color-only")
+            {
+                command.arg(argument);
+            }
+        }
+        command
+    }
+}
+
+fn configured_delta(
+    settings: &BTreeMap<String, String>,
+    pager_env: Option<&str>,
+) -> Option<DeltaCommand> {
+    if let Some(pager) = pager_env {
+        return parse_delta_command(pager);
+    }
+    let pager = settings
+        .get("pager.diff")
+        .or_else(|| settings.get("core.pager"));
+    if let Some(pager) = pager {
+        return parse_delta_command(pager);
+    }
+    settings
+        .get("interactive.difffilter")
+        .and_then(|value| parse_delta_command(value))
+}
+
+fn parse_delta_command(value: &str) -> Option<DeltaCommand> {
+    // Shell operators/expansions are intentionally unsupported. Quoted style
+    // arguments remain supported, and all arguments go straight to exec.
+    if value.contains(['\n', '\r', '\0']) || contains_shell_syntax(value) {
+        return None;
+    }
+    let words = shlex::split(value)?;
+    let program = words.first()?;
+    if !matches!(
+        Path::new(program).file_name()?.to_str()?,
+        "delta" | "delta.exe"
+    ) {
+        return None;
+    }
+    Some(DeltaCommand {
+        program: program.clone(),
+        args: words[1..].to_vec(),
+    })
+}
+
+fn contains_shell_syntax(value: &str) -> bool {
+    let mut quote = None;
+    let mut escaped = false;
+    for character in value.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if character == '\\' && quote != Some('\'') {
+            escaped = true;
+        } else if quote == Some(character) {
+            quote = None;
+        } else if quote.is_none() && matches!(character, '\'' | '"') {
+            quote = Some(character);
+        } else if quote != Some('\'') && matches!(character, '`' | '$')
+            || quote.is_none() && matches!(character, ';' | '|' | '&' | '<' | '>')
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn parse_git_config(output: &[u8]) -> BTreeMap<String, String> {
+    String::from_utf8_lossy(output)
+        .split('\0')
+        .filter_map(|entry| entry.split_once('\n'))
+        .map(|(key, value)| (key.to_lowercase(), value.to_owned()))
+        .collect()
+}
+
+fn parse_show_config(output: &[u8]) -> BTreeMap<String, String> {
+    strip_ansi(&String::from_utf8_lossy(output))
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .map(|(key, value)| {
+            let value = value.trim();
+            let value = value
+                .strip_prefix('\'')
+                .and_then(|value| value.strip_suffix('\''))
+                .unwrap_or(value);
+            (key.trim().to_owned(), value.to_owned())
+        })
+        .collect()
+}
+
+fn parse_number_styles(output: &[u8]) -> BTreeMap<String, String> {
+    String::from_utf8_lossy(output)
+        .lines()
+        .filter_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            let key = key
+                .trim()
+                .strip_prefix("line-numbers-")?
+                .strip_suffix("-style")?;
+            if !matches!(key, "minus" | "plus" | "zero" | "left" | "right") {
+                return None;
+            }
+            let value = value.trim_start();
+            let mut length = 0;
+            while let Some(sequence) = value[length..].strip_prefix("\x1b[") {
+                let end = sequence.find('m')?;
+                if !sequence[..end]
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || byte == b';')
+                {
+                    break;
+                }
+                length += 2 + end + 1;
+            }
+            Some((key.to_owned(), value[..length].to_owned()))
+        })
+        .collect()
+}
+
+fn resolve_git_features(settings: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    let mut resolved = BTreeMap::new();
+    if let Some(features) = settings.get("delta.features") {
+        for feature in features.split_whitespace() {
+            let prefix = format!("delta.{}.", feature.to_lowercase());
+            for (key, value) in settings {
+                if let Some(key) = key.strip_prefix(&prefix) {
+                    resolved.insert(key.to_owned(), value.clone());
+                }
+            }
+        }
+    }
+    for (key, value) in settings {
+        if let Some(key) = key.strip_prefix("delta.")
+            && !key.contains('.')
+        {
+            resolved.insert(key.to_owned(), value.clone());
+        }
+    }
+    resolved
+}
+
+// Delta 0.20's --show-config omits wrap settings. Resolve the explicitly
+// configured value separately; do not activate unrelated/inactive presets.
+fn resolve_wrap_policy(
+    settings: &BTreeMap<String, String>,
+    delta: &DeltaCommand,
+    features_env: Option<&str>,
+) -> WrapPolicy {
+    if let Some(value) = command_option(&delta.args, "--wrap-max-lines") {
+        return WrapPolicy::parse(value).unwrap_or_default();
+    }
+    if delta
+        .args
+        .iter()
+        .any(|argument| argument == "--no-gitconfig")
+    {
+        return WrapPolicy::Unlimited;
+    }
+    if let Some(value) = settings.get("delta.wrap-max-lines") {
+        return WrapPolicy::parse(value).unwrap_or_default();
+    }
+    let configured_features = command_option(&delta.args, "--features")
+        .or_else(|| settings.get("delta.features").map(String::as_str))
+        .unwrap_or("");
+    let mut features = configured_features.split_whitespace().collect::<Vec<_>>();
+    if let Some(value) = features_env {
+        if let Some(appended) = value.strip_prefix('+') {
+            // Delta gathers appended environment features in reverse order;
+            // the first appended feature has the highest lookup priority.
+            features.extend(appended.split_whitespace().rev());
+        } else {
+            features = value.split_whitespace().collect();
+        }
+    }
+    features
+        .iter()
+        .rev()
+        .find_map(|feature| feature_wrap_value(settings, feature, &mut BTreeSet::new()))
+        .and_then(WrapPolicy::parse)
+        .unwrap_or_default()
+}
+
+fn feature_wrap_value<'a>(
+    settings: &'a BTreeMap<String, String>,
+    feature: &str,
+    seen: &mut BTreeSet<String>,
+) -> Option<&'a str> {
+    let feature = feature.to_lowercase();
+    if seen.len() >= 64 || !seen.insert(feature.clone()) {
+        return None;
+    }
+    let prefix = format!("delta.{feature}.");
+    if let Some(value) = settings.get(&format!("{prefix}wrap-max-lines")) {
+        return Some(value);
+    }
+    settings
+        .get(&format!("{prefix}features"))
+        .and_then(|features| {
+            features
+                .split_whitespace()
+                .rev()
+                .find_map(|child| feature_wrap_value(settings, child, seen))
+        })
+}
+
+fn command_option<'a>(arguments: &'a [String], name: &str) -> Option<&'a str> {
+    arguments.iter().enumerate().find_map(|(index, argument)| {
+        if argument == name {
+            arguments.get(index + 1).map(String::as_str)
+        } else {
+            argument
+                .strip_prefix(name)
+                .and_then(|value| value.strip_prefix('='))
+        }
+    })
+}
+
+fn apply_settings(config: &mut DiffPresentationConfig, settings: &BTreeMap<String, String>) {
+    let boolean = |key: &str| {
+        settings.get(key).and_then(|value| match value.as_str() {
+            "true" | "yes" | "on" | "1" => Some(true),
+            "false" | "no" | "off" | "0" => Some(false),
+            _ => None,
+        })
+    };
+    if let Some(value) = boolean("side-by-side") {
+        config.split = value;
+    }
+    if let Some(value) = boolean("line-numbers") {
+        config.line_numbers = value;
+    }
+    if let Some(value) = boolean("keep-plus-minus-markers") {
+        config.keep_markers = value;
+    }
+    if let Some(value) = settings.get("line-numbers-left-format") {
+        config.left_format.clone_from(value);
+    }
+    if let Some(value) = settings.get("line-numbers-right-format") {
+        config.right_format.clone_from(value);
+    }
+    if let Some(value) = settings.get("tabs").and_then(|value| value.parse().ok()) {
+        config.tab_width = value;
+    }
+    if let Some(value) = settings.get("syntax-theme") {
+        config.syntax_theme = Some(value.clone());
+    }
+    if let Some(value) = settings.get("hunk-header-style") {
+        config.hunk_headers = !value.split_whitespace().any(|word| word == "omit");
+    }
+}
+
+/// Strip terminal controls for structural validation. The view separately
+/// accepts SGR styles and drops all executable terminal escape sequences.
+fn strip_ansi(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(character) = chars.next() {
+        if character != '\x1b' {
+            output.push(character);
+            continue;
+        }
+        match chars.next() {
+            Some('[') => {
+                for character in chars.by_ref() {
+                    if ('@'..='~').contains(&character) {
+                        break;
+                    }
+                }
+            }
+            Some(']' | 'P' | '^' | '_') => {
+                while let Some(character) = chars.next() {
+                    if character == '\x07' {
+                        break;
+                    }
+                    if character == '\x1b' && chars.peek() == Some(&'\\') {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+            Some('(' | ')') => {
+                chars.next();
+            }
+            _ => {}
+        }
+    }
+    output
+}
+
+fn map_delta_lines(diff: &ExactDiff, output: &[u8]) -> Option<BTreeMap<usize, String>> {
+    let output = std::str::from_utf8(output).ok()?;
+    let raw = std::str::from_utf8(&diff.raw).ok()?;
+    if strip_ansi(output) != raw {
+        return None;
+    }
+    let mut result = BTreeMap::new();
+    let mut hunks = diff.hunks.iter();
+    let mut lines = None;
+    for (raw, colored) in raw.split_inclusive('\n').zip(output.split_inclusive('\n')) {
+        if raw.starts_with("@@ ") {
+            lines = Some(hunks.next()?.lines.iter());
+        } else if raw.starts_with([' ', '+', '-'])
+            && let Some(line) = lines.as_mut().and_then(Iterator::next)
+        {
+            let mut colored = colored.trim_end_matches(['\n', '\r']).to_owned();
+            // Find the first printable byte, retaining all preceding SGR.
+            let mut index = 0;
+            let bytes = colored.as_bytes();
+            while bytes.get(index) == Some(&0x1b) && bytes.get(index + 1) == Some(&b'[') {
+                index += 2;
+                while bytes
+                    .get(index)
+                    .is_some_and(|byte| !(b'@'..=b'~').contains(byte))
+                {
+                    index += 1;
+                }
+                index += 1;
+            }
+            if !matches!(bytes.get(index), Some(b' ' | b'+' | b'-')) {
+                return None;
+            }
+            colored.remove(index);
+            result.insert(line.id, colored);
+        }
+    }
+    (result.len()
+        == diff
+            .hunks
+            .iter()
+            .map(|hunk| hunk.lines.len())
+            .sum::<usize>())
+    .then_some(result)
+}
+
+fn highlight_builtin(
+    diff: &ExactDiff,
+    config: &DiffPresentationConfig,
+    cancel: Option<&AtomicBool>,
+) -> Result<BTreeMap<usize, String>, String> {
+    static SYNTAXES: OnceLock<SyntaxSet> = OnceLock::new();
+    static THEMES: OnceLock<ThemeSet> = OnceLock::new();
+    let syntaxes = SYNTAXES.get_or_init(SyntaxSet::load_defaults_newlines);
+    let themes = THEMES.get_or_init(ThemeSet::load_defaults);
+    let theme = config
+        .syntax_theme
+        .as_ref()
+        .and_then(|name| themes.themes.get(name))
+        .unwrap_or(&themes.themes["base16-ocean.dark"]);
+    let mut result = BTreeMap::new();
+    let mut highlighted_bytes = 0usize;
+    for hunk in &diff.hunks {
+        cancelled(cancel)?;
+        let path = if diff.path.as_os_str().is_empty() {
+            hunk.path
+                .rsplit(" b/")
+                .next()
+                .unwrap_or(&hunk.path)
+                .trim_matches('"')
+        } else {
+            diff.path.to_str().unwrap_or("")
+        };
+        let extension = Path::new(path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        let syntax = syntaxes
+            .find_syntax_by_extension(extension)
+            .or_else(|| syntaxes.find_syntax_by_extension(Path::new(path).file_name()?.to_str()?))
+            .unwrap_or_else(|| syntaxes.find_syntax_plain_text());
+        let mut old = HighlightLines::new(syntax, theme);
+        let mut new = HighlightLines::new(syntax, theme);
+        for line in &hunk.lines {
+            cancelled(cancel)?;
+            // A source file can itself contain ANSI/OSC escapes. Feed only
+            // literal printable content to the syntax engine, never styles
+            // supplied by repository text.
+            let text = String::from_utf8_lossy(&line.content)
+                .chars()
+                .filter(|character| !character.is_control() || matches!(character, '\t' | '\n'))
+                .collect::<String>();
+            highlighted_bytes = highlighted_bytes.saturating_add(text.len());
+            if text.len() > 16 * 1024 || highlighted_bytes > 4 * 1024 * 1024 {
+                result.insert(line.id, text.trim_end_matches(['\r', '\n']).to_owned());
+                continue;
+            }
+            // Keep old and new parser states independent across replacements.
+            let spans = match line.kind {
+                LineKind::Deletion => old.highlight_line(&text, syntaxes),
+                LineKind::Addition => new.highlight_line(&text, syntaxes),
+                LineKind::Context => {
+                    let _ = old.highlight_line(&text, syntaxes);
+                    new.highlight_line(&text, syntaxes)
+                }
+            };
+            let colored = spans.map_or_else(
+                |_| text.trim_end_matches(['\r', '\n']).to_owned(),
+                |spans| {
+                    // Foreground only: fallback never paints an opaque pane.
+                    syntect::util::as_24_bit_terminal_escaped(&spans, false)
+                        .trim_end_matches(['\r', '\n'])
+                        .to_owned()
+                },
+            );
+            result.insert(line.id, colored);
+        }
+    }
+    Ok(result)
+}
+
+fn cancelled(cancel: Option<&AtomicBool>) -> Result<(), String> {
+    if cancel.is_some_and(|cancel| cancel.load(Ordering::Acquire)) {
+        Err("Diff presentation cancelled".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn run(
+    mut command: Command,
+    input: Option<&[u8]>,
+    cancel: Option<&AtomicBool>,
+) -> Result<Vec<u8>, String> {
+    cancelled(cancel)?;
+    if let Some(input) = input {
+        let mut file = tempfile::tempfile().map_err(|error| error.to_string())?;
+        file.write_all(input).map_err(|error| error.to_string())?;
+        file.rewind().map_err(|error| error.to_string())?;
+        command.stdin(Stdio::from(file));
+    } else {
+        command.stdin(Stdio::null());
+    }
+    let output = hostkit::process::output_cancellable(
+        &mut command,
+        hostkit::process::CaptureLimits {
+            stdout: OUTPUT_LIMIT,
+            stderr: 128 * 1024,
+        },
+        TIMEOUT,
+        &|| cancel.is_some_and(|cancel| cancel.load(Ordering::Acquire)),
+    )
+    .map_err(|error| error.to_string())?;
+    cancelled(cancel)?;
+    if output.stdout_truncated {
+        return Err("Diff presentation exceeds the output limit".into());
+    }
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    Ok(output.stdout)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::diff::{DiffSide, Selection};
+    use std::fs;
+
+    fn git(root: &Path, args: &[&str]) -> Vec<u8> {
+        let output = Command::new("git")
+            .current_dir(root)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output.stdout
+    }
+
+    fn fixture(path: &str, before: &[u8], after: &[u8]) -> (tempfile::TempDir, ExactDiff) {
+        let repo = tempfile::tempdir().unwrap();
+        git(repo.path(), &["init", "-q"]);
+        git(repo.path(), &["config", "user.name", "Dogit test"]);
+        git(
+            repo.path(),
+            &["config", "user.email", "dogit@example.invalid"],
+        );
+        git(repo.path(), &["config", "commit.gpgsign", "false"]);
+        git(repo.path(), &["config", "core.hooksPath", "/dev/null"]);
+        git(repo.path(), &["config", "core.autocrlf", "false"]);
+        fs::write(repo.path().join(path), before).unwrap();
+        git(repo.path(), &["add", "--", path]);
+        git(repo.path(), &["commit", "-qm", "initial"]);
+        fs::write(repo.path().join(path), after).unwrap();
+        let diff = ExactDiff::load(repo.path(), Path::new(path), DiffSide::Worktree).unwrap();
+        (repo, diff)
+    }
+
+    #[test]
+    fn configured_renderer_and_arguments_are_never_shell_commands() {
+        let command = parse_delta_command("'/opt/my tools/delta' --features 'split custom' --line-numbers-right-format '{np:>4}│'").unwrap();
+        assert_eq!(command.program, "/opt/my tools/delta");
+        assert_eq!(command.args[1], "split custom");
+        assert!(parse_delta_command("delta --line-numbers-right-format '{np:>4}|' ").is_some());
+        for rejected in [
+            "less -R",
+            "delta | less",
+            "delta; touch /tmp/no",
+            "$(delta)",
+            "delta && other",
+            "'",
+        ] {
+            assert!(parse_delta_command(rejected).is_none(), "{rejected}");
+        }
+        let settings = BTreeMap::from([
+            ("core.pager".into(), "delta --features unified".into()),
+            ("pager.diff".into(), "less".into()),
+        ]);
+        assert!(configured_delta(&settings, None).is_none());
+        assert!(configured_delta(&settings, Some("delta")).is_some());
+        assert!(configured_delta(&settings, Some("cat")).is_none());
+    }
+
+    #[test]
+    fn effective_delta_features_preserve_empty_gutter_and_theme() {
+        let raw = b"core.pager\ndelta\0delta.features\nsplit unified\0delta.split.side-by-side\ntrue\0delta.unified.side-by-side\nfalse\0delta.unified.line-numbers-left-format\n\0delta.syntax-theme\n2026 Dark\0delta.line-numbers\ntrue\0";
+        let settings = parse_git_config(raw);
+        let mut config = DiffPresentationConfig::default();
+        apply_settings(&mut config, &resolve_git_features(&settings));
+        assert!(!config.split);
+        assert!(config.left_format.is_empty());
+        assert_eq!(config.syntax_theme.as_deref(), Some("2026 Dark"));
+        apply_settings(&mut config, &parse_show_config(b" line-numbers-left-format = ''\n line-numbers-right-format = '{np:^4}\xe2\x94\x82'\n side-by-side = true\n tabs = 8\n syntax-theme = 2026 Dark\n hunk-header-style = omit normal\n"));
+        assert!(config.split);
+        assert!(config.left_format.is_empty());
+        assert_eq!(config.right_format, "{np:^4}│");
+        assert_eq!(config.tab_width, 8);
+        assert!(!config.hunk_headers);
+    }
+
+    #[test]
+    fn wrapping_limits_count_continuations_and_distinguish_disabled_from_unlimited() {
+        for value in ["unlimited", "∞", "inf", "infinity"] {
+            let policy = WrapPolicy::parse(value).unwrap();
+            assert_eq!(policy, WrapPolicy::Unlimited);
+            assert_eq!(policy.row_limit(), None);
+        }
+        assert_eq!(WrapPolicy::parse("0"), Some(WrapPolicy::Disabled));
+        assert_eq!(WrapPolicy::Disabled.row_limit(), Some(1));
+        assert_eq!(WrapPolicy::parse("2"), Some(WrapPolicy::Limited(2)));
+        assert_eq!(WrapPolicy::Limited(2).row_limit(), Some(3));
+        assert_eq!(
+            WrapPolicy::Limited(usize::MAX).row_limit(),
+            Some(usize::MAX)
+        );
+        for invalid in ["-1", "2.5", "sometimes", ""] {
+            assert_eq!(WrapPolicy::parse(invalid), None);
+        }
+    }
+
+    #[test]
+    fn wrapping_uses_only_active_features_and_main_section_wins() {
+        let delta = parse_delta_command("delta").unwrap();
+        let mut settings = BTreeMap::from([
+            ("delta.features".into(), "unified".into()),
+            ("delta.other-layout.side-by-side".into(), "true".into()),
+            ("delta.other-layout.wrap-max-lines".into(), "0".into()),
+            ("delta.review.features".into(), "small large".into()),
+            ("delta.small.wrap-max-lines".into(), "1".into()),
+            ("delta.large.wrap-max-lines".into(), "4".into()),
+        ]);
+        // An inactive side-by-side preset must not silently disable wrapping.
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, None),
+            WrapPolicy::Unlimited
+        );
+        settings.insert("delta.features".into(), "review".into());
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, None),
+            WrapPolicy::Limited(4)
+        );
+        settings.insert("delta.review.wrap-max-lines".into(), "2".into());
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, None),
+            WrapPolicy::Limited(2)
+        );
+        settings.insert("delta.wrap-max-lines".into(), "0".into());
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, None),
+            WrapPolicy::Disabled
+        );
+    }
+
+    #[test]
+    fn wrapping_respects_command_arguments_and_delta_features_environment() {
+        let mut settings = BTreeMap::from([
+            ("delta.features".into(), "default-layout".into()),
+            ("delta.default-layout.wrap-max-lines".into(), "0".into()),
+            ("delta.wide.wrap-max-lines".into(), "unlimited".into()),
+            ("delta.compact.wrap-max-lines".into(), "1".into()),
+        ]);
+        let delta = parse_delta_command("delta --features wide").unwrap();
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, None),
+            WrapPolicy::Unlimited
+        );
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, Some("compact")),
+            WrapPolicy::Limited(1)
+        );
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, Some("+compact")),
+            WrapPolicy::Limited(1)
+        );
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, Some("+")),
+            WrapPolicy::Unlimited
+        );
+        // The environment feature selection replaces the CLI list when not
+        // prefixed with +. An empty override therefore restores our default.
+        let delta = parse_delta_command("delta --features=compact").unwrap();
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, Some("")),
+            WrapPolicy::Unlimited
+        );
+        settings.insert("delta.wrap-max-lines".into(), "0".into());
+        for argument in ["delta --wrap-max-lines 3", "delta --wrap-max-lines=3"] {
+            let delta = parse_delta_command(argument).unwrap();
+            assert_eq!(
+                resolve_wrap_policy(&settings, &delta, Some("compact")),
+                WrapPolicy::Limited(3)
+            );
+        }
+        let delta = parse_delta_command("delta --no-gitconfig").unwrap();
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, Some("compact")),
+            WrapPolicy::Unlimited
+        );
+    }
+
+    #[test]
+    fn wrapping_feature_cycles_terminate_without_losing_parent_override() {
+        let delta = parse_delta_command("delta").unwrap();
+        let mut settings = BTreeMap::from([
+            ("delta.features".into(), "first".into()),
+            ("delta.first.features".into(), "second".into()),
+            ("delta.second.features".into(), "first".into()),
+        ]);
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, None),
+            WrapPolicy::Unlimited
+        );
+        settings.insert("delta.second.wrap-max-lines".into(), "2".into());
+        assert_eq!(
+            resolve_wrap_policy(&settings, &delta, None),
+            WrapPolicy::Limited(2)
+        );
+    }
+
+    #[test]
+    fn colored_patch_mapping_rejects_reordered_or_invented_content() {
+        let (_repo, diff) = fixture("test.rs", b"fn old() {}\n", b"fn new() {}\n");
+        let colored = String::from_utf8_lossy(&diff.raw)
+            .split_inclusive('\n')
+            .map(|line| {
+                format!(
+                    "\x1b[38;2;200;100;80m{}\x1b[0m\n",
+                    line.trim_end_matches('\n')
+                )
+            })
+            .collect::<String>();
+        let mapped = map_delta_lines(&diff, colored.as_bytes()).unwrap();
+        for line in diff.hunks.iter().flat_map(|hunk| &hunk.lines) {
+            assert_eq!(
+                strip_ansi(&mapped[&line.id]),
+                String::from_utf8_lossy(&line.content).trim_end_matches('\n')
+            );
+        }
+        assert!(map_delta_lines(&diff, colored.replace("fn old", "fn wrong").as_bytes()).is_none());
+        assert!(map_delta_lines(&diff, format!("invented\n{colored}").as_bytes()).is_none());
+    }
+
+    #[test]
+    fn missing_delta_falls_back_to_syntax_without_changing_staging_ids() {
+        let (repo, diff) = fixture(
+            "test.rs",
+            b"fn main() {\n}\n",
+            b"fn main() {\n\tlet chosen = 1;\n\tlet remaining = 2;\n}\n",
+        );
+        let config = DiffPresentationConfig {
+            delta: Some(DeltaCommand {
+                program: "/dogit-missing-delta".into(),
+                args: Vec::new(),
+            }),
+            ..DiffPresentationConfig::default()
+        };
+        let presentation = render(repo.path(), &diff, 100, &config, None).unwrap();
+        assert_eq!(presentation.renderer, Renderer::Builtin);
+        assert_eq!(
+            presentation.lines.len(),
+            diff.hunks
+                .iter()
+                .map(|hunk| hunk.lines.len())
+                .sum::<usize>()
+        );
+        let chosen = diff
+            .hunks
+            .iter()
+            .flat_map(|hunk| &hunk.lines)
+            .find(|line| line.content == b"\tlet chosen = 1;\n")
+            .unwrap();
+        assert!(presentation.lines[&chosen.id].contains("\x1b[38;2;"));
+        assert!(!presentation.lines[&chosen.id].contains("\x1b[48;"));
+        assert_eq!(
+            strip_ansi(&presentation.lines[&chosen.id]),
+            "\tlet chosen = 1;"
+        );
+        diff.apply(&Selection::Lines(vec![chosen.id])).unwrap();
+        assert_eq!(
+            git(repo.path(), &["show", ":test.rs"]),
+            b"fn main() {\n\tlet chosen = 1;\n}\n"
+        );
+    }
+
+    #[test]
+    fn built_in_syntax_handles_common_languages_and_drops_source_escape_controls() {
+        for (path, source) in [
+            ("test.rs", "fn main() { let count = 12; }\n"),
+            ("test.lua", "local value = 'hello' -- comment\n"),
+            ("test.py", "def greet(): return 'hello'\n"),
+            ("test.json", "{\"name\": true, \"value\": 12}\n"),
+        ] {
+            let (repo, diff) = fixture(path, b"", source.as_bytes());
+            let presentation = render(
+                repo.path(),
+                &diff,
+                100,
+                &DiffPresentationConfig::default(),
+                None,
+            )
+            .unwrap();
+            let value = presentation.lines.values().next().unwrap();
+            assert!(value.matches("\x1b[38;2;").count() > 1, "{path}: {value:?}");
+            assert_eq!(strip_ansi(value), source.trim_end_matches('\n'));
+        }
+        let (repo, diff) = fixture("test.rs", b"", b"let x = \x1b]52;c;bad\x07;\n");
+        let presentation = render(
+            repo.path(),
+            &diff,
+            100,
+            &DiffPresentationConfig::default(),
+            None,
+        )
+        .unwrap();
+        assert!(
+            !presentation
+                .lines
+                .values()
+                .next()
+                .unwrap()
+                .contains("\x1b]52")
+        );
+    }
+
+    #[test]
+    fn real_delta_preserves_tabs_line_ids_and_unified_feature_layout() {
+        if !Command::new("delta")
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+        {
+            return;
+        }
+        let (repo, diff) = fixture(
+            "test.rs",
+            b"fn old() {\n\tlet x = 1;\n}\n",
+            b"fn new() {\n\tlet x = 2;\n}\n",
+        );
+        for (key, value) in [
+            ("core.pager", "delta"),
+            ("delta.features", "dogit-test-unified"),
+            ("delta.dogit-test-unified.line-numbers-left-format", ""),
+            ("delta.dogit-test-unified.side-by-side", "false"),
+            ("delta.line-numbers", "true"),
+            ("delta.syntax-theme", "base16"),
+            ("delta.hunk-header-style", "omit"),
+            ("delta.tabs", "8"),
+        ] {
+            git(repo.path(), &["config", key, value]);
+        }
+        // Test runners commonly set GIT_PAGER=cat. Inject the absent override
+        // locally instead of mutating the process environment shared by tests.
+        let config = load_config_with_pager(repo.path(), None, None).unwrap();
+        assert!(config.delta.is_some());
+        assert!(!config.split);
+        assert!(config.left_format.is_empty());
+        assert_eq!(config.tab_width, 8);
+        let presentation = render(repo.path(), &diff, 100, &config, None).unwrap();
+        assert_eq!(presentation.renderer, Renderer::Delta);
+        for line in diff.hunks.iter().flat_map(|hunk| &hunk.lines) {
+            assert_eq!(
+                strip_ansi(&presentation.lines[&line.id]),
+                String::from_utf8_lossy(&line.content).trim_end_matches('\n')
+            );
+        }
+        let mut split = config.clone();
+        split.split = true;
+        let split_presentation = render(repo.path(), &diff, 100, &split, None).unwrap();
+        assert_eq!(split_presentation.lines, presentation.lines);
+    }
+
+    #[test]
+    fn cancellation_does_not_start_a_renderer_or_fallback() {
+        let (repo, diff) = fixture("test.rs", b"old\n", b"new\n");
+        assert!(
+            render(
+                repo.path(),
+                &diff,
+                80,
+                &DiffPresentationConfig::default(),
+                Some(&AtomicBool::new(true))
+            )
+            .is_err()
+        );
+    }
+}

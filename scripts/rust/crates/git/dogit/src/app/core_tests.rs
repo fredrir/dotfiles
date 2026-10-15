@@ -275,6 +275,62 @@ fn horizontal_keys_and_split_preserve_canvas_focus_and_position() {
 }
 
 #[test]
+fn split_toggle_preserves_the_exact_line_near_the_end_of_a_large_replacement() {
+    let fixture = Fixture::new();
+    fixture.write(
+        &(0..80)
+            .map(|index| format!("old value {index}\n"))
+            .collect::<String>(),
+    );
+    git(fixture.directory.path(), &["add", "--all"]);
+    git(fixture.directory.path(), &["commit", "-qm", "old block"]);
+    fixture.write(
+        &(0..80)
+            .map(|index| format!("replacement value {index}\n"))
+            .collect::<String>(),
+    );
+    let mut app = fixture.app();
+    app.diff = Some(Arc::new(
+        ExactDiff::load(&app.repo.root, Path::new("file.txt"), DiffSide::Worktree).unwrap(),
+    ));
+    app.geometry = Some(Geometry {
+        canvas: ratatui::layout::Rect::new(30, 5, 100, 20),
+        ..Default::default()
+    });
+    app.view.focus = Focus::Canvas;
+    app.view.split = false;
+    app.update_rows();
+    let id = app
+        .diff
+        .as_ref()
+        .unwrap()
+        .hunks
+        .iter()
+        .flat_map(|hunk| &hunk.lines)
+        .find(|line| line.content == b"replacement value 79\n")
+        .unwrap()
+        .id;
+    app.view.diff_cursor = app
+        .row_map
+        .iter()
+        .position(|row| row.line == Some(id))
+        .unwrap();
+    assert!(app.view.diff_cursor > 100);
+    app.marked.insert(id);
+    app.key(
+        KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    assert!(app.row_split);
+    let row = &app.row_map[app.view.diff_cursor];
+    assert!(row.line == Some(id) || row.right_line == Some(id));
+    assert_eq!(app.view.focus, Focus::Canvas);
+    assert!(app.marked.contains(&id));
+}
+
+#[test]
 fn pasted_search_updates_results_and_shift_down_selects_intervening_lines() {
     let fixture = Fixture::new();
     fixture.write("first\nsecond\nthird\nfourth\n");
@@ -848,4 +904,525 @@ fn manual_viewport_scroll_survives_render_until_keyboard_navigation_resumes() {
     app.move_cursor(1, false);
     assert!(!app.view.canvas_manual_scroll);
     assert_eq!(app.view.diff_offset, 1);
+}
+
+#[test]
+fn changes_tree_unifies_sides_aggregates_folders_and_keeps_staged_deletions() {
+    let fixture = Fixture::new();
+    let root = fixture.directory.path();
+    std::fs::create_dir(root.join("src")).unwrap();
+    for name in ["staged", "mixed", "working", "deleted"] {
+        std::fs::write(root.join("src").join(name), "original\n").unwrap();
+    }
+    git(root, &["add", "--all"]);
+    git(root, &["commit", "-m", "tree"]);
+    for name in ["staged", "mixed", "working"] {
+        std::fs::write(root.join("src").join(name), "modified\n").unwrap();
+    }
+    git(root, &["add", "src/staged", "src/mixed"]);
+    git(root, &["rm", "src/deleted"]);
+    std::fs::write(root.join("src/mixed"), "more work\n").unwrap();
+    std::fs::write(root.join("src/new"), "new\n").unwrap();
+    let mut app = fixture.app();
+    let states = |app: &App, path: &str| {
+        app.entries
+            .iter()
+            .find(
+                |entry| matches!(&entry.target, Target::Path(value, _) if value == Path::new(path)),
+            )
+            .and_then(|entry| entry.item.file_state)
+            .unwrap()
+    };
+    assert!(states(&app, "src/staged").staged);
+    assert!(!states(&app, "src/staged").unstaged);
+    assert!(states(&app, "src/mixed").staged && states(&app, "src/mixed").unstaged);
+    assert!(states(&app, "src/working").unstaged);
+    assert!(states(&app, "src").staged && states(&app, "src").unstaged);
+    assert_eq!(
+        (
+            app.nav_summary.items,
+            app.nav_summary.staged,
+            app.nav_summary.unstaged
+        ),
+        (5, 3, 3)
+    );
+    app.collapsed.insert(PathBuf::from("src"));
+    app.rebuild();
+    assert_eq!(app.entries.len(), 1);
+    assert_eq!(
+        (
+            app.nav_summary.items,
+            app.nav_summary.staged,
+            app.nav_summary.unstaged
+        ),
+        (5, 3, 3)
+    );
+    app.query = "mixed".into();
+    app.rebuild();
+    assert_eq!(app.entries.len(), 2);
+    assert!(states(&app, "src").expanded);
+    assert!(app.collapsed.contains(Path::new("src")));
+    app.query.clear();
+    app.collapsed.clear();
+    app.all_files = true;
+    app.rebuild();
+    assert!(states(&app, "src/deleted").staged);
+    assert_eq!(
+        app.entries
+            .iter()
+            .filter(|entry| entry.target == Target::Path("src/mixed".into(), false))
+            .count(),
+        1
+    );
+    assert_eq!(app.nav_summary.items, 6);
+}
+
+#[test]
+fn staging_preserves_selected_path_and_auto_selects_available_diff_side() {
+    let fixture = Fixture::new();
+    fixture.write("changed\n");
+    std::fs::write(fixture.directory.path().join("later"), "unrelated\n").unwrap();
+    let mut app = fixture.app();
+    let target = Target::Path("file.txt".into(), false);
+    assert_eq!(app.selected(), Some(&target));
+    app.action(Action::StageFile, &mut None, &mut None).unwrap();
+    collect_until(&mut app, |app| {
+        app.operation.is_none() && !app.snapshot_pending && !app.content_pending
+    });
+    assert_eq!(app.selected(), Some(&target));
+    assert_eq!(app.side, DiffSide::Index);
+    assert!(app.selected_file_state().unwrap().staged);
+    assert!(!app.selected_file_state().unwrap().unstaged);
+    app.action(Action::UnstageFile, &mut None, &mut None)
+        .unwrap();
+    collect_until(&mut app, |app| {
+        app.operation.is_none() && !app.snapshot_pending && !app.content_pending
+    });
+    assert_eq!(app.selected(), Some(&target));
+    assert_eq!(app.side, DiffSide::Worktree);
+    assert!(app.selected_file_state().unwrap().unstaged);
+}
+
+#[test]
+fn tree_arrows_expand_enter_collapse_and_return_to_parent() {
+    let fixture = Fixture::new();
+    let root = fixture.directory.path();
+    std::fs::create_dir_all(root.join("src/nested")).unwrap();
+    std::fs::write(root.join("src/nested/new"), "new\n").unwrap();
+    let mut app = fixture.app();
+    app.view.selected = 0;
+    app.collapsed.insert("src".into());
+    app.rebuild();
+    app.expand_selected();
+    assert_eq!(app.selected(), Some(&Target::Path("src".into(), true)));
+    assert!(!app.collapsed.contains(Path::new("src")));
+    app.expand_selected();
+    assert_eq!(
+        app.selected(),
+        Some(&Target::Path("src/nested".into(), true))
+    );
+    app.expand_selected();
+    assert_eq!(
+        app.selected(),
+        Some(&Target::Path("src/nested/new".into(), false))
+    );
+    app.collapse_selected();
+    assert_eq!(
+        app.selected(),
+        Some(&Target::Path("src/nested".into(), true))
+    );
+    app.collapse_selected();
+    assert!(app.collapsed.contains(Path::new("src/nested")));
+    app.collapse_selected();
+    assert_eq!(app.selected(), Some(&Target::Path("src".into(), true)));
+}
+
+#[test]
+fn partial_mutation_rejects_a_preview_from_the_previous_diff_side() {
+    let fixture = Fixture::new();
+    fixture.write("staged\n");
+    git(fixture.directory.path(), &["add", "file.txt"]);
+    fixture.write("working\n");
+    let mut app = fixture.app();
+    app.diff = Some(Arc::new(
+        ExactDiff::load(&app.repo.root, Path::new("file.txt"), DiffSide::Worktree).unwrap(),
+    ));
+    app.update_rows();
+    app.view.focus = Focus::Canvas;
+    app.side = DiffSide::Index;
+    app.action(Action::Unstage, &mut None, &mut None).unwrap();
+    assert!(app.operation.is_none());
+    assert!(app.content_pending);
+    assert!(app.diff.is_none());
+    collect_until(&mut app, |app| !app.content_pending);
+    assert_eq!(app.diff.as_ref().unwrap().side, DiffSide::Index);
+    let output = Command::new("git")
+        .current_dir(&app.repo.root)
+        .args(["show", ":file.txt"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"staged\n");
+}
+
+#[test]
+fn conflicted_folder_preserves_access_to_other_staged_changes() {
+    let fixture = Fixture::new();
+    let mut app = fixture.app();
+    app.snapshot.status.entries = vec![
+        crate::git::StatusEntry {
+            path: "src/conflicted".into(),
+            original_path: None,
+            index: 'U',
+            worktree: 'U',
+            unmerged: true,
+            untracked: false,
+            submodule: None,
+        },
+        crate::git::StatusEntry {
+            path: "src/staged".into(),
+            original_path: None,
+            index: 'M',
+            worktree: '.',
+            unmerged: false,
+            untracked: false,
+            submodule: None,
+        },
+    ];
+    app.rebuild();
+    app.view.selected = 0;
+    let state = app.selected_file_state().unwrap();
+    assert!(state.conflicted && state.staged && state.unstaged);
+    app.side = DiffSide::Index;
+    app.align_diff_side();
+    assert_eq!(app.side, DiffSide::Index);
+    assert_eq!((app.nav_summary.staged, app.nav_summary.unstaged), (1, 1));
+    app.view.selected = 1;
+    app.align_diff_side();
+    assert_eq!(app.side, DiffSide::Worktree);
+    assert!(!app.selected_file_state().unwrap().staged);
+}
+
+#[test]
+fn clicking_diff_scope_changes_only_preview_and_clears_staging_marks() {
+    let fixture = Fixture::new();
+    fixture.write("staged\n");
+    git(fixture.directory.path(), &["add", "file.txt"]);
+    fixture.write("working\n");
+    let mut app = fixture.app();
+    let selected = app.selected().cloned();
+    let entries: Vec<_> = app
+        .entries
+        .iter()
+        .map(|entry| entry.target.clone())
+        .collect();
+    let backend = ratatui::backend::TestBackend::new(120, 30);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    let data = RenderData {
+        items: &app.nav_items,
+        diff_scope: Some(view::DiffScope {
+            side: DiffSide::Worktree,
+            staged: true,
+            unstaged: true,
+        }),
+        ..Default::default()
+    };
+    terminal
+        .draw(|frame| {
+            app.geometry = Some(view::render(frame, &mut app.view, &data));
+        })
+        .unwrap();
+    let target = app
+        .geometry
+        .as_ref()
+        .unwrap()
+        .diff_sides
+        .iter()
+        .find(|(side, _)| *side == DiffSide::Index)
+        .unwrap()
+        .1;
+    app.marked.insert(2);
+    app.mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: target.x,
+        row: target.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(app.side, DiffSide::Index);
+    assert_eq!(app.selected(), selected.as_ref());
+    assert_eq!(
+        app.entries
+            .iter()
+            .map(|entry| entry.target.clone())
+            .collect::<Vec<_>>(),
+        entries
+    );
+    assert!(app.marked.is_empty());
+    assert!(app.content_pending);
+}
+
+#[test]
+fn directory_preview_refreshes_after_same_status_child_edit_without_directory_change() {
+    let fixture = Fixture::new();
+    let root = fixture.directory.path();
+    let directory = root.join("src");
+    let child = directory.join("tracked.txt");
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::write(&child, "original\n").unwrap();
+    git(root, &["add", "src/tracked.txt"]);
+    git(root, &["commit", "-m", "directory"]);
+    std::fs::write(&child, "firstxxx\n").unwrap();
+    let mut app = fixture.app();
+    app.presentation_config = Some(DiffPresentationConfig::default());
+    app.view.selected = app
+        .entries
+        .iter()
+        .position(|entry| entry.target == Target::Path("src".into(), true))
+        .unwrap();
+    app.load_content(true);
+    collect_until(&mut app, |app| !app.content_pending);
+    assert!(
+        app.diff
+            .as_ref()
+            .unwrap()
+            .raw
+            .windows(b"firstxxx".len())
+            .any(|bytes| bytes == b"firstxxx")
+    );
+    let old_key = app.loaded_preview.clone();
+    let directory_stamp = path_stamp(&directory, false).unwrap();
+    let old_status = app.snapshot.status.clone();
+    std::fs::write(&child, "secondxx\n").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&child)
+        .unwrap()
+        .set_modified(SystemTime::now() + Duration::from_secs(2))
+        .unwrap();
+    assert_eq!(directory_stamp, path_stamp(&directory, false).unwrap());
+    assert_eq!(old_status, fixture.repo.snapshot(300).unwrap().status);
+    app.refresh_background();
+    collect_until(&mut app, |app| {
+        !app.snapshot_pending && !app.content_pending
+    });
+    assert_eq!(app.selected(), Some(&Target::Path("src".into(), true)));
+    assert_ne!(old_key, app.loaded_preview);
+    assert!(
+        app.diff
+            .as_ref()
+            .unwrap()
+            .raw
+            .windows(b"secondxx".len())
+            .any(|bytes| bytes == b"secondxx")
+    );
+}
+
+#[test]
+fn forced_refresh_queued_during_background_scan_rereads_presentation_config() {
+    let fixture = Fixture::new();
+    git(fixture.directory.path(), &["config", "core.pager", "cat"]);
+    git(fixture.directory.path(), &["config", "pager.diff", "cat"]);
+    let expected = crate::presentation::load_config(fixture.directory.path(), None).unwrap();
+    let mut stale = expected.clone();
+    stale.right_format.push_str("stale cached configuration");
+    stale.split = !expected.split;
+    let mut app = fixture.app();
+    app.presentation_config = Some(stale.clone());
+    app.view.split = stale.split;
+    let data = Data {
+        snapshot: app.snapshot.clone(),
+        files: app.files.clone(),
+        preview: Some(
+            PreviewKey::capture(&app.repo, app.preview_request(), &app.snapshot, &app.files)
+                .unwrap(),
+        ),
+        force: false,
+        presentation_config: None,
+    };
+    let (started, ready) = crossbeam_channel::bounded(1);
+    let (release, blocked) = crossbeam_channel::bounded(1);
+    app.snapshot_worker.submit(move |_| {
+        started.send(()).unwrap();
+        blocked.recv().unwrap();
+        Ok(data)
+    });
+    app.snapshot_pending = true;
+    ready.recv_timeout(Duration::from_secs(5)).unwrap();
+    app.refresh();
+    assert!(app.refresh_forced);
+    assert_eq!(app.presentation_config.as_ref(), Some(&stale));
+    release.send(()).unwrap();
+    collect_until(&mut app, |app| {
+        !app.snapshot_pending && !app.content_pending
+    });
+    assert_eq!(app.presentation_config.as_ref(), Some(&expected));
+    assert_eq!(app.view.split, expected.split);
+    assert!(!app.refresh_forced);
+    assert_eq!(
+        app.loaded_preview.as_ref().unwrap().request.presentation,
+        expected
+    );
+}
+
+#[test]
+fn wrapped_continuation_reflow_preserves_cursor_viewport_marks_and_exact_staging() {
+    let fixture = Fixture::new();
+    let source = format!("const value = \"{}\";\tEND", "åΩ界 abcdef ".repeat(35));
+    let working = format!("original\n{source}\nneighbor\n");
+    fixture.write(&working);
+    let mut app = fixture.app();
+    app.presentation_config = Some(DiffPresentationConfig::default());
+    app.diff = Some(Arc::new(
+        ExactDiff::load(&app.repo.root, Path::new("file.txt"), DiffSide::Worktree).unwrap(),
+    ));
+    app.geometry = Some(Geometry {
+        canvas: ratatui::layout::Rect::new(30, 5, 80, 12),
+        ..Default::default()
+    });
+    app.view.focus = Focus::Canvas;
+    app.view.split = true;
+    app.split_override = Some(true);
+    app.update_rows();
+    let id = app
+        .diff
+        .as_ref()
+        .unwrap()
+        .hunks
+        .iter()
+        .flat_map(|hunk| &hunk.lines)
+        .find(|line| line.content == format!("{source}\n").as_bytes())
+        .unwrap()
+        .id;
+    let continuations: Vec<_> = app
+        .row_map
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.right_line == Some(id) && row.right_offset > 0)
+        .map(|(index, _)| index)
+        .collect();
+    assert!(continuations.len() > 5);
+    app.view.diff_cursor = continuations[4];
+    app.view.diff_offset = continuations[2];
+    app.view.canvas_manual_scroll = true;
+    let cursor = app.row_anchor(app.view.diff_cursor).unwrap();
+    let viewport = app.row_anchor(app.view.diff_offset).unwrap();
+    app.mark_current(true);
+    app.move_cursor(1, true);
+    assert_eq!(app.marked, BTreeSet::from([id]));
+    app.view.diff_cursor = continuations[4];
+    app.view.diff_offset = continuations[2];
+    app.view.canvas_manual_scroll = true;
+    app.geometry.as_mut().unwrap().canvas.width = 120;
+    app.update_rows();
+    assert_eq!(app.row_width, 120);
+    assert_eq!(app.view.diff_cursor, app.row_for_anchor(cursor).unwrap());
+    assert_eq!(app.view.diff_offset, app.row_for_anchor(viewport).unwrap());
+    assert_eq!(
+        app.row_anchor(app.view.diff_cursor)
+            .unwrap()
+            .source
+            .unwrap()
+            .0,
+        id
+    );
+    assert_eq!(
+        app.row_anchor(app.view.diff_offset)
+            .unwrap()
+            .source
+            .unwrap()
+            .0,
+        id
+    );
+    assert!(app.view.canvas_manual_scroll);
+    assert_eq!(app.diff_counts, (2, 0));
+    assert_eq!(app.marked, BTreeSet::from([id]));
+    app.action(Action::ToggleSplit, &mut None, &mut None)
+        .unwrap();
+    assert!(!app.row_split);
+    assert_eq!(
+        app.row_anchor(app.view.diff_cursor)
+            .unwrap()
+            .source
+            .unwrap()
+            .0,
+        id
+    );
+    app.action(Action::ToggleSplit, &mut None, &mut None)
+        .unwrap();
+    collect_until(&mut app, |app| !app.content_pending);
+    assert!(app.row_split);
+    assert_eq!(
+        app.row_anchor(app.view.diff_cursor)
+            .unwrap()
+            .source
+            .unwrap()
+            .0,
+        id
+    );
+    assert_eq!(app.marked, BTreeSet::from([id]));
+    app.action(Action::Stage, &mut None, &mut None).unwrap();
+    collect_until(&mut app, |app| {
+        app.operation.is_none() && !app.snapshot_pending && !app.content_pending
+    });
+    let index = Command::new("git")
+        .current_dir(&app.repo.root)
+        .args(["show", ":file.txt"])
+        .output()
+        .unwrap();
+    assert!(index.status.success());
+    assert_eq!(index.stdout, format!("original\n{source}\n").as_bytes());
+    assert_eq!(
+        std::fs::read_to_string(app.repo.root.join("file.txt")).unwrap(),
+        working
+    );
+}
+
+#[test]
+fn unlimited_split_wrapping_prevents_horizontal_keyboard_and_mouse_scrolling() {
+    let fixture = Fixture::new();
+    fixture.write(&format!("original\n{}\n", "long content ".repeat(60)));
+    let mut app = fixture.app();
+    app.diff = Some(Arc::new(
+        ExactDiff::load(&app.repo.root, Path::new("file.txt"), DiffSide::Worktree).unwrap(),
+    ));
+    app.geometry = Some(Geometry {
+        canvas: ratatui::layout::Rect::new(30, 5, 90, 12),
+        ..Default::default()
+    });
+    app.presentation_config = Some(DiffPresentationConfig::default());
+    app.view.focus = Focus::Canvas;
+    app.view.split = true;
+    app.view.horizontal = 30;
+    app.update_rows();
+    assert_eq!(app.view.horizontal, 0);
+    app.key(
+        KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    app.mouse(MouseEvent {
+        kind: MouseEventKind::ScrollRight,
+        column: 40,
+        row: 8,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(app.view.horizontal, 0);
+    app.presentation_config.as_mut().unwrap().split_wrap =
+        crate::presentation::WrapPolicy::Disabled;
+    app.update_rows();
+    app.key(
+        KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+        &mut None,
+        &mut None,
+    )
+    .unwrap();
+    assert_eq!(app.view.horizontal, 8);
+    app.mouse(MouseEvent {
+        kind: MouseEventKind::ScrollRight,
+        column: 40,
+        row: 8,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(app.view.horizontal, 9);
 }

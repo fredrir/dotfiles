@@ -72,6 +72,36 @@ fn choose(diff: &ExactDiff, kind: LineKind, contents: &[&[u8]]) -> Selection {
 }
 
 #[test]
+fn directory_preview_keeps_index_worktree_and_untracked_scopes_separate() {
+    let repo = Repo::new();
+    repo.commit("src/main.rs", b"fn original() {}\n");
+    repo.write("src/main.rs", b"fn staged() {}\n");
+    repo.git(&["add", "src/main.rs"]);
+    repo.write("src/main.rs", b"fn working() {}\n");
+    repo.write("src/new.rs", b"fn new_file() {}\n");
+    repo.write("outside.rs", b"fn outside() {}\n");
+    let index = repo.git(&["write-tree"]);
+    let scope =
+        |side| ExactDiff::directory_cancellable(repo.root(), Path::new("src"), side, None).unwrap();
+    let staged = scope(DiffSide::Index);
+    let unstaged = scope(DiffSide::Worktree);
+    let staged_text = String::from_utf8_lossy(&staged.raw);
+    let unstaged_text = String::from_utf8_lossy(&unstaged.raw);
+    assert!(staged_text.contains("+fn staged()"));
+    assert!(!staged_text.contains("working") && !staged_text.contains("new_file"));
+    assert!(unstaged_text.contains("+fn working()"));
+    assert!(unstaged_text.contains("+fn new_file()"));
+    assert!(!unstaged_text.contains("outside"));
+    assert!(staged.apply(&Selection::Hunk(0)).is_err());
+    assert!(unstaged.apply(&Selection::Hunk(0)).is_err());
+    assert_eq!(repo.git(&["write-tree"]), index);
+    assert_eq!(
+        fs::read(repo.path("src/main.rs")).unwrap(),
+        b"fn working() {}\n"
+    );
+}
+
+#[test]
 fn stage_selected_addition_without_its_neighbor() {
     let repo = Repo::new();
     repo.commit("file", b"first\nlast\n");
