@@ -2,6 +2,7 @@ require "hs.ipc"
 hs.loadSpoon "EmmyLua"
 hs.loadSpoon "ReloadConfiguration"
 local key = require "utils.key"
+local spell = require "utils.spell"
 
 spoon.ReloadConfiguration:start()
 
@@ -13,6 +14,9 @@ local right_shift = { "cmd", "ctrl", "alt" }
 key.createKeybind({ "fn" }, "r", function()
   hs.reload()
 end)
+
+-- Spelling --
+key.createKeybind({ "fn" }, "s", spell.fix)
 
 -- Obsidian --
 key.openApp({ "fn" }, "n", "Obsidian")

@@ -8,6 +8,7 @@
 | doc-purge    | [doc-purge.md](./doc-purge.md)       | [scripts/rust/crates/utility/doc-purge/]    |
 | dotfile      | [dotfile.md](./dotfile.md)           | [scripts/rust/crates/dotfile/]              |
 | dotfmt       | [dotfmt.md](./dotfmt.md)             | [scripts/rust/crates/dotfmt/cli/]           |
+| dspell       | [dspell.md](./dspell.md)             | [scripts/rust/crates/macos/dspell/]         |
 | dwin         | [dwin.md](./dwin.md)                 | [scripts/rust/crates/macos/dwin/]           |
 | flatten      | [flatten.md](./flatten.md)           | [scripts/rust/crates/utility/flatten/]      |
 | git          | [git.md](./git.md)                   | [scripts/rust/crates/git/]                  |

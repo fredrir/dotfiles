@@ -23,6 +23,7 @@ members = [
   "crates/hport",
   "crates/hwire",
   "crates/hwtune",
+  "crates/macos/dspell",
   "crates/macos/dwin",
   "crates/mux-route",
   "crates/op-bridge",

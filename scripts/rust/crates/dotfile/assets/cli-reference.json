@@ -41,6 +41,15 @@
       "source": "scripts/rust/crates/dotfmt/cli/"
     },
     {
+      "name": "dspell",
+      "title": "dspell",
+      "programs": [
+        "dspell"
+      ],
+      "source": "scripts/rust/crates/macos/dspell/",
+      "os": "macos"
+    },
+    {
       "name": "dwin",
       "title": "dwin",
       "programs": [
@@ -187,6 +196,7 @@
     "dclip",
     "doc-purge",
     "dotfmt",
+    "dspell",
     "dwin",
     "flatten",
     "gdd",
@@ -260,6 +270,7 @@
     "dotfile theme contrast": "Prints one or every profile's resolved contrast matrix.",
     "dotfile theme outputs": "Prints the files owned by the theme generator.",
     "dotfmt": "Formats configured conf, JSON, Lua, Markdown and YAML files with one layered configuration.",
+    "dspell": "Prints the misspelled word at or before the cursor and its guesses as JSON.",
     "dwin": "Focuses a window without raising its app's other windows.",
     "flatten": "Lifts a directory's contents out of the directories holding them.",
     "gdd": "Discards tracked and untracked working-tree changes while preserving ignored files and nested repositories.",

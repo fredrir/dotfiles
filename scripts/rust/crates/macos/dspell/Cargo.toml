@@ -1,0 +1,30 @@
+[package]
+name              = "dspell"
+version.workspace = true
+description       = "Find the last misspelled word in a text and its guesses"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# Spawned per keypress: fat LTO's smaller binary starts measurably faster.
+[package.metadata.dotfile]
+profile = "release"
+os      = "macos"
+
+[dependencies]
+clap.workspace        = true
+workstation.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2                = "0.6.5"
+objc2-app-kit        = { version = "0.3.2", default-features = false, features = ["std", "NSSpellChecker"] }
+objc2-foundation     = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSObjCRuntime", "NSRange", "NSString"] }
+serde.workspace      = true
+serde_json.workspace = true
+unicode-segmentation = "1.13.3"
+
+[dev-dependencies]
+serde_json.workspace = true
+testkit.workspace    = true
