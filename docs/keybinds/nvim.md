@@ -45,7 +45,7 @@
 | <code>&lt;leader&gt;d</code> | [<code>&lt;cmd&gt;Trouble diagnostics toggle&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L53) | Diagnostics (Trouble)<br><code>mode=n</code> |
 | <code>&lt;leader&gt;e</code> | [<code>&lt;cmd&gt;Neotree toggle&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L46) | File &#91;E&#93;xplorer<br><code>mode=n</code> |
 | <code>&lt;leader&gt;f</code> | [<code>&lt;cmd&gt;Format&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L57) | &#91;F&#93;ormat buffer<br><code>mode=n,v</code> |
-| <code>&lt;leader&gt;g</code> | [<code>&lt;cmd&gt;Lazygit&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L78) | Lazygit<br><code>mode=n</code> |
+| <code>&lt;leader&gt;g</code> | [<code>&lt;cmd&gt;Dogit&lt;CR&gt;</code>](../../shared/nvim/lua/keymaps.lua#L78) | Dogit<br><code>mode=n</code> |
 | <code>&lt;leader&gt;gD</code> | [<code>&lt;cmd&gt;Gitsigns diffthis @&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L108) | git &#91;D&#93;iff against last commit<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
 | <code>&lt;leader&gt;gR</code> | [<code>&lt;cmd&gt;Gitsigns reset_buffer&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L104) | git &#91;R&#93;eset buffer<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |
 | <code>&lt;leader&gt;gS</code> | [<code>&lt;cmd&gt;Gitsigns stage_buffer&lt;CR&gt;</code>](../../shared/nvim/lua/cmds.lua#L102) | git &#91;S&#93;tage buffer<br><code>M.gitsigns; mode=n; buffer=bufnr</code> |

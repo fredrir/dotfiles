@@ -15,8 +15,8 @@ _git_status() {
 
 git() {
   case "$1:$#" in
-  diff:1) command lazygit ;;
-  log:1) command lazygit log ;;
+  diff:1) command dogit ;;
+  log:1) command dogit log ;;
   status:*) _git_status "${@:2}" ;;
   *) command git "$@" ;;
   esac

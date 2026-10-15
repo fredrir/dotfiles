@@ -19,7 +19,7 @@ local open_github = require "utils.keymap.open-github"
 local git_add = require "utils.keymap.git-add"
 local open_yazi = require "utils.keymap.open-yazi"
 local quick_yazi = require "utils.keymap.quick-yazi"
-local quick_lazygit = require "utils.keymap.quick-lazygit"
+local quick_dogit = require "utils.keymap.quick-dogit"
 local go_to = require "utils.keymap.go-to"
 local cd_git_root = require "utils.keymap.cd-git-root"
 local close_window = require "utils.close_window"
@@ -150,8 +150,8 @@ local bindings = {
   ------ Git & Quick Actions ------
   keybind(git_add, MOD.UNIQUE, "g"),
   ----
-  keybind(quick_lazygit.open, MOD.PRIMARY, "g"),
-  keybind(quick_lazygit.log, MOD.SUPER_REV, "g"),
+  keybind(quick_dogit.open, MOD.PRIMARY, "g"),
+  keybind(quick_dogit.log, MOD.SUPER_REV, "g"),
   keybind(quick_yazi, MOD.PRIMARY, "y"),
   keybind(quick_glyph, MOD.UNIQUE, "g"),
 

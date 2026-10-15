@@ -1334,6 +1334,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dogit"
+version = "0.1.0"
+dependencies = [
+ "clap 4.6.6",
+ "crossbeam-channel",
+ "crossterm",
+ "hostkit",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "testkit",
+ "ui-terminal",
+ "ui-theme",
+ "ui-widgets",
+ "unicode-width",
+ "workstation",
+]
+
+[[package]]
 name = "dotfile-cli"
 version = "0.1.0"
 dependencies = [

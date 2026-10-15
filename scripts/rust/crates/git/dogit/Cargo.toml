@@ -1,0 +1,29 @@
+[package]
+name = "dogit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A deliberate, responsive Git workbench"
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace = true
+crossterm.workspace = true
+crossbeam-channel.workspace = true
+ratatui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+ui-terminal = { workspace = true, features = ["ratatui"] }
+ui-theme = { workspace = true, features = ["ratatui"] }
+ui-widgets.workspace = true
+hostkit.workspace = true
+workstation.workspace = true
+unicode-width.workspace = true
+
+[dev-dependencies]
+testkit.workspace = true
+

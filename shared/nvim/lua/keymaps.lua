@@ -75,7 +75,7 @@ map("n", "<leader>sn", "<cmd>SearchConfig<CR>", { desc = "[S]earch [N]eovim file
 
 -- Git --
 
-map("n", "<leader>g", "<cmd>Lazygit<CR>", { desc = "Lazygit" })
+map("n", "<leader>g", "<cmd>Dogit<CR>", { desc = "Dogit" })
 
 -- Harpoon --
 

@@ -28,15 +28,15 @@ command("SearchBuffer", search.buffer, { desc = "Fuzzily search the current buff
 command("SearchConfig", search.neovim, { desc = "Search the Neovim configuration" })
 command("TerminalSearch", search.terminal, { desc = "Search files from the terminal" })
 
-local lazygit
-command("Lazygit", function()
-  lazygit = lazygit
+local dogit
+command("Dogit", function()
+  dogit = dogit
     or require("toggleterm.terminal").Terminal:new {
-      cmd = "lazygit",
+      cmd = "dogit",
       hidden = true,
       direction = "float",
       float_opts = {
-        border = "curved",
+        border = "single",
         width = function()
           return math.floor(vim.o.columns * 0.95)
         end,
@@ -45,8 +45,8 @@ command("Lazygit", function()
         end,
       },
     }
-  lazygit:toggle()
-end, { desc = "Toggle lazygit in a floating terminal" })
+  dogit:toggle()
+end, { desc = "Toggle dogit in a floating terminal" })
 
 command("HarpoonAdd", function()
   require("harpoon"):list():add()
