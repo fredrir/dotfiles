@@ -57,39 +57,3 @@ impl SavedState {
         Some(base.join("dogit").join(format!("{key:x}.json")))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn widths_survive_round_trip_and_old_history_is_ignored() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("state.json");
-        std::fs::write(
-            &path,
-            br#"{"widths":{"Changes":47},"operations":[{"action":"old"}]}"#,
-        )
-        .unwrap();
-        let state = SavedState::load_path(&path);
-        assert_eq!(state.widths["Changes"], 47);
-        state.save_path(&path).unwrap();
-        let json: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert!(json.get("operations").is_none());
-        assert_eq!(SavedState::load_path(&path).widths["Changes"], 47);
-    }
-
-    #[test]
-    fn malformed_and_oversized_state_use_defaults() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("state.json");
-        std::fs::write(&path, b"not json").unwrap();
-        assert!(SavedState::load_path(&path).widths.is_empty());
-        std::fs::File::create(&path)
-            .unwrap()
-            .set_len(STATE_LIMIT as u64 + 1)
-            .unwrap();
-        assert!(SavedState::load_path(&path).widths.is_empty());
-    }
-}

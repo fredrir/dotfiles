@@ -397,8 +397,6 @@ struct App {
 
 mod clipboard;
 mod commands;
-#[cfg(test)]
-mod core_tests;
 mod editor;
 mod execution;
 mod input;

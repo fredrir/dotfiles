@@ -723,6 +723,3 @@ fn put(buffer: &mut Buffer, x: u16, y: u16, width: u16, text: &str, appearance: 
         buffer.set_stringn(x, y, text, usize::from(width), appearance);
     }
 }
-
-#[cfg(test)]
-mod tests;

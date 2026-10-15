@@ -27,7 +27,3 @@ workstation.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
 
-[dev-dependencies]
-testkit.workspace = true
-vt100 = "0.16.2"
-

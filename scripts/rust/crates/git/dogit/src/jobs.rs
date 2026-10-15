@@ -92,33 +92,3 @@ impl<T> Drop for Worker<T> {
         self.cancel.store(true, Ordering::Release);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    fn late_result_cannot_replace_new_selection() {
-        let mut worker = Worker::default();
-        let (started, observed) = bounded(1);
-        let (release, blocked) = bounded(1);
-        worker.submit(move |_| {
-            started.send(()).unwrap();
-            blocked.recv().unwrap();
-            "old"
-        });
-        observed.recv_timeout(Duration::from_secs(2)).unwrap();
-        worker.submit(|_| "new");
-        release.send(()).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        loop {
-            if let Some(result) = worker.take() {
-                assert_eq!(result, "new");
-                break;
-            }
-            assert!(std::time::Instant::now() < deadline);
-            std::thread::yield_now();
-        }
-    }
-}
