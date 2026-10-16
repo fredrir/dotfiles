@@ -337,6 +337,7 @@ impl App {
                 self.revision_paths.clear();
                 self.history_collapsed.clear();
                 self.view.commit_field = 0;
+                self.view.commit_manual_scroll = false;
                 self.view.selected = 0;
                 self.view.offset = 0;
                 self.query.clear();

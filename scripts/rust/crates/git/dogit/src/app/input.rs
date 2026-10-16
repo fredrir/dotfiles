@@ -78,6 +78,9 @@ impl App {
         if key.kind == KeyEventKind::Release {
             return Ok(());
         }
+        if !matches!(key.code, KeyCode::Modifier(_)) {
+            self.scroll.stop();
+        }
         self.dirty = true;
         if key.code == KeyCode::Char('h') && key.modifiers == KeyModifiers::CONTROL {
             key.code = KeyCode::Backspace;
@@ -367,35 +370,43 @@ impl App {
         Ok(())
     }
 
+    pub(super) fn canvas_horizontal_limit(&self) -> usize {
+        self.geometry
+            .as_ref()
+            .and_then(|geometry| {
+                let width = geometry.canvas.width;
+                if let Some(text) = &self.structural {
+                    Some(view::text_horizontal_limit(text.lines(), width))
+                } else if let Some(diff) = &self.diff {
+                    Some(view::configured_diff_horizontal_limit(
+                        diff,
+                        width,
+                        self.view.split,
+                        self.diff_config(),
+                    ))
+                } else if !self.text.is_empty() {
+                    Some(view::text_horizontal_limit(
+                        self.text.iter().map(String::as_str),
+                        width,
+                    ))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0)
+    }
+
     fn scroll_canvas_horizontal(&mut self, amount: isize) -> bool {
-        let maximum = self.geometry.as_ref().and_then(|geometry| {
-            let width = geometry.canvas.width;
-            if let Some(text) = &self.structural {
-                Some(view::text_horizontal_limit(text.lines(), width))
-            } else if let Some(diff) = &self.diff {
-                Some(view::configured_diff_horizontal_limit(
-                    diff,
-                    width,
-                    self.view.split,
-                    self.diff_config(),
-                ))
-            } else if !self.text.is_empty() {
-                Some(view::text_horizontal_limit(
-                    self.text.iter().map(String::as_str),
-                    width,
-                ))
-            } else {
-                None
-            }
-        });
         let previous = self.view.horizontal;
-        let offset = previous.saturating_add_signed(amount);
-        self.view.horizontal = offset.min(maximum.unwrap_or(0));
+        self.view.horizontal = previous
+            .saturating_add_signed(amount)
+            .min(self.canvas_horizontal_limit());
         previous != self.view.horizontal
     }
 
     pub(super) fn move_cursor(&mut self, amount: isize, select: bool) {
         if self.view.focus == Focus::CommitDetails {
+            self.view.commit_manual_scroll = false;
             self.view.commit_field = (self.view.commit_field as isize + amount)
                 .rem_euclid(self.commit_field_count() as isize)
                 as usize;
@@ -428,6 +439,7 @@ impl App {
 
     fn move_to_edge(&mut self, end: bool) {
         if self.view.focus == Focus::CommitDetails {
+            self.view.commit_manual_scroll = false;
             self.view.commit_field = if end {
                 self.commit_field_count() - 1
             } else {
@@ -595,20 +607,18 @@ impl App {
     }
 
     pub(super) fn mouse(&mut self, event: MouseEvent) {
-        if let Some(Dialog::Inspect {
-            message, scroll, ..
-        }) = &mut self.dialog
-        {
-            if let Some(geometry) = &self.geometry {
-                let maximum = view::inspection_scroll_max(message, geometry.overlay_bounds);
-                match event.kind {
-                    MouseEventKind::ScrollDown => *scroll = scroll.saturating_add(3).min(maximum),
-                    MouseEventKind::ScrollUp => *scroll = scroll.saturating_sub(3),
-                    _ => {}
-                }
-                self.dirty = true;
-            }
+        if matches!(
+            event.kind,
+            MouseEventKind::ScrollDown
+                | MouseEventKind::ScrollUp
+                | MouseEventKind::ScrollLeft
+                | MouseEventKind::ScrollRight
+        ) {
+            self.wheel(event);
             return;
+        }
+        if event.kind != MouseEventKind::Moved {
+            self.scroll.stop();
         }
         if self.dialog.is_some() {
             if self.dragging || self.view.divider_hovered {
@@ -633,73 +643,6 @@ impl App {
                 self.view.divider_hover_row = hover_row;
                 self.dirty = true;
             }
-            return;
-        }
-        if matches!(
-            event.kind,
-            MouseEventKind::ScrollDown
-                | MouseEventKind::ScrollUp
-                | MouseEventKind::ScrollLeft
-                | MouseEventKind::ScrollRight
-        ) {
-            let Some(geometry) = &self.geometry else {
-                return;
-            };
-            let amount = if matches!(
-                event.kind,
-                MouseEventKind::ScrollDown | MouseEventKind::ScrollRight
-            ) {
-                1
-            } else {
-                -1
-            };
-            let horizontal = matches!(
-                event.kind,
-                MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight
-            );
-            if geometry.commit_details.contains(point) && !horizontal {
-                self.view.focus = Focus::CommitDetails;
-                self.move_cursor(amount, false);
-            } else if geometry.nav.contains(point) {
-                if horizontal {
-                    let maximum = view::nav_horizontal_limit(
-                        &self.nav_items,
-                        geometry.nav.width,
-                        self.view.workspace,
-                    );
-                    self.view.nav_horizontal = self
-                        .view
-                        .nav_horizontal
-                        .saturating_add_signed(amount)
-                        .min(maximum);
-                } else {
-                    let maximum = self
-                        .entries
-                        .len()
-                        .saturating_sub(usize::from(geometry.nav.height));
-                    self.view.offset = self.view.offset.saturating_add_signed(amount).min(maximum);
-                    self.view.nav_manual_scroll = true;
-                }
-            } else if geometry.canvas.contains(point) {
-                if horizontal {
-                    self.scroll_canvas_horizontal(amount);
-                } else {
-                    let maximum = self
-                        .row_map
-                        .len()
-                        .max(self.content_line_count)
-                        .saturating_sub(usize::from(geometry.canvas.height));
-                    self.view.diff_offset = self
-                        .view
-                        .diff_offset
-                        .saturating_add_signed(amount)
-                        .min(maximum);
-                    self.view.canvas_manual_scroll = true;
-                }
-            } else {
-                return;
-            }
-            self.dirty = true;
             return;
         }
         let Some(geometry) = self.geometry.clone() else {
@@ -735,6 +678,7 @@ impl App {
                     .find(|(_, area)| area.contains(point))
                 {
                     self.view.focus = Focus::CommitDetails;
+                    self.view.commit_manual_scroll = false;
                     self.view.commit_field = *field;
                 } else if geometry.commit_details.contains(point) {
                     self.view.focus = Focus::CommitDetails;

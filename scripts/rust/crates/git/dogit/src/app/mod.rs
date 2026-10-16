@@ -417,6 +417,7 @@ struct App {
     drag_offset: i16,
     geometry: Option<Geometry>,
     mouse_capture: ui_terminal::MouseCapture,
+    scroll: scroll::Scroll,
 }
 
 mod clipboard;
@@ -428,6 +429,7 @@ mod input;
 mod notification;
 mod preview;
 mod render;
+mod scroll;
 mod tree;
 
 use execution::execute_captured;
@@ -516,6 +518,7 @@ impl App {
             drag_offset: 0,
             geometry: None,
             mouse_capture: ui_terminal::MouseCapture::Enabled,
+            scroll: scroll::Scroll::default(),
         }
     }
 
@@ -800,6 +803,7 @@ impl App {
             let reset = std::mem::take(&mut self.content_reset);
             if reset {
                 self.view.canvas_manual_scroll = false;
+                self.view.commit_manual_scroll = false;
                 self.view.diff_offset = 0;
                 self.view.diff_cursor = 0;
                 self.view.horizontal = 0;
@@ -1346,6 +1350,7 @@ impl App {
     fn workspace(&mut self, workspace: Workspace) {
         self.view.nav_manual_scroll = false;
         self.view.canvas_manual_scroll = false;
+        self.view.commit_manual_scroll = false;
         self.view.nav_horizontal = 0;
         self.view.divider_hover_row = None;
         self.dragging = false;
@@ -1609,6 +1614,7 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
                 .map_err(|error| error.to_string())?;
         }
         let reduced_motion = ui_terminal::reduced_motion_requested("DOGIT_REDUCED_MOTION");
+        let scrolling = app.animate_scroll(reduced_motion);
         let toast_animated = app
             .notification
             .as_ref()
@@ -1634,6 +1640,9 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
         });
         if let Some(notification) = &app.notification {
             wait = wait.min(notification.view(reduced_motion).next_transition());
+        }
+        if scrolling {
+            wait = wait.min(scroll::FRAME);
         }
         let mut waited = match queued.take() {
             Some(event) => event,

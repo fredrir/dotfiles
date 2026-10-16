@@ -125,14 +125,14 @@ pub(super) fn height(
 pub(super) fn details(
     buffer: &mut Buffer,
     area: Rect,
-    state: &ViewState,
+    state: &mut ViewState,
     details: &CommitDetails,
     avatar: Option<&Avatar>,
     show_verification: bool,
     reserved: u16,
-) -> (Vec<(usize, Rect)>, Rect) {
+) -> (Vec<(usize, Rect)>, Rect, usize) {
     if area.width < 8 || area.height < 4 {
-        return (Vec::new(), Rect::default());
+        return (Vec::new(), Rect::default(), 0);
     }
     let focused = state.focus == Focus::CommitDetails;
     let title = header(buffer, area, details, show_verification, reserved);
@@ -177,15 +177,20 @@ pub(super) fn details(
         .iter()
         .position(|(field, ..)| *field == Some(state.commit_field))
         .unwrap_or(0);
-    let offset = if focused {
-        rows.iter()
-            .rposition(|(field, ..)| *field == Some(state.commit_field))
-            .unwrap_or(selected_row)
-            .saturating_sub(visible.saturating_sub(1))
-            .min(selected_row)
-    } else {
-        0
-    };
+    let maximum = rows.len().saturating_sub(visible);
+    if !state.commit_manual_scroll {
+        state.commit_offset = if focused {
+            rows.iter()
+                .rposition(|(field, ..)| *field == Some(state.commit_field))
+                .unwrap_or(selected_row)
+                .saturating_sub(visible.saturating_sub(1))
+                .min(selected_row)
+        } else {
+            0
+        };
+    }
+    state.commit_offset = state.commit_offset.min(maximum);
+    let offset = state.commit_offset;
     let avatar = avatar.filter(|_| has_avatar && offset == 0);
     let mut fields: Vec<(usize, Rect)> = Vec::new();
     for (index, (field, label, value, role)) in rows.iter().enumerate().skip(offset).take(visible) {
@@ -238,5 +243,5 @@ pub(super) fn details(
         );
     }
 
-    (fields, title)
+    (fields, title, maximum)
 }

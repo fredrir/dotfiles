@@ -190,6 +190,8 @@ pub struct ViewState {
     pub nav_horizontal: usize,
     pub nav_manual_scroll: bool,
     pub canvas_manual_scroll: bool,
+    pub commit_offset: usize,
+    pub commit_manual_scroll: bool,
     pub split: bool,
     pub nav_width: u16,
     pub overlay: Option<Overlay>,
@@ -212,6 +214,8 @@ impl Default for ViewState {
             nav_horizontal: 0,
             nav_manual_scroll: false,
             canvas_manual_scroll: false,
+            commit_offset: 0,
+            commit_manual_scroll: false,
             split: false,
             nav_width: 34,
             overlay: None,
@@ -291,6 +295,7 @@ impl Default for RenderData<'_> {
 pub struct Geometry {
     pub commit_details: Rect,
     pub commit_fields: Vec<(usize, Rect)>,
+    pub commit_scroll_max: usize,
     pub commit_subject: Rect,
     pub editor: Option<Rect>,
     pub overlay_bounds: Rect,
@@ -516,6 +521,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     };
     let mut commit_details = Rect::default();
     let mut commit_fields = Vec::new();
+    let mut commit_scroll_max = 0;
     let mut commit_subject = Rect::default();
     if let Some(details) = data.commit {
         if show_canvas && data.inspecting_commit {
@@ -551,7 +557,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             canvas.y += height;
             canvas.height -= height;
         }
-        let (fields, title) = commit::details(
+        let (fields, title, scroll_max) = commit::details(
             frame.buffer_mut(),
             commit_details,
             state,
@@ -569,6 +575,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             },
         );
         commit_fields = fields;
+        commit_scroll_max = scroll_max;
         if !data.inspecting_commit {
             commit_subject = title;
         }
@@ -592,6 +599,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     let mut geometry = Geometry {
         commit_details,
         commit_fields,
+        commit_scroll_max,
         commit_subject,
         overlay_bounds: area,
         body,
