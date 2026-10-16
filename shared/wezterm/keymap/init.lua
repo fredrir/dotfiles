@@ -144,17 +144,16 @@ local bindings = {
   keybind(go_to "HOME/ArchTeX", { MOD.SHIFT_RIGHT }, "a"),
 
   keybind(go_to "HOME/projects", MOD.SHIFT_RIGHT, "p"),
+  keybind(go_to "HOME/projects/obsidian", MOD.SHIFT_RIGHT, "o"),
   keybind(go_to "HOME/projects/shucked", MOD.SHIFT_RIGHT, "s"),
   keybind(go_to "HOME/projects/wez-plugins/vertical-tabs", MOD.SHIFT_RIGHT, "v"),
 
-  ------ Git & Quick Actions ------
-  keybind(git_add, MOD.UNIQUE, "g"),
+  ------ Quick Actions ------
   ----
   keybind(quick_dogit.open, MOD.PRIMARY, "g"),
   keybind(quick_dogit.log, MOD.SUPER_REV, "g"),
   keybind(quick_yazi, MOD.PRIMARY, "y"),
   keybind(quick_glyph, MOD.UNIQUE, "g"),
-
   ----
 }
 

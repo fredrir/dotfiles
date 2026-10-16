@@ -144,6 +144,7 @@ fi
 _wezterm_reset_prompt() {
   (($+functions[_prompt_render_left])) && _prompt_render_left
   (($+functions[omz_termsupport_precmd])) && omz_termsupport_precmd
+  (($+functions[__wezterm_user_vars_precmd])) && __wezterm_user_vars_precmd
   zle reset-prompt
 }
 
