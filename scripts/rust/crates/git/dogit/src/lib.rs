@@ -2,6 +2,7 @@
 
 pub mod actions;
 pub mod app;
+pub mod commit;
 pub mod diff;
 pub mod git;
 mod jobs;

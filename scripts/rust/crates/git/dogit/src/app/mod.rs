@@ -54,6 +54,11 @@ enum Prompt {
 }
 
 enum Dialog {
+    Inspect {
+        message: String,
+        scroll: u16,
+        loading: bool,
+    },
     Compose {
         editor: ui_widgets::EditorBuffer,
     },
@@ -83,7 +88,7 @@ impl Dialog {
             Self::Compose { editor }
             | Self::Input { editor, .. }
             | Self::Actions { editor, .. } => Some(editor),
-            Self::Confirm { .. } => None,
+            Self::Confirm { .. } | Self::Inspect { .. } => None,
         }
     }
 }
@@ -159,7 +164,9 @@ impl PreviewKey {
             stamps: Vec::new(),
             files: Vec::new(),
         };
-        let working = key.request.composing || matches!(key.request.target, Some(Target::Path(..)));
+        let working = key.request.composing
+            || (key.request.workspace == Workspace::Changes
+                && matches!(key.request.target, Some(Target::Path(..))));
         if working {
             let index = std::env::var_os("GIT_INDEX_FILE")
                 .map(PathBuf::from)
@@ -383,6 +390,8 @@ struct App {
     compare_base: Option<String>,
     history_limit: usize,
     history_commit: Option<String>,
+    history: history::History,
+    history_collapsed: BTreeSet<PathBuf>,
     revision_paths: Vec<PathBuf>,
     copy_ack: Option<Instant>,
     clipboard_worker: Option<Worker<Result<Option<String>, String>>>,
@@ -411,6 +420,7 @@ mod clipboard;
 mod commands;
 mod editor;
 mod execution;
+mod history;
 mod input;
 mod notification;
 mod render;
@@ -483,6 +493,8 @@ impl App {
             compare_base: None,
             history_limit: 300,
             history_commit: None,
+            history: history::History::default(),
+            history_collapsed: BTreeSet::new(),
             revision_paths: Vec::new(),
             copy_ack: None,
             clipboard_worker: None,
@@ -513,6 +525,7 @@ impl App {
         self.content_worker.set_waker(wake.clone());
         self.prepare_worker.set_waker(wake.clone());
         self.mutation_worker.set_waker(wake.clone());
+        self.history.set_waker(wake.clone());
         self.waker = Some(wake);
     }
 
@@ -590,6 +603,39 @@ impl App {
     }
 
     fn collect(&mut self) {
+        if self.history.collect(&self.repo) {
+            if let Some(Dialog::Inspect {
+                message, loading, ..
+            }) = &mut self.dialog
+                && *loading
+                && let Some(loaded) = self
+                    .history
+                    .current()
+                    .and_then(|details| details.message.as_ref())
+            {
+                *message = loaded.clone();
+                *loading = false;
+            }
+            self.dirty = true;
+        }
+        if let Some(error) = self.history.take_error() {
+            if let Some(Dialog::Inspect {
+                message, loading, ..
+            }) = &mut self.dialog
+                && *loading
+            {
+                *message = error.clone();
+                *loading = false;
+            }
+            self.note(error);
+        }
+        if let Some(result) = self.history.browser_result() {
+            self.note(
+                result
+                    .err()
+                    .unwrap_or_else(|| "Opening commit in browser".into()),
+            );
+        }
         if let Some(result) = self.prepare_worker.take() {
             match result {
                 Ok(Prepared::Worktree(repo)) => {
@@ -600,6 +646,8 @@ impl App {
                     let waker = self.waker.clone();
                     let mouse_capture = self.mouse_capture;
                     *self = Self::new(repo, Start::Changes);
+                    self.history
+                        .set_image_picker(crate::commit::avatar::picker());
                     self.mouse_capture = mouse_capture;
                     if let Some(waker) = waker {
                         self.set_waker(waker);
@@ -875,7 +923,9 @@ impl App {
             }
             Workspace::History => {
                 if self.history_commit.is_some() {
-                    self.revision_entries(&mut entries);
+                    let (tree, summary) = self.history_entries();
+                    entries = tree;
+                    changes_summary = Some(summary);
                 } else {
                     let graphs = view::graph_rows(&self.snapshot.commits);
                     for (index, commit) in self.snapshot.commits.iter().enumerate() {
@@ -1034,6 +1084,7 @@ impl App {
     }
 
     fn load_content(&mut self, reset: bool) {
+        self.sync_commit_details();
         let previous_side = self.side;
         self.align_diff_side();
         let reset = reset || previous_side != self.side;
@@ -1061,6 +1112,7 @@ impl App {
         let workspace = self.view.workspace;
         let comparison = self.compare.clone();
         let history_commit = self.history_commit.clone();
+        let load_history_paths = self.revision_paths.is_empty();
         let repo = self.repo.clone();
         let source_snapshot = Snapshot {
             status: crate::git::Status {
@@ -1103,10 +1155,14 @@ impl App {
                 Some(Target::Commit(oid)) => {
                     Some(repo.commit_paths(oid).map_err(|error| error.to_string())?)
                 }
-                Some(Target::RevisionAll) if history_commit.is_some() => Some(
-                    repo.commit_paths(history_commit.as_deref().unwrap_or("HEAD"))
-                        .map_err(|error| error.to_string())?,
-                ),
+                Some(Target::RevisionAll | Target::Path(..))
+                    if history_commit.is_some() && load_history_paths =>
+                {
+                    Some(
+                        repo.commit_paths(history_commit.as_deref().unwrap_or("HEAD"))
+                            .map_err(|error| error.to_string())?,
+                    )
+                }
                 _ if workspace == Workspace::Compare => comparison
                     .as_ref()
                     .map(|(from, to)| {
@@ -1117,11 +1173,20 @@ impl App {
                 _ => None,
             };
             let preview_path = match &target {
+                _ if history_commit.is_some() => None,
                 Some(Target::Path(path, directory)) => Some((path.clone(), *directory)),
                 _ => None,
             };
             let mut diff = match target {
                 _ if composing => Some(ExactDiff::staged_cancellable(&root, Some(&cancel))?),
+                Some(Target::Path(path, _)) if history_commit.is_some() => {
+                    Some(ExactDiff::commit_cancellable(
+                        &root,
+                        history_commit.as_deref().unwrap_or("HEAD"),
+                        (!path.as_os_str().is_empty()).then_some(path.as_path()),
+                        Some(&cancel),
+                    )?)
+                }
                 Some(Target::Path(path, false)) => Some(ExactDiff::load_cancellable(
                     &root,
                     &path,
@@ -1439,7 +1504,7 @@ impl App {
 }
 
 fn short(oid: &str) -> &str {
-    &oid[..oid.len().min(8)]
+    &oid[..oid.len().min(7)]
 }
 
 fn nav(label: &str, detail: &str, status: &str, kind: NavKind) -> NavItem {
@@ -1467,6 +1532,8 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
     let mut signals = Some(ui_terminal::SignalGuard::new().map_err(|error| error.to_string())?);
     let mut terminal =
         Some(crate::session::Session::new(app.mouse_capture).map_err(|error| error.to_string())?);
+    app.history
+        .set_image_picker(crate::commit::avatar::picker());
     let input = ui_terminal::Input::new().map_err(|error| error.to_string())?;
     app.set_waker(input.waker());
     app.refresh();

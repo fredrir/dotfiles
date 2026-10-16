@@ -13,6 +13,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::diff::{DiffSide, ExactDiff, LineKind};
 
 mod chrome;
+mod commit;
 mod diff;
 mod navigator;
 mod overlay;
@@ -25,6 +26,7 @@ pub use diff::{
 };
 pub use navigator::{graph_rows, nav_horizontal_limit, tree_prefixes};
 pub use overlay::confirmation_scroll_max;
+pub use overlay::inspection_scroll_max;
 pub use toast::ToastView;
 pub use wrap::{DiffLayout, DiffPaint, configured_diff_layout};
 
@@ -73,6 +75,7 @@ impl Workspace {
 pub enum Focus {
     #[default]
     Navigator,
+    CommitDetails,
     Canvas,
 }
 
@@ -149,6 +152,10 @@ impl From<&ui_widgets::EditorBuffer> for EditorView {
 
 #[derive(Clone, Debug)]
 pub enum Overlay {
+    Inspect {
+        message: String,
+        scroll: u16,
+    },
     Compose {
         editor: EditorView,
     },
@@ -173,6 +180,7 @@ pub enum Overlay {
 pub struct ViewState {
     pub workspace: Workspace,
     pub focus: Focus,
+    pub commit_field: usize,
     pub selected: usize,
     pub offset: usize,
     pub diff_offset: usize,
@@ -194,6 +202,7 @@ impl Default for ViewState {
         Self {
             workspace: Workspace::Changes,
             focus: Focus::Navigator,
+            commit_field: 0,
             selected: 0,
             offset: 0,
             diff_offset: 0,
@@ -221,6 +230,9 @@ pub struct NavSummary {
 }
 
 pub struct RenderData<'a> {
+    pub commit: Option<&'a crate::commit::CommitDetails>,
+    pub avatar: Option<&'a crate::commit::avatar::Avatar>,
+    pub inspecting_commit: bool,
     pub repo: &'a str,
     pub branch: &'a str,
     pub ahead: usize,
@@ -247,6 +259,9 @@ impl Default for RenderData<'_> {
     fn default() -> Self {
         static EMPTY_SELECTION: OnceLock<BTreeSet<usize>> = OnceLock::new();
         Self {
+            commit: None,
+            avatar: None,
+            inspecting_commit: false,
             repo: "",
             branch: "",
             ahead: 0,
@@ -273,6 +288,9 @@ impl Default for RenderData<'_> {
 
 #[derive(Clone, Debug, Default)]
 pub struct Geometry {
+    pub commit_details: Rect,
+    pub commit_fields: Vec<(usize, Rect)>,
+    pub commit_subject: Rect,
     pub editor: Option<Rect>,
     pub overlay_bounds: Rect,
     pub body: Rect,
@@ -301,12 +319,14 @@ pub struct DiffRow {
     pub right_part: usize,
 }
 
-pub fn canvas_width(area: Rect, state: &ViewState) -> u16 {
+pub fn canvas_width(area: Rect, state: &ViewState, inspecting_commit: bool) -> u16 {
     if area.width < 20 || area.height < 10 {
         return 0;
     }
     if area.width < 80 {
-        return if state.focus == Focus::Canvas {
+        return if state.focus == Focus::Canvas
+            || (state.focus == Focus::CommitDetails && !inspecting_commit)
+        {
             area.width
         } else {
             0
@@ -419,8 +439,12 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         outer.height - u16::from(!changes),
     );
     let compact = area.width < 80;
-    let show_nav = !compact || state.focus == Focus::Navigator;
-    let show_canvas = !compact || state.focus == Focus::Canvas;
+    let show_nav = !compact
+        || state.focus == Focus::Navigator
+        || (state.focus == Focus::CommitDetails && data.inspecting_commit);
+    let show_canvas = !compact
+        || state.focus == Focus::Canvas
+        || (state.focus == Focus::CommitDetails && !data.inspecting_commit);
     let nav_width = if show_nav && show_canvas {
         state.nav_width.clamp(22, area.width.saturating_sub(34))
     } else if show_nav {
@@ -429,12 +453,12 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         0
     };
     let divider_x = (show_nav && show_canvas).then_some(outer.x + nav_width);
-    let nav = if show_nav {
+    let mut nav = if show_nav {
         Rect::new(body.x, body.y, nav_width, outer.height)
     } else {
         Rect::default()
     };
-    let canvas = if show_canvas {
+    let mut canvas = if show_canvas {
         let x = divider_x.map_or(body.x, |x| x + 1);
         Rect::new(x, body.y, outer.right() - x, body.height)
     } else {
@@ -448,6 +472,45 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     if let Some(x) = divider_x {
         for y in body.y + 1..body.bottom().saturating_sub(1) {
             put(frame.buffer_mut(), x, y, 1, "│", style(Role::Border));
+        }
+    }
+    let mut commit_details = Rect::default();
+    let mut commit_fields = Vec::new();
+    let mut commit_subject = Rect::default();
+    if let Some(details) = data.commit {
+        if show_canvas && data.inspecting_commit {
+            (canvas, commit_subject) = commit::subject(frame.buffer_mut(), canvas, details);
+        }
+        if data.inspecting_commit && show_nav {
+            let height = 15.min(nav.height.saturating_sub(4));
+            commit_details = Rect::new(nav.x, nav.bottom() - height, nav.width, height);
+            nav.height -= height;
+        } else if !data.inspecting_commit && show_canvas {
+            let height = 15.min(canvas.height.saturating_sub(
+                if state.focus == Focus::CommitDetails {
+                    0
+                } else {
+                    4
+                },
+            ));
+            commit_details = Rect::new(canvas.x, canvas.y, canvas.width, height);
+            canvas.y += height;
+            canvas.height -= height;
+        }
+        let (fields, title) = commit::details(
+            frame.buffer_mut(),
+            commit_details,
+            state,
+            details,
+            if state.overlay.is_none() {
+                data.avatar
+            } else {
+                None
+            },
+        );
+        commit_fields = fields;
+        if !data.inspecting_commit {
+            commit_subject = title;
         }
     }
     if show_nav {
@@ -502,6 +565,9 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         (canvas, Vec::new())
     };
     let mut geometry = Geometry {
+        commit_details,
+        commit_fields,
+        commit_subject,
         overlay_bounds: area,
         body,
         nav,

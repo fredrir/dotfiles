@@ -65,6 +65,7 @@ impl App {
     ) -> Result<(), String> {
         let target = self.selected().cloned();
         match action {
+            Action::Inspect => self.inspect_commit(),
             Action::Changes => self.workspace(Workspace::Changes), Action::History => self.workspace(Workspace::History),
             Action::Branches => self.workspace(Workspace::Branches), Action::Stashes => self.workspace(Workspace::Stashes),
             Action::Worktrees => self.workspace(Workspace::Worktrees),
@@ -310,17 +311,25 @@ impl App {
         terminal: &mut Option<crate::session::Session>,
         signals: &mut Option<ui_terminal::SignalGuard>,
     ) -> Result<(), String> {
+        if self.view.focus == Focus::CommitDetails {
+            self.activate_commit_field();
+            return Ok(());
+        }
         match self.selected() {
             Some(Target::Commit(oid)) if self.view.focus == Focus::Navigator => {
                 self.history_commit = Some(oid.clone());
                 self.revision_paths.clear();
+                self.history_collapsed.clear();
+                self.view.commit_field = 0;
                 self.view.selected = 0;
                 self.view.offset = 0;
                 self.query.clear();
                 self.rebuild();
                 self.load_content(true);
             }
-            Some(Target::Path(_, true)) => self.toggle_folder(),
+            Some(Target::Path(_, true)) if self.view.focus == Focus::Navigator => {
+                self.toggle_folder()
+            }
             Some(Target::Branch(..) | Target::Worktree(_)) => {
                 return self.action(Action::Switch, terminal, signals);
             }
@@ -366,6 +375,31 @@ impl App {
             .and_then(|geometry| geometry.editor)
             .map_or(72, |area| usize::from(area.width));
         match &mut dialog {
+            Dialog::Inspect {
+                message, scroll, ..
+            } => {
+                let outer = self
+                    .geometry
+                    .as_ref()
+                    .map_or(ratatui::layout::Rect::new(0, 0, 100, 30), |geometry| {
+                        geometry.overlay_bounds
+                    });
+                let maximum = view::inspection_scroll_max(message, outer);
+                *scroll = match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => scroll.saturating_sub(1),
+                    KeyCode::Down | KeyCode::Char('j') => scroll.saturating_add(1).min(maximum),
+                    KeyCode::PageUp => scroll.saturating_sub(10),
+                    KeyCode::PageDown => scroll.saturating_add(10).min(maximum),
+                    KeyCode::Home => 0,
+                    KeyCode::End => maximum,
+                    KeyCode::Char('y') => {
+                        self.copy_text(message.clone());
+                        *scroll
+                    }
+                    KeyCode::Char('i') | KeyCode::Char('q') | KeyCode::Enter => return Ok(()),
+                    _ => *scroll,
+                };
+            }
             Dialog::Compose { editor } => {
                 if submit {
                     if editor.as_str().trim().is_empty() {

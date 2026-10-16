@@ -265,6 +265,7 @@ pub struct Commit {
     pub oid: String,
     pub parents: Vec<String>,
     pub author: String,
+    pub author_email: String,
     pub timestamp: i64,
     pub subject: String,
     pub decorations: String,
@@ -454,13 +455,13 @@ impl Repo {
             OsString::from("--no-show-signature"),
             OsString::from("-z"),
             OsString::from(format!("--max-count={limit}")),
-            OsString::from("--format=%H%x00%P%x00%an%x00%at%x00%s%x00%D"),
+            OsString::from("--format=%H%x00%P%x00%an%x00%at%x00%s%x00%D%x00%ae"),
             OsString::from("--"),
         ])?;
         let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
         let mut commits = Vec::new();
-        for fields in fields[..fields.len().saturating_sub(1)].chunks(6) {
-            if fields.len() != 6 {
+        for fields in fields[..fields.len().saturating_sub(1)].chunks(7) {
+            if fields.len() != 7 {
                 return Err(GitError::new("Malformed history data"));
             }
             commits.push(Commit {
@@ -475,9 +476,52 @@ impl Repo {
                     .map_err(|_| GitError::new("Malformed commit time"))?,
                 subject: text(fields[4]),
                 decorations: text(fields[5]),
+                author_email: text(fields[6]),
             });
         }
         Ok(commits)
+    }
+
+    pub fn commit_details(&self, oid: &str) -> Result<crate::commit::CommitDetails, GitError> {
+        let output = self.read([
+            "show",
+            "--no-patch",
+            "--no-show-signature",
+            "--format=%H%x00%an%x00%at%x00%aI%x00%G?%x00%s%x00%ae%x00%B",
+            oid,
+            "--",
+        ])?;
+        let fields: Vec<_> = output.splitn(8, |byte| *byte == 0).collect();
+        if fields.len() != 8 {
+            return Err(GitError::new("Malformed commit details"));
+        }
+        Ok(crate::commit::CommitDetails {
+            oid: strict_text(fields[0], "object ID")?,
+            author: text(fields[1]),
+            timestamp: text(fields[2])
+                .parse()
+                .map_err(|_| GitError::new("Malformed commit time"))?,
+            authored_iso: text(fields[3]),
+            signature: Some(text(fields[4])),
+            subject: text(fields[5]),
+            author_email: text(fields[6]),
+            message: Some(text(fields[7]).trim_end_matches('\n').to_owned()),
+            github: None,
+            github_signature_verified: None,
+        })
+    }
+
+    pub(crate) fn github_repository(&self) -> Option<String> {
+        let output = self
+            .read(["config", "--get-regexp", "^remote\\..*\\.url$"])
+            .ok()?;
+        let remotes = text(&output);
+        let mut lines: Vec<_> = remotes.lines().collect();
+        lines.sort_by_key(|line| !line.starts_with("remote.origin.url "));
+        lines.iter().find_map(|line| {
+            let (_, url) = line.split_once(' ')?;
+            crate::commit::github_repository(url)
+        })
     }
 
     pub fn stashes(&self) -> Result<Vec<Stash>, GitError> {

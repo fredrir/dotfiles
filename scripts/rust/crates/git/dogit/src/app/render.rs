@@ -3,6 +3,12 @@ use super::*;
 impl App {
     pub(super) fn draw(&mut self, terminal: &mut crate::session::Session) -> Result<(), String> {
         self.view.overlay = self.dialog.as_ref().map(|dialog| match dialog {
+            Dialog::Inspect {
+                message, scroll, ..
+            } => Overlay::Inspect {
+                message: message.clone(),
+                scroll: *scroll,
+            },
             Dialog::Compose { editor } => Overlay::Compose {
                 editor: editor.into(),
             },
@@ -38,6 +44,7 @@ impl App {
         let width = view::canvas_width(
             ratatui::layout::Rect::new(0, 0, size.width, size.height),
             &self.view,
+            self.history_commit.is_some(),
         );
         if self.row_width != width
             || self.row_split != (self.view.split && width >= 72)
@@ -65,6 +72,7 @@ impl App {
                 path.display().to_string()
             }
             Some(Target::Worktree(_)) => String::new(),
+            Some(Target::Commit(_)) if self.view.workspace == Workspace::History => String::new(),
             Some(Target::Commit(oid)) => self
                 .snapshot
                 .commits
@@ -103,6 +111,8 @@ impl App {
                 Some(DiffSide::Worktree) => "Unstaged files · u show all".into(),
                 None => String::new(),
             }
+        } else if self.view.workspace == Workspace::History {
+            String::new()
         } else if let Some(Target::Commit(oid)) = self.selected() {
             self.snapshot
                 .commits
@@ -156,6 +166,9 @@ impl App {
             ))
         });
         let data = RenderData {
+            commit: self.history.current(),
+            avatar: self.history.current_avatar(),
+            inspecting_commit: self.history_commit.is_some(),
             repo: &repo,
             branch,
             ahead: self.snapshot.status.ahead,

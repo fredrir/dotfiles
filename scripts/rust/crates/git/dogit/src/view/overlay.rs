@@ -13,6 +13,97 @@ pub fn confirmation_scroll_max(detail: &str, outer: Rect) -> u16 {
         .min(usize::from(u16::MAX)) as u16
 }
 
+pub fn inspection_scroll_max(message: &str, outer: Rect) -> u16 {
+    let width = outer.width.saturating_sub(8).min(96);
+    let rows = wrap_detail(message, width.saturating_sub(6)).len();
+    let height = (rows.saturating_add(6).max(12).min(usize::from(u16::MAX)) as u16)
+        .min(outer.height.saturating_sub(4));
+    rows.saturating_sub(usize::from(height.saturating_sub(6)))
+        .min(usize::from(u16::MAX)) as u16
+}
+
+fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16) {
+    let width = outer.width.saturating_sub(8).min(96);
+    let rows = wrap_detail(message, width.saturating_sub(6));
+    let height = (rows
+        .len()
+        .saturating_add(6)
+        .max(12)
+        .min(usize::from(u16::MAX)) as u16)
+        .min(outer.height.saturating_sub(4));
+    if width < 12 || height < 7 {
+        return;
+    }
+    let area = Rect::new(
+        outer.x + (outer.width - width) / 2,
+        outer.y + (outer.height - height) / 2,
+        width,
+        height,
+    );
+    Clear.render(area, frame.buffer_mut());
+    frame.buffer_mut().set_style(area, style(Role::Background));
+    draw_overlay_frame(frame.buffer_mut(), area);
+    border_title(
+        frame.buffer_mut(),
+        area.x + 2,
+        area.y,
+        width - 4,
+        "Inspect commit message",
+        true,
+    );
+    let content = Rect::new(area.x + 3, area.y + 2, width - 6, height - 6);
+    let offset = usize::from(scroll.min(inspection_scroll_max(message, outer)));
+    let subject_rows = wrap_detail(
+        message.split('\n').next().unwrap_or_default(),
+        content.width,
+    )
+    .len();
+    for (index, line) in rows
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(usize::from(content.height))
+    {
+        let appearance = if index < subject_rows {
+            style(Role::Accent).add_modifier(Modifier::BOLD)
+        } else if line.starts_with("Co-authored-by:") || line.starts_with("Signed-off-by:") {
+            style(Role::Muted)
+        } else {
+            style(Role::Plain)
+        };
+        put(
+            frame.buffer_mut(),
+            content.x,
+            content.y + (index - offset) as u16,
+            content.width,
+            line,
+            appearance,
+        );
+    }
+    put(
+        frame.buffer_mut(),
+        content.x,
+        area.bottom() - 3,
+        content.width,
+        "↑↓ scroll · PgUp/PgDn · y copy message · Esc close",
+        style(Role::Muted),
+    );
+    let progress = format!(
+        " {}–{} / {} ",
+        offset + 1,
+        (offset + usize::from(content.height)).min(rows.len()),
+        rows.len()
+    );
+    border_title(
+        frame.buffer_mut(),
+        area.x + 2,
+        area.bottom() - 1,
+        width - 4,
+        &progress,
+        false,
+    );
+}
+
 fn confirmation_height(rows: usize) -> u16 {
     rows.saturating_add(4).clamp(8, usize::from(u16::MAX)) as u16
 }
@@ -23,12 +114,17 @@ pub(super) fn render_overlay(
     overlay: &Overlay,
     editor_offset: &mut usize,
 ) -> Option<Rect> {
+    if let Overlay::Inspect { message, scroll } = overlay {
+        render_inspection(frame, outer, message, *scroll);
+        return None;
+    }
     let width = outer.width.saturating_sub(8).min(78);
     let confirmation = match overlay {
         Overlay::Confirm { detail, .. } => Some(wrap_detail(detail, width.saturating_sub(6))),
         _ => None,
     };
     let desired_height = match overlay {
+        Overlay::Inspect { .. } => 0,
         Overlay::Compose { .. } => 16,
         Overlay::Commands { items, .. } => (items.len() as u16 + 7).min(19),
         Overlay::Input { .. } => 8,
@@ -53,6 +149,7 @@ pub(super) fn render_overlay(
         area.height.saturating_sub(4),
     );
     match overlay {
+        Overlay::Inspect { .. } => {}
         Overlay::Compose { editor } => {
             border_title(
                 frame.buffer_mut(),
@@ -301,7 +398,7 @@ fn render_editor(
     ));
 }
 
-fn wrap_detail(detail: &str, width: u16) -> Vec<String> {
+pub(super) fn wrap_detail(detail: &str, width: u16) -> Vec<String> {
     if width == 0 {
         return Vec::new();
     }

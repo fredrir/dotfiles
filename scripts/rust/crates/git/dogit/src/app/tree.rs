@@ -20,14 +20,7 @@ impl App {
         if self.all_files {
             paths.extend(self.files.iter().map(PathBuf::as_path));
         }
-        let query = self.query.to_lowercase();
-        let mut tree = BTreeMap::<PathBuf, Node>::new();
-        let mut summary = view::NavSummary::default();
-        let mut root: Option<PathBuf> = None;
-        for path in paths {
-            if !query.is_empty() && !path.to_string_lossy().to_lowercase().contains(&query) {
-                continue;
-            }
+        let paths = paths.into_iter().filter_map(|path| {
             let status = statuses.get(path);
             let state = view::FileState {
                 staged: status.is_some_and(|entry| entry.staged() && !entry.unmerged),
@@ -35,10 +28,33 @@ impl App {
                 conflicted: status.is_some_and(|entry| entry.unmerged),
                 expanded: false,
             };
-            if self.changes_filter.is_some_and(|side| match side {
+            (!self.changes_filter.is_some_and(|side| match side {
                 DiffSide::Index => !state.staged,
                 DiffSide::Worktree => !state.unstaged,
-            }) {
+            }))
+            .then_some((path, state))
+        });
+        self.file_tree_entries(paths)
+    }
+
+    pub(super) fn history_entries(&self) -> (Vec<Entry>, view::NavSummary) {
+        self.file_tree_entries(
+            self.revision_paths
+                .iter()
+                .map(|path| (path.as_path(), view::FileState::default())),
+        )
+    }
+
+    fn file_tree_entries<'a>(
+        &self,
+        paths: impl IntoIterator<Item = (&'a Path, view::FileState)>,
+    ) -> (Vec<Entry>, view::NavSummary) {
+        let query = self.query.to_lowercase();
+        let mut tree = BTreeMap::<PathBuf, Node>::new();
+        let mut summary = view::NavSummary::default();
+        let mut root: Option<PathBuf> = None;
+        for (path, state) in paths {
+            if !query.is_empty() && !path.to_string_lossy().to_lowercase().contains(&query) {
                 continue;
             }
             let parent = path.parent().unwrap_or(Path::new(""));
@@ -61,7 +77,10 @@ impl App {
                 merge_state(&mut node.state, state);
             }
         }
-        if self.changes_filter.is_some() && tree.is_empty() {
+        if self.view.workspace == Workspace::Changes
+            && self.changes_filter.is_some()
+            && tree.is_empty()
+        {
             return (Vec::new(), summary);
         }
         let root = root.unwrap_or_default();
@@ -86,7 +105,7 @@ impl App {
             let node = &tree[&path];
             let mut state = node.state;
             state.expanded =
-                node.directory && (!query.is_empty() || !self.collapsed.contains(&path));
+                node.directory && (!query.is_empty() || !self.tree_collapsed().contains(&path));
             let label = if depth == 0 {
                 if path.as_os_str().is_empty() {
                     self.repo

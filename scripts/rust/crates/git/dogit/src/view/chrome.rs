@@ -283,7 +283,12 @@ pub(super) fn render_pane_footer(
     rendered
 }
 
-fn render_badges(buffer: &mut Buffer, area: Rect, mut badges: Vec<Badge>, left: bool) -> Rect {
+pub(super) fn render_badges(
+    buffer: &mut Buffer,
+    area: Rect,
+    mut badges: Vec<Badge>,
+    left: bool,
+) -> Rect {
     if area.is_empty() {
         return area;
     }

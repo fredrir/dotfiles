@@ -2,6 +2,7 @@
 pub enum Action {
     Changes,
     History,
+    Inspect,
     Branches,
     Stashes,
     Worktrees,
@@ -54,6 +55,11 @@ pub struct Definition {
 }
 
 pub const ACTIONS: &[Definition] = &[
+    Definition {
+        action: Action::Inspect,
+        label: "Inspect full commit message",
+        key: "i",
+    },
     Definition {
         action: Action::Changes,
         label: "Changes",

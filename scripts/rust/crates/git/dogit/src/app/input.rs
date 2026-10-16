@@ -30,6 +30,7 @@ impl App {
             .iter()
             .filter(|definition| {
                 let available = match definition.action {
+                    Action::Inspect => self.history.current().is_some(),
                     Action::Stage
                     | Action::Unstage
                     | Action::StageFile
@@ -174,10 +175,9 @@ impl App {
                 self.prompt(Prompt::Search, "Search", &self.query.clone());
             }
             KeyCode::Tab | KeyCode::BackTab if (key.modifiers - KeyModifiers::SHIFT).is_empty() => {
-                self.view.focus = match self.view.focus {
-                    Focus::Navigator => Focus::Canvas,
-                    Focus::Canvas => Focus::Navigator,
-                };
+                self.cycle_focus(
+                    key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT),
+                );
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 self.move_cursor(1, key.modifiers.contains(KeyModifiers::SHIFT))
@@ -190,21 +190,13 @@ impl App {
             KeyCode::Home => self.move_to_edge(false),
             KeyCode::End => self.move_to_edge(true),
             KeyCode::Left | KeyCode::Char('h') => {
-                if self.view.focus == Focus::Canvas {
-                    self.scroll_canvas_horizontal(-8);
-                } else {
-                    self.collapse_selected();
-                }
+                self.horizontal_navigation(false, terminal, signals)?
             }
             KeyCode::Right | KeyCode::Char('l') => {
-                if self.view.focus == Focus::Canvas {
-                    self.scroll_canvas_horizontal(8);
-                } else if matches!(self.selected(), Some(Target::Path(_, true))) {
-                    self.expand_selected();
-                } else {
-                    self.view.focus = Focus::Canvas;
-                }
+                self.horizontal_navigation(true, terminal, signals)?
             }
+            KeyCode::Char('i') => self.inspect_commit(),
+            KeyCode::Enter if key.kind == KeyEventKind::Repeat => {}
             KeyCode::Enter => return self.enter(terminal, signals),
             KeyCode::Char(' ') if (key.modifiers - KeyModifiers::SHIFT).is_empty() => {
                 if self.view.focus == Focus::Canvas {
@@ -292,7 +284,90 @@ impl App {
         Ok(())
     }
 
-    fn scroll_canvas_horizontal(&mut self, amount: isize) {
+    fn cycle_focus(&mut self, backwards: bool) {
+        let panes: &[Focus] = if self.history.current().is_some() {
+            &[Focus::Navigator, Focus::CommitDetails, Focus::Canvas]
+        } else {
+            &[Focus::Navigator, Focus::Canvas]
+        };
+        let index = panes
+            .iter()
+            .position(|focus| *focus == self.view.focus)
+            .unwrap_or(0);
+        self.view.focus =
+            panes[(index + if backwards { panes.len() - 1 } else { 1 }) % panes.len()];
+        self.view.commit_field = self.view.commit_field.min(self.commit_field_count() - 1);
+    }
+
+    fn horizontal_navigation(
+        &mut self,
+        right: bool,
+        terminal: &mut Option<crate::session::Session>,
+        signals: &mut Option<ui_terminal::SignalGuard>,
+    ) -> Result<(), String> {
+        match self.view.focus {
+            Focus::Navigator => {
+                if right {
+                    if matches!(self.selected(), Some(Target::Commit(_))) {
+                        return self.enter(terminal, signals);
+                    }
+                    let history_root = self.history_commit.is_some()
+                        && self
+                            .entries
+                            .get(self.view.selected)
+                            .is_some_and(|entry| entry.item.depth == 0)
+                        && self
+                            .selected_file_state()
+                            .is_some_and(|state| state.expanded);
+                    if !history_root && self.expand_selected() {
+                        return Ok(());
+                    }
+                    self.view.focus = Focus::Canvas;
+                    return Ok(());
+                }
+                let root = self.entries.get(self.view.selected).is_some_and(|entry| {
+                    entry.item.depth == 0 && entry.item.kind == NavKind::Folder
+                });
+                if !root && self.collapse_selected() {
+                    return Ok(());
+                }
+            }
+            Focus::Canvas => {
+                if self.scroll_canvas_horizontal(if right { 8 } else { -8 }) {
+                    return Ok(());
+                }
+                if !right {
+                    self.view.focus = Focus::Navigator;
+                    return Ok(());
+                }
+            }
+            Focus::CommitDetails => {
+                if self.history_commit.is_some() && right {
+                    self.view.focus = Focus::Canvas;
+                    return Ok(());
+                }
+                if self.history_commit.is_none() && !right {
+                    self.view.focus = Focus::Navigator;
+                    return Ok(());
+                }
+            }
+        }
+        let index = Workspace::ALL
+            .iter()
+            .position(|workspace| *workspace == self.view.workspace)
+            .unwrap_or(0);
+        let next =
+            (index + if right { 1 } else { Workspace::ALL.len() - 1 }) % Workspace::ALL.len();
+        self.workspace(Workspace::ALL[next]);
+        self.view.focus = if right {
+            Focus::Navigator
+        } else {
+            Focus::Canvas
+        };
+        Ok(())
+    }
+
+    fn scroll_canvas_horizontal(&mut self, amount: isize) -> bool {
         let maximum = self.geometry.as_ref().and_then(|geometry| {
             let width = geometry.canvas.width;
             if let Some(text) = &self.structural {
@@ -313,11 +388,19 @@ impl App {
                 None
             }
         });
-        let offset = self.view.horizontal.saturating_add_signed(amount);
-        self.view.horizontal = maximum.map_or(offset, |maximum| offset.min(maximum));
+        let previous = self.view.horizontal;
+        let offset = previous.saturating_add_signed(amount);
+        self.view.horizontal = offset.min(maximum.unwrap_or(0));
+        previous != self.view.horizontal
     }
 
     pub(super) fn move_cursor(&mut self, amount: isize, select: bool) {
+        if self.view.focus == Focus::CommitDetails {
+            self.view.commit_field = (self.view.commit_field as isize + amount)
+                .rem_euclid(self.commit_field_count() as isize)
+                as usize;
+            return;
+        }
         if self.view.focus == Focus::Navigator {
             self.view.nav_manual_scroll = false;
             let old = self.view.selected;
@@ -344,6 +427,14 @@ impl App {
     }
 
     fn move_to_edge(&mut self, end: bool) {
+        if self.view.focus == Focus::CommitDetails {
+            self.view.commit_field = if end {
+                self.commit_field_count() - 1
+            } else {
+                0
+            };
+            return;
+        }
         if self.view.focus == Focus::Navigator {
             self.view.nav_manual_scroll = false;
             let old = self.view.selected;
@@ -437,26 +528,29 @@ impl App {
 
     pub(super) fn toggle_folder(&mut self) {
         if let Some(Target::Path(path, true)) = self.selected().cloned() {
-            if !self.collapsed.remove(&path) {
-                self.collapsed.insert(path);
+            if !self.tree_collapsed_mut().remove(&path) {
+                self.tree_collapsed_mut().insert(path);
             }
             self.rebuild();
         }
     }
 
-    pub(super) fn expand_selected(&mut self) {
+    pub(super) fn expand_selected(&mut self) -> bool {
         let Some(Target::Path(path, true)) = self.selected().cloned() else {
-            return;
+            return false;
         };
         self.view.nav_manual_scroll = false;
-        if self.query.is_empty() && self.collapsed.remove(&path) {
+        if self.query.is_empty() && self.tree_collapsed_mut().remove(&path) {
             self.rebuild();
+            return true;
         } else if self.entries.get(self.view.selected + 1).is_some_and(
             |entry| matches!(&entry.target, Target::Path(child, _) if child.starts_with(&path)),
         ) {
             self.view.selected += 1;
             self.load_content(true);
+            return true;
         }
+        false
     }
 
     pub(super) fn leave_commit(&mut self) {
@@ -475,13 +569,14 @@ impl App {
         }
     }
 
-    pub(super) fn collapse_selected(&mut self) {
+    pub(super) fn collapse_selected(&mut self) -> bool {
         match self.selected().cloned() {
             Some(Target::Path(path, true))
-                if self.query.is_empty() && !self.collapsed.contains(&path) =>
+                if self.query.is_empty() && !self.tree_collapsed().contains(&path) =>
             {
-                self.collapsed.insert(path);
+                self.tree_collapsed_mut().insert(path);
                 self.rebuild();
+                return true;
             }
             Some(Target::Path(path, _)) => {
                 if let Some(index) = path.ancestors().skip(1).find_map(|parent| {
@@ -491,13 +586,30 @@ impl App {
                 }) {
                     self.view.selected = index;
                     self.load_content(true);
+                    return true;
                 }
             }
             _ => {}
         }
+        false
     }
 
     pub(super) fn mouse(&mut self, event: MouseEvent) {
+        if let Some(Dialog::Inspect {
+            message, scroll, ..
+        }) = &mut self.dialog
+        {
+            if let Some(geometry) = &self.geometry {
+                let maximum = view::inspection_scroll_max(message, geometry.overlay_bounds);
+                match event.kind {
+                    MouseEventKind::ScrollDown => *scroll = scroll.saturating_add(3).min(maximum),
+                    MouseEventKind::ScrollUp => *scroll = scroll.saturating_sub(3),
+                    _ => {}
+                }
+                self.dirty = true;
+            }
+            return;
+        }
         if self.dialog.is_some() {
             if self.dragging || self.view.divider_hovered {
                 self.dragging = false;
@@ -545,7 +657,10 @@ impl App {
                 event.kind,
                 MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight
             );
-            if geometry.nav.contains(point) {
+            if geometry.commit_details.contains(point) && !horizontal {
+                self.view.focus = Focus::CommitDetails;
+                self.move_cursor(amount, false);
+            } else if geometry.nav.contains(point) {
                 if horizontal {
                     let maximum = view::nav_horizontal_limit(
                         &self.nav_items,
@@ -614,6 +729,17 @@ impl App {
                             - i32::from(geometry.divider_x.unwrap_or(event.column)),
                     )
                     .unwrap_or(0);
+                } else if let Some((field, _)) = geometry
+                    .commit_fields
+                    .iter()
+                    .find(|(_, area)| area.contains(point))
+                {
+                    self.view.focus = Focus::CommitDetails;
+                    self.view.commit_field = *field;
+                } else if geometry.commit_details.contains(point) {
+                    self.view.focus = Focus::CommitDetails;
+                } else if geometry.commit_subject.contains(point) {
+                    self.inspect_commit();
                 } else if geometry.nav.contains(point) {
                     self.view.focus = Focus::Navigator;
                     self.view.nav_manual_scroll = false;
