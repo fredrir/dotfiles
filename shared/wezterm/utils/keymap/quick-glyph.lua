@@ -2,7 +2,7 @@ local wezterm = require "wezterm"
 local vtabs = require "plugins.vtabs"
 
 local glyph_search = vtabs.action {
-  QuickTerminal = { args = { "zsh", "-lc", "glyph-search" } },
+  QuickTerminal = { args = { "zsh", "-lc", "exec \"$HOME/.cargo/bin/glyph-search\"" } },
 }
 
 return wezterm.action_callback(function(window, pane)
