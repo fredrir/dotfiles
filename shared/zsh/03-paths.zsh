@@ -18,4 +18,5 @@ add_path \
   "$HOME/.local/share/npm-global/bin" \
   "$HOME/llama.cpp/build/bin" \
   "$HOME/.cargo/bin" \
-  "$HOME/.docker/bin"
+  "$HOME/.docker/bin" \
+  "$HOME/.local/share/pnpm/bin"
