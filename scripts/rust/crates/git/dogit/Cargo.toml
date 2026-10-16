@@ -15,7 +15,6 @@ clap.workspace = true
 crossterm = { workspace = true, features = ["osc52"] }
 crossbeam-channel.workspace = true
 ratatui.workspace = true
-# Later releases require Rust 1.90 through their SIXEL encoder.
 ratatui-image = { version = "=10.0.1", default-features = false }
 serde.workspace = true
 serde_json.workspace = true

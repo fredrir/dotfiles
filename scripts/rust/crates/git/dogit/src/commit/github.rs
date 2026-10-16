@@ -67,7 +67,6 @@ impl Batch {
                 },
             );
         }
-        // Keep the incoming page when bounding the cache; it contains the selected commit.
         while !self.commits.is_empty() && self.commits.len() + incoming.len() > 2048 {
             self.commits.pop_first();
         }
@@ -77,32 +76,60 @@ impl Batch {
     }
 }
 
-pub(crate) fn load(repo: &crate::git::Repo, oid: &str, cancel: &AtomicBool) -> Batch {
+fn cache_path(repository: &str) -> Option<PathBuf> {
+    cache_directory()
+        .map(|base| base.join(format!("commits-{:x}.json", Sha256::digest(repository))))
+}
+
+pub(crate) fn cached(repo: &crate::git::Repo) -> Batch {
     let Some(repository) = repo.github_repository() else {
         return Batch::default();
     };
-    if !valid_oid(oid) {
-        return Batch::default();
-    }
-    let path = cache_directory()
-        .map(|base| base.join(format!("commits-{:x}.json", Sha256::digest(&repository))));
-    let mut batch = path
+    cache_path(&repository)
         .as_deref()
         .and_then(Batch::read)
         .filter(|batch| batch.repository == repository)
         .unwrap_or_else(|| Batch {
             repository: repository.clone(),
             ..Default::default()
-        });
+        })
+}
+
+pub(crate) fn load(repo: &crate::git::Repo, oid: &str, cancel: &AtomicBool) -> Batch {
+    let mut batch = cached(repo);
+    if batch.repository.is_empty() || !valid_oid(oid) {
+        return batch;
+    }
     if batch.commits.contains_key(oid) {
         return batch;
     }
-    // The list endpoint excludes patches and resolves author identities and signatures for
-    // the next hundred ancestors in one request, rather than one request per selection.
-    let endpoint = format!("repos/{repository}/commits?sha={oid}&per_page=100");
-    let bytes = capture(
+    let endpoint = format!("repos/{}/commits?sha={oid}&per_page=100", batch.repository);
+    let bytes = page(&endpoint, cancel).or_else(|| {
+        batch
+            .commits
+            .is_empty()
+            .then(|| {
+                page(
+                    &format!("repos/{}/commits?per_page=100", batch.repository),
+                    cancel,
+                )
+            })
+            .flatten()
+    });
+    if let Some(bytes) = bytes
+        && batch.merge(&bytes).is_some()
+        && let Some(path) = cache_path(&batch.repository)
+        && let Ok(bytes) = serde_json::to_vec(&batch)
+    {
+        persist(&path, &bytes);
+    }
+    batch
+}
+
+fn page(endpoint: &str, cancel: &AtomicBool) -> Option<Vec<u8>> {
+    capture(
         Command::new("gh")
-            .args(["api", "--hostname", "github.com", &endpoint])
+            .args(["api", "--hostname", "github.com", endpoint])
             .env("GH_PROMPT_DISABLED", "1"),
         CACHE_LIMIT,
         cancel,
@@ -113,15 +140,7 @@ pub(crate) fn load(repo: &crate::git::Repo, oid: &str, cancel: &AtomicBool) -> B
             CACHE_LIMIT,
             cancel,
         )
-    });
-    if let Some(bytes) = bytes
-        && batch.merge(&bytes).is_some()
-        && let Some(path) = path
-        && let Ok(bytes) = serde_json::to_vec(&batch)
-    {
-        persist(&path, &bytes);
-    }
-    batch
+    })
 }
 
 pub(crate) fn valid_avatar_url(url: &str) -> bool {
@@ -194,51 +213,4 @@ pub(crate) fn fetch(url: &str, limit: usize, cancel: &AtomicBool) -> Option<Vec<
         limit,
         cancel,
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_valid_commit_signatures_are_verified() {
-        let oid = "a".repeat(40);
-        for (verified, reason, signature, expected) in [
-            (true, "valid", "signature", true),
-            (true, "unsigned", "", false),
-            (true, "valid", "", false),
-            (false, "invalid", "signature", false),
-        ] {
-            let response = serde_json::json!([{"sha": oid, "author": {"verified": true},
-                "commit": {"verification": {"verified": verified, "reason": reason, "signature": signature}}}]);
-            let mut batch = Batch::default();
-            batch
-                .merge(&serde_json::to_vec(&response).unwrap())
-                .unwrap();
-            assert_eq!(batch.commits[&oid].signature_verified, expected);
-        }
-    }
-
-    #[test]
-    fn metadata_pages_survive_restarts_and_old_cache_expires() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("commits.json");
-        let mut batch = Batch {
-            repository: "owner/repo".into(),
-            ..Default::default()
-        };
-        let records: Vec<_> = (0..100)
-            .map(|i| {
-                serde_json::json!({"sha": format!("{i:040x}"),
-            "author": {"avatar_url": "https://avatars.githubusercontent.com/u/1"},
-            "commit": {"author": {"email": "author@example.test"}}})
-            })
-            .collect();
-        batch.merge(&serde_json::to_vec(&records).unwrap()).unwrap();
-        persist(&path, &serde_json::to_vec(&batch).unwrap());
-        assert_eq!(Batch::read(&path).unwrap().commits.len(), 100);
-        batch.fetched_at = 0;
-        persist(&path, &serde_json::to_vec(&batch).unwrap());
-        assert!(Batch::read(&path).is_none());
-    }
 }

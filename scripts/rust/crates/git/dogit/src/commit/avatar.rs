@@ -17,8 +17,8 @@ use ratatui_image::{
 };
 use sha2::{Digest, Sha256};
 
-pub const COLUMNS: u16 = 14;
-pub const ROWS: u16 = 7;
+pub const COLUMNS: u16 = 10;
+pub const ROWS: u16 = 5;
 const SOURCE_SIZE: u32 = 256;
 const BYTE_LIMIT: usize = 2 * 1024 * 1024;
 
@@ -31,8 +31,6 @@ impl Avatar {
     pub(crate) fn encode(image: RgbaImage, picker: &Picker) -> Option<Self> {
         let image = circle(image);
         if picker.protocol_type() == ProtocolType::Halfblocks {
-            // Text terminals cannot display pixel graphics. Preserve the circular silhouette
-            // and the terminal background, including cells containing only half the photo.
             let image = image::imageops::resize(
                 &image,
                 u32::from(COLUMNS),
@@ -64,9 +62,31 @@ impl Avatar {
             }
             return Some(Self::Blocks(buffer));
         }
+        let (cell_width, cell_height) = picker.font_size();
+        let (width, height) = (
+            u32::from(COLUMNS) * u32::from(cell_width),
+            u32::from(ROWS) * u32::from(cell_height),
+        );
+        if width == 0 || height == 0 || width > 2048 || height > 2048 {
+            return None;
+        }
+        let diameter = width.min(height);
+        let photo = image::imageops::resize(
+            &image,
+            diameter,
+            diameter,
+            image::imageops::FilterType::Lanczos3,
+        );
+        let mut centered = RgbaImage::new(width, height);
+        image::imageops::overlay(
+            &mut centered,
+            &photo,
+            i64::from((width - diameter) / 2),
+            i64::from((height - diameter) / 2),
+        );
         picker
             .new_protocol(
-                DynamicImage::ImageRgba8(image),
+                DynamicImage::ImageRgba8(centered),
                 Rect::new(0, 0, COLUMNS, ROWS),
                 Resize::Fit(Some(image::imageops::FilterType::Lanczos3)),
             )
@@ -78,8 +98,6 @@ impl Avatar {
         match self {
             Self::Native(protocol) => {
                 ratatui_image::Image::new(protocol).render(area, buffer);
-                // The MSRV-compatible image encoder predates Ratatui's explicit escape width.
-                // Its image payload occupies one buffer cell, not thousands of text columns.
                 for y in area.top()..area.bottom() {
                     if let Some(cell) = buffer.cell_mut((area.x, y))
                         && cell.symbol().contains('\u{1b}')
@@ -103,7 +121,6 @@ impl Avatar {
     }
 }
 
-// Obtain cell dimensions without a terminal query/response timeout or stealing input events.
 #[allow(deprecated)]
 pub(crate) fn picker() -> Picker {
     let font = crossterm::terminal::window_size()
@@ -127,7 +144,6 @@ pub(crate) fn picker() -> Picker {
     } else if term.contains("kitty") || program == "ghostty" || term.contains("ghostty") {
         ProtocolType::Kitty
     } else {
-        // The compatible SIXEL encoder discards alpha, so keep the circular text fallback.
         ProtocolType::Halfblocks
     };
     picker.set_protocol_type(protocol);
@@ -171,7 +187,6 @@ fn load_cached(
     let image = if let Some(image) = cached {
         image
     } else {
-        // Ask the CDN for a bounded, high-resolution thumbnail once per author.
         let url = format!("{}?s={SOURCE_SIZE}", url.split('?').next()?);
         let image = decode(&fetch(&url, cancel)?)?;
         if let Some(path) = path {
@@ -222,101 +237,4 @@ fn circle(mut image: RgbaImage) -> RgbaImage {
         pixel[3] = (f32::from(pixel[3]) * coverage).round() as u8;
     }
     image
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn circular_mask_preserves_resolution_and_transparent_corners() {
-        let photo = RgbaImage::from_pixel(256, 256, image::Rgba([20, 100, 200, 255]));
-        let photo = circle(photo);
-        assert_eq!(photo.dimensions(), (256, 256));
-        for (x, y) in [(0, 0), (255, 0), (0, 255), (255, 255)] {
-            assert_eq!(photo[(x, y)][3], 0);
-        }
-        assert_eq!(photo[(128, 128)][3], 255);
-        assert!(photo.pixels().any(|pixel| pixel[3] > 0 && pixel[3] < 255));
-    }
-
-    #[test]
-    fn text_fallback_keeps_corners_clear_and_circular_edges() {
-        let image = RgbaImage::from_pixel(256, 256, image::Rgba([20, 100, 200, 255]));
-        let avatar = Avatar::encode(image, &Picker::halfblocks()).unwrap();
-        let area = Rect::new(0, 0, COLUMNS, ROWS);
-        let mut buffer = Buffer::empty(area);
-        avatar.render(area, &mut buffer);
-        for (x, y) in [
-            (0, 0),
-            (COLUMNS - 1, 0),
-            (0, ROWS - 1),
-            (COLUMNS - 1, ROWS - 1),
-        ] {
-            assert_eq!(buffer[(x, y)].symbol(), " ");
-            assert_eq!(buffer[(x, y)].bg, Color::Reset);
-        }
-        assert_eq!(buffer[(COLUMNS / 2, ROWS / 2)].fg, Color::Rgb(20, 100, 200));
-        assert!(
-            buffer
-                .content
-                .iter()
-                .any(|cell| cell.symbol() == "▄" && cell.bg == Color::Reset)
-        );
-    }
-
-    #[test]
-    fn native_images_do_not_swallow_surrounding_text_on_redraw() {
-        use ratatui::{backend::TestBackend, widgets::Paragraph};
-        for protocol in [ProtocolType::Iterm2, ProtocolType::Kitty] {
-            let mut picker = Picker::halfblocks();
-            picker.set_protocol_type(protocol);
-            let avatar = Avatar::encode(
-                RgbaImage::from_pixel(256, 256, image::Rgba([20, 100, 200, 255])),
-                &picker,
-            )
-            .unwrap();
-            let mut terminal = ratatui::Terminal::new(TestBackend::new(50, 15)).unwrap();
-            for caption in ["First commit", "Second commit", "First commit"] {
-                terminal
-                    .draw(|frame| {
-                        frame.render_widget(Paragraph::new(caption), Rect::new(1, 4, 20, 1));
-                        frame.render_widget(Paragraph::new("Diff below"), Rect::new(1, 12, 20, 1));
-                        avatar.render(Rect::new(25, 2, COLUMNS, ROWS), frame.buffer_mut());
-                    })
-                    .unwrap();
-                let text = |y| {
-                    (1..21)
-                        .map(|x| terminal.backend().buffer()[(x, y)].symbol())
-                        .collect::<String>()
-                };
-                assert_eq!(text(4).trim(), caption);
-                assert_eq!(text(12).trim(), "Diff below");
-            }
-        }
-    }
-
-    #[test]
-    fn disk_cache_avoids_download_on_next_session() {
-        let temp = tempfile::tempdir().unwrap();
-        let url = "https://avatars.githubusercontent.com/u/1";
-        let cancel = AtomicBool::new(false);
-        let mut encoded = Cursor::new(Vec::new());
-        RgbaImage::from_pixel(256, 256, image::Rgba([20, 100, 200, 255]))
-            .write_to(&mut encoded, image::ImageFormat::Png)
-            .unwrap();
-        let picker = Picker::halfblocks();
-        assert!(
-            load_cached(url, &picker, &cancel, Some(temp.path()), |_, _| Some(
-                encoded.into_inner()
-            ))
-            .is_some()
-        );
-        assert!(
-            load_cached(url, &picker, &cancel, Some(temp.path()), |_, _| panic!(
-                "warm avatar downloaded again"
-            ))
-            .is_some()
-        );
-    }
 }

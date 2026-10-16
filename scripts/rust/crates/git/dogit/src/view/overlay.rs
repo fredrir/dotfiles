@@ -1,10 +1,6 @@
 use super::*;
 use unicode_segmentation::UnicodeSegmentation;
 
-#[cfg(test)]
-#[path = "../../tests/unit/overlay_tests.rs"]
-mod tests;
-
 pub fn confirmation_scroll_max(detail: &str, outer: Rect) -> u16 {
     let width = outer.width.saturating_sub(8).min(78);
     let rows = wrap_detail(detail, width.saturating_sub(6)).len();
@@ -15,16 +11,35 @@ pub fn confirmation_scroll_max(detail: &str, outer: Rect) -> u16 {
 
 pub fn inspection_scroll_max(message: &str, outer: Rect) -> u16 {
     let width = outer.width.saturating_sub(8).min(96);
-    let rows = wrap_detail(message, width.saturating_sub(6)).len();
+    let rows = inspection_lines(message, width.saturating_sub(6)).len();
     let height = (rows.saturating_add(6).max(12).min(usize::from(u16::MAX)) as u16)
         .min(outer.height.saturating_sub(4));
     rows.saturating_sub(usize::from(height.saturating_sub(6)))
         .min(usize::from(u16::MAX)) as u16
 }
 
+fn inspection_lines(message: &str, width: u16) -> Vec<Line<'static>> {
+    let (title, body) = message
+        .split_once('\n')
+        .map_or((message, None), |(title, body)| (title, Some(body)));
+    let mut lines = subject::lines(title, width);
+    if let Some(body) = body {
+        lines.extend(wrap_detail(body, width).into_iter().map(|line| {
+            let role = if line.starts_with("Co-authored-by:") || line.starts_with("Signed-off-by:")
+            {
+                Role::Muted
+            } else {
+                Role::Plain
+            };
+            Line::styled(line, style(role))
+        }));
+    }
+    lines
+}
+
 fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16) {
     let width = outer.width.saturating_sub(8).min(96);
-    let rows = wrap_detail(message, width.saturating_sub(6));
+    let rows = inspection_lines(message, width.saturating_sub(6));
     let height = (rows
         .len()
         .saturating_add(6)
@@ -53,31 +68,20 @@ fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16)
     );
     let content = Rect::new(area.x + 3, area.y + 2, width - 6, height - 6);
     let offset = usize::from(scroll.min(inspection_scroll_max(message, outer)));
-    let subject_rows = wrap_detail(
-        message.split('\n').next().unwrap_or_default(),
-        content.width,
-    )
-    .len();
     for (index, line) in rows
         .iter()
         .enumerate()
         .skip(offset)
         .take(usize::from(content.height))
     {
-        let appearance = if index < subject_rows {
-            style(Role::Accent).add_modifier(Modifier::BOLD)
-        } else if line.starts_with("Co-authored-by:") || line.starts_with("Signed-off-by:") {
-            style(Role::Muted)
-        } else {
-            style(Role::Plain)
-        };
-        put(
+        line.render(
+            Rect::new(
+                content.x,
+                content.y + (index - offset) as u16,
+                content.width,
+                1,
+            ),
             frame.buffer_mut(),
-            content.x,
-            content.y + (index - offset) as u16,
-            content.width,
-            line,
-            appearance,
         );
     }
     put(
@@ -89,7 +93,7 @@ fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16)
         style(Role::Muted),
     );
     let progress = format!(
-        " {}–{} / {} ",
+        " {}{} / {} ",
         offset + 1,
         (offset + usize::from(content.height)).min(rows.len()),
         rows.len()

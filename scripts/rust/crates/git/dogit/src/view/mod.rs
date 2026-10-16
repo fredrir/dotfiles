@@ -17,6 +17,7 @@ mod commit;
 mod diff;
 mod navigator;
 mod overlay;
+mod subject;
 mod text;
 mod toast;
 mod wrap;
@@ -474,25 +475,78 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             put(frame.buffer_mut(), x, y, 1, "│", style(Role::Border));
         }
     }
+    let values = data.diff_counts.or_else(|| {
+        data.diff.map(|diff| {
+            diff.hunks
+                .iter()
+                .flat_map(|hunk| &hunk.lines)
+                .fold((0, 0), |(added, removed), line| {
+                    (
+                        added + usize::from(line.kind == LineKind::Addition),
+                        removed + usize::from(line.kind == LineKind::Deletion),
+                    )
+                })
+        })
+    });
+    let mut counts = if show_canvas && let Some((added, removed)) = values {
+        [
+            ("+", Role::DiffAdded, added),
+            ("-", Role::DiffRemoved, removed),
+        ]
+        .into_iter()
+        .map(|(sign, role, count)| Badge::new(format!("{sign}{count}"), style(role)))
+        .collect()
+    } else {
+        Vec::new()
+    };
+    if show_canvas && let Some(details) = data.commit {
+        let mut badges = commit::verification_badges(details);
+        badges.extend(counts);
+        counts = badges;
+    }
+    let title_reserved = if show_canvas && data.commit.is_some() {
+        let badges = render_canvas_badges(frame.buffer_mut(), canvas, std::mem::take(&mut counts));
+        if badges.width > 0 {
+            canvas.right() - badges.x
+        } else {
+            0
+        }
+    } else {
+        0
+    };
     let mut commit_details = Rect::default();
     let mut commit_fields = Vec::new();
     let mut commit_subject = Rect::default();
     if let Some(details) = data.commit {
         if show_canvas && data.inspecting_commit {
-            (canvas, commit_subject) = commit::subject(frame.buffer_mut(), canvas, details);
+            (canvas, commit_subject) =
+                commit::subject(frame.buffer_mut(), canvas, details, title_reserved);
         }
         if data.inspecting_commit && show_nav {
-            let height = 15.min(nav.height.saturating_sub(4));
-            commit_details = Rect::new(nav.x, nav.bottom() - height, nav.width, height);
+            let height =
+                (commit::height(nav.width, details, true, 0) + 2).min(nav.height.saturating_sub(4));
+            let top = nav.bottom() - height;
+            commit_details = Rect::new(nav.x, top + 2, nav.width, height.saturating_sub(2));
             nav.height -= height;
+            let width = (nav.width.saturating_sub(4) / 2).min(24);
+            put(
+                frame.buffer_mut(),
+                nav.x + 2,
+                top,
+                width,
+                &"─".repeat(usize::from(width)),
+                style(Role::Border),
+            );
         } else if !data.inspecting_commit && show_canvas {
-            let height = 15.min(canvas.height.saturating_sub(
-                if state.focus == Focus::CommitDetails {
-                    0
-                } else {
-                    4
-                },
-            ));
+            let height = commit::height(canvas.width, details, false, title_reserved).min(
+                canvas
+                    .height
+                    .saturating_sub(if state.focus == Focus::CommitDetails {
+                        0
+                    } else {
+                        4
+                    }),
+            );
             commit_details = Rect::new(canvas.x, canvas.y, canvas.width, height);
             canvas.y += height;
             canvas.height -= height;
@@ -507,6 +561,12 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             } else {
                 None
             },
+            data.inspecting_commit,
+            if data.inspecting_commit {
+                0
+            } else {
+                title_reserved
+            },
         );
         commit_fields = fields;
         if !data.inspecting_commit {
@@ -516,51 +576,16 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     if show_nav {
         render_navigator(frame.buffer_mut(), nav, state, data.items);
     }
-    let counts = if show_canvas {
-        data.diff
-            .map(|diff| {
-                data.diff_counts.unwrap_or_else(|| {
-                    diff.hunks.iter().flat_map(|hunk| &hunk.lines).fold(
-                        (0, 0),
-                        |(added, removed), line| {
-                            (
-                                added + usize::from(line.kind == LineKind::Addition),
-                                removed + usize::from(line.kind == LineKind::Deletion),
-                            )
-                        },
-                    )
-                })
-            })
-            .map_or_else(Vec::new, |(added, removed)| {
-                vec![
-                    Badge::new(
-                        format!("+{added}"),
-                        style(Role::DiffAdded).add_modifier(Modifier::BOLD),
-                    ),
-                    Badge::new(
-                        format!("-{removed}"),
-                        style(Role::DiffRemoved).add_modifier(Modifier::BOLD),
-                    ),
-                ]
-            })
-    } else {
-        Vec::new()
-    };
     if show_canvas && !changes {
         render_pane_footer(
             frame.buffer_mut(),
             canvas_footer,
-            counts.clone(),
+            Vec::new(),
             data.canvas_subtitle,
         );
     }
     let (canvas, diff_sides) = if show_canvas {
-        render_canvas_context(
-            frame.buffer_mut(),
-            canvas,
-            data,
-            if changes { counts } else { Vec::new() },
-        )
+        render_canvas_context(frame.buffer_mut(), canvas, data, counts)
     } else {
         (canvas, Vec::new())
     };
@@ -620,6 +645,26 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     geometry
 }
 
+fn render_canvas_badges(buffer: &mut Buffer, area: Rect, counts: Vec<Badge>) -> Rect {
+    let right = area.right().saturating_sub(1);
+    let width = counts
+        .iter()
+        .map(|badge| badge.width() + 1)
+        .sum::<usize>()
+        .saturating_sub(1);
+    let width = width.min(usize::from(area.width.saturating_sub(2))) as u16;
+    if !area.is_empty() && width >= 9 {
+        render_pane_footer(
+            buffer,
+            Rect::new(right - width, area.y, width, 1),
+            counts,
+            "",
+        )
+    } else {
+        Rect::new(right, area.y, 0, 0)
+    }
+}
+
 fn render_canvas_context(
     buffer: &mut Buffer,
     area: Rect,
@@ -634,27 +679,9 @@ fn render_canvas_context(
     let mut sides = Vec::new();
     let mut left = area.x;
     let mut right = area.right().saturating_sub(1);
-    let controls_width = data.diff_scope.map_or(0, |scope| {
-        u16::from(scope.staged) * 8
-            + u16::from(scope.unstaged) * 10
-            + u16::from(scope.staged && scope.unstaged)
-    });
-    if !counts.is_empty() {
-        let width = counts
-            .iter()
-            .map(|badge| badge.label.width() + 3)
-            .sum::<usize>()
-            .saturating_sub(1);
-        let width = width.min(usize::from(area.width.saturating_sub(controls_width + 2))) as u16;
-        if width >= 9 {
-            let badges = render_pane_footer(
-                buffer,
-                Rect::new(right - width, area.y, width, 1),
-                counts,
-                "",
-            );
-            right = badges.x.saturating_sub(1);
-        }
+    let badges = render_canvas_badges(buffer, area, counts);
+    if badges.width > 0 {
+        right = badges.x.saturating_sub(1);
     }
     if let Some(scope) = data.diff_scope {
         for (side, available, label) in [

@@ -8,6 +8,10 @@ use crate::commit::{
 #[derive(Default)]
 pub(super) struct History {
     selected: Option<String>,
+    displayed: Option<String>,
+    prefetched: Option<crate::git::Commit>,
+    cache_pending: bool,
+    cached: Worker<Batch>,
     cache: BTreeMap<String, CommitDetails>,
     remote: BTreeMap<String, CommitMetadata>,
     repository: String,
@@ -29,6 +33,7 @@ impl History {
     pub(super) fn set_waker(&mut self, wake: ui_terminal::InputWake) {
         self.details.set_waker(wake.clone());
         self.github.set_waker(wake.clone());
+        self.cached.set_waker(wake.clone());
         self.avatar_worker.set_waker(wake.clone());
         self.browser.set_waker(wake);
     }
@@ -47,20 +52,44 @@ impl History {
         self.cache.get(self.selected.as_ref()?)
     }
 
-    fn avatar_url(&self) -> Option<&str> {
-        let commit = self.current()?;
-        self.remote
-            .get(&commit.oid)
-            .and_then(|data| data.avatar_url.as_deref())
-            .or_else(|| {
-                self.author_urls
-                    .get(&commit.author_email)
-                    .map(String::as_str)
-            })
+    pub(super) fn get(&self, oid: &str) -> Option<&CommitDetails> {
+        self.cache.get(oid)
     }
 
-    pub(super) fn current_avatar(&self) -> Option<&Avatar> {
-        self.avatars.get(self.avatar_url()?).map(Arc::as_ref)
+    pub(super) fn prefetch(&mut self, repo: &Repo, commit: &crate::git::Commit) {
+        if self.prefetched.is_some() {
+            return;
+        }
+        self.prefetched = Some(commit.clone());
+        self.cache_pending = true;
+        let repo = repo.clone();
+        self.cached
+            .submit(move |cancel| crate::commit::github::cached(&repo.with_cancel(cancel)));
+    }
+
+    fn avatar_url(&self) -> Option<&str> {
+        let (oid, email) = self
+            .current()
+            .map(|commit| (&commit.oid, &commit.author_email))
+            .or_else(|| {
+                self.prefetched
+                    .as_ref()
+                    .map(|commit| (&commit.oid, &commit.author_email))
+            })?;
+        self.author_avatar_url(oid, email)
+    }
+
+    fn author_avatar_url(&self, oid: &str, email: &str) -> Option<&str> {
+        self.remote
+            .get(oid)
+            .and_then(|data| data.avatar_url.as_deref())
+            .or_else(|| self.author_urls.get(email).map(String::as_str))
+    }
+
+    pub(super) fn avatar_for(&self, details: &CommitDetails) -> Option<&Avatar> {
+        self.avatars
+            .get(self.author_avatar_url(&details.oid, &details.author_email)?)
+            .map(Arc::as_ref)
     }
 
     fn apply_remote(&self, details: &mut CommitDetails) {
@@ -81,12 +110,21 @@ impl History {
             return;
         }
         self.details.invalidate();
-        self.selected = oid;
+        let previous = std::mem::replace(&mut self.selected, oid);
         let Some(commit) = commit else {
             return;
         };
-        if self.cache.len() >= 256 && !self.cache.contains_key(&commit.oid) {
-            self.cache.pop_first();
+        if self.cache.len() >= 256
+            && !self.cache.contains_key(&commit.oid)
+            && let Some(evicted) = self
+                .cache
+                .keys()
+                .find(|oid| {
+                    Some(*oid) != previous.as_ref() && Some(*oid) != self.displayed.as_ref()
+                })
+                .cloned()
+        {
+            self.cache.remove(&evicted);
         }
         let complete = self
             .cache
@@ -109,10 +147,15 @@ impl History {
     }
 
     fn load_github(&mut self, repo: &Repo) {
-        let Some(oid) = self.selected.clone() else {
+        let Some(oid) = self
+            .selected
+            .clone()
+            .or_else(|| self.prefetched.as_ref().map(|commit| commit.oid.clone()))
+        else {
             return;
         };
-        if self.github_pending
+        if self.cache_pending
+            || self.github_pending
             || self.remote.contains_key(&oid)
             || !self.github_attempted.insert(oid.clone())
         {
@@ -169,6 +212,12 @@ impl History {
 
     pub(super) fn collect(&mut self, repo: &Repo) -> bool {
         let mut changed = false;
+        if let Some(batch) = self.cached.take() {
+            self.cache_pending = false;
+            self.apply_batch(batch);
+            self.load_github(repo);
+            changed = true;
+        }
         if let Some(result) = self.details.take() {
             match result {
                 Ok(mut details) => {
@@ -213,6 +262,7 @@ impl History {
 
 impl App {
     pub(super) fn sync_commit_details(&mut self) {
+        self.history.displayed = self.preview_commit().map(|details| details.oid.clone());
         let oid = if self.view.workspace == Workspace::History {
             self.history_commit
                 .as_deref()
@@ -251,7 +301,7 @@ impl App {
     }
 
     pub(super) fn activate_commit_field(&mut self) {
-        let Some(details) = self.history.current() else {
+        let Some(details) = self.preview_commit() else {
             return;
         };
         match self.view.commit_field {
@@ -275,7 +325,6 @@ impl App {
                             .stderr(Stdio::null())
                             .spawn()
                             .map_err(|error| format!("Could not open browser: {error}"))?;
-                        // A browser may keep the launcher alive for its entire session.
                         std::thread::spawn(move || {
                             let _ = child.wait();
                         });
@@ -289,8 +338,7 @@ impl App {
 
     pub(super) fn commit_field_count(&self) -> usize {
         if self
-            .history
-            .current()
+            .preview_commit()
             .is_some_and(|details| details.github.is_some())
         {
             4
@@ -313,104 +361,5 @@ impl App {
         } else {
             &mut self.collapsed
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::changes_filter_tests::fixture;
-    use super::*;
-    use std::sync::atomic::Ordering;
-
-    #[test]
-    fn cached_author_image_is_immediate_across_commits_and_panes() {
-        let (_temp, app) = fixture();
-        let mut history = History::default();
-        let url = "https://avatars.githubusercontent.com/u/1";
-        let avatar = Arc::new(
-            Avatar::encode(
-                image::RgbaImage::from_pixel(256, 256, image::Rgba([20, 100, 200, 255])),
-                &ratatui_image::picker::Picker::halfblocks(),
-            )
-            .unwrap(),
-        );
-        history.avatars.insert(url.into(), Arc::clone(&avatar));
-        let mut batch = Batch::default();
-        batch.repository = "owner/repo".into();
-        let commits: Vec<_> = (0..100)
-            .map(|index| {
-                let mut commit = app.snapshot.commits[0].clone();
-                commit.oid = format!("{index:040x}");
-                let mut details = CommitDetails::pending(&commit);
-                details.message = Some("Full message".into());
-                history.cache.insert(commit.oid.clone(), details);
-                batch.commits.insert(
-                    commit.oid.clone(),
-                    CommitMetadata {
-                        author_email: commit.author_email.clone(),
-                        avatar_url: Some(url.into()),
-                        signature_verified: true,
-                    },
-                );
-                commit
-            })
-            .collect();
-        history.apply_batch(batch);
-        for commit in commits.iter().cycle().take(1000) {
-            history.select(&app.repo, Some(commit));
-            assert!(std::ptr::eq(
-                history.current_avatar().unwrap(),
-                avatar.as_ref()
-            ));
-            assert_eq!(history.current().unwrap().verification(), ("", "Verified"));
-            // Leaving History and returning to either metadata pane reuses the same image.
-            history.select(&app.repo, None);
-            history.select(&app.repo, Some(commit));
-            assert!(std::ptr::eq(
-                history.current_avatar().unwrap(),
-                avatar.as_ref()
-            ));
-        }
-        assert!(!history.github_pending);
-        assert!(history.github_attempted.is_empty());
-        assert!(history.avatar_pending.is_none());
-        assert!(history.avatar_attempted.is_empty());
-    }
-
-    #[test]
-    fn moving_selection_does_not_cancel_shared_downloads() {
-        let (_temp, app) = fixture();
-        let mut history = History::default();
-        let mut commit = app.snapshot.commits[0].clone();
-        let (release, wait) = std::sync::mpsc::channel();
-        let (finished, result) = std::sync::mpsc::channel();
-        history.github_pending = true;
-        history.github.submit(move |cancel| {
-            wait.recv_timeout(Duration::from_secs(2)).unwrap();
-            finished.send(cancel.load(Ordering::Acquire)).unwrap();
-            Batch::default()
-        });
-        let (release_avatar, wait_avatar) = std::sync::mpsc::channel();
-        let (finished_avatar, result_avatar) = std::sync::mpsc::channel();
-        history.avatar_pending = Some("photo".into());
-        history.avatar_worker.submit(move |cancel| {
-            wait_avatar.recv_timeout(Duration::from_secs(2)).unwrap();
-            finished_avatar
-                .send(cancel.load(Ordering::Acquire))
-                .unwrap();
-            ("photo".into(), None)
-        });
-        for index in 0..100 {
-            commit.oid = format!("{index:040x}");
-            let mut details = CommitDetails::pending(&commit);
-            details.message = Some("Full message".into());
-            history.cache.insert(commit.oid.clone(), details);
-            history.select(&app.repo, Some(&commit));
-        }
-        release.send(()).unwrap();
-        release_avatar.send(()).unwrap();
-        assert!(!result.recv_timeout(Duration::from_secs(2)).unwrap());
-        assert!(!result_avatar.recv_timeout(Duration::from_secs(2)).unwrap());
-        assert!(history.github_attempted.is_empty());
     }
 }

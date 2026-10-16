@@ -13,6 +13,7 @@ impl App {
         self.snapshot_worker.invalidate();
         self.snapshot_pending = false;
         self.content_worker.invalidate();
+        self.ready_content = None;
         self.content_pending = false;
         self.notification = None;
         let repo = self.repo.clone();
@@ -63,6 +64,21 @@ impl App {
         terminal: &mut Option<crate::session::Session>,
         signals: &mut Option<ui_terminal::SignalGuard>,
     ) -> Result<(), String> {
+        if self.view.focus == Focus::Canvas
+            && (self.content_pending || self.preview_target() != self.selected())
+            && matches!(
+                action,
+                Action::Stage
+                    | Action::Unstage
+                    | Action::StageFile
+                    | Action::UnstageFile
+                    | Action::ToggleStage
+                    | Action::Discard
+                    | Action::Edit
+            )
+        {
+            return Ok(());
+        }
         let target = self.selected().cloned();
         match action {
             Action::Inspect => self.inspect_commit(),

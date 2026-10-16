@@ -98,6 +98,31 @@ pub struct ExactDiff {
 }
 
 impl ExactDiff {
+    pub(crate) fn cache_bytes(&self) -> usize {
+        self.raw.capacity()
+            + self.base.as_ref().map_or(0, Vec::capacity)
+            + self.target.as_ref().map_or(0, Vec::capacity)
+            + self.snapshot.as_ref().map_or(0, |snapshot| {
+                snapshot.index.as_ref().map_or(0, Vec::capacity)
+                    + snapshot.worktree.as_ref().map_or(0, Vec::capacity)
+            })
+            + self.hunks.capacity() * std::mem::size_of::<Hunk>()
+            + self
+                .hunks
+                .iter()
+                .map(|hunk| {
+                    hunk.header.capacity()
+                        + hunk.path.capacity()
+                        + hunk.lines.capacity() * std::mem::size_of::<DiffLine>()
+                        + hunk
+                            .lines
+                            .iter()
+                            .map(|line| line.content.capacity())
+                            .sum::<usize>()
+                })
+                .sum::<usize>()
+    }
+
     pub fn load(root: &Path, path: &Path, side: DiffSide) -> Result<Self, String> {
         Self::load_cancellable(root, path, side, None)
     }

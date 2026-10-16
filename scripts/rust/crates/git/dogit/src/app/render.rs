@@ -1,4 +1,5 @@
 use super::*;
+use crossterm::SynchronizedUpdate;
 
 impl App {
     pub(super) fn draw(&mut self, terminal: &mut crate::session::Session) -> Result<(), String> {
@@ -66,7 +67,8 @@ impl App {
             }
         });
         let composing = self.composing();
-        let canvas_path = match self.selected() {
+        let preview_target = self.preview_target().cloned();
+        let canvas_path = match preview_target.as_ref() {
             _ if composing => String::new(),
             Some(Target::Path(path, _)) | Some(Target::Comparison(path)) => {
                 path.display().to_string()
@@ -94,10 +96,24 @@ impl App {
             None => String::new(),
         };
         let diff_scope = (self.view.workspace == Workspace::Changes && !composing)
-            .then(|| self.entries.get(self.view.selected)?.item.file_state)
+            .then(|| {
+                self.entries
+                    .get(self.view.selected)
+                    .filter(|entry| Some(&entry.target) == preview_target.as_ref())
+                    .or_else(|| {
+                        self.entries
+                            .iter()
+                            .find(|entry| Some(&entry.target) == preview_target.as_ref())
+                    })?
+                    .item
+                    .file_state
+            })
             .flatten()
             .map(|state| view::DiffScope {
-                side: self.side,
+                side: self
+                    .loaded_preview
+                    .as_ref()
+                    .map_or(self.side, |key| key.request.side),
                 staged: state.staged,
                 unstaged: state.unstaged,
             });
@@ -165,9 +181,11 @@ impl App {
                 "DOGIT_REDUCED_MOTION",
             ))
         });
+        let commit_oid = self.preview_commit().map(|details| details.oid.clone());
+        let commit = commit_oid.as_deref().and_then(|oid| self.history.get(oid));
         let data = RenderData {
-            commit: self.history.current(),
-            avatar: self.history.current_avatar(),
+            commit,
+            avatar: commit.and_then(|details| self.history.avatar_for(details)),
             inspecting_commit: self.history_commit.is_some(),
             repo: &repo,
             branch,
@@ -175,20 +193,16 @@ impl App {
             behind: self.snapshot.status.behind,
             items: &self.nav_items,
             nav_summary: Some(self.nav_summary),
-            diff_counts: Some(self.diff_counts),
+            diff_counts: self.diff.as_ref().map(|_| self.diff_counts),
             canvas_path: &canvas_path,
-            directory_scope: match self
-                .entries
-                .get(self.view.selected)
-                .map(|entry| &entry.target)
-            {
+            directory_scope: match preview_target.as_ref() {
                 Some(Target::Path(path, true)) if !composing => Some(path.as_path()),
                 _ => None,
             },
             diff_scope,
             canvas_subtitle: &subtitle,
             diff: self.diff.as_deref(),
-            presentation: self.presentation.as_ref(),
+            presentation: self.presentation.as_deref(),
             diff_rows: Some((&self.row_map, self.row_split, self.row_width)),
             diff_paint: self.row_paint.as_ref(),
             canvas_lines: &self.text,
@@ -200,11 +214,16 @@ impl App {
         let mut geometry = None;
         let previous_cursor = self.view.diff_cursor;
         let previous_offset = self.view.diff_offset;
-        terminal
-            .terminal()
-            .draw(|frame| {
-                geometry = Some(view::render(frame, &mut self.view, &data));
+        io::stdout()
+            .sync_update(|_| {
+                terminal
+                    .terminal()
+                    .draw(|frame| {
+                        geometry = Some(view::render(frame, &mut self.view, &data));
+                    })
+                    .map(|_| ())
             })
+            .map_err(|error| error.to_string())?
             .map_err(|error| error.to_string())?;
         self.geometry = geometry;
         let actual_width = self

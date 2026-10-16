@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::{
@@ -495,6 +495,20 @@ impl Repo {
         if fields.len() != 8 {
             return Err(GitError::new("Malformed commit details"));
         }
+        let mut signature = text(fields[4]);
+        if matches!(signature.as_str(), "N" | "E") {
+            let object = self.read(["cat-file", "commit", oid])?;
+            if object
+                .split(|byte| *byte == b'\n')
+                .take_while(|line| !line.is_empty())
+                .any(|line| line.starts_with(b"gpgsig ") || line.starts_with(b"gpgsig-sha256 "))
+            {
+                signature = "S".into();
+            }
+        }
+        if matches!(signature.as_str(), "S" | "U") && self.verify_configured_ssh_key(oid) {
+            signature = "G".into();
+        }
         Ok(crate::commit::CommitDetails {
             oid: strict_text(fields[0], "object ID")?,
             author: text(fields[1]),
@@ -502,13 +516,94 @@ impl Repo {
                 .parse()
                 .map_err(|_| GitError::new("Malformed commit time"))?,
             authored_iso: text(fields[3]),
-            signature: Some(text(fields[4])),
+            signature: Some(signature),
             subject: text(fields[5]),
             author_email: text(fields[6]),
             message: Some(text(fields[7]).trim_end_matches('\n').to_owned()),
             github: None,
             github_signature_verified: None,
         })
+    }
+
+    fn verify_configured_ssh_key(&self, oid: &str) -> bool {
+        if self
+            .read(["config", "--get", "gpg.ssh.allowedSignersFile"])
+            .is_ok_and(|value| !text(&value).trim().is_empty())
+        {
+            return false;
+        }
+        let verify = || -> Option<bool> {
+            let configured = text(
+                &self
+                    .read(["config", "--path", "--get", "user.signingkey"])
+                    .ok()?,
+            );
+            let configured = configured.trim();
+            let public = if let Some(key) = configured.strip_prefix("key::") {
+                key.to_owned()
+            } else if configured.starts_with("ssh-")
+                || configured.starts_with("ecdsa-")
+                || configured.starts_with("sk-")
+            {
+                configured.to_owned()
+            } else {
+                let mut path = PathBuf::from(configured);
+                if path.extension() != Some(OsStr::new("pub")) {
+                    let mut public_path = path.into_os_string();
+                    public_path.push(".pub");
+                    path = public_path.into();
+                }
+                let path = if path.is_absolute() {
+                    path
+                } else {
+                    self.root.join(path)
+                };
+                let mut public = String::new();
+                std::fs::File::open(path)
+                    .ok()?
+                    .take(16 * 1024 + 1)
+                    .read_to_string(&mut public)
+                    .ok()?;
+                if public.len() > 16 * 1024 {
+                    return None;
+                }
+                public
+            };
+            let mut fields = public.split_whitespace();
+            let algorithm = fields.next()?;
+            let key = fields.next()?;
+            if !(algorithm.starts_with("ssh-")
+                || algorithm.starts_with("ecdsa-")
+                || algorithm.starts_with("sk-"))
+                || !key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"+/=".contains(&byte))
+            {
+                return None;
+            }
+            let mut allowed = tempfile::NamedTempFile::new().ok()?;
+            writeln!(
+                allowed,
+                "dogit-configured-key namespaces=\"git\" {algorithm} {key}"
+            )
+            .ok()?;
+            let mut setting = OsString::from("gpg.ssh.allowedSignersFile=");
+            setting.push(allowed.path());
+            let result = self
+                .read([
+                    OsString::from("-c"),
+                    setting,
+                    "show".into(),
+                    "--no-patch".into(),
+                    "--no-show-signature".into(),
+                    "--format=%G?".into(),
+                    oid.into(),
+                    "--".into(),
+                ])
+                .ok()?;
+            Some(text(&result).trim() == "G")
+        };
+        verify().unwrap_or(false)
     }
 
     pub(crate) fn github_repository(&self) -> Option<String> {

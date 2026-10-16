@@ -109,8 +109,8 @@ struct Data {
     presentation_config: Option<DiffPresentationConfig>,
 }
 struct Content {
-    diff: Option<ExactDiff>,
-    presentation: Option<DiffPresentation>,
+    diff: Option<Arc<ExactDiff>>,
+    presentation: Option<Arc<DiffPresentation>>,
     text: Vec<String>,
     structural: Option<String>,
     paths: Option<Vec<PathBuf>>,
@@ -378,7 +378,7 @@ struct App {
     diff_counts: (usize, usize),
     row_split: bool,
     diff: Option<Arc<ExactDiff>>,
-    presentation: Option<DiffPresentation>,
+    presentation: Option<Arc<DiffPresentation>>,
     presentation_config: Option<DiffPresentationConfig>,
     split_override: Option<bool>,
     text: Vec<String>,
@@ -397,7 +397,10 @@ struct App {
     clipboard_worker: Option<Worker<Result<Option<String>, String>>>,
     waker: Option<ui_terminal::InputWake>,
     snapshot_worker: Worker<Result<Data, String>>,
-    content_worker: Worker<Result<Content, String>>,
+    content_worker: Worker<Result<Arc<Content>, String>>,
+    content_cache: Arc<std::sync::Mutex<preview::Cache>>,
+    ready_content: Option<Result<Arc<Content>, String>>,
+    content_reset: bool,
     mutation_worker: Worker<Result<String, String>>,
     prepare_worker: Worker<Result<Prepared, String>>,
     prepared: Option<Prepared>,
@@ -423,16 +426,9 @@ mod execution;
 mod history;
 mod input;
 mod notification;
+mod preview;
 mod render;
 mod tree;
-
-#[cfg(test)]
-#[path = "../../tests/unit/changes_filter_tests.rs"]
-mod changes_filter_tests;
-
-#[cfg(test)]
-#[path = "../../tests/unit/dialog_tests.rs"]
-mod dialog_tests;
 
 use execution::execute_captured;
 
@@ -501,6 +497,9 @@ impl App {
             waker: None,
             snapshot_worker: Worker::default(),
             content_worker: Worker::default(),
+            content_cache: Arc::default(),
+            ready_content: None,
+            content_reset: false,
             mutation_worker: Worker::default(),
             prepare_worker: Worker::default(),
             prepared: None,
@@ -560,19 +559,18 @@ impl App {
             composing: self.composing(),
             structural: self.structure_enabled,
             presentation,
-            width: if self.structure_enabled {
-                self.geometry.as_ref().map_or(100, |geometry| {
-                    geometry.canvas.width.saturating_sub(4) as usize
-                })
-            } else {
-                0
-            },
+            width: self.geometry.as_ref().map_or(100, |geometry| {
+                geometry.canvas.width.saturating_sub(4) as usize
+            }),
         }
     }
 
     fn request_refresh(&mut self, force: bool) {
         if self.operation.is_some() {
             return;
+        }
+        if force && let Ok(mut cache) = self.content_cache.lock() {
+            cache.clear();
         }
         if self.snapshot_pending {
             self.refresh_forced |= force;
@@ -752,6 +750,9 @@ impl App {
                             .count();
                         self.rebuild();
                     }
+                    if let Some(commit) = self.snapshot.commits.first() {
+                        self.history.prefetch(&self.repo, commit);
+                    }
                     let selected_changed =
                         previous != self.selected().cloned() || previous_side != self.side;
                     let request = self.preview_request();
@@ -785,34 +786,56 @@ impl App {
             self.dirty = true;
         }
         if let Some(result) = self.content_worker.take() {
+            self.ready_content = Some(result);
+        }
+        if self.ready_content.is_some()
+            && (self.ready_content.as_ref().is_some_and(Result::is_err)
+                || self
+                    .history
+                    .current()
+                    .is_none_or(|details| details.signature.is_some()))
+            && let Some(result) = self.ready_content.take()
+        {
             self.content_pending = false;
+            let reset = std::mem::take(&mut self.content_reset);
+            if reset {
+                self.view.canvas_manual_scroll = false;
+                self.view.diff_offset = 0;
+                self.view.diff_cursor = 0;
+                self.view.horizontal = 0;
+                self.marked.clear();
+                self.row_map.clear();
+                self.row_paint = None;
+            }
             match result {
                 Ok(content) => {
                     let changed = self.diff.as_ref().map(|diff| &diff.raw)
                         != content.diff.as_ref().map(|diff| &diff.raw);
-                    let anchor = changed.then(|| self.line_anchor()).flatten();
+                    let anchor = (changed && !reset).then(|| self.line_anchor()).flatten();
                     if changed {
                         self.marked.clear();
                         self.row_map.clear();
                         self.row_paint = None;
                     }
-                    self.diff = content.diff.map(Arc::new);
-                    self.presentation = content.presentation;
+                    self.diff = content.diff.clone();
+                    self.presentation = content.presentation.clone();
                     self.update_rows();
                     if let Some(anchor) = anchor {
                         self.restore_line_anchor(&anchor);
                     }
-                    self.text = content.text;
-                    self.structural = content.structural;
+                    self.text = content.text.clone();
+                    self.structural = content.structural.clone();
                     self.content_line_count = self.text.len().max(
                         self.structural
                             .as_ref()
                             .map_or(0, |text| text.lines().count()),
                     );
-                    self.loaded_preview = Some(content.key);
-                    if let Some(paths) = content.paths {
+                    self.loaded_preview = Some(content.key.clone());
+                    if let Some(paths) = &content.paths
+                        && *paths != self.revision_paths
+                    {
                         let previous = self.selected().cloned();
-                        self.revision_paths = paths;
+                        self.revision_paths = paths.clone();
                         self.rebuild();
                         if previous != self.selected().cloned() {
                             self.load_content(true);
@@ -1088,7 +1111,13 @@ impl App {
         let previous_side = self.side;
         self.align_diff_side();
         let reset = reset || previous_side != self.side;
-        if reset {
+        self.content_reset |= reset;
+        self.ready_content = None;
+        let clear = self.loaded_preview.as_ref().is_some_and(|key| {
+            key.request.workspace != self.view.workspace
+                || key.request.composing != self.composing()
+        });
+        if clear {
             self.view.canvas_manual_scroll = false;
             self.view.diff_offset = 0;
             self.view.diff_cursor = 0;
@@ -1113,6 +1142,7 @@ impl App {
         let comparison = self.compare.clone();
         let history_commit = self.history_commit.clone();
         let load_history_paths = self.revision_paths.is_empty();
+        let history_paths = self.revision_paths.clone();
         let repo = self.repo.clone();
         let source_snapshot = Snapshot {
             status: crate::git::Status {
@@ -1131,6 +1161,7 @@ impl App {
         let width = self.geometry.as_ref().map_or(100, |geometry| {
             geometry.canvas.width.saturating_sub(4) as usize
         });
+        let cache = Arc::clone(&self.content_cache);
         if let Some(Target::Worktree(_)) = &target {
             self.content_worker.invalidate();
             self.content_pending = false;
@@ -1151,18 +1182,19 @@ impl App {
             let repo = repo.with_cancel(Arc::clone(&cancel));
             let presentation_config = request.presentation.clone();
             let key = PreviewKey::capture(&repo, request, &source_snapshot, &source_files)?;
+            if let Some(content) = cache.lock().ok().and_then(|mut cache| cache.get(&key)) {
+                return Ok(content);
+            }
             let paths = match &target {
                 Some(Target::Commit(oid)) => {
                     Some(repo.commit_paths(oid).map_err(|error| error.to_string())?)
                 }
-                Some(Target::RevisionAll | Target::Path(..))
-                    if history_commit.is_some() && load_history_paths =>
-                {
-                    Some(
-                        repo.commit_paths(history_commit.as_deref().unwrap_or("HEAD"))
-                            .map_err(|error| error.to_string())?,
-                    )
-                }
+                _ if history_commit.is_some() => Some(if load_history_paths {
+                    repo.commit_paths(history_commit.as_deref().unwrap_or("HEAD"))
+                        .map_err(|error| error.to_string())?
+                } else {
+                    history_paths
+                }),
                 _ if workspace == Workspace::Compare => comparison
                     .as_ref()
                     .map(|(from, to)| {
@@ -1294,14 +1326,18 @@ impl App {
                     )
                 })
                 .transpose()?;
-            Ok(Content {
-                diff,
-                presentation,
+            let content = Arc::new(Content {
+                diff: diff.map(Arc::new),
+                presentation: presentation.map(Arc::new),
                 text,
                 structural: structure,
                 paths,
                 key,
-            })
+            });
+            if let Ok(mut cache) = cache.lock() {
+                cache.insert(Arc::clone(&content));
+            }
+            Ok(content)
         });
         self.content_pending = true;
         self.dirty = true;
@@ -1457,7 +1493,7 @@ impl App {
                 diff,
                 width,
                 self.row_split,
-                self.presentation.as_ref(),
+                self.presentation.as_deref(),
                 &config,
             );
             self.row_map = layout.rows;

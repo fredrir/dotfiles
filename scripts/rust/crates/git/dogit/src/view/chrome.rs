@@ -11,6 +11,10 @@ impl Badge {
         Self { label, appearance }
     }
 
+    pub fn width(&self) -> usize {
+        self.label.width() + 2
+    }
+
     fn count(count: usize, noun: &str, appearance: Style) -> Self {
         Self::new(format!("{count} {noun}"), appearance)
     }
@@ -295,7 +299,7 @@ pub(super) fn render_badges(
     let natural_width = |badges: &[Badge]| {
         badges
             .iter()
-            .map(|badge| badge.label.width() + 3)
+            .map(|badge| badge.width() + 1)
             .sum::<usize>()
             .saturating_sub(1)
     };
@@ -303,11 +307,16 @@ pub(super) fn render_badges(
         badges.remove(0);
     }
     let budget = usize::from(area.width);
+    let fits = natural_width(&badges) <= budget;
     let mut remaining = budget;
     let count = badges.len();
     let mut sized = Vec::new();
     for (index, mut badge) in badges.into_iter().enumerate() {
-        let width = (badge.label.width() + 2).min(remaining / (count - index));
+        let width = if fits {
+            badge.width()
+        } else {
+            badge.width().min(remaining / (count - index))
+        };
         if width >= 3 {
             badge.label = elide_end(&badge.label, width - 2);
             sized.push((badge, width as u16));
@@ -342,6 +351,12 @@ pub(super) fn render_badges(
 
 pub(super) fn identity_style(name: &str) -> Style {
     badge_style(identity_color(name), color_depth())
+}
+
+pub(super) fn identity_text_style(name: &str) -> Style {
+    style(Role::Plain)
+        .fg(identity_style(name).bg.unwrap_or(Color::Reset))
+        .add_modifier(Modifier::BOLD)
 }
 
 fn identity_color(name: &str) -> Style {

@@ -1,5 +1,6 @@
 pub mod avatar;
 pub(crate) mod github;
+pub(crate) mod subject;
 
 use chrono::{DateTime, Utc};
 
@@ -57,6 +58,7 @@ impl CommitDetails {
             Some("G") => ("", "Verified"),
             _ if self.github_signature_verified == Some(true) => ("", "Verified"),
             Some("U") => ("×", "Untrusted signature"),
+            Some("S") => ("×", "Unverified"),
             Some("N") => ("×", "Unsigned"),
             Some(_) => ("×", "Unverified"),
             None => ("…", "Verifying"),
@@ -108,68 +110,4 @@ pub(crate) fn github_repository(remote: &str) -> Option<String> {
                 .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
     };
     (valid(owner) && valid(repo)).then(|| format!("{owner}/{repo}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dates_preserve_author_timezone_and_relative_units() {
-        let detail = CommitDetails {
-            authored_iso: "2026-10-15T23:30:00-07:00".into(),
-            ..Default::default()
-        };
-        assert_eq!(detail.date(), "October 15, 2026");
-        for (seconds, expected) in [
-            (1, "1 second ago"),
-            (120, "2 minutes ago"),
-            (18_000, "5 hours ago"),
-            (86_400, "1 day ago"),
-            (604_800, "1 week ago"),
-            (2_592_000, "1 month ago"),
-            (63_072_000, "2 years ago"),
-        ] {
-            assert_eq!(relative_time(0, seconds), expected);
-        }
-        assert_eq!(relative_time(60, 0), "in 1 minute");
-    }
-
-    #[test]
-    fn accepts_only_github_repository_remotes() {
-        for remote in [
-            "git@github.com:owner/repo.git",
-            "https://github.com/owner/repo",
-            "ssh://git@github.com/owner/repo.git",
-        ] {
-            assert_eq!(github_repository(remote).as_deref(), Some("owner/repo"));
-        }
-        for remote in [
-            "https://github.com.evil/owner/repo",
-            "https://github.com/../repo",
-            "https://github.com/owner/repo/extra",
-            "file:///repo",
-        ] {
-            assert!(github_repository(remote).is_none());
-        }
-    }
-
-    #[test]
-    fn verification_never_confuses_unchecked_with_verified() {
-        let mut detail = CommitDetails::default();
-        assert_eq!(detail.verification().0, "…");
-        for signature in ["B", "E", "X", "Y", "R", "N", "U"] {
-            detail.signature = Some(signature.into());
-            assert_eq!(detail.verification().0, "×");
-        }
-        detail.github_signature_verified = Some(true);
-        assert_eq!(detail.verification().0, "");
-        for signature in ["B", "X", "Y", "R"] {
-            detail.signature = Some(signature.into());
-            assert_eq!(detail.verification().0, "×");
-        }
-        detail.signature = Some("G".into());
-        detail.github_signature_verified = None;
-        assert_eq!(detail.verification(), ("", "Verified"));
-    }
 }

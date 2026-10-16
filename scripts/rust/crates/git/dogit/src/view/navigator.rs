@@ -164,19 +164,28 @@ pub(super) fn render_navigator(
         let label_width = width.saturating_sub(
             status_width + staged_width + graph_width + u16::from(status_width > 0),
         );
-        let label = label_text(item, state.workspace);
-        let label = if state.nav_horizontal > 0 {
-            window(
-                &safe_text(&label),
+        if item.kind == ItemKind::Commit {
+            subject::render_list(
+                buffer,
+                Rect::new(x + graph_width, y, label_width, 1),
+                &item.label,
                 state.nav_horizontal,
-                usize::from(label_width),
-            )
-        } else if matches!(item.kind, ItemKind::Commit | ItemKind::Stash) {
-            elide_end(&label, usize::from(label_width))
+            );
         } else {
-            elide_middle(&label, usize::from(label_width))
-        };
-        put(buffer, x + graph_width, y, label_width, &label, appearance);
+            let label = label_text(item, state.workspace);
+            let label = if state.nav_horizontal > 0 {
+                window(
+                    &safe_text(&label),
+                    state.nav_horizontal,
+                    usize::from(label_width),
+                )
+            } else if item.kind == ItemKind::Stash {
+                elide_end(&label, usize::from(label_width))
+            } else {
+                elide_middle(&label, usize::from(label_width))
+            };
+            put(buffer, x + graph_width, y, label_width, &label, appearance);
+        }
         if staged_width > 0 {
             put(
                 buffer,

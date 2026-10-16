@@ -4,11 +4,16 @@ use crate::commit::{
     avatar::{Avatar, COLUMNS, ROWS},
 };
 
-pub(super) fn subject(buffer: &mut Buffer, area: Rect, details: &CommitDetails) -> (Rect, Rect) {
+pub(super) fn subject(
+    buffer: &mut Buffer,
+    area: Rect,
+    details: &CommitDetails,
+    reserved: u16,
+) -> (Rect, Rect) {
     if area.is_empty() {
         return (area, Rect::default());
     }
-    let title = header(buffer, area, details);
+    let title = header(buffer, area, details, false, reserved);
     let height = title.height.saturating_add(1).min(area.height);
     (
         Rect::new(area.x, area.y + height, area.width, area.height - height),
@@ -16,49 +21,105 @@ pub(super) fn subject(buffer: &mut Buffer, area: Rect, details: &CommitDetails) 
     )
 }
 
-fn header(buffer: &mut Buffer, area: Rect, details: &CommitDetails) -> Rect {
+const INSET: u16 = 2;
+const GAP: u16 = 2;
+const LABEL_WIDTH: u16 = 10;
+
+struct Header {
+    lines: Vec<Line<'static>>,
+    verification: Vec<Badge>,
+    aside_width: u16,
+    title_width: u16,
+}
+
+pub(super) fn verification_badges(details: &CommitDetails) -> Vec<Badge> {
+    let verified = details.verification().0 == "";
+    let signed = match details.signature.as_deref() {
+        Some("G" | "S" | "U" | "B" | "X" | "Y" | "R") => true,
+        None => verified,
+        _ => false,
+    };
+    match (signed, verified) {
+        (true, true) => vec![Badge::new(" Signed".into(), style(Role::DiffAdded))],
+        (true, false) => vec![
+            Badge::new("Signed".into(), style(Role::Muted)),
+            Badge::new("Unverified".into(), style(Role::Warning)),
+        ],
+        (false, true) => vec![
+            Badge::new("Unsigned".into(), style(Role::Muted)),
+            Badge::new(" Verified".into(), style(Role::DiffAdded)),
+        ],
+        (false, false) => Vec::new(),
+    }
+}
+
+impl Header {
+    fn new(width: u16, details: &CommitDetails, show_verification: bool, reserved: u16) -> Self {
+        let verification = verification_badges(details);
+        let inner_width = width.saturating_sub(INSET * 2);
+        let aside_width = if show_verification {
+            verification
+                .iter()
+                .map(|badge| badge.width() + 1)
+                .sum::<usize>()
+                .saturating_sub(1)
+                .min(usize::from(inner_width)) as u16
+        } else {
+            0
+        };
+        let first_width =
+            inner_width.saturating_sub(aside_width + u16::from(aside_width > 0) * GAP + reserved);
+        Self {
+            lines: subject::header_lines(&details.subject, inner_width, first_width),
+            verification,
+            aside_width,
+            title_width: inner_width,
+        }
+    }
+
+    fn height(&self) -> u16 {
+        3
+    }
+}
+
+fn header(
+    buffer: &mut Buffer,
+    area: Rect,
+    details: &CommitDetails,
+    show_verification: bool,
+    reserved: u16,
+) -> Rect {
     if area.is_empty() {
         return Rect::default();
     }
-    let (icon, status) = details.verification();
-    let role = if icon == "" {
-        Role::DiffAdded
-    } else if status == "Unsigned" || icon == "…" {
-        Role::Muted
-    } else {
-        Role::Warning
-    };
-    let badge_width = (status.width() as u16 + 4).min(area.width.saturating_sub(10));
-    let badge = chrome::render_badges(
+    let header = Header::new(area.width, details, show_verification, reserved);
+    let height = header.height().min(area.height);
+    chrome::render_badges(
         buffer,
         Rect::new(
-            area.right().saturating_sub(badge_width + 1),
+            area.right().saturating_sub(INSET + header.aside_width),
             area.y,
-            badge_width,
+            header.aside_width,
             1,
         ),
-        vec![Badge::new(format!("{icon} {status}"), style(role))],
+        header.verification,
         false,
     );
-    let width = badge.x.saturating_sub(area.x + 3);
-    let rows = overlay::wrap_detail(&details.subject, width);
-    let height = (rows.len().clamp(1, 3) as u16).min(area.height);
-    for (index, line) in rows.iter().take(usize::from(height)).enumerate() {
-        let line = if index + 1 == usize::from(height) && rows.len() > usize::from(height) {
-            elide_end(&format!("{line} …"), usize::from(width))
-        } else {
-            line.clone()
-        };
-        put(
-            buffer,
-            area.x + 2,
-            area.y + index as u16,
-            width,
-            &line,
-            style(Role::Accent).add_modifier(Modifier::BOLD),
-        );
-    }
+    subject::render(
+        buffer,
+        Rect::new(area.x + INSET, area.y, header.title_width, height),
+        &header.lines,
+    );
     Rect::new(area.x, area.y, area.width, height)
+}
+
+pub(super) fn height(
+    width: u16,
+    details: &CommitDetails,
+    show_verification: bool,
+    reserved: u16,
+) -> u16 {
+    Header::new(width, details, show_verification, reserved).height() + 1 + ROWS + 4 + 1
 }
 
 pub(super) fn details(
@@ -67,12 +128,14 @@ pub(super) fn details(
     state: &ViewState,
     details: &CommitDetails,
     avatar: Option<&Avatar>,
+    show_verification: bool,
+    reserved: u16,
 ) -> (Vec<(usize, Rect)>, Rect) {
     if area.width < 8 || area.height < 4 {
         return (Vec::new(), Rect::default());
     }
     let focused = state.focus == Focus::CommitDetails;
-    let title = header(buffer, area, details);
+    let title = header(buffer, area, details, show_verification, reserved);
     let content_y = title.bottom() + 1;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -83,20 +146,19 @@ pub(super) fn details(
         (None, "", String::new(), Role::Plain),
         (
             None,
-            "Authored",
+            "Authored:",
             crate::commit::relative_time(details.timestamp, now),
             Role::Muted,
         ),
         (Some(2), "Date:", details.date(), Role::Plain),
     ];
-    let has_avatar =
-        avatar.is_some() && area.width >= 48 && area.bottom().saturating_sub(content_y + 1) >= ROWS;
-    if has_avatar {
-        rows.resize(usize::from(ROWS), (None, "", String::new(), Role::Plain));
-    }
+    let aside_width = COLUMNS;
+    let has_avatar = avatar.is_some()
+        && area.width >= INSET * 2 + LABEL_WIDTH + 18 + GAP + aside_width
+        && area.bottom().saturating_sub(content_y + 1) >= ROWS;
     if let Some(github) = &details.github {
         rows.push((None, "", String::new(), Role::Plain));
-        let url_width = area.width.saturating_sub(14);
+        let url_width = area.width.saturating_sub(INSET * 2 + LABEL_WIDTH);
         for (index, part) in overlay::wrap_detail(&github.url, url_width)
             .into_iter()
             .take(3)
@@ -110,7 +172,6 @@ pub(super) fn details(
             ));
         }
     }
-    // On short terminals, scroll the card itself to keep its selected action visible.
     let visible = usize::from(area.bottom().saturating_sub(content_y + 1));
     let selected_row = rows
         .iter()
@@ -143,12 +204,12 @@ pub(super) fn details(
         }
         let text_width = area.width.saturating_sub(
             4 + if avatar.is_some() && index < usize::from(ROWS) {
-                COLUMNS + 2
+                aside_width + GAP
             } else {
                 0
             },
         );
-        let label_width = 10.min(text_width);
+        let label_width = LABEL_WIDTH.min(text_width);
         put(
             buffer,
             area.x + 2,
@@ -172,7 +233,7 @@ pub(super) fn details(
     }
     if let Some(avatar) = avatar {
         avatar.render(
-            Rect::new(area.right() - COLUMNS - 2, content_y, COLUMNS, ROWS),
+            Rect::new(area.right() - INSET - COLUMNS, content_y, COLUMNS, ROWS),
             buffer,
         );
     }
