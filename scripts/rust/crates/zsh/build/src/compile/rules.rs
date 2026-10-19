@@ -33,8 +33,10 @@ pub fn expected(name: &str) -> Option<u64> {
 
 /// Statements worth unrolling a loop for.
 pub fn folds(simple: &ZshSimple) -> bool {
-    walk::words(simple).first().is_some_and(|name| {
-        matches!(
+    let words = walk::words(simple);
+    match words.as_slice() {
+        [defer, source, ..] if defer == "defer" => matches!(source.as_str(), "source" | "."),
+        [name, ..] => matches!(
             name.as_str(),
             "source"
                 | "."
@@ -44,8 +46,9 @@ pub fn folds(simple: &ZshSimple) -> bool {
                 | "add_plugin_path"
                 | "add_plugins"
                 | "add_fpath"
-        )
-    })
+        ),
+        [] => false,
+    }
 }
 
 pub fn discards_stderr(redir: &ZshRedir) -> bool {
@@ -141,7 +144,13 @@ impl Compiler {
         Some(text)
     }
 
-    fn inline_file(&mut self, path: &Path, mode: Mode, rewrite: bool, cx: &Cx) -> Option<String> {
+    pub(super) fn inline_file(
+        &mut self,
+        path: &Path,
+        mode: Mode,
+        rewrite: bool,
+        cx: &Cx,
+    ) -> Option<String> {
         if self.stack.iter().any(|open| open == path) {
             return None;
         }
@@ -493,6 +502,48 @@ pub fn cached_eval(
     (text, false)
 }
 
+/// `command rm -f FILE...`: runs `rm` only when one of the files is there;
+/// `rm -f` of none succeeds, as the guard does.
+pub fn remove(words: &[String], rewrite: bool) -> Option<String> {
+    let [command, rm, flags, rest @ ..] = words else {
+        return None;
+    };
+    let files = match rest {
+        [dashes, files @ ..] if dashes == "--" => files,
+        files => files,
+    };
+    let forced = matches!(flags.as_str(), "-f" | "-rf" | "-fr" | "-Rf" | "-fR");
+    if command != "command" || rm != "rm" || !forced || files.is_empty() {
+        return None;
+    }
+    if !files.iter().all(|file| is_test_word(file)) {
+        return None;
+    }
+    let absent: Vec<String> = files
+        .iter()
+        .map(|file| format!("! -e {file} && ! -L {file}"))
+        .collect();
+    let text = format!("[[ {} ]] || {}\n", absent.join(" && "), words.join(" "));
+    rewrite.then_some(text)
+}
+
+/// A word that expands alike as an argument and in `[[ ]]`, with no side
+/// effects: plain, or double-quoted with only parameter expansions inside.
+fn is_test_word(word: &str) -> bool {
+    let plain = |byte: u8| quote::is_plain(byte) && byte != b'=';
+    if !word.is_empty() && word.bytes().all(plain) {
+        return true;
+    }
+    word.strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .is_some_and(|inner| {
+            !inner.is_empty()
+                && inner
+                    .bytes()
+                    .all(|byte| plain(byte) || matches!(byte, b'$' | b'{' | b'}'))
+        })
+}
+
 pub fn omz_source(
     compiler: &mut Compiler,
     args: &[String],
@@ -672,3 +723,7 @@ fn words(values: &[String]) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/compile/rules_tests.rs"]
+mod tests;

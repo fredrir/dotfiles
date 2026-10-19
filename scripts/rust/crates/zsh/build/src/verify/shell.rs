@@ -1,5 +1,6 @@
 //! One login zsh on a pty, started as a terminal starts it, from a scratch
-//! `ZDOTDIR` whose `.zshrc` sources `~/.zshrc` and then the dump hook.
+//! `ZDOTDIR` whose `.zshrc` sources `~/.zshrc` and then a hook that dumps
+//! what it records to a file and kills the shell.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -16,10 +17,7 @@ use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
 use pty_process::Size;
 use pty_process::blocking::{Command, Pty, open};
 
-use super::compare::Dump;
 use crate::quote;
-
-const HOOK: &str = include_str!("../../assets/verify.zsh");
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -91,7 +89,7 @@ pub enum Startup<'a> {
 }
 
 impl Startup<'_> {
-    fn label(&self) -> &'static str {
+    pub fn label(&self) -> &'static str {
         match self {
             Startup::Bundle(..) => "bundle",
             Startup::Sources => "sources",
@@ -99,15 +97,16 @@ impl Startup<'_> {
     }
 }
 
-/// Starts zsh in `scratch` and returns the state it dumps.
+/// Starts zsh in `scratch` with `hook` and returns what the hook dumps.
 pub fn run(
     zsh: &Path,
     scratch: &Path,
     env: &BTreeMap<OsString, OsString>,
     startup: &Startup,
-) -> Result<Dump, String> {
+    hook: &str,
+) -> Result<Vec<u8>, String> {
     let label = startup.label();
-    let zdotdir = prepare(scratch, env, startup)?;
+    let zdotdir = prepare(scratch, env, startup, hook)?;
     let (pty, pts) = open().map_err(|error| format!("{label}: pty: {error}"))?;
     pty.resize(Size::new(50, 200))
         .map_err(|error| format!("{label}: pty: {error}"))?;
@@ -145,8 +144,10 @@ pub fn run(
             return Err(format!("{label}: no dump within {}s", TIMEOUT.as_secs()));
         }
     };
-    let dump = std::fs::read(scratch.join("dump")).unwrap_or_default();
-    Dump::parse(&dump).map_err(|_| format!("{label}: no dump; zsh {}", exit(status)))
+    match std::fs::read(scratch.join("dump")) {
+        Ok(dump) if !dump.is_empty() => Ok(dump),
+        _ => Err(format!("{label}: no dump; zsh {}", exit(status))),
+    }
 }
 
 /// A fresh `ZDOTDIR` and hook for `startup`; the dump goes to `scratch/dump`.
@@ -154,6 +155,7 @@ fn prepare(
     scratch: &Path,
     env: &BTreeMap<OsString, OsString>,
     startup: &Startup,
+    hook_text: &str,
 ) -> Result<PathBuf, String> {
     let home = env
         .get(&OsString::from("HOME"))
@@ -183,7 +185,7 @@ fn prepare(
         Startup::Sources => String::new(),
     };
     let hook = scratch.join("hook.zsh");
-    let text = HOOK
+    let text = hook_text
         .replace("@HISTFILE@", &word(&scratch.join("history")))
         .replace("@DUMP@", &word(&dump))
         .replace("@COMPLETIONS@", &completions);

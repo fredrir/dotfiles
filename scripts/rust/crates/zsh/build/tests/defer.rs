@@ -631,3 +631,51 @@ fn a_removal_in_code_that_never_runs_keeps_the_function_body() {
         built.stderr
     );
 }
+
+#[test]
+fn a_file_queued_with_defer_source_is_compiled_into_the_bundle() {
+    let root = fixture();
+    let rc = root.path().join("zsh/rc.zsh");
+    let text = fs::read_to_string(&rc).unwrap().replace(
+        "[[ -n $SLOW_START ]]",
+        "queued_files=(\"$CONF/queued.zsh\")\nfor file in $queued_files; do\n  defer source \"$file\"\ndone\n[[ -n $SLOW_START ]]",
+    );
+    fs::write(&rc, text).unwrap();
+    fs::write(
+        root.path().join("zsh/queued.zsh"),
+        "mark queued-file\nqueued_zero=$0\nlocal hidden_queued=1\nqueued_fn() { print -r -- ran }\nzle -N queued-widget queued_fn\n",
+    )
+    .unwrap();
+    let built = build(root.path());
+    assert!(built.success(), "{built:?}");
+    assert!(built.stdout.contains("5 deferred"), "{built:?}");
+    let bundle = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
+    assert!(bundle.contains("__zb_queued_1() {\n"), "{bundle}");
+    assert!(
+        bundle.contains("defer '__zb_queued_1; unfunction __zb_queued_1'"),
+        "{bundle}"
+    );
+    assert!(!bundle.contains("defer source"), "{bundle}");
+
+    let check = "print -r -- \"${${(f)\"$(<$HOME/order.log)\"}[-1]} zero=$queued_zero hidden=${hidden_queued-unset} fn=$(queued_fn) widget=$widgets[queued-widget] left=${(k)functions[(I)__zb_*]}\" >| $HOME/report";
+    let run = |extra: &[(&str, &str)]| {
+        let _ = fs::remove_file(report(root.path()));
+        let _ = fs::remove_file(root.path().join("order.log"));
+        let mut shell = Shell::spawn(root.path(), &["-di"], extra);
+        shell.wait_until(prompt);
+        shell.type_keys(&format!("{check}\r"));
+        let report = shell.wait_for_file(&report(root.path()));
+        shell.type_keys("exit\r");
+        shell.finish();
+        report
+    };
+    let bundle = run(&[]);
+    assert_eq!(
+        bundle.trim(),
+        format!(
+            "queued-file zero={} hidden=unset fn=ran widget=user:queued_fn left=",
+            root.path().join("zsh/queued.zsh").display()
+        )
+    );
+    assert_eq!(bundle, run(&[("NO_BUNDLE", "1")]));
+}

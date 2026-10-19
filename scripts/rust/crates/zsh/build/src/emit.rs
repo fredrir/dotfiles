@@ -6,10 +6,10 @@ use crate::quote;
 /// `type` and `whence` that report where bundled functions were defined.
 const WHENCE: &str = include_str!("../assets/whence.zsh");
 
-/// The bundle: a background `zcompile` when its wordcode is older or from
-/// another zsh version, kept only if the bundle it compiled is still current,
-/// folded values, helpers, then the code in one block, which zsh parses
-/// before any of it runs, read as text or as wordcode.
+/// The bundle: a background `zcompile` when zsh read it as text, as it does
+/// when its wordcode is older or from another zsh version, kept only if the
+/// bundle it compiled is still current, folded values, helpers, then the code
+/// in one block, which zsh parses before any of it runs, read as text or as wordcode.
 pub fn bundle(
     path: &Path,
     source: &Path,
@@ -48,7 +48,7 @@ pub fn bundle(
     let expected = quote::word(&header);
     let prelude = format!(
         "{header}\n\
-         [[ {wordcode} -nt {bundle} ]] && zcompile -t {wordcode} >/dev/null 2>&1 || {{ zcompile -U {staging} {bundle} && IFS= read -r __zb_head < {bundle} && [[ $__zb_head == {expected} ]] && command mv -f {staging} {wordcode} || command rm -f {staging} }} &!\n\
+         [[ ${{ZSH_EVAL_CONTEXT##*:}} == filecode ]] || {{ {{ zcompile -U {staging} {bundle} && IFS= read -r __zb_head < {bundle} && [[ $__zb_head == {expected} ]] && command mv -f {staging} {wordcode} || command rm -f {staging} }} &! }}\n\
          {declarations}",
     );
     crate::script::parse(&prelude).map_err(|error| format!("prelude does not parse: {error}"))?;

@@ -5,11 +5,15 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use crate::git;
 
 /// Written next to a dump by the bundle: the `fpath` it was built for.
 const STAMP: &str = ".fpath";
+
+/// Age past which a `compdump` staging file, `<dump>.<host>.<pid>`, was left behind.
+const ABANDONED: Duration = Duration::from_secs(60);
 
 /// Removes stale dumps under `dir`, and dumps whose `fpath` holds a
 /// directory in `rebound`, whose files bind other commands now; returns the removed dumps.
@@ -23,9 +27,20 @@ pub fn refresh(
         Ok(entries) => entries,
         Err(_) => return Ok(Vec::new()),
     };
-    let mut stamps: Vec<PathBuf> = entries
+    let paths: Vec<PathBuf> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
+        .collect();
+    let host = nix::unistd::gethostname()
+        .map(|host| host.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if !dry_run && !host.is_empty() {
+        for staging in paths.iter().filter(|path| is_abandoned(path, &host)) {
+            remove(staging)?;
+        }
+    }
+    let mut stamps: Vec<PathBuf> = paths
+        .into_iter()
         .filter(|path| {
             path.file_name()
                 .and_then(|name| name.to_str())
@@ -50,6 +65,25 @@ pub fn refresh(
         }
     }
     Ok(removed)
+}
+
+/// A file `compdump` writes as `<dump>.$HOST.$$` and renames over the dump,
+/// left when its shell exited before the rename.
+fn is_abandoned(path: &Path, host: &str) -> bool {
+    let staging = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.rsplit_once('.'))
+        .filter(|(_, pid)| !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|(rest, _)| rest.strip_suffix(host)?.strip_suffix('.'))
+        .is_some_and(|dump| dump.starts_with(".zcompdump"));
+    staging
+        && fs::symlink_metadata(path)
+            .ok()
+            .filter(fs::Metadata::is_file)
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+            .is_some_and(|age| age > ABANDONED)
 }
 
 fn wordcode(dump: &Path) -> PathBuf {

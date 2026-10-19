@@ -7,6 +7,7 @@ mod compinit;
 pub mod defer;
 mod edits;
 mod ledger;
+pub mod regenerate;
 mod rules;
 pub mod system;
 pub mod walk;
@@ -118,10 +119,16 @@ pub struct Compiler {
     pub helpers: Vec<&'static str>,
     /// What runs after the first prompt.
     pub deferral: Deferral,
+    /// Completion files plugins regenerate on each start, written by the build instead.
+    pub generated: Vec<regenerate::Generated>,
     /// The zsh that checks code the parser needs respelled.
     pub zsh: Option<PathBuf>,
     pub deferred: usize,
     ledger: Ledger,
+    /// Files `defer source` queues, compiled once startup is done.
+    queued: Vec<defer::Queued>,
+    /// Queued files compiled into the bundle.
+    queued_units: usize,
     /// Above zero inside deferred code and loop bodies, where nothing more is deferred.
     defer_suspended: usize,
     /// Above zero inside loop bodies, where build state may not hold on each pass.
@@ -168,6 +175,8 @@ struct Snapshot {
     origins: BTreeMap<String, String>,
     helpers: usize,
     alias_exits: usize,
+    generated: usize,
+    queued: usize,
 }
 
 impl Compiler {
@@ -186,9 +195,12 @@ impl Compiler {
             origins: BTreeMap::new(),
             helpers: Vec::new(),
             deferral: Deferral::default(),
+            generated: Vec::new(),
             zsh: None,
             deferred: 0,
             ledger: Ledger::default(),
+            queued: Vec::new(),
+            queued_units: 0,
             defer_suspended: 0,
             loops: 0,
             loop_floor: 0,
@@ -230,17 +242,16 @@ impl Compiler {
         self.alias_seen
             .extend(alias::Seen::from_table(&self.state.alias_table));
         self.stack.push(path.to_path_buf());
-        let result = self.compile(
-            &script,
-            &Cx {
-                mode: Mode::Root,
-                origin: None,
-                analysis: false,
-                source: path.to_str().map(Origin::File),
-            },
-        );
+        let cx = Cx {
+            mode: Mode::Root,
+            origin: None,
+            analysis: false,
+            source: path.to_str().map(Origin::File),
+        };
+        let result = self.compile(&script, &cx);
         self.stack.pop();
-        result.map_err(|reason| format!("{}: {reason}", path.display()))
+        let text = result.map_err(|reason| format!("{}: {reason}", path.display()))?;
+        Ok(self.compile_queued(text, &cx))
     }
 
     pub fn note(&mut self, note: String) {
@@ -276,6 +287,8 @@ impl Compiler {
             origins: self.origins.clone(),
             helpers: self.helpers.len(),
             alias_exits: self.alias_exits.last().map_or(0, Vec::len),
+            generated: self.generated.len(),
+            queued: self.queued.len(),
         }
     }
 
@@ -290,6 +303,8 @@ impl Compiler {
         self.ledger.truncate(snapshot.ledger);
         self.origins = snapshot.origins;
         self.helpers.truncate(snapshot.helpers);
+        self.generated.truncate(snapshot.generated);
+        self.queued.truncate(snapshot.queued);
         if let Some(exits) = self.alias_exits.last_mut() {
             exits.truncate(snapshot.alias_exits);
         }
@@ -395,6 +410,13 @@ impl Compiler {
             (Some(origin), Some(saved)) => format!("{saved}=$0 0={origin}\n{text}"),
             (Some(origin), None) => format!("0={origin}\n{text}"),
             (None, _) => text,
+        })
+    }
+
+    /// Whether `text`, parsed with the bundle, could expand an alias set before it runs.
+    pub fn mentions_alias_set_before(&self, text: &str) -> bool {
+        alias::words(text).is_none_or(|words| {
+            alias::mentioned(text, &words, &alias::Table::default(), &self.alias_seen)
         })
     }
 
@@ -626,7 +648,8 @@ impl Compiler {
     ) -> (Option<String>, bool) {
         self.line = script::start_line(list);
         if list.flags.async_ {
-            return (None, false);
+            let text = lines.and_then(|lines| self.regenerated(script, list, lines, cx));
+            return (text, false);
         }
         if list.sublist.next.is_some() || list.sublist.flags.not {
             return self.chain(script, list, lines, edits, cx);
@@ -1089,6 +1112,10 @@ impl Compiler {
                 rules::helper(self, &name, args, rewrite)
             }
             "_omz_source" => rules::omz_source(self, args, rewrite, cx),
+            "defer" => (self.queue_source(args, rewrite, cx), false),
+            "command" if args.first().is_some_and(|arg| arg == "rm") => {
+                (rules::remove(&words, rewrite), false)
+            }
             "alias" | "unalias" | "disable" | "enable" => {
                 self.alias_command(&name, args);
                 if matches!(name.as_str(), "alias" | "unalias") && self.ledger.collecting.is_none()

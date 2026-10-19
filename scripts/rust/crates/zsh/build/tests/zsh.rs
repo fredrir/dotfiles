@@ -422,9 +422,9 @@ fn wordcode_compiled_from_an_older_bundle_is_discarded() {
     let compile_line = |text: &str| {
         text.lines()
             .nth(1)
-            .and_then(|line| line.strip_suffix(" &!"))
+            .and_then(|line| line.strip_suffix(" &! }"))
+            .map(|line| format!("{line} }}"))
             .unwrap()
-            .to_string()
     };
     let older = compile_line(&fs::read_to_string(&bundle).unwrap());
     fs::write(root.path().join("zsh/parts/60-new.zsh"), "added=1\n").unwrap();
@@ -969,4 +969,85 @@ fn folded_code_zsh_reads_as_a_subshell_is_respelled_to_parse() {
     fs::remove_file(root.path().join("run.log")).unwrap();
     shell(root.path(), true, ":", &[]);
     assert_eq!(log(root.path()), "");
+}
+
+#[test]
+fn rm_of_a_file_that_is_not_there_runs_no_process() {
+    let root = fixture();
+    fs::write(
+        root.path().join("zsh/parts/50-rm.zsh"),
+        "command rm -f \"$HOME/stale\"\n",
+    )
+    .unwrap();
+    assert!(build(root.path(), &[]).success());
+    let bundle = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
+    assert!(
+        bundle.contains(
+            "[[ ! -e \"$HOME/stale\" && ! -L \"$HOME/stale\" ]] || command rm -f \"$HOME/stale\""
+        ),
+        "{bundle}"
+    );
+    fs::write(root.path().join("stale"), "").unwrap();
+    assert!(startup(root.path(), true, &[]).success());
+    assert!(!root.path().join("stale").exists());
+    assert!(startup(root.path(), true, &[]).success());
+}
+
+const GEN: &str = "#!/bin/sh\necho gen >> \"$PROBE_LOG\"\nprintf '#compdef gen\\n_gen() { : }\\n'\n";
+
+#[test]
+fn a_completion_file_a_job_rewrites_on_each_start_is_written_by_the_build() {
+    let root = fixture();
+    executable(&root.path().join("bin/gen"), GEN);
+    fs::write(
+        root.path().join("zsh/parts/50-gen.zsh"),
+        "ZSH_CACHE_DIR=\"$HOME/cache\"\n() {\n  gen completion >| \"$ZSH_CACHE_DIR/completions/_gen\"\n} &|\n# trailing comment\n",
+    )
+    .unwrap();
+    let file = root.path().join("cache/completions/_gen");
+    assert!(build(root.path(), &[]).success());
+    assert_eq!(fs::read_to_string(&file).unwrap(), "#compdef gen\n_gen() { : }\n");
+    let bundle = fs::read_to_string(root.path().join(".cache/build/zshrc.zsh")).unwrap();
+    assert!(
+        bundle.contains("[[ -f \"$ZSH_CACHE_DIR/completions/_gen\" ]] || {\n() {"),
+        "{bundle}"
+    );
+    let again = build(root.path(), &[]);
+    assert!(again.stdout.contains("current"), "{}", again.stdout);
+    let built = fs::read_to_string(root.path().join("build.log")).unwrap();
+    assert!(built.contains("gen"), "{built}");
+
+    startup(root.path(), true, &[]);
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(!log(root.path()).contains("gen"), "{}", log(root.path()));
+
+    fs::remove_file(&file).unwrap();
+    startup(root.path(), true, &[]);
+    for _ in 0..50 {
+        if file.exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(log(root.path()).contains("gen"), "{}", log(root.path()));
+    assert!(file.exists());
+}
+
+#[test]
+fn type_and_whence_without_their_helper_run_the_builtins() {
+    let root = fixture();
+    assert!(build(root.path(), &[]).success());
+    let lookup = "unfunction _zsh_build_whence; type f_zero; whence -w f_zero; type nosuch; print status=$?";
+    let bundle = shell(root.path(), true, lookup, &[]);
+    assert!(bundle.stderr.is_empty(), "{}", bundle.stderr);
+    assert!(
+        bundle.stdout.starts_with("f_zero is a shell function from "),
+        "{}",
+        bundle.stdout
+    );
+    assert!(
+        bundle.stdout.ends_with("f_zero: function\nnosuch not found\nstatus=1\n"),
+        "{}",
+        bundle.stdout
+    );
 }

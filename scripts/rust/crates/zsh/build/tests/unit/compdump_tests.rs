@@ -100,3 +100,47 @@ fn a_stamp_without_its_dump_is_removed_quietly() {
     assert!(refresh(root.path(), None, &[], false).unwrap().is_empty());
     assert!(!root.path().join(".zcompdump-host-5.9.fpath").exists());
 }
+
+fn host() -> String {
+    nix::unistd::gethostname()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn aged(path: &Path, age: Duration) {
+    fs::write(path, "").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(SystemTime::now() - age)
+        .unwrap();
+}
+
+#[test]
+fn staging_files_compdump_left_behind_are_removed() {
+    let root = tempfile::tempdir().unwrap();
+    let host = host();
+    let old = Duration::from_secs(600);
+    let left = root.path().join(format!(".zcompdump-host-5.9.{host}.123"));
+    let default = root.path().join(format!(".zcompdump.{host}.45"));
+    let writing = root.path().join(format!(".zcompdump-host-5.9.{host}.678"));
+    let elsewhere = root.path().join(".zcompdump-host-5.9.otherhost.123");
+    let release = root.path().join(".zcompdump-host-5.8.1");
+    aged(&left, old);
+    aged(&default, old);
+    aged(&writing, Duration::ZERO);
+    aged(&elsewhere, old);
+    aged(&release, old);
+
+    refresh(root.path(), None, &[], true).unwrap();
+    assert!(left.exists());
+
+    refresh(root.path(), None, &[], false).unwrap();
+    assert!(!left.exists());
+    assert!(!default.exists());
+    assert!(writing.exists());
+    assert!(elsewhere.exists());
+    assert!(release.exists());
+}

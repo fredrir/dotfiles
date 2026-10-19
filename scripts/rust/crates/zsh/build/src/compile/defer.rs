@@ -7,7 +7,7 @@
 //! else inside a function.
 
 use std::ops::{Range, RangeInclusive};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use glob::Pattern;
 use zshrs_parse::parser::{ZshCommand, ZshList};
@@ -16,8 +16,10 @@ use super::edits::Edits;
 use super::ledger::{COMPS, Names, Touch, Unit, local_option};
 use super::walk::{self, Visit};
 use super::{Compiler, Cx, Mode, rules};
+use crate::autosuggest;
 use crate::completions::Completions;
 use crate::config;
+use crate::expand;
 use crate::scan;
 use crate::script::{self, Script};
 
@@ -85,6 +87,16 @@ impl Deferral {
     }
 }
 
+/// A file `defer source FILE` queues; it runs once startup is done.
+#[derive(Debug)]
+pub(crate) struct Queued {
+    path: PathBuf,
+    /// Stands for the compiled code in the bundle until it is known.
+    token: String,
+    /// The statement, for a file left to runtime.
+    original: String,
+}
+
 /// oh-my-zsh's compinit section: top-level statements by index and the lines they own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
@@ -126,6 +138,69 @@ impl Compiler {
         }
         let (head, tail) = self.wrapper(&text, compinit, place, names);
         Some(format!("{head}{text}{tail}"))
+    }
+
+    /// `defer source FILE`, at top level with `defer` defined as expected:
+    /// a placeholder for the file's compiled code, which `compile_queued` fills.
+    pub(super) fn queue_source(&mut self, args: &[String], rewrite: bool, cx: &Cx) -> Option<String> {
+        let [source, file] = args else {
+            return None;
+        };
+        let top_level = cx.mode != Mode::Function && !self.state.in_function();
+        let open = self.dead == 0 && self.loops == 0 && self.defer_suspended == 0;
+        if !matches!(source.as_str(), "source" | ".")
+            || !rewrite
+            || cx.analysis
+            || !top_level
+            || !open
+            || !self.helper_matches("defer")
+        {
+            return None;
+        }
+        let path = expand::scalar(file, &self.state).filter(|path| path.starts_with('/'))?;
+        let path = PathBuf::from(path);
+        if !path.is_file() {
+            return None;
+        }
+        let token = format!(": __zb_queued_{}\n", self.queued.len() + 1);
+        self.queued.push(Queued {
+            path,
+            token: token.clone(),
+            original: format!("defer {source} {file}\n"),
+        });
+        Some(token)
+    }
+
+    /// Compiles each queued file with the state startup leaves, in queue
+    /// order, as a function the queue runs; a file that does not compile stays queued.
+    pub(super) fn compile_queued(&mut self, mut text: String, cx: &Cx) -> String {
+        for (index, queued) in std::mem::take(&mut self.queued).into_iter().enumerate() {
+            let collecting = self.ledger.collecting.replace(Names::default());
+            let bind = self.origins.get(autosuggest::BIND).cloned();
+            self.defer_suspended += 1;
+            let compiled = self.inline_file(&queued.path, Mode::Function, true, cx);
+            self.defer_suspended -= 1;
+            self.ledger.collecting = collecting;
+            let binds = self.origins.get(autosuggest::BIND).is_some_and(|location| {
+                Some(location) != bind.as_ref()
+                    && Path::new(location.rsplit_once(':').map_or("", |(file, _)| file))
+                        == queued.path
+            });
+            let replacement = match compiled {
+                Some(body) => {
+                    self.queued_units += 1;
+                    let name = format!("__zb_queued_{}", index + 1);
+                    let newline = if body.ends_with('\n') { "" } else { "\n" };
+                    let binding = if binds { autosuggest::PLACEHOLDER } else { "" };
+                    format!(
+                        "{name}() {{\n{body}{newline}{binding}}}\ndefer '{name}; unfunction {name}'\n"
+                    )
+                }
+                None => queued.original,
+            };
+            text = text.replacen(&queued.token, &replacement, 1);
+        }
+        text
     }
 
     /// Top-level code outside other deferred code, with `defer` defined as expected.
@@ -236,7 +311,7 @@ impl Compiler {
                 text = text.replacen(&unit.head, "", 1).replacen(&unit.tail, "", 1);
             }
         }
-        self.deferred = kept.iter().filter(|kept| !**kept).count();
+        self.deferred = kept.iter().filter(|kept| !**kept).count() + self.queued_units;
         text
     }
 

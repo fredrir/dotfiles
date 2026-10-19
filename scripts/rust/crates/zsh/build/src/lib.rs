@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod alias;
+pub mod autosuggest;
 pub mod cache;
 pub mod compdump;
 pub mod compile;
@@ -143,6 +144,21 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
             &completions,
             compiler.settle_deferral(section.to_string() + &body),
         );
+        let body = match body.contains(autosuggest::PLACEHOLDER) {
+            true => {
+                let pre = emit::bundle(
+                    &output,
+                    &target.source,
+                    &origins,
+                    &compiler.constants,
+                    &compiler.helpers,
+                    &body,
+                )?;
+                let code = bind_autosuggest(&mut compiler, &zsh, &output, &pre, &config, options.dry_run);
+                body.replacen(autosuggest::PLACEHOLDER, &code, 1)
+            }
+            false => body,
+        };
         let text = emit::bundle(
             &output,
             &target.source,
@@ -152,6 +168,7 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
             &body,
         )?;
         let written = completions.write(options.dry_run)?;
+        let regenerated = compile::regenerate::write(&compiler.generated, options.dry_run)?;
         let mut changed = std::fs::read_to_string(&output).map_or(true, |current| current != text);
         if guard.is_none() {
             changed |= emit::remove_guard(&guard_path, options.dry_run)?;
@@ -159,7 +176,7 @@ pub fn build(options: &Options) -> Result<Vec<Built>, String> {
         if changed && !options.dry_run {
             emit::write_atomic(&output, &text)?;
         }
-        changed |= written.changed;
+        changed |= written.changed || regenerated;
         changed |= compile_wordcode(&zsh, &output, options.dry_run, &mut compiler.warnings);
         changed |= emit::write_origins(&origins, &compiler.origins, options.dry_run)?;
         if let Some((text, sources)) = guard {
@@ -203,6 +220,51 @@ fn place_completions(completions: &Completions, body: String) -> String {
         Some(fpath) if completions.is_empty() => body.replace(&fpath, ""),
         Some(fpath) if !body.contains(&fpath) => fpath + &body,
         _ => body,
+    }
+}
+
+/// zsh-autosuggestions' first binding as code, recorded from a shell started
+/// from `pre`, the bundle without it; empty when it is left to the plugin.
+fn bind_autosuggest(
+    compiler: &mut Compiler,
+    zsh: &Result<(PathBuf, String), String>,
+    output: &Path,
+    pre: &str,
+    config: &Config,
+    dry_run: bool,
+) -> String {
+    let Ok((zsh, _)) = zsh else {
+        return String::new();
+    };
+    let mut ambient = config.ambient.clone();
+    ambient.extend(config.system.ambient.iter().cloned());
+    let prepare = || {
+        emit::write_atomic(output, pre)?;
+        wordcode::compile(zsh, output)
+    };
+    let code = autosuggest::binding(
+        &mut compiler.folder.cache,
+        zsh,
+        output,
+        pre,
+        &ambient,
+        !dry_run,
+        prepare,
+    )
+    .and_then(|binding| binding.code())
+    .and_then(|code| match compiler.mentions_alias_set_before(&code) {
+        true => Err("code names an alias set before the bundle".to_string()),
+        false => Ok(code),
+    });
+    match code {
+        Ok(code) => code,
+        Err(reason) => {
+            if !dry_run {
+                let note = format!("zsh-autosuggestions: {reason}; widgets bound at runtime");
+                compiler.skipped.push(note);
+            }
+            String::new()
+        }
     }
 }
 

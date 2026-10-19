@@ -3,7 +3,7 @@
 //! prompt. Uses the bundle as built and runs no command line.
 
 pub mod compare;
-mod shell;
+pub(crate) mod shell;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -15,6 +15,8 @@ use crate::state::State;
 use crate::{Options, wordcode};
 use compare::{Difference, Dump, Expected};
 use shell::Startup;
+
+const HOOK: &str = include_str!("../../assets/verify.zsh");
 
 #[derive(Debug)]
 pub struct Verified {
@@ -72,13 +74,13 @@ pub fn verify(root: &Path, direct: bool) -> Result<Verified, String> {
     ambient.extend(config.system.ambient.iter().cloned());
     let env = shell::environment(&ambient);
     let sourced = bundles.first().filter(|_| direct).map(PathBuf::as_path);
-    let bundle = shell::run(
-        &zsh,
-        scratch.path(),
-        &env,
-        &Startup::Bundle(&completions, sourced),
-    )?;
-    let sources = shell::run(&zsh, scratch.path(), &env, &Startup::Sources)?;
+    let dump = |startup: &Startup| {
+        shell::run(&zsh, scratch.path(), &env, startup, HOOK).and_then(|dump| {
+            Dump::parse(&dump).map_err(|error| format!("{}: {error}", startup.label()))
+        })
+    };
+    let bundle = dump(&Startup::Bundle(&completions, sourced))?;
+    let sources = dump(&Startup::Sources)?;
     if stamps(&bundles) != before {
         return Err("bundle changed while verifying".to_string());
     }

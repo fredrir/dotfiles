@@ -32,10 +32,13 @@ _zsh_build_whence() {
   return $code
 }
 
+# A copy of these without the helper, as in a shell snapshot, runs the builtins
 whence() {
+  (( $+functions[_zsh_build_whence] )) || { builtin whence "$@"; return }
   _zsh_build_whence "$@"
 }
 
 type() {
+  (( $+functions[_zsh_build_whence] )) || { builtin type "$@"; return }
   _zsh_build_whence -v "$@"
 }

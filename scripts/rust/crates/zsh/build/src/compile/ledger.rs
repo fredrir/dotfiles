@@ -318,6 +318,65 @@ impl Compiler {
     }
 }
 
+impl Compiler {
+    /// Whether `lists` reads, with `zstyle`, a style code before here may have set.
+    pub(super) fn reads_set_style(&self, lists: &[ZshList]) -> bool {
+        let reads = style_reads(lists, &self.state);
+        if reads.is_empty() {
+            return false;
+        }
+        let ledger = &self.ledger;
+        let defined: Vec<&String> = ledger
+            .events
+            .iter()
+            .filter(|(touch, _)| *touch != Touch::Call)
+            .map(|(_, key)| key)
+            .chain(ledger.units.iter().flat_map(|unit| &unit.names.defined))
+            .chain(ledger.collecting.iter().flat_map(|names| &names.defined))
+            .filter(|(kind, _)| *kind == ZSTYLE)
+            .map(|(_, name)| name)
+            .collect();
+        reads.iter().any(|read| {
+            read == ANY
+                || defined
+                    .iter()
+                    .any(|name| *name == ANY || style_applies(name, read))
+        })
+    }
+}
+
+/// The styles `zstyle` calls in `lists` read, anonymous functions included.
+fn style_reads(lists: &[ZshList], state: &crate::state::State) -> Vec<String> {
+    let mut visits = Vec::new();
+    walk::visit(lists, 0, &mut visits);
+    visits
+        .into_iter()
+        .flat_map(|(_, visit)| match visit {
+            Visit::Command(ZshCommand::Simple(simple)) => {
+                let words = walk::words(simple);
+                match words.split_first() {
+                    Some((name, args)) if name == "zstyle" => {
+                        let values: Vec<String> = args
+                            .iter()
+                            .map(|arg| expand::scalar(arg, state).unwrap_or_else(|| ANY.to_string()))
+                            .collect();
+                        zstyle_touches(&values)
+                            .into_iter()
+                            .filter(|(touch, _)| *touch == Touch::Call)
+                            .map(|(_, (_, name))| name)
+                            .collect()
+                    }
+                    _ => Vec::new(),
+                }
+            }
+            Visit::Command(ZshCommand::FuncDef(node)) if node.auto_call_args.is_some() => {
+                style_reads(&node.body.lists, state)
+            }
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
 /// What a simple command with these argument values defines or calls.
 pub(crate) fn command_touches(name: &str, values: &[String]) -> Vec<(Touch, Key)> {
     let flags: String = values

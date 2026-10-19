@@ -179,7 +179,7 @@ _zcomp_register() {
 }
 
 if (($+functions[defer])); then
-  defer command zcomp warm
+  defer 'command zcomp warm &!'
 else
   command zcomp warm &!
 fi
