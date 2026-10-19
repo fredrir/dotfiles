@@ -535,7 +535,7 @@
     "when": "notebookCellEditable && notebookEditable"
   },
   {
-    "key": "shift+alt+d",
+    "key": "shift+alt+w",
     "command": "bracketeer.selectQuotesContent"
   },
   {
@@ -590,5 +590,13 @@
   {
     "key": "shift+alt+cmd+i",
     "command": "-bracketeer.removeBrackets"
+  },
+  {
+    "key": "shift+alt+d",
+    "command": "editor.emmet.action.wrapWithAbbreviation"
+  },
+  {
+    "key": "ctrl+shift+alt+cmd+d",
+    "command": "editor.emmet.action.removeTag"
   }
 ]

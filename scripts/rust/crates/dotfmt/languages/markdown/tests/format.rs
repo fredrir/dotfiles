@@ -363,3 +363,54 @@ fn nested_ordered_and_task_lists_are_compact_but_multiple_paragraphs_stay_separa
         assert_eq!(formatted(input, &Config::default()), expected);
     }
 }
+
+#[test]
+fn leading_blank_lines_are_removed_so_content_starts_on_the_first_line() {
+    for (input, expected) in [
+        ("\n\n\n# Title\n\ntext", "# Title\n\ntext"),
+        (" \n\t\ntext\n\nmore", "text\n\nmore"),
+        ("\n\n    code", "    code"),
+        ("\n\n---\ntitle: x\n---\ntext", "---\ntitle: x\n---\ntext"),
+    ] {
+        assert_eq!(formatted(input, &Config::default()), expected);
+    }
+}
+
+#[test]
+fn blank_line_runs_collapse_without_joining_containers_or_touching_code() {
+    for (input, expected) in [
+        ("a\n\n\n\nb", "a\n\nb"),
+        ("- a\n\n\n\n  b\n\n\n- c", "- a\n\n  b\n\n- c"),
+        ("> a\n>\n>\n> b", "> a\n>\n> b"),
+        ("[^n]: note\n\n\n\n    second", "[^n]: note\n\n    second"),
+        ("---\ntitle: x\n---\n\n\n\ntext", "---\ntitle: x\n---\n\ntext"),
+        (
+            "text\n\n\n    code\n\n\n    more\n\n\nafter",
+            "text\n\n    code\n\n\n    more\n\nafter",
+        ),
+        ("```\na\n\n\n\nb\n```\n\n\nafter", "```\na\n\n\n\nb\n```\n\nafter"),
+        ("<pre>\n\n\n\n</pre>", "<pre>\n\n\n\n</pre>"),
+        ("> ```\n> a\n>\n>\n> ```", "> ```\n> a\n>\n>\n> ```"),
+        ("> a\n\n>\n> # Heading", "> a\n\n>\n> # Heading"),
+        ("> a\n>\n\n> # Heading", "> a\n>\n\n> # Heading"),
+    ] {
+        let output = formatted(input, &Config::default());
+        assert_eq!(output, expected);
+        assert_eq!(
+            comrak::markdown_to_html(input, &options(&Config::default())),
+            comrak::markdown_to_html(&output, &options(&Config::default()))
+        );
+    }
+}
+
+#[test]
+fn blank_lines_sets_the_maximum_run_while_headings_keep_their_own_spacing() {
+    let config = Config {
+        blank_lines: 2,
+        ..Config::default()
+    };
+    assert_eq!(
+        formatted("a\n\n\n\n\nb\n\n\n\n# H\n\n\n\ntext", &config),
+        "a\n\n\nb\n\n\n# H\n\ntext"
+    );
+}

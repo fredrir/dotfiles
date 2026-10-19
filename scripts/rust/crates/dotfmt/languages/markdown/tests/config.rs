@@ -41,6 +41,24 @@ fn table_autosizing_is_opt_in_and_requires_a_boolean() {
 }
 
 #[test]
+fn blank_lines_defaults_to_one_and_never_allows_joining_paragraphs() {
+    assert_eq!(
+        Config::from_settings(&Settings::new()).unwrap().blank_lines,
+        1
+    );
+    assert_eq!(
+        Config::from_settings(&settings("blank_lines", "3", false))
+            .unwrap()
+            .blank_lines,
+        3
+    );
+    for value in ["0", "4"] {
+        let error = Config::from_settings(&settings("blank_lines", value, false)).unwrap_err();
+        assert!(error.message.contains("blank_lines must be between 1 and 3"));
+    }
+}
+
+#[test]
 fn final_newline_applies_from_global_and_local_settings() {
     for global in [true, false] {
         assert!(

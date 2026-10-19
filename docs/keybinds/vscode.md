@@ -58,7 +58,7 @@
 | <code>shift+alt+b</code> | [<code>workbench.action.tasks.build</code>](../../shared/vscode/keybindings.json#L291) | Tasks build<br><code>taskCommandsRegistered</code> |
 | <code>shift+alt+d</code> | [<code>-editor.detectLanguage</code>](../../shared/vscode/keybindings.json#L527) | Editor detect Language<br><code>editorTextFocus &amp;&amp; !notebookEditable; remove binding</code> |
 | <code>shift+alt+d</code> | [<code>-notebook.cell.detectLanguage</code>](../../shared/vscode/keybindings.json#L532) | Notebook cell detect Language<br><code>notebookCellEditable &amp;&amp; notebookEditable; remove binding</code> |
-| <code>shift+alt+d</code> | [<code>bracketeer.selectQuotesContent</code>](../../shared/vscode/keybindings.json#L537) | Bracketeer select Quotes Content |
+| <code>shift+alt+d</code> | [<code>editor.emmet.action.wrapWithAbbreviation</code>](../../shared/vscode/keybindings.json#L594) | Editor emmet action wrap With Abbreviation |
 | <code>shift+alt+e</code> | [<code>editor.action.marker.prev</code>](../../shared/vscode/keybindings.json#L366) | Editor action marker prev<br><code>editorFocus</code> |
 | <code>shift+alt+enter</code> | [<code>-quickInput.accept</code>](../../shared/vscode/keybindings.json#L476) | Quick Input accept<br><code>inQuickInput &amp;&amp; quickInputType != 'quickWidget'; remove binding</code> |
 | <code>shift+alt+enter</code> | [<code>-workbench.action.chat.submitWithoutDispatching</code>](../../shared/vscode/keybindings.json#L481) | Chat submit Without Dispatching<br><code>chatInputHasText &amp;&amp; inChatInput &amp;&amp; !chatSessionRequestInProgress &amp;&amp; !chatTranscriptProgressActive &amp;&amp; chatAgentKind == 'ask'; remove binding</code> |
@@ -66,6 +66,7 @@
 | <code>shift+alt+f</code> | [<code>bracketeer.selectBracketContent</code>](../../shared/vscode/keybindings.json#L518) | Bracketeer select Bracket Content<br><code>editorTextFocus</code> |
 | <code>shift+alt+f5</code> | [<code>-workbench.action.compareEditor.previousChange</code>](../../shared/vscode/keybindings.json#L186) | Compare Editor previous Change<br><code>textCompareEditorVisible; remove binding</code> |
 | <code>shift+alt+f8</code> | [<code>-editor.action.marker.prev</code>](../../shared/vscode/keybindings.json#L371) | Editor action marker prev<br><code>editorFocus; remove binding</code> |
+| <code>shift+alt+w</code> | [<code>bracketeer.selectQuotesContent</code>](../../shared/vscode/keybindings.json#L537) | Bracketeer select Quotes Content |
 
 ## Mac Keybinds
 
@@ -110,6 +111,7 @@
 | <code>ctrl+alt+cmd+tab</code> | [<code>runCommands {"commands":&#91;"workbench.files.action.showActiveFileInExplorer","list.focusDown","workbench.action.closeActiveEditor","explorer.openAndPassFocus"&#93;}</code>](../../shared/vscode/keybindings.json#L550) | Run Commands<br><code>editorTextFocus</code> |
 | <code>ctrl+alt+cmd+up</code> | [<code>-quickInput.previousSeparator</code>](../../shared/vscode/keybindings.json#L191) | Quick Input previous Separator<br><code>inQuickInput &amp;&amp; quickInputType == 'quickPick' &#124;&#124; inQuickInput &amp;&amp; quickInputType == 'quickTree'; remove binding</code> |
 | <code>ctrl+alt+cmd+up</code> | [<code>workbench.action.compareEditor.previousChange</code>](../../shared/vscode/keybindings.json#L181) | Compare Editor previous Change<br><code>textCompareEditorVisible</code> |
+| <code>ctrl+shift+alt+cmd+d</code> | [<code>editor.emmet.action.removeTag</code>](../../shared/vscode/keybindings.json#L598) | Editor emmet action remove Tag |
 | <code>ctrl+shift+alt+cmd+i</code> | [<code>bracketeer.removeBrackets</code>](../../shared/vscode/keybindings.json#L586) | Bracketeer remove Brackets |
 | <code>ctrl+shift+alt+cmd+k</code> | [<code>bracketeer.swapBrackets</code>](../../shared/vscode/keybindings.json#L502) | Bracketeer swap Brackets |
 | <code>shift+alt+cmd+0</code> | [<code>-bracketeer.selectQuotesContent</code>](../../shared/vscode/keybindings.json#L541) | Bracketeer select Quotes Content<br><code>global; remove binding</code> |

@@ -39,11 +39,12 @@ pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {
 }
 
 fn format_resolved(input: &str, config: &Config) -> Result<String, String> {
-    let input = input.replace("\r\n", "\n");
+    let normalized = input.replace("\r\n", "\n");
+    let input = without_leading_blank_lines(&normalized);
     let (frontmatter, body) = if config.dialect != Dialect::Commonmark {
-        split_frontmatter(&input)
+        split_frontmatter(input)
     } else {
-        ("", input.as_str())
+        ("", input)
     };
     let options = options(config);
     let protected = (config.dialect != Dialect::Commonmark)
@@ -79,6 +80,18 @@ fn format_resolved(input: &str, config: &Config) -> Result<String, String> {
         output.push('\n');
     }
     Ok(output)
+}
+
+// A document of only blank lines is left to the trailing blank line handling.
+fn without_leading_blank_lines(input: &str) -> &str {
+    let mut start = 0;
+    for line in input.split_inclusive('\n') {
+        if !line.trim_matches([' ', '\t', '\n']).is_empty() {
+            return &input[start..];
+        }
+        start += line.len();
+    }
+    input
 }
 
 // Recognize metadata before Markdown parsing, including empty YAML blocks and

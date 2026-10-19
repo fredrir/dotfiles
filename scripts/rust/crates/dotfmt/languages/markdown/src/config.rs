@@ -9,6 +9,7 @@ pub struct Config {
     pub width: usize,
     pub table_style: TableStyle,
     pub autosize_table: bool,
+    pub blank_lines: usize,
     pub heading_blank_lines: usize,
     pub list_marker: ListStyleType,
     pub trim_trailing_blank_lines: bool,
@@ -22,6 +23,7 @@ impl Default for Config {
             width: 80,
             table_style: TableStyle::Auto,
             autosize_table: false,
+            blank_lines: 1,
             heading_blank_lines: 1,
             list_marker: ListStyleType::Dash,
             trim_trailing_blank_lines: true,
@@ -53,6 +55,7 @@ impl Config {
             }
             "width" => self.width = number(key, value, 0, 10000)?,
             "autosize_table" => self.autosize_table = flag(key, value)?,
+            "blank_lines" => self.blank_lines = number(key, value, 1, 3)?,
             "heading_blank_lines" => self.heading_blank_lines = number(key, value, 0, 3)?,
             "trim_trailing_blank_lines" => self.trim_trailing_blank_lines = flag(key, value)?,
             "final_newline" => self.final_newline = flag(key, value)?,

@@ -18,12 +18,23 @@ pub fn format(
     normalize_inlines(root, &mut lines, options, input.ends_with('\n'));
     let mut removed = vec![false; lines.len()];
     let mut spacing = vec![None; lines.len()];
+    let mut verbatim = vec![false; lines.len()];
     let mut closing_fence = None;
     for node in root.descendants() {
         let data = node.data.borrow();
         let pos = data.sourcepos;
         if pos.start.line == 0 || pos.end.line == 0 || pos.end.line > lines.len() {
             continue;
+        }
+        if let NodeValue::CodeBlock(_) | NodeValue::HtmlBlock(_) = data.value {
+            let mut end = pos.end.line;
+            // Indented code ends at its last nonblank line.
+            if matches!(&data.value, NodeValue::CodeBlock(code) if !code.fenced) {
+                while end > pos.start.line && quote_depth(&lines[end - 1]).is_some() {
+                    end -= 1;
+                }
+            }
+            verbatim[pos.start.line - 1..end].fill(true);
         }
         match &data.value {
             NodeValue::CodeBlock(code)
@@ -101,21 +112,29 @@ pub fn format(
                 }
             }
             NodeValue::Heading(_) => {
-                let start = pos.start.line - 1;
-                let end = pos.end.line - 1;
-                let prefix = blank_prefix(&lines[start], pos.start.column);
-                spacing[end] = Some(prefix.clone());
-                // Collapse excess spacing before a heading, without touching
-                // quoted or indented content from another container.
-                let mut before = start;
-                while before > 0 && blank(&lines[before - 1], &prefix) {
-                    before -= 1;
-                }
-                for remove in &mut removed[before..start.saturating_sub(1).max(before)] {
-                    *remove = true;
-                }
+                let prefix = blank_prefix(&lines[pos.start.line - 1], pos.start.column);
+                spacing[pos.end.line - 1] = Some(prefix);
             }
             _ => {}
+        }
+    }
+    // Only merge blank lines of the same quote depth, so separate block quotes
+    // never join. Trailing blank lines follow trim_trailing_blank_lines.
+    let content_end = lines
+        .iter()
+        .rposition(|line| !line.trim_matches([' ', '\t']).is_empty())
+        .unwrap_or(0);
+    let (mut previous, mut count) = (None, 0);
+    for index in 0..content_end {
+        let depth = quote_depth(&lines[index]).filter(|_| !verbatim[index]);
+        count = if depth.is_some() && depth == previous {
+            count + 1
+        } else {
+            1
+        };
+        previous = depth;
+        if depth.is_some() && count > config.blank_lines {
+            removed[index] = true;
         }
     }
     let mut output = String::with_capacity(input.len());
@@ -155,6 +174,12 @@ pub fn format(
 
 fn blank(line: &str, prefix: &str) -> bool {
     line.trim().is_empty() || line.trim_end() == prefix
+}
+
+fn quote_depth(line: &str) -> Option<usize> {
+    line.chars()
+        .all(|c| matches!(c, '>' | ' ' | '\t'))
+        .then(|| line.matches('>').count())
 }
 
 fn blank_prefix(line: &str, column: usize) -> String {

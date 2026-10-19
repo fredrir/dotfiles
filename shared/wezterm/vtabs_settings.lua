@@ -9,6 +9,7 @@ return {
     keybinds = {
       close = { "Super+w" },
       commands = { "Super+p" },
+      move_folder_up = {},
       move_tab_space = { "Alt+Shift+e" },
       new_tab = { "Super+t" },
       next_space = { "Super+Alt+" },
@@ -33,9 +34,6 @@ return {
     show_indexes = false,
     width = 256,
   },
-  spaces = {
-    { icon = "󰋜", id = "home", name = "Home" },
-    { icon = "󰌠", id = "space-1804618de6b360ec2b3382-1", name = "Pyparser" },
-  },
+  spaces = { { icon = "󰋜", id = "home", name = "Home" } },
   templates = {},
 }
