@@ -158,12 +158,13 @@ impl App {
             }
         }
         let mut entries = Vec::new();
+        let disabled = self.view.workspace == Workspace::Changes && summary.items == 0;
         let mut pending = vec![(root.clone(), root.clone(), 0)];
         while let Some((path, parent, depth)) = pending.pop() {
             let node = &tree[&path];
             let mut state = node.state;
-            state.expanded =
-                node.directory && (!query.is_empty() || !self.tree_collapsed().contains(&path));
+            state.expanded = node.directory
+                && (disabled || !query.is_empty() || !self.tree_collapsed().contains(&path));
             let label = if depth == 0 {
                 if path.as_os_str().is_empty() {
                     self.repo
@@ -180,6 +181,7 @@ impl App {
                 item: NavItem {
                     label: label.to_string_lossy().into_owned(),
                     depth,
+                    disabled,
                     kind: if node.directory {
                         NavKind::Folder
                     } else {
@@ -208,6 +210,7 @@ impl App {
     pub(super) fn selected_file_state(&self) -> Option<view::FileState> {
         self.entries
             .get(self.view.selected)
+            .filter(|entry| !entry.item.disabled)
             .and_then(|entry| entry.item.file_state)
     }
 

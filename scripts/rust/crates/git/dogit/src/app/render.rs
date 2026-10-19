@@ -63,13 +63,17 @@ impl App {
             .file_name()
             .unwrap_or(self.repo.root.as_os_str())
             .to_string_lossy();
-        let branch = self.snapshot.status.branch.as_deref().unwrap_or_else(|| {
-            if self.snapshot.status.oid.is_some() {
-                "Detached HEAD"
-            } else {
-                "New Repository"
-            }
-        });
+        let branch = if self.snapshot_loaded {
+            self.snapshot.status.branch.as_deref().unwrap_or_else(|| {
+                if self.snapshot.status.oid.is_some() {
+                    "Detached HEAD"
+                } else {
+                    "New Repository"
+                }
+            })
+        } else {
+            ""
+        };
         let composing = self.composing();
         let preview_target = self.preview_target().cloned();
         let canvas_path = match preview_target.as_ref() {

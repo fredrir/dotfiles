@@ -119,6 +119,22 @@ pub fn diff_rows(diff: &ExactDiff, split: bool) -> Vec<DiffRow> {
     rows
 }
 
+pub(super) fn render_no_changes(buffer: &mut Buffer, area: Rect) {
+    if area.is_empty() {
+        return;
+    }
+    let message = "No changes";
+    let width = (message.width() as u16).min(area.width);
+    put(
+        buffer,
+        area.x + (area.width - width) / 2,
+        area.y + area.height / 2,
+        width,
+        message,
+        style(Role::Muted).add_modifier(Modifier::DIM),
+    );
+}
+
 pub(super) fn render_diff(
     buffer: &mut Buffer,
     area: Rect,
@@ -156,15 +172,18 @@ pub(super) fn render_diff(
         <[DiffRow]>::len,
     );
     if row_count == 0 {
-        let message = diff.partial_reason.as_deref().unwrap_or("");
-        put(
-            buffer,
-            area.x + 2,
-            area.y + 1,
-            area.width.saturating_sub(4),
-            message,
-            style(Role::Plain),
-        );
+        if let Some(message) = diff.partial_reason.as_deref() {
+            put(
+                buffer,
+                area.x + 2,
+                area.y + 1,
+                area.width.saturating_sub(4),
+                message,
+                style(Role::Plain),
+            );
+        } else {
+            render_no_changes(buffer, area);
+        }
         return;
     }
     state.diff_cursor = state.diff_cursor.min(row_count - 1);

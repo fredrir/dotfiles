@@ -79,10 +79,14 @@ pub(super) fn render_navigator(
         .take(height)
     {
         let y = area.y + (row - state.offset) as u16;
-        let selected = row == state.selected;
+        let selected = !item.disabled && row == state.selected;
         let active = selected && state.focus == Focus::Navigator;
         if let Some(file) = item.file_state {
-            let row_style = tree_row_style(selected, active, state.nav_hovered == Some(row));
+            let row_style = if item.disabled {
+                style(Role::Muted).add_modifier(Modifier::DIM)
+            } else {
+                tree_row_style(selected, active, state.nav_hovered == Some(row))
+            };
             let disclosure = render_tree_item(
                 buffer,
                 Rect::new(area.x, y, area.width, 1),
@@ -94,7 +98,7 @@ pub(super) fn render_navigator(
                     appearance: row_style,
                     animation: state
                         .folder_animation
-                        .filter(|animation| animation.row == row),
+                        .filter(|animation| !item.disabled && animation.row == row),
                 },
             );
             if let Some(disclosure) = disclosure {
@@ -466,7 +470,7 @@ fn render_tree_item(
     } else {
         appearance
     };
-    let label_style = if directory {
+    let label_style = if directory && !item.disabled {
         label_style.add_modifier(Modifier::BOLD)
     } else {
         label_style
@@ -490,8 +494,8 @@ fn render_tree_item(
         };
         put(buffer, x, area.y, layout.decoration, icon, icon_style);
     }
-    let disclosure =
-        (directory && layout.decoration > 0).then_some(Rect::new(x, area.y, layout.decoration, 1));
+    let disclosure = (directory && !item.disabled && layout.decoration > 0)
+        .then_some(Rect::new(x, area.y, layout.decoration, 1));
     let horizontal = horizontal.min(
         safe_text(&item.label)
             .width()

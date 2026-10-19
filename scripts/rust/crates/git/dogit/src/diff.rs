@@ -211,8 +211,7 @@ impl ExactDiff {
         let reader = Reader { root, cancel };
         let mut args = diff_args();
         args.extend([OsString::from("--cached"), OsString::from("--")]);
-        let mut document = Self::parse(root, Path::new(""), DiffSide::Index, reader.git(args)?)?;
-        document.partial_reason = Some("Select an individual file before unstaging lines".into());
+        let document = Self::parse(root, Path::new(""), DiffSide::Index, reader.git(args)?)?;
         Ok(document)
     }
 

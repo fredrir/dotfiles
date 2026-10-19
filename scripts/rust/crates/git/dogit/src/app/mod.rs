@@ -363,6 +363,7 @@ struct PendingOperation {
 struct App {
     repo: Repo,
     snapshot: Snapshot,
+    snapshot_loaded: bool,
     files: Vec<PathBuf>,
     view: ViewState,
     entries: Vec<Entry>,
@@ -465,6 +466,7 @@ impl App {
         Self {
             repo,
             snapshot: Snapshot::default(),
+            snapshot_loaded: false,
             files: Vec::new(),
             view,
             entries: Vec::new(),
@@ -544,6 +546,7 @@ impl App {
     fn selected(&self) -> Option<&Target> {
         self.entries
             .get(self.view.selected)
+            .filter(|entry| !entry.item.disabled)
             .map(|entry| &entry.target)
     }
 
@@ -737,6 +740,7 @@ impl App {
             let force = std::mem::take(&mut self.refresh_forced);
             match result {
                 Ok(data) => {
+                    self.snapshot_loaded = true;
                     let reread_config = force && data.presentation_config.is_none();
                     if let Some(config) = data.presentation_config {
                         let previous_split = self.view.split;
@@ -1002,6 +1006,7 @@ impl App {
                                 },
                                 depth: 0,
                                 kind: NavKind::Commit,
+                                disabled: false,
                                 staged: false,
                                 file_state: None,
                                 graph: graphs.get(index).cloned().unwrap_or_default(),
@@ -1589,6 +1594,7 @@ fn nav(label: &str, detail: &str, status: &str, kind: NavKind) -> NavItem {
         status: status.into(),
         depth: 0,
         kind,
+        disabled: false,
         staged: false,
         file_state: None,
         graph: String::new(),

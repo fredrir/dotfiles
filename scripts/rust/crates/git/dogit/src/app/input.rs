@@ -668,7 +668,10 @@ impl App {
                     return None;
                 }
                 let index = geometry.nav_start + usize::from(event.row - geometry.nav.y);
-                (index < self.entries.len()).then_some(index)
+                self.entries
+                    .get(index)
+                    .filter(|entry| !entry.item.disabled)
+                    .map(|_| index)
             });
             if self.view.divider_hovered != hovered
                 || self.view.divider_hover_row != hover_row
@@ -722,9 +725,12 @@ impl App {
                 } else if geometry.commit_subject.contains(point) {
                     self.inspect_commit();
                 } else if geometry.nav.contains(point) {
+                    let index = geometry.nav_start + usize::from(event.row - geometry.nav.y);
+                    if self.entries.get(index).is_some_and(|entry| entry.item.disabled) {
+                        return;
+                    }
                     self.view.focus = Focus::Navigator;
                     self.view.nav_manual_scroll = false;
-                    let index = geometry.nav_start + usize::from(event.row - geometry.nav.y);
                     if index < self.entries.len() {
                         let disclosure = geometry
                             .nav_disclosures

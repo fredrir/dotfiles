@@ -90,7 +90,7 @@ impl App {
                 self.prompt(Prompt::CompareFrom, "Compare from revision", &value);
             }
             Action::Edit if self.view.workspace == Workspace::Changes => {
-                let path = match target { Some(Target::Path(path, _)) => self.repo.root.join(path), _ => self.repo.root.clone() };
+                let path = match target { Some(Target::Path(path, _)) => self.repo.root.join(path), _ => return Ok(()) };
                 self.prepare("Open editor", move |repo| {
                     let mut command = repo.command(&CommandSpec::new("Editor", ["var", "GIT_EDITOR"]));
                     let output = hostkit::process::output(&mut command, hostkit::process::CaptureLimits::default(), Duration::from_secs(5)).map_err(|error| error.to_string())?;
@@ -334,6 +334,7 @@ impl App {
             return Ok(());
         }
         match self.selected() {
+            None if self.view.focus == Focus::Navigator => {}
             Some(Target::Commit(oid)) if self.view.focus == Focus::Navigator => {
                 self.history_commit = Some(oid.clone());
                 self.revision_paths.clear();

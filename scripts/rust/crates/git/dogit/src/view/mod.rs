@@ -35,7 +35,7 @@ pub use toast::ToastView;
 pub use wrap::{DiffLayout, DiffPaint, configured_diff_layout};
 
 use chrome::{Badge, nav_badges, render_footer, render_pane_footer, render_tabs};
-use diff::{render_diff, render_structural, render_text};
+use diff::{render_diff, render_no_changes, render_structural, render_text};
 use navigator::render_navigator;
 use overlay::render_overlay;
 use text::{
@@ -101,6 +101,7 @@ pub struct NavItem {
     pub status: String,
     pub depth: usize,
     pub kind: ItemKind,
+    pub disabled: bool,
     pub staged: bool,
     pub graph: String,
     pub file_state: Option<FileState>,
@@ -649,6 +650,8 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             render_diff(frame.buffer_mut(), canvas, state, data, diff, &mut geometry);
         } else if !data.canvas_lines.is_empty() {
             render_text(frame.buffer_mut(), canvas, state, data.canvas_lines);
+        } else if changes && totals.items == 0 {
+            render_no_changes(frame.buffer_mut(), canvas);
         }
     }
     if state.divider_hovered
