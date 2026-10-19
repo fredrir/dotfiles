@@ -3,10 +3,10 @@ use super::*;
 pub fn nav_horizontal_limit(items: &[NavItem], width: u16, workspace: Workspace) -> usize {
     items
         .iter()
-        .zip(tree_statuses(items))
-        .map(|(item, status)| {
+        .zip(tree_decorations(items))
+        .map(|(item, decoration)| {
             if item.file_state.is_some() {
-                let layout = TreeLayout::new(item, status, width);
+                let layout = TreeLayout::new(item, decoration.status, width);
                 let label_width = layout.label_width;
                 return safe_text(&item.label)
                     .width()
@@ -71,9 +71,9 @@ pub(super) fn render_navigator(
         }
     }
     state.offset = state.offset.min(items.len().saturating_sub(height));
-    for (row, (item, status)) in items
+    for (row, (item, decoration)) in items
         .iter()
-        .zip(tree_statuses(items))
+        .zip(tree_decorations(items))
         .enumerate()
         .skip(state.offset)
         .take(height)
@@ -89,7 +89,7 @@ pub(super) fn render_navigator(
                 item,
                 TreePaint {
                     file,
-                    status,
+                    decoration,
                     horizontal: state.nav_horizontal,
                     appearance: row_style,
                     animation: state
@@ -349,6 +349,7 @@ enum TreeStatus {
     Unstaged,
     Mixed,
     Conflict,
+    Deleted,
 }
 
 impl TreeStatus {
@@ -361,27 +362,47 @@ impl TreeStatus {
     }
 }
 
-fn tree_statuses(items: &[NavItem]) -> impl Iterator<Item = TreeStatus> + '_ {
-    let mut parents: Vec<(usize, FileState)> = Vec::new();
+#[derive(Clone, Copy, Default)]
+struct TreeDecoration {
+    status: TreeStatus,
+    highlight_directory: bool,
+}
+
+fn tree_decorations(items: &[NavItem]) -> impl Iterator<Item = TreeDecoration> + '_ {
+    let mut parents: Vec<(usize, FileState, bool)> = Vec::new();
     items.iter().map(move |item| {
         while parents
             .last()
-            .is_some_and(|(depth, _)| *depth >= item.depth)
+            .is_some_and(|(depth, _, _)| *depth >= item.depth)
         {
             parents.pop();
         }
         let Some(file) = item.file_state else {
-            return TreeStatus::None;
+            return TreeDecoration::default();
         };
         let directory = item.kind == ItemKind::Folder;
         let show_file_status = parents
             .last()
-            .is_none_or(|(_, parent)| parent.staged && parent.unstaged);
+            .is_none_or(|(_, parent, _)| parent.staged && parent.unstaged);
+        let ancestor_highlighted = parents
+            .last()
+            .is_some_and(|(_, _, highlighted)| *highlighted);
+        let highlight_directory = directory
+            && !ancestor_highlighted
+            && !file.deleted
+            && !file.conflicted
+            && file.staged != file.unstaged;
         if directory {
-            parents.push((item.depth, file));
+            parents.push((
+                item.depth,
+                file,
+                ancestor_highlighted || highlight_directory,
+            ));
         }
-        if file.conflicted {
+        let status = if file.conflicted {
             TreeStatus::Conflict
+        } else if file.deleted {
+            TreeStatus::Deleted
         } else if directory {
             if !file.expanded && file.staged && file.unstaged {
                 TreeStatus::Mixed
@@ -397,13 +418,17 @@ fn tree_statuses(items: &[NavItem]) -> impl Iterator<Item = TreeStatus> + '_ {
             }
         } else {
             TreeStatus::None
+        };
+        TreeDecoration {
+            status,
+            highlight_directory,
         }
     })
 }
 
 struct TreePaint {
     file: FileState,
-    status: TreeStatus,
+    decoration: TreeDecoration,
     horizontal: usize,
     appearance: Style,
     animation: Option<FolderAnimation>,
@@ -417,30 +442,34 @@ fn render_tree_item(
 ) -> Option<Rect> {
     let TreePaint {
         file,
-        status,
+        decoration,
         horizontal,
         appearance,
         animation,
     } = paint;
+    let status = decoration.status;
     buffer.set_style(area, appearance);
     let layout = TreeLayout::new(item, status, area.width);
     let x = area.x + layout.indent;
     let directory = item.kind == ItemKind::Folder;
-    let label_style = if directory {
-        let directory_style = if file.conflicted {
-            style(Role::DiffRemoved)
+    let label_style = if file.staged_deletion || (directory && file.conflicted) {
+        appearance.fg(foreground(Role::DiffRemoved))
+    } else if decoration.highlight_directory {
+        let side = if file.staged {
+            DiffSide::Index
         } else {
-            match (file.staged, file.unstaged) {
-                (true, false) => file_side_style(DiffSide::Index),
-                (false, true) => file_side_style(DiffSide::Worktree),
-                _ => style(Role::Plain),
-            }
+            DiffSide::Worktree
         };
-        appearance
-            .fg(directory_style.fg.unwrap_or(Color::Reset))
-            .add_modifier(Modifier::BOLD)
+        appearance.fg(file_side_style(side).fg.unwrap_or(Color::Reset))
+    } else if directory {
+        appearance.fg(foreground(Role::Muted))
     } else {
         appearance
+    };
+    let label_style = if directory {
+        label_style.add_modifier(Modifier::BOLD)
+    } else {
+        label_style
     };
     if layout.decoration > 0 {
         let (icon, icon_style) = if directory {
@@ -452,7 +481,11 @@ fn render_tree_item(
         } else {
             (
                 file_icons::for_path(&item.label),
-                appearance.fg(foreground(Role::Muted)),
+                if file.staged_deletion {
+                    label_style
+                } else {
+                    appearance.fg(foreground(Role::Muted))
+                },
             )
         };
         put(buffer, x, area.y, layout.decoration, icon, icon_style);
@@ -501,6 +534,7 @@ fn render_tree_item(
                 ("○", file_side_style(DiffSide::Worktree).fg)
             }
             TreeStatus::Conflict => ("!", style(Role::DiffRemoved).fg),
+            TreeStatus::Deleted => ("D", style(Role::DiffRemoved).fg),
             TreeStatus::None => ("", None),
         };
         put(

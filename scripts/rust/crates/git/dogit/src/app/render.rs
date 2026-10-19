@@ -148,17 +148,8 @@ impl App {
                 .get(self.view.selected)
                 .map_or(String::new(), |entry| entry.item.detail.clone())
         };
-        let operation = if let Some(pending) = self.operation.as_ref() {
-            Some(view::OperationView {
-                label: pending.label.clone(),
-                detail: "Running".into(),
-                tone: view::Tone::Running,
-                phase: if ui_terminal::reduced_motion_requested("DOGIT_REDUCED_MOTION") {
-                    0
-                } else {
-                    pending.started.elapsed().as_millis() as usize / 80
-                },
-            })
+        let operation = if self.operation.is_some() {
+            None
         } else if let Some((message, failed, _)) = &self.feedback {
             Some(view::OperationView {
                 label: message.clone(),
@@ -168,7 +159,6 @@ impl App {
                 } else {
                     view::Tone::Normal
                 },
-                phase: 0,
             })
         } else {
             self.snapshot
@@ -177,7 +167,6 @@ impl App {
                     label: format!("{} in progress", operation),
                     detail: format!("{} unresolved files", self.unresolved_count),
                     tone: view::Tone::Attention,
-                    phase: 0,
                 })
         };
         let reduced_motion = ui_terminal::reduced_motion_requested("DOGIT_REDUCED_MOTION");

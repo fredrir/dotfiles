@@ -111,6 +111,8 @@ pub struct FileState {
     pub staged: bool,
     pub unstaged: bool,
     pub conflicted: bool,
+    pub deleted: bool,
+    pub staged_deletion: bool,
     pub expanded: bool,
 }
 
@@ -126,7 +128,6 @@ pub enum Tone {
     #[default]
     Normal,
     Attention,
-    Running,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -134,7 +135,6 @@ pub struct OperationView {
     pub label: String,
     pub detail: String,
     pub tone: Tone,
-    pub phase: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -329,12 +329,19 @@ pub struct Geometry {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DiffRow {
     pub hunk: usize,
+    pub hunk_end: bool,
     pub line: Option<usize>,
     pub right_line: Option<usize>,
     pub left_offset: usize,
     pub right_offset: usize,
     pub left_part: usize,
     pub right_part: usize,
+}
+
+impl DiffRow {
+    pub(crate) fn is_hunk_header(&self) -> bool {
+        !self.hunk_end && self.line.is_none() && self.right_line.is_none()
+    }
 }
 
 pub fn canvas_width(area: Rect, state: &ViewState, inspecting_commit: bool) -> u16 {
@@ -809,16 +816,7 @@ fn render_operation(buffer: &mut Buffer, area: Rect, operation: &OperationView) 
     } else {
         style(Role::Plain)
     };
-    let marker = if operation.tone == Tone::Running {
-        ["━──", "─━─", "──━", "─━─"][operation.phase % 4]
-    } else {
-        ""
-    };
-    let text = if marker.is_empty() {
-        format!(" {} ", operation.label)
-    } else {
-        format!(" {marker} {} ", operation.label)
-    };
+    let text = format!(" {} ", operation.label);
     let label_width = text.width().min(usize::from(area.width.saturating_sub(4))) as u16;
     put(
         buffer,

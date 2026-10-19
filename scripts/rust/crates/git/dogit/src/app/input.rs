@@ -315,17 +315,6 @@ impl App {
                     if matches!(self.selected(), Some(Target::Commit(_))) {
                         return self.enter(terminal, signals);
                     }
-                    let history_root = self.history_commit.is_some()
-                        && self
-                            .entries
-                            .get(self.view.selected)
-                            .is_some_and(|entry| entry.item.depth == 0)
-                        && self
-                            .selected_file_state()
-                            .is_some_and(|state| state.expanded);
-                    if !history_root && self.expand_selected() {
-                        return Ok(());
-                    }
                     self.view.focus = Focus::Canvas;
                     return Ok(());
                 }
@@ -426,6 +415,10 @@ impl App {
                 self.load_content(true);
             }
         } else {
+            if !select && matches!(amount, -1 | 1) && self.has_diff_hunks() {
+                self.navigate_hunk(amount > 0);
+                return;
+            }
             if select {
                 self.mark_current(true);
             }
@@ -460,7 +453,12 @@ impl App {
                 self.load_content(true);
             }
         } else {
-            self.view.diff_cursor = if end {
+            self.view.diff_cursor = if end && self.has_diff_hunks() {
+                self.row_map
+                    .iter()
+                    .rposition(view::DiffRow::is_hunk_header)
+                    .unwrap_or(0)
+            } else if end {
                 self.row_map
                     .len()
                     .max(self.content_line_count)
@@ -468,6 +466,9 @@ impl App {
             } else {
                 0
             };
+            if self.has_diff_hunks() {
+                self.view.diff_offset = self.view.diff_cursor;
+            }
             self.follow_canvas_cursor();
         }
     }
@@ -513,27 +514,70 @@ impl App {
         }
     }
 
+    fn has_diff_hunks(&self) -> bool {
+        self.structural.is_none() && !self.row_map.is_empty()
+    }
+
+    fn navigate_hunk(&mut self, forward: bool) {
+        let Some(current) = self.row_map.get(self.view.diff_cursor) else {
+            return;
+        };
+        let start = self.row_map.partition_point(|row| row.hunk < current.hunk);
+        let end = self.row_map.partition_point(|row| row.hunk <= current.hunk);
+        let height = self
+            .geometry
+            .as_ref()
+            .map_or(self.row_map.len(), |geometry| {
+                usize::from(geometry.canvas.height).max(1)
+            });
+        let step = height.saturating_sub(2).max(1);
+        let offset = if forward {
+            if end > self.view.diff_offset.saturating_add(height) {
+                self.view
+                    .diff_offset
+                    .saturating_add(step)
+                    .min(end.saturating_sub(height))
+                    .max(start)
+            } else if end < self.row_map.len() {
+                end
+            } else {
+                return;
+            }
+        } else if self.view.diff_offset > start {
+            self.view.diff_offset.saturating_sub(step).max(start)
+        } else if let Some(previous) = start.checked_sub(1) {
+            let previous_hunk = self.row_map[previous].hunk;
+            let previous_start = self.row_map.partition_point(|row| row.hunk < previous_hunk);
+            start.saturating_sub(height).max(previous_start)
+        } else {
+            return;
+        };
+        self.view.diff_cursor = offset;
+        self.view.diff_offset = offset;
+        self.follow_canvas_cursor();
+    }
+
     pub(super) fn jump_hunk(&mut self, forward: bool) {
+        if !self.has_diff_hunks() {
+            return;
+        }
         let rows = &self.row_map;
         let cursor = self.view.diff_cursor;
         let index = if forward {
             rows.iter()
                 .enumerate()
-                .find(|(index, row)| {
-                    *index > cursor && row.line.is_none() && row.right_line.is_none()
-                })
+                .find(|(index, row)| *index > cursor && row.is_hunk_header())
                 .map(|(index, _)| index)
         } else {
             rows.iter()
                 .enumerate()
                 .rev()
-                .find(|(index, row)| {
-                    *index < cursor && row.line.is_none() && row.right_line.is_none()
-                })
+                .find(|(index, row)| *index < cursor && row.is_hunk_header())
                 .map(|(index, _)| index)
         };
         if let Some(index) = index {
             self.view.diff_cursor = index;
+            self.view.diff_offset = index;
             self.view.focus = Focus::Canvas;
             self.follow_canvas_cursor();
         }
@@ -544,24 +588,6 @@ impl App {
             let expanded = self.tree_collapsed().contains(&path);
             self.set_folder_expanded(path, expanded);
         }
-    }
-
-    pub(super) fn expand_selected(&mut self) -> bool {
-        let Some(Target::Path(path, true)) = self.selected().cloned() else {
-            return false;
-        };
-        self.view.nav_manual_scroll = false;
-        if self.query.is_empty() && self.tree_collapsed().contains(&path) {
-            self.set_folder_expanded(path, true);
-            return true;
-        } else if self.entries.get(self.view.selected + 1).is_some_and(
-            |entry| matches!(&entry.target, Target::Path(child, _) if child.starts_with(&path)),
-        ) {
-            self.view.selected += 1;
-            self.load_content(true);
-            return true;
-        }
-        false
     }
 
     pub(super) fn leave_commit(&mut self) {

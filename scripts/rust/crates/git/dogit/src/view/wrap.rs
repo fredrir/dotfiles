@@ -82,6 +82,7 @@ pub fn configured_diff_layout(
             let right_offset = right.and_then(|line| line.offsets.get(part));
             rows.push(DiffRow {
                 hunk: row.hunk,
+                hunk_end: false,
                 line: left_offset.and(row.line),
                 right_line: right_offset.and(row.right_line),
                 left_offset: left_offset.copied().unwrap_or(0),
@@ -156,7 +157,6 @@ pub(super) struct PaintedCell {
     pub id: usize,
     pub right: bool,
     pub part: usize,
-    pub cursor: bool,
     pub selected: bool,
     pub horizontal: usize,
 }
@@ -167,7 +167,6 @@ impl DiffPaint {
             id,
             right,
             part,
-            cursor,
             selected,
             horizontal,
         } = cell;
@@ -177,16 +176,6 @@ impl DiffPaint {
         let Some(chunk) = line.chunks.get(part) else {
             return;
         };
-        if selected || cursor {
-            put(
-                buffer,
-                area.x,
-                area.y,
-                1,
-                if selected { "▎" } else { "┃" },
-                style(Role::Accent),
-            );
-        }
         let gutter_width = line.gutter.width().min(usize::from(area.width)) as u16;
         if part == 0 {
             Paragraph::new(line.gutter.clone()).render(
@@ -211,5 +200,8 @@ impl DiffPaint {
                 ),
                 buffer,
             );
+        if selected {
+            diff::highlight_selected_line(buffer, area);
+        }
     }
 }

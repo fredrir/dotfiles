@@ -8,6 +8,7 @@ const ENTER: Duration = Duration::from_millis(180);
 const EXIT: Duration = Duration::from_millis(140);
 const LIFETIME: Duration = Duration::from_secs(5);
 const FRAME: Duration = Duration::from_millis(16);
+const LOADING_DELAY: Duration = Duration::from_millis(250);
 
 pub struct ToastView<'a> {
     pub title: &'a str,
@@ -21,15 +22,21 @@ impl ToastView<'_> {
         !self.loading && self.elapsed >= LIFETIME
     }
 
+    pub fn visible(&self) -> bool {
+        !self.expired() && (!self.loading || self.elapsed >= LOADING_DELAY)
+    }
+
     pub fn animating(&self) -> bool {
         !self.reduced_motion
-            && !self.expired()
+            && self.visible()
             && (self.loading || self.elapsed < ENTER || self.elapsed >= LIFETIME - EXIT)
     }
 
     pub fn next_transition(&self) -> Duration {
-        if self.animating() {
-            if self.loading && self.elapsed >= ENTER {
+        if self.loading && !self.visible() {
+            LOADING_DELAY.saturating_sub(self.elapsed)
+        } else if self.animating() {
+            if self.loading && self.animation_elapsed() >= ENTER {
                 Duration::from_millis(80)
             } else {
                 FRAME
@@ -46,13 +53,22 @@ impl ToastView<'_> {
         }
     }
 
+    fn animation_elapsed(&self) -> Duration {
+        if self.loading {
+            self.elapsed.saturating_sub(LOADING_DELAY)
+        } else {
+            self.elapsed
+        }
+    }
+
     fn visibility(&self) -> f64 {
-        if self.expired() {
+        let elapsed = self.animation_elapsed();
+        if !self.visible() {
             0.0
         } else if self.reduced_motion {
             1.0
-        } else if self.elapsed < ENTER {
-            let progress = self.elapsed.as_secs_f64() / ENTER.as_secs_f64();
+        } else if elapsed < ENTER {
+            let progress = elapsed.as_secs_f64() / ENTER.as_secs_f64();
             1.0 - (1.0 - progress).powi(3)
         } else if !self.loading && self.elapsed > LIFETIME - EXIT {
             let progress = (self.elapsed - (LIFETIME - EXIT)).as_secs_f64() / EXIT.as_secs_f64();
@@ -64,7 +80,7 @@ impl ToastView<'_> {
 }
 
 pub(super) fn render(buffer: &mut Buffer, area: Rect, toast: &ToastView<'_>) {
-    if area.width < 4 || area.height < 4 || toast.expired() {
+    if area.width < 4 || area.height < 4 || !toast.visible() {
         return;
     }
     let margin = u16::from(area.width >= 24) * 2;
@@ -94,7 +110,7 @@ pub(super) fn render(buffer: &mut Buffer, area: Rect, toast: &ToastView<'_>) {
         .border_type(BorderType::Rounded)
         .style(appearance)
         .render(card, &mut painted);
-    let phase = (toast.elapsed.as_millis() / 80) as u64;
+    let phase = (toast.animation_elapsed().as_millis() / 80) as u64;
     let symbol = if toast.loading {
         ui_progress::Spinner::Braille.frame(phase, !toast.reduced_motion)
     } else {

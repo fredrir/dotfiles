@@ -352,6 +352,7 @@ struct LineAnchor {
 #[derive(Clone, Copy)]
 struct RowAnchor {
     hunk: usize,
+    hunk_end: bool,
     source: Option<(usize, usize)>,
 }
 struct PendingOperation {
@@ -1456,6 +1457,7 @@ impl App {
         if let Some((hunk, line)) = candidate
             && let Some(index) = self.row_for_anchor(RowAnchor {
                 hunk,
+                hunk_end: false,
                 source: (!anchor.header).then_some((line.id, anchor.cell_offset)),
             })
         {
@@ -1484,6 +1486,7 @@ impl App {
         let row = self.row_map.get(index)?;
         Some(RowAnchor {
             hunk: row.hunk,
+            hunk_end: row.hunk_end,
             source: row
                 .line
                 .map(|id| (id, row.left_offset))
@@ -1510,7 +1513,10 @@ impl App {
                 .map(|(index, _)| index)
         } else {
             self.row_map.iter().position(|row| {
-                row.hunk == anchor.hunk && row.line.is_none() && row.right_line.is_none()
+                row.hunk == anchor.hunk
+                    && row.hunk_end == anchor.hunk_end
+                    && row.line.is_none()
+                    && row.right_line.is_none()
             })
         }
     }
@@ -1607,6 +1613,7 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
     app.set_waker(input.waker());
     app.refresh();
     let mut last_frame = Instant::now();
+    let mut toast_was_visible = false;
     let mut toast_was_animated = false;
     let mut queued = None;
     while !app.quit && !ui_terminal::termination_requested() {
@@ -1644,20 +1651,20 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
         let reduced_motion = ui_terminal::reduced_motion_requested("DOGIT_REDUCED_MOTION");
         let scrolling = app.animate_scroll(reduced_motion);
         let tree_animated = app.animate_tree(Instant::now(), reduced_motion);
-        let toast_animated = app
-            .toast(reduced_motion)
-            .is_some_and(|toast| toast.animating());
+        let toast = app.toast(reduced_motion);
+        let toast_visible = toast.as_ref().is_some_and(|toast| toast.visible());
+        let toast_animated = toast.as_ref().is_some_and(|toast| toast.animating());
         let frame_interval = if tree_animated {
             Some(Duration::from_millis(16))
         } else if toast_animated {
-            app.toast(reduced_motion)
-                .map(|toast| toast.next_transition())
+            toast.map(|toast| toast.next_transition())
         } else if app.operation.is_some() && !reduced_motion {
             Some(Duration::from_millis(80))
         } else {
             None
         };
         if app.dirty
+            || toast_was_visible != toast_visible
             || toast_was_animated != toast_animated
             || frame_interval.is_some_and(|interval| last_frame.elapsed() >= interval)
         {
@@ -1665,6 +1672,7 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
             app.draw(terminal.as_mut().ok_or("terminal unavailable")?)?;
             last_frame = Instant::now();
         }
+        toast_was_visible = toast_visible;
         toast_was_animated = toast_animated;
         let mut wait = frame_interval.map_or(Duration::from_millis(150), |interval| {
             interval.saturating_sub(last_frame.elapsed())

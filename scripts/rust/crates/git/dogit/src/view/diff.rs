@@ -70,6 +70,11 @@ pub fn diff_rows(diff: &ExactDiff, split: bool) -> Vec<DiffRow> {
                 right_line: None,
                 ..DiffRow::default()
             }));
+            rows.push(DiffRow {
+                hunk,
+                hunk_end: true,
+                ..DiffRow::default()
+            });
             continue;
         }
         let mut index = 0;
@@ -105,6 +110,11 @@ pub fn diff_rows(diff: &ExactDiff, split: bool) -> Vec<DiffRow> {
                 });
             }
         }
+        rows.push(DiffRow {
+            hunk,
+            hunk_end: true,
+            ..DiffRow::default()
+        });
     }
     rows
 }
@@ -142,7 +152,7 @@ pub(super) fn render_diff(
         .map(|layout| &layout.paint)
         .or(cached_paint);
     let row_count = all_rows.map_or_else(
-        || diff.hunks.iter().map(|hunk| hunk.lines.len() + 1).sum(),
+        || diff.hunks.iter().map(|hunk| hunk.lines.len() + 2).sum(),
         <[DiffRow]>::len,
     );
     if row_count == 0 {
@@ -175,21 +185,60 @@ pub(super) fn render_diff(
         visible_rows = unified_window(diff, state.diff_offset, usize::from(area.height));
         &visible_rows
     };
+    let focused_hunk = if state.focus == Focus::Canvas {
+        all_rows.map_or_else(
+            || {
+                unified_window(diff, state.diff_cursor, 1)
+                    .first()
+                    .map(|row| row.hunk)
+            },
+            |rows| rows.get(state.diff_cursor).map(|row| row.hunk),
+        )
+    } else {
+        None
+    };
+    let focused_border_style = focused_hunk
+        .map(|hunk| hunk_border_style(&diff.hunks[hunk]))
+        .unwrap_or_else(|| style(Role::Border));
     let half = area.width.saturating_sub(1) / 2;
     for (visible, row) in rows.iter().enumerate() {
-        let position = state.diff_offset + visible;
         let y = area.y + visible as u16;
         geometry.line_ids.push(row.line);
         geometry.right_line_ids.push(row.right_line);
         geometry.hunk_indices.push(Some(row.hunk));
-        let cursor = state.focus == Focus::Canvas && position == state.diff_cursor;
-        if row.line.is_none() && row.right_line.is_none() {
+        let focused = focused_hunk == Some(row.hunk);
+        let border_style = if focused {
+            focused_border_style
+        } else {
+            style(Role::Border)
+        };
+        if row.hunk_end {
+            if focused {
+                put(
+                    buffer,
+                    area.x,
+                    y,
+                    area.width,
+                    &"─".repeat(usize::from(area.width)),
+                    border_style,
+                );
+            }
+            continue;
+        }
+        if row.is_hunk_header() {
             let hunk = &diff.hunks[row.hunk];
             let new_file = !hunk.path.is_empty()
                 && (row.hunk == 0 || diff.hunks[row.hunk - 1].path != hunk.path);
             if !config.hunk_headers && !new_file {
-                if cursor {
-                    put(buffer, area.x, y, 1, "┃", style(Role::Accent));
+                if focused {
+                    put(
+                        buffer,
+                        area.x,
+                        y,
+                        area.width,
+                        &"─".repeat(usize::from(area.width)),
+                        border_style,
+                    );
                 }
                 continue;
             }
@@ -214,7 +263,7 @@ pub(super) fn render_diff(
                 y,
                 area.width,
                 &"─".repeat(usize::from(area.width)),
-                style(Role::Border),
+                border_style,
             );
             put(
                 buffer,
@@ -222,11 +271,7 @@ pub(super) fn render_diff(
                 y,
                 area.width.saturating_sub(4),
                 &format!(" {} ", header.trim()),
-                if cursor {
-                    style(Role::Accent)
-                } else {
-                    style(Role::DiffHeader)
-                },
+                style(Role::DiffHeader),
             );
             continue;
         }
@@ -250,7 +295,6 @@ pub(super) fn render_diff(
                             id,
                             right,
                             part,
-                            cursor,
                             selected: data.selected_lines.contains(&id),
                             horizontal: state.horizontal,
                         },
@@ -263,7 +307,6 @@ pub(super) fn render_diff(
                 Rect::new(area.x, y, area.width, 1),
                 line,
                 LineAppearance {
-                    cursor,
                     selected: data.selected_lines.contains(&line.id),
                     horizontal: state.horizontal,
                     right: None,
@@ -275,37 +318,45 @@ pub(super) fn render_diff(
     }
 }
 
+fn hunk_border_style(hunk: &crate::diff::Hunk) -> Style {
+    let added = hunk
+        .lines
+        .iter()
+        .any(|line| line.kind == LineKind::Addition);
+    let removed = hunk
+        .lines
+        .iter()
+        .any(|line| line.kind == LineKind::Deletion);
+    match (added, removed) {
+        (true, true) => file_side_style(DiffSide::Worktree),
+        (true, false) => style(Role::DiffAdded),
+        (false, true) => style(Role::DiffRemoved),
+        (false, false) => style(Role::Border),
+    }
+}
+
 fn unified_window(diff: &ExactDiff, mut offset: usize, height: usize) -> Vec<DiffRow> {
     let mut rows = Vec::with_capacity(height);
     for (hunk, block) in diff.hunks.iter().enumerate() {
         if rows.len() >= height {
             break;
         }
-        if offset > block.lines.len() {
-            offset -= block.lines.len() + 1;
+        let count = block.lines.len() + 2;
+        if offset >= count {
+            offset -= count;
             continue;
         }
-        if offset == 0 {
+        for position in (offset..count).take(height - rows.len()) {
             rows.push(DiffRow {
                 hunk,
-                line: None,
-                right_line: None,
+                hunk_end: position == count - 1,
+                line: position
+                    .checked_sub(1)
+                    .and_then(|index| block.lines.get(index))
+                    .map(|line| line.id),
                 ..DiffRow::default()
             });
         }
-        rows.extend(
-            block
-                .lines
-                .iter()
-                .skip(offset.saturating_sub(1))
-                .take(height - rows.len())
-                .map(|line| DiffRow {
-                    hunk,
-                    line: Some(line.id),
-                    right_line: None,
-                    ..DiffRow::default()
-                }),
-        );
         offset = 0;
     }
     rows
@@ -319,7 +370,6 @@ fn find_line(hunk: &crate::diff::Hunk, id: usize) -> Option<&crate::diff::DiffLi
 }
 
 struct LineAppearance<'a> {
-    cursor: bool,
     selected: bool,
     horizontal: usize,
     right: Option<bool>,
@@ -334,23 +384,12 @@ fn draw_diff_line(
     appearance: LineAppearance<'_>,
 ) {
     let LineAppearance {
-        cursor,
         selected,
         horizontal,
         right,
         presentation,
         config,
     } = appearance;
-    if selected || cursor {
-        put(
-            buffer,
-            area.x,
-            area.y,
-            1,
-            if selected { "▎" } else { "┃" },
-            style(Role::Accent),
-        );
-    }
     let gutter = number_gutter(line, right, config);
     let gutter_width = gutter.width() as u16;
     Paragraph::new(gutter).render(
@@ -374,6 +413,23 @@ fn draw_diff_line(
             ),
             buffer,
         );
+    if selected {
+        highlight_selected_line(buffer, area);
+    }
+}
+
+pub(super) fn highlight_selected_line(buffer: &mut Buffer, area: Rect) {
+    let background = if color_depth() == ColorDepth::Ansi16 {
+        Color::Blue
+    } else {
+        palette().background(Role::Selection).ratatui()
+    };
+    let appearance = if background == Color::Reset {
+        Style::default().add_modifier(Modifier::REVERSED)
+    } else {
+        Style::default().bg(background)
+    };
+    buffer.set_style(area, appearance);
 }
 
 pub(super) fn content_line(

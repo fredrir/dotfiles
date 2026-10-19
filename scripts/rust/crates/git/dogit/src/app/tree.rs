@@ -75,6 +75,10 @@ impl App {
                 staged: status.is_some_and(|entry| entry.staged() && !entry.unmerged),
                 unstaged: status.is_some_and(|entry| entry.unstaged() || entry.unmerged),
                 conflicted: status.is_some_and(|entry| entry.unmerged),
+                deleted: status.is_some_and(|entry| {
+                    !entry.unmerged && (entry.index == 'D' || entry.worktree == 'D')
+                }),
+                staged_deletion: status.is_some_and(|entry| !entry.unmerged && entry.index == 'D'),
                 expanded: false,
             };
             (!self.changes_filter.is_some_and(|side| match side {
@@ -83,7 +87,18 @@ impl App {
             }))
             .then_some((path, state))
         });
-        self.file_tree_entries(paths)
+        let (mut entries, summary) = self.file_tree_entries(paths);
+        let deleted_directories = deleted_directories(&statuses, &self.files);
+        for entry in &mut entries {
+            if let Target::Path(path, true) = &entry.target
+                && let Some(staged) = deleted_directories.get(path)
+                && let Some(state) = &mut entry.item.file_state
+            {
+                state.deleted = true;
+                state.staged_deletion = *staged;
+            }
+        }
+        (entries, summary)
     }
 
     pub(super) fn history_entries(&self) -> (Vec<Entry>, view::NavSummary) {
@@ -119,7 +134,7 @@ impl App {
             summary.items += 1;
             summary.staged += usize::from(state.staged);
             summary.unstaged += usize::from(state.unstaged);
-            merge_state(&mut tree.entry(path.to_owned()).or_default().state, state);
+            tree.entry(path.to_owned()).or_default().state = state;
             for parent in path.ancestors().skip(1) {
                 let node = tree.entry(parent.to_owned()).or_default();
                 node.directory = true;
@@ -244,6 +259,43 @@ impl App {
         self.rebuild();
         self.load_content(true);
     }
+}
+
+fn deleted_directories(
+    statuses: &BTreeMap<&Path, &crate::git::StatusEntry>,
+    files: &[PathBuf],
+) -> BTreeMap<PathBuf, bool> {
+    let deleted: BTreeMap<_, _> = statuses
+        .iter()
+        .filter(|(_, entry)| !entry.unmerged && (entry.index == 'D' || entry.worktree == 'D'))
+        .map(|(path, entry)| (*path, entry.index == 'D'))
+        .collect();
+    let mut directories = BTreeMap::new();
+    for (path, staged) in &deleted {
+        for parent in path
+            .ancestors()
+            .skip(1)
+            .filter(|path| !path.as_os_str().is_empty())
+        {
+            *directories.entry(parent.to_owned()).or_insert(true) &= staged;
+        }
+    }
+    if directories.is_empty() {
+        return directories;
+    }
+    // Use all known files, including those hidden by the current filters or query.
+    for path in files
+        .iter()
+        .map(PathBuf::as_path)
+        .chain(statuses.keys().copied())
+    {
+        if !deleted.contains_key(path) {
+            for parent in path.ancestors().skip(1) {
+                directories.remove(parent);
+            }
+        }
+    }
+    directories
 }
 
 fn merge_state(target: &mut view::FileState, source: view::FileState) {
