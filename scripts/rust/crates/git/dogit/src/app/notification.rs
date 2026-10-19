@@ -2,8 +2,6 @@ use super::*;
 
 pub(super) struct Notification {
     pub title: String,
-    pub detail: String,
-    pub failed: bool,
     pub started: Instant,
 }
 
@@ -11,8 +9,31 @@ impl Notification {
     pub fn view(&self, reduced_motion: bool) -> view::ToastView<'_> {
         view::ToastView {
             title: &self.title,
-            detail: &self.detail,
-            failed: self.failed,
+            loading: false,
+            elapsed: self.started.elapsed(),
+            reduced_motion,
+        }
+    }
+}
+
+impl App {
+    pub(super) fn toast(&self, reduced_motion: bool) -> Option<view::ToastView<'_>> {
+        self.operation
+            .as_ref()
+            .map(|operation| operation.view(reduced_motion))
+            .or_else(|| {
+                self.notification
+                    .as_ref()
+                    .map(|notification| notification.view(reduced_motion))
+            })
+    }
+}
+
+impl PendingOperation {
+    pub(super) fn view(&self, reduced_motion: bool) -> view::ToastView<'_> {
+        view::ToastView {
+            title: &self.label,
+            loading: true,
             elapsed: self.started.elapsed(),
             reduced_motion,
         }

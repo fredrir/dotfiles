@@ -6,7 +6,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, Paragraph, Widget, Wrap};
+use ratatui::widgets::{Clear, Paragraph, Widget};
 use ui_theme::{ColorDepth, Palette, Role};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -156,6 +156,10 @@ impl From<&ui_widgets::EditorBuffer> for EditorView {
 
 #[derive(Clone, Debug)]
 pub enum Overlay {
+    Error {
+        title: String,
+        editor: EditorView,
+    },
     Inspect {
         message: String,
         scroll: u16,

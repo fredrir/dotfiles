@@ -11,27 +11,30 @@ const FRAME: Duration = Duration::from_millis(16);
 
 pub struct ToastView<'a> {
     pub title: &'a str,
-    pub detail: &'a str,
-    pub failed: bool,
+    pub loading: bool,
     pub elapsed: Duration,
     pub reduced_motion: bool,
 }
 
 impl ToastView<'_> {
     pub fn expired(&self) -> bool {
-        !self.failed && self.elapsed >= LIFETIME
+        !self.loading && self.elapsed >= LIFETIME
     }
 
     pub fn animating(&self) -> bool {
         !self.reduced_motion
             && !self.expired()
-            && (self.elapsed < ENTER || (!self.failed && self.elapsed >= LIFETIME - EXIT))
+            && (self.loading || self.elapsed < ENTER || self.elapsed >= LIFETIME - EXIT)
     }
 
     pub fn next_transition(&self) -> Duration {
         if self.animating() {
-            FRAME
-        } else if self.failed {
+            if self.loading && self.elapsed >= ENTER {
+                Duration::from_millis(80)
+            } else {
+                FRAME
+            }
+        } else if self.loading {
             Duration::MAX
         } else {
             let next = if self.reduced_motion {
@@ -51,7 +54,7 @@ impl ToastView<'_> {
         } else if self.elapsed < ENTER {
             let progress = self.elapsed.as_secs_f64() / ENTER.as_secs_f64();
             1.0 - (1.0 - progress).powi(3)
-        } else if !self.failed && self.elapsed > LIFETIME - EXIT {
+        } else if !self.loading && self.elapsed > LIFETIME - EXIT {
             let progress = (self.elapsed - (LIFETIME - EXIT)).as_secs_f64() / EXIT.as_secs_f64();
             1.0 - progress.powi(3)
         } else {
@@ -72,33 +75,15 @@ pub(super) fn render(buffer: &mut Buffer, area: Rect, toast: &ToastView<'_>) {
         area.height - 1,
     );
     let title = safe_text(toast.title);
-    let detail = safe_text_multiline(toast.detail);
-    let natural_width = (title.width() + 8).max(if toast.failed {
-        detail
-            .lines()
-            .map(UnicodeWidthStr::width)
-            .max()
-            .unwrap_or(0)
-            + 4
-    } else {
-        0
-    });
-    let width = natural_width.clamp(22, 64).min(usize::from(room.width)) as u16;
+    let width = (title.width() + 10)
+        .clamp(26, 64)
+        .min(usize::from(room.width)) as u16;
     let inner_width = width.saturating_sub(4).max(1);
-    let detail_rows = if toast.failed && !detail.is_empty() {
-        detail
-            .lines()
-            .map(|line| line.width().div_ceil(usize::from(inner_width)).max(1))
-            .sum::<usize>()
-            .min(3) as u16
-    } else {
-        0
-    };
-    let height = (3 + detail_rows + u16::from(toast.failed)).min(room.height);
+    let height = (if toast.loading { 5 } else { 3 }).min(room.height);
     let card = Rect::new(0, 0, width, height);
     let appearance = chrome::badge_style(
-        style(if toast.failed {
-            Role::DiffRemoved
+        style(if toast.loading {
+            Role::Accent
         } else {
             Role::DiffAdded
         }),
@@ -109,7 +94,13 @@ pub(super) fn render(buffer: &mut Buffer, area: Rect, toast: &ToastView<'_>) {
         .border_type(BorderType::Rounded)
         .style(appearance)
         .render(card, &mut painted);
-    let label = format!("{} {}", if toast.failed { "×" } else { "✓" }, title);
+    let phase = (toast.elapsed.as_millis() / 80) as u64;
+    let symbol = if toast.loading {
+        ui_progress::Spinner::Braille.frame(phase, !toast.reduced_motion)
+    } else {
+        "✓"
+    };
+    let label = format!("{symbol} {title}{}", if toast.loading { "…" } else { "" });
     let (x, y, text_width) = if height >= 3 {
         (2, 1, inner_width)
     } else {
@@ -123,24 +114,26 @@ pub(super) fn render(buffer: &mut Buffer, area: Rect, toast: &ToastView<'_>) {
         &elide_end(&label, usize::from(text_width)),
         appearance.add_modifier(Modifier::BOLD),
     );
-    if height >= 5 && detail_rows > 0 {
-        Paragraph::new(detail)
-            .style(appearance)
-            .wrap(Wrap { trim: true })
-            .render(
-                Rect::new(2, 2, inner_width, detail_rows.min(height - 4)),
-                &mut painted,
-            );
-    }
-    if toast.failed && height >= 4 {
-        put(
-            &mut painted,
-            2,
-            height - 2,
-            inner_width,
-            "Esc dismiss",
-            appearance,
-        );
+    if toast.loading && height >= 5 {
+        put(&mut painted, 2, 2, inner_width, "Working", appearance);
+        let span = usize::from(inner_width);
+        let position = if toast.reduced_motion {
+            span / 2
+        } else {
+            let travel = span.saturating_sub(1).max(1);
+            let step = phase as usize % (travel * 2);
+            step.min(travel * 2 - step)
+        };
+        for column in 0..span {
+            let distance = column.abs_diff(position);
+            let symbol = if distance == 0 { "━" } else { "─" };
+            let paint = if distance <= 1 {
+                appearance.add_modifier(Modifier::BOLD)
+            } else {
+                appearance.add_modifier(Modifier::DIM)
+            };
+            put(&mut painted, 2 + column as u16, 3, 1, symbol, paint);
+        }
     }
     let offset = (f64::from(height) * (1.0 - toast.visibility())).round() as u16;
     let left = room.x + (room.width - width) / 2;

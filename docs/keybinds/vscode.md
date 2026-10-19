@@ -91,6 +91,7 @@
 | <code>cmd+b</code> | [<code>-markdown.extension.editing.toggleBold</code>](../../shared/vscode/keybindings.json#L161) | Markdown extension editing toggle Bold<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^markdown$&#124;^rmd$&#124;^quarto$/; remove binding</code> |
 | <code>cmd+b</code> | [<code>-workbench.action.toggleSidebarVisibility</code>](../../shared/vscode/keybindings.json#L301) | Toggle Sidebar Visibility<br><code>global; remove binding</code> |
 | <code>cmd+b</code> | [<code>workbench.action.toggleSidebarVisibility</code>](../../shared/vscode/keybindings.json#L305) | Toggle Sidebar Visibility |
+| <code>cmd+e</code> | [<code>-actions.findWithSelection</code>](../../shared/vscode/keybindings.json#L602) | Actions find With Selection<br><code>global; remove binding</code> |
 | <code>cmd+e</code> | [<code>-editor.action.toggleScreenReaderAccessibilityMode</code>](../../shared/vscode/keybindings.json#L545) | Editor action toggle Screen Reader Accessibility Mode<br><code>accessibilityHelpIsShown; remove binding</code> |
 | <code>cmd+e</code> | [<code>editor.action.marker.next</code>](../../shared/vscode/keybindings.json#L423) | Editor action marker next<br><code>editorTextFocus</code> |
 | <code>cmd+e</code> | [<code>runCommands {"commands":&#91;"list.focusDown","list.selectAndPreserveFocus"&#93;}</code>](../../shared/vscode/keybindings.json#L396) | Run Commands<br><code>focusedView == 'workbench.scm' &amp;&amp; listFocus &amp;&amp; !inputFocus</code> |

@@ -46,7 +46,6 @@ pub struct CommandSpec {
     pub label: String,
     pub args: Vec<OsString>,
     pub stdin: Option<Vec<u8>>,
-    pub interactive: bool,
     pub mutates: bool,
     literal_paths: bool,
 }
@@ -60,15 +59,9 @@ impl CommandSpec {
             label: label.into(),
             args: args.into_iter().map(Into::into).collect(),
             stdin: None,
-            interactive: false,
             mutates: true,
             literal_paths: false,
         }
-    }
-
-    pub fn interactive(mut self) -> Self {
-        self.interactive = true;
-        self
     }
 }
 
@@ -787,8 +780,7 @@ impl Repo {
     }
 
     pub fn commit(&self, message: Option<&str>, amend: bool) -> Result<CommandSpec, GitError> {
-        let mut spec =
-            CommandSpec::new(if amend { "Amend" } else { "Commit" }, ["commit"]).interactive();
+        let mut spec = CommandSpec::new(if amend { "Amend" } else { "Commit" }, ["commit"]);
         if amend {
             spec.args.push("--amend".into());
         }
@@ -801,9 +793,15 @@ impl Repo {
         Ok(spec)
     }
 
+    pub fn commit_message(&self, revision: &str) -> Result<String, GitError> {
+        let oid = self.verify_revision(revision)?;
+        self.read(["show", "--no-patch", "--format=%B", &oid, "--"])
+            .map(|bytes| text(&bytes))
+    }
+
     pub fn switch(&self, branch: &str) -> Result<CommandSpec, GitError> {
         self.validate_branch(branch)?;
-        Ok(CommandSpec::new("Switch branch", ["switch", "--", branch]).interactive())
+        Ok(CommandSpec::new("Switch branch", ["switch", "--", branch]))
     }
 
     pub fn switch_remote(&self, branch: &str) -> Result<CommandSpec, GitError> {
@@ -813,14 +811,12 @@ impl Repo {
         Ok(CommandSpec::new(
             "Track remote branch",
             ["switch", "--track", "--", &reference],
-        )
-        .interactive())
+        ))
     }
 
     pub fn create_branch(&self, name: &str, start: Option<&str>) -> Result<CommandSpec, GitError> {
         self.validate_branch(name)?;
-        let mut spec =
-            CommandSpec::new("Create branch", ["switch", "--create", name]).interactive();
+        let mut spec = CommandSpec::new("Create branch", ["switch", "--create", name]);
         if let Some(start) = start {
             spec.args.push(self.verify_revision(start)?.into());
         }
@@ -844,13 +840,13 @@ impl Repo {
     }
 
     pub fn fetch(&self) -> CommandSpec {
-        CommandSpec::new("Fetch", ["fetch"]).interactive()
+        CommandSpec::new("Fetch", ["fetch"])
     }
     pub fn pull(&self) -> CommandSpec {
-        CommandSpec::new("Pull", ["pull"]).interactive()
+        CommandSpec::new("Pull", ["pull"])
     }
     pub fn push(&self) -> CommandSpec {
-        CommandSpec::new("Push", ["push"]).interactive()
+        CommandSpec::new("Push", ["push"])
     }
 
     pub fn stash_save(
@@ -961,17 +957,16 @@ impl Repo {
                 parent.to_string(),
                 oid,
             ],
-        )
-        .interactive())
+        ))
     }
 
     pub fn merge(&self, revision: &str) -> Result<CommandSpec, GitError> {
         self.verify_revision(revision)?;
-        Ok(CommandSpec::new("Merge", ["merge", "--", revision]).interactive())
+        Ok(CommandSpec::new("Merge", ["merge", "--", revision]))
     }
     pub fn rebase(&self, revision: &str) -> Result<CommandSpec, GitError> {
         self.verify_revision(revision)?;
-        Ok(CommandSpec::new("Rebase", ["rebase", "--", revision]).interactive())
+        Ok(CommandSpec::new("Rebase", ["rebase", "--", revision]))
     }
 
     fn revision_command(
@@ -980,10 +975,10 @@ impl Repo {
         command: &str,
         revision: &str,
     ) -> Result<CommandSpec, GitError> {
-        Ok(
-            CommandSpec::new(label, [command.to_owned(), self.verify_revision(revision)?])
-                .interactive(),
-        )
+        Ok(CommandSpec::new(
+            label,
+            [command.to_owned(), self.verify_revision(revision)?],
+        ))
     }
 
     pub fn continue_operation(&self) -> Result<CommandSpec, GitError> {
@@ -999,7 +994,7 @@ impl Repo {
             .ok_or_else(|| GitError::new("No operation in progress"))?;
         if operation == Operation::Bisect {
             return if abort {
-                Ok(CommandSpec::new("End bisect", ["bisect", "reset"]).interactive())
+                Ok(CommandSpec::new("End bisect", ["bisect", "reset"]))
             } else {
                 Err(GitError::new(
                     "Mark the current commit good or bad to continue bisecting",
@@ -1010,8 +1005,7 @@ impl Repo {
         Ok(CommandSpec::new(
             format!("{} {operation}", if abort { "Abort" } else { "Continue" }),
             [operation.to_string(), option.to_owned()],
-        )
-        .interactive())
+        ))
     }
 
     pub fn restore(&self, paths: &[PathBuf]) -> Result<CommandSpec, GitError> {

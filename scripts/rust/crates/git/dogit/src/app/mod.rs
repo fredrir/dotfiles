@@ -54,6 +54,10 @@ enum Prompt {
 }
 
 enum Dialog {
+    Error {
+        title: String,
+        editor: ui_widgets::EditorBuffer,
+    },
     Inspect {
         message: String,
         scroll: u16,
@@ -61,6 +65,7 @@ enum Dialog {
     },
     Compose {
         editor: ui_widgets::EditorBuffer,
+        amend: Option<String>,
     },
     Input {
         prompt: Prompt,
@@ -85,7 +90,8 @@ enum Dialog {
 impl Dialog {
     fn editor(&self) -> Option<&ui_widgets::EditorBuffer> {
         match self {
-            Self::Compose { editor }
+            Self::Error { editor, .. }
+            | Self::Compose { editor, .. }
             | Self::Input { editor, .. }
             | Self::Actions { editor, .. } => Some(editor),
             Self::Confirm { .. } | Self::Inspect { .. } => None,
@@ -95,6 +101,7 @@ impl Dialog {
 
 enum Prepared {
     Commands(Vec<CommandSpec>),
+    Amend { oid: String, message: String },
     Discard(Box<crate::git::DiscardGuard>),
     Abort(Box<crate::git::OperationGuard>),
     Editor(String, PathBuf),
@@ -696,12 +703,23 @@ impl App {
                     });
                     self.dirty = true;
                 }
-                Ok(Prepared::Commands(commands))
-                    if !commands.iter().any(|command| command.interactive) =>
-                {
+                Ok(Prepared::Amend { oid, message }) => {
+                    self.operation = None;
+                    self.workspace(Workspace::Changes);
+                    self.dialog = Some(Dialog::Compose {
+                        editor: ui_widgets::EditorBuffer::new(&message),
+                        amend: Some(oid),
+                    });
+                    self.view.editor_offset = 0;
+                    self.side = DiffSide::Index;
+                    self.view.focus = Focus::Canvas;
+                    self.load_content(true);
+                    self.dirty = true;
+                }
+                Ok(Prepared::Commands(commands)) => {
                     let repo = self.repo.clone();
                     self.mutation_worker
-                        .submit(move |_| execute_captured(&repo, &commands));
+                        .submit(move |cancel| execute_captured(&repo, &commands, &cancel));
                 }
                 Ok(prepared) => self.prepared = Some(prepared),
                 Err(error) => {
@@ -915,22 +933,26 @@ impl App {
     }
 
     fn report_result(&mut self, label: &str, result: Result<String, String>) {
-        let (detail, failed) = match result {
-            Ok(text) => (text, false),
-            Err(text) => (text, true),
-        };
-        if failed || (!label.starts_with("Stage") && !label.starts_with("Unstage")) {
-            self.feedback = None;
-            self.notification = Some(notification::Notification {
-                title: if failed {
-                    format!("{} failed", notification::capitalize(label))
-                } else {
-                    notification::success_message(label)
-                },
-                detail: if failed { detail } else { String::new() },
-                failed,
-                started: Instant::now(),
-            });
+        self.feedback = None;
+        self.notification = None;
+        match result {
+            Err(detail) => {
+                let mut editor = ui_widgets::EditorBuffer::new(&detail);
+                editor.move_cursor(ui_widgets::EditMotion::Start, false, 72);
+                self.dialog = Some(Dialog::Error {
+                    title: format!("{} failed", notification::capitalize(label)),
+                    editor,
+                });
+                self.view.editor_offset = 0;
+                self.scroll.stop();
+            }
+            Ok(_) if !label.starts_with("Stage") && !label.starts_with("Unstage") => {
+                self.notification = Some(notification::Notification {
+                    title: notification::success_message(label),
+                    started: Instant::now(),
+                });
+            }
+            Ok(_) => {}
         }
         self.dirty = true;
     }
@@ -1623,11 +1645,13 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
         let scrolling = app.animate_scroll(reduced_motion);
         let tree_animated = app.animate_tree(Instant::now(), reduced_motion);
         let toast_animated = app
-            .notification
-            .as_ref()
-            .is_some_and(|notification| notification.view(reduced_motion).animating());
-        let frame_interval = if toast_animated || tree_animated {
+            .toast(reduced_motion)
+            .is_some_and(|toast| toast.animating());
+        let frame_interval = if tree_animated {
             Some(Duration::from_millis(16))
+        } else if toast_animated {
+            app.toast(reduced_motion)
+                .map(|toast| toast.next_transition())
         } else if app.operation.is_some() && !reduced_motion {
             Some(Duration::from_millis(80))
         } else {
@@ -1645,8 +1669,8 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
         let mut wait = frame_interval.map_or(Duration::from_millis(150), |interval| {
             interval.saturating_sub(last_frame.elapsed())
         });
-        if let Some(notification) = &app.notification {
-            wait = wait.min(notification.view(reduced_motion).next_transition());
+        if let Some(toast) = app.toast(reduced_motion) {
+            wait = wait.min(toast.next_transition());
         }
         if scrolling {
             wait = wait.min(scroll::FRAME);

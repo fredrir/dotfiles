@@ -1,9 +1,9 @@
 [package]
-name = "dogit"
+name              = "dogit"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "A deliberate, responsive Git workbench"
+description       = "A deliberate, responsive Git workbench"
 
 [lints]
 workspace = true
@@ -20,13 +20,17 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 shlex = "2.0.1"
-syntect = { version = "5.3.0", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
+syntect = { version = "5.3.0", default-features = false, features = [
+ "default-syntaxes",
+ "default-themes",
+ "regex-fancy",
+] }
 tempfile.workspace = true
 ui-terminal = { workspace = true, features = ["ratatui"] }
 ui-theme = { workspace = true, features = ["ratatui"] }
 ui-widgets.workspace = true
+ui-progress.workspace = true
 hostkit.workspace = true
 workstation.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
-

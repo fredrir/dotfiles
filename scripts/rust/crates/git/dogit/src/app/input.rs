@@ -752,7 +752,7 @@ impl App {
     }
 
     pub(super) fn paste(&mut self, text: &str) {
-        if let Some(Dialog::Compose { editor }) = &mut self.dialog {
+        if let Some(Dialog::Compose { editor, .. }) = &mut self.dialog {
             editor.paste(text);
         } else if let Some(Dialog::Input { editor, .. }) = &mut self.dialog {
             editor::paste_single_line(editor, text);

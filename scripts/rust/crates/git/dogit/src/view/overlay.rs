@@ -57,7 +57,7 @@ fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16)
     );
     Clear.render(area, frame.buffer_mut());
     frame.buffer_mut().set_style(area, style(Role::Background));
-    draw_overlay_frame(frame.buffer_mut(), area);
+    draw_overlay_frame(frame.buffer_mut(), area, Role::Accent);
     border_title(
         frame.buffer_mut(),
         area.x + 2,
@@ -129,6 +129,7 @@ pub(super) fn render_overlay(
     };
     let desired_height = match overlay {
         Overlay::Inspect { .. } => 0,
+        Overlay::Error { .. } => outer.height.saturating_sub(4).min(24),
         Overlay::Compose { .. } => 16,
         Overlay::Commands { items, .. } => (items.len() as u16 + 7).min(19),
         Overlay::Input { .. } => 8,
@@ -145,7 +146,15 @@ pub(super) fn render_overlay(
     let area = Rect::new(x, y, width, height);
     Clear.render(area, frame.buffer_mut());
     frame.buffer_mut().set_style(area, style(Role::Background));
-    draw_overlay_frame(frame.buffer_mut(), area);
+    draw_overlay_frame(
+        frame.buffer_mut(),
+        area,
+        if matches!(overlay, Overlay::Error { .. }) {
+            Role::Danger
+        } else {
+            Role::Accent
+        },
+    );
     let content = Rect::new(
         area.x + 3,
         area.y + 2,
@@ -154,6 +163,63 @@ pub(super) fn render_overlay(
     );
     match overlay {
         Overlay::Inspect { .. } => {}
+        Overlay::Error { title, editor } => {
+            put(
+                frame.buffer_mut(),
+                area.x + 2,
+                area.y,
+                area.width - 4,
+                &format!(" {} ", elide_end(title, usize::from(area.width - 6))),
+                style(Role::Danger).add_modifier(Modifier::BOLD),
+            );
+            let content = Rect::new(
+                content.x,
+                content.y,
+                content.width,
+                content.height.saturating_sub(2),
+            );
+            render_editor(
+                frame,
+                content,
+                editor,
+                editor_offset,
+                "No error details available",
+            );
+            put(
+                frame.buffer_mut(),
+                area.x + 3,
+                area.bottom() - 3,
+                area.width - 6,
+                "Shift+arrows select · Ctrl+C copy · y copy all",
+                style(Role::Muted),
+            );
+            put(
+                frame.buffer_mut(),
+                area.x + 3,
+                area.bottom() - 2,
+                area.width - 6,
+                "↑↓ / PgUp/PgDn scroll · Ctrl+A select all",
+                style(Role::Muted),
+            );
+            let rows = ui_widgets::EditorLayout::new(&editor.value, usize::from(content.width))
+                .rows
+                .len();
+            let progress = format!(
+                " Enter / Esc close · {}–{} / {} ",
+                *editor_offset + 1,
+                (*editor_offset + usize::from(content.height)).min(rows),
+                rows
+            );
+            put(
+                frame.buffer_mut(),
+                area.x + 2,
+                area.bottom() - 1,
+                area.width - 4,
+                &elide_end(&progress, usize::from(area.width - 4)),
+                style(Role::Danger),
+            );
+            return Some(content);
+        }
         Overlay::Compose { editor } => {
             border_title(
                 frame.buffer_mut(),
@@ -425,8 +491,8 @@ pub(super) fn wrap_detail(detail: &str, width: u16) -> Vec<String> {
     rows
 }
 
-fn draw_overlay_frame(buffer: &mut Buffer, area: Rect) {
-    let border = style(Role::Accent);
+fn draw_overlay_frame(buffer: &mut Buffer, area: Rect, role: Role) {
+    let border = style(role);
     for y in area.y + 1..area.bottom() - 1 {
         put(buffer, area.x, y, 1, "│", border);
         put(buffer, area.right() - 1, y, 1, "│", border);

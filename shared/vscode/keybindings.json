@@ -598,5 +598,9 @@
   {
     "key": "ctrl+shift+alt+cmd+d",
     "command": "editor.emmet.action.removeTag"
+  },
+  {
+    "key": "cmd+e",
+    "command": "-actions.findWithSelection"
   }
 ]

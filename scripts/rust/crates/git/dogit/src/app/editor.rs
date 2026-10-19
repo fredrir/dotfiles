@@ -18,6 +18,45 @@ pub(super) fn edit_key(editor: &mut EditorBuffer, key: KeyEvent, width: usize) {
     if key.kind == KeyEventKind::Release {
         return;
     }
+    if move_key(editor, key, width) {
+        return;
+    }
+    let modifiers = key.modifiers;
+    let control = modifiers.contains(KeyModifiers::CONTROL);
+    let alt = modifiers.contains(KeyModifiers::ALT);
+    let command = modifiers.intersects(KeyModifiers::SUPER | KeyModifiers::META);
+    let shift = modifiers.contains(KeyModifiers::SHIFT);
+    match key.code {
+        KeyCode::Backspace if command => editor.kill(Motion::LineStart),
+        KeyCode::Backspace if control || alt => editor.kill(Motion::WordLeft),
+        KeyCode::Backspace => editor.backspace(),
+        KeyCode::Delete if command => editor.kill(Motion::LineEnd),
+        KeyCode::Delete if control || alt => editor.kill(Motion::WordRight),
+        KeyCode::Delete => editor.delete(),
+        KeyCode::Enter if !control && !command => editor.insert('\n'),
+        KeyCode::Tab if modifiers.is_empty() => editor.insert('\t'),
+        KeyCode::Char('j' | 'm') if control && !alt => editor.insert('\n'),
+        KeyCode::Char('d') if control && !alt => editor.delete(),
+        KeyCode::Char('d') if alt && !control => editor.kill(Motion::WordRight),
+        KeyCode::Char('w') if control && !alt => editor.kill(Motion::WordLeft),
+        KeyCode::Char('u') if control && !alt => editor.kill(Motion::LineStart),
+        KeyCode::Char('k') if control && !alt => editor.kill(Motion::LineEnd),
+        KeyCode::Char('y') if control && !alt => editor.yank(),
+        KeyCode::Char('z' | 'Z') if (control || command) && shift => editor.redo(),
+        KeyCode::Char('z' | '_' | '/' | '7') if (control || command) && !alt => editor.undo(),
+        KeyCode::Char('_') if alt => editor.redo(),
+        KeyCode::Char(character)
+            if !command
+                && !modifiers.contains(KeyModifiers::HYPER)
+                && ((!control && (!alt || !character.is_ascii())) || (control && alt)) =>
+        {
+            editor.insert(character)
+        }
+        _ => {}
+    }
+}
+
+fn move_key(editor: &mut EditorBuffer, key: KeyEvent, width: usize) -> bool {
     let modifiers = key.modifiers;
     let control = modifiers.contains(KeyModifiers::CONTROL);
     let alt = modifiers.contains(KeyModifiers::ALT);
@@ -52,35 +91,45 @@ pub(super) fn edit_key(editor: &mut EditorBuffer, key: KeyEvent, width: usize) {
     };
     if let Some(motion) = motion {
         editor.move_cursor(motion, shift, width);
+        true
+    } else {
+        false
+    }
+}
+
+pub(super) fn select_key(editor: &mut EditorBuffer, key: KeyEvent, width: usize, height: usize) {
+    if key.kind == KeyEventKind::Release {
         return;
     }
-    match key.code {
-        KeyCode::Backspace if command => editor.kill(Motion::LineStart),
-        KeyCode::Backspace if control || alt => editor.kill(Motion::WordLeft),
-        KeyCode::Backspace => editor.backspace(),
-        KeyCode::Delete if command => editor.kill(Motion::LineEnd),
-        KeyCode::Delete if control || alt => editor.kill(Motion::WordRight),
-        KeyCode::Delete => editor.delete(),
-        KeyCode::Enter if !control && !command => editor.insert('\n'),
-        KeyCode::Tab if modifiers.is_empty() => editor.insert('\t'),
-        KeyCode::Char('j' | 'm') if control && !alt => editor.insert('\n'),
-        KeyCode::Char('d') if control && !alt => editor.delete(),
-        KeyCode::Char('d') if alt && !control => editor.kill(Motion::WordRight),
-        KeyCode::Char('w') if control && !alt => editor.kill(Motion::WordLeft),
-        KeyCode::Char('u') if control && !alt => editor.kill(Motion::LineStart),
-        KeyCode::Char('k') if control && !alt => editor.kill(Motion::LineEnd),
-        KeyCode::Char('y') if control && !alt => editor.yank(),
-        KeyCode::Char('z' | 'Z') if (control || command) && shift => editor.redo(),
-        KeyCode::Char('z' | '_' | '/' | '7') if (control || command) && !alt => editor.undo(),
-        KeyCode::Char('_') if alt => editor.redo(),
-        KeyCode::Char(character)
-            if !command
-                && !modifiers.contains(KeyModifiers::HYPER)
-                && ((!control && (!alt || !character.is_ascii())) || (control && alt)) =>
-        {
-            editor.insert(character)
+    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+    if matches!(key.code, KeyCode::Char('a' | 'A'))
+        && key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META)
+    {
+        editor.move_cursor(Motion::Start, false, width);
+        editor.move_cursor(Motion::End, true, width);
+    } else if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
+        let motion = if key.code == KeyCode::PageUp {
+            Motion::Up
+        } else {
+            Motion::Down
+        };
+        for _ in 0..height.max(1) {
+            editor.move_cursor(motion, shift, width);
         }
-        _ => {}
+    } else if key.modifiers.is_empty() && matches!(key.code, KeyCode::Char('j' | 'k')) {
+        editor.move_cursor(
+            if key.code == KeyCode::Char('j') {
+                Motion::Down
+            } else {
+                Motion::Up
+            },
+            false,
+            width,
+        );
+    } else {
+        move_key(editor, key, width);
     }
 }
 

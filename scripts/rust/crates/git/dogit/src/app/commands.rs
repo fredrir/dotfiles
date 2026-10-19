@@ -147,7 +147,7 @@ impl App {
             }
             Action::Compose => {
                 self.workspace(Workspace::Changes);
-                self.dialog = Some(Dialog::Compose { editor: ui_widgets::EditorBuffer::default() });
+                self.dialog = Some(Dialog::Compose { editor: ui_widgets::EditorBuffer::default(), amend: None });
                 self.view.editor_offset = 0;
                 self.side = DiffSide::Index;
                 self.view.focus = Focus::Canvas;
@@ -256,9 +256,11 @@ impl App {
                     if repo.status().map_err(|error| error.to_string())?.oid != expected {
                         return Err("HEAD changed; review the commit before amending".into());
                     }
-                    repo.commit(None, true)
-                        .map(|spec| Prepared::Commands(vec![spec]))
-                        .map_err(|error| error.to_string())
+                    let oid = expected.ok_or("There is no commit to amend")?;
+                    let message = repo
+                        .commit_message(&oid)
+                        .map_err(|error| error.to_string())?;
+                    Ok(Prepared::Amend { oid, message })
                 });
             }
             Action::Abort => self.command("Abort operation", |repo| repo.abort_operation()),
@@ -392,6 +394,21 @@ impl App {
             .and_then(|geometry| geometry.editor)
             .map_or(72, |area| usize::from(area.width));
         match &mut dialog {
+            Dialog::Error { editor, .. } => {
+                if key.code == KeyCode::Enter {
+                    return Ok(());
+                }
+                if key.code == KeyCode::Char('y') && key.modifiers.is_empty() {
+                    self.copy_text(editor.as_str().to_owned());
+                } else {
+                    let height = self
+                        .geometry
+                        .as_ref()
+                        .and_then(|geometry| geometry.editor)
+                        .map_or(10, |area| usize::from(area.height));
+                    editor::select_key(editor, key, width, height);
+                }
+            }
             Dialog::Inspect {
                 message, scroll, ..
             } => {
@@ -417,7 +434,7 @@ impl App {
                     _ => *scroll,
                 };
             }
-            Dialog::Compose { editor } => {
+            Dialog::Compose { editor, amend } => {
                 if submit {
                     if editor.as_str().trim().is_empty() {
                         self.dialog = Some(dialog);
@@ -429,7 +446,26 @@ impl App {
                         return Ok(());
                     }
                     let value = editor.as_str().to_owned();
-                    self.command("Commit", move |repo| repo.commit(Some(&value), false));
+                    if let Some(expected) = amend.clone() {
+                        self.prepare("Amend", move |repo| {
+                            if repo
+                                .status()
+                                .map_err(|error| error.to_string())?
+                                .oid
+                                .as_ref()
+                                != Some(&expected)
+                            {
+                                return Err(
+                                    "HEAD changed; review the commit before amending".into()
+                                );
+                            }
+                            repo.commit(Some(&value), true)
+                                .map(|spec| Prepared::Commands(vec![spec]))
+                                .map_err(|error| error.to_string())
+                        });
+                    } else {
+                        self.command("Commit", move |repo| repo.commit(Some(&value), false));
+                    }
                     return Ok(());
                 }
                 editor::edit_key(editor, key, width);

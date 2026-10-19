@@ -1383,6 +1383,7 @@ dependencies = [
  "shlex",
  "syntect",
  "tempfile",
+ "ui-progress",
  "ui-terminal",
  "ui-theme",
  "ui-widgets",

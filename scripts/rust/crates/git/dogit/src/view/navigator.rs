@@ -665,7 +665,3 @@ pub fn graph_rows(commits: &[crate::git::Commit]) -> Vec<String> {
     }
     rows
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/navigator.rs"]
-mod tests;

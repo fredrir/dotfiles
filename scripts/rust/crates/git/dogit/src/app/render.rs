@@ -4,13 +4,17 @@ use crossterm::SynchronizedUpdate;
 impl App {
     pub(super) fn draw(&mut self, terminal: &mut crate::session::Session) -> Result<(), String> {
         self.view.overlay = self.dialog.as_ref().map(|dialog| match dialog {
+            Dialog::Error { title, editor } => Overlay::Error {
+                title: title.clone(),
+                editor: editor.into(),
+            },
             Dialog::Inspect {
                 message, scroll, ..
             } => Overlay::Inspect {
                 message: message.clone(),
                 scroll: *scroll,
             },
-            Dialog::Compose { editor } => Overlay::Compose {
+            Dialog::Compose { editor, .. } => Overlay::Compose {
                 editor: editor.into(),
             },
             Dialog::Input { title, editor, .. } => Overlay::Input {
@@ -176,11 +180,16 @@ impl App {
                     phase: 0,
                 })
         };
-        let toast = self.notification.as_ref().map(|notification| {
-            notification.view(ui_terminal::reduced_motion_requested(
-                "DOGIT_REDUCED_MOTION",
-            ))
-        });
+        let reduced_motion = ui_terminal::reduced_motion_requested("DOGIT_REDUCED_MOTION");
+        let toast = self
+            .operation
+            .as_ref()
+            .map(|operation| operation.view(reduced_motion))
+            .or_else(|| {
+                self.notification
+                    .as_ref()
+                    .map(|notification| notification.view(reduced_motion))
+            });
         let commit_oid = self.preview_commit().map(|details| details.oid.clone());
         let commit = commit_oid.as_deref().and_then(|oid| self.history.get(oid));
         let data = RenderData {

@@ -25,7 +25,7 @@
 | [hyprland](./hyprland.md) | 81 | 0 |
 | [kde](./kde.md) | 266 | 0 |
 | [nvim](./nvim.md) | 86 | 2 |
-| [vscode](./vscode.md) | 119 | 0 |
+| [vscode](./vscode.md) | 120 | 0 |
 | [wezterm](./wezterm.md) | 55 | 1 |
 | [yazi](./yazi.md) | 5 | 0 |
 | [zsh](./zsh.md) | 6 | 2 |

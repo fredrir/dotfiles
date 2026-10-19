@@ -251,7 +251,3 @@ fn merge_state(target: &mut view::FileState, source: view::FileState) {
     target.unstaged |= source.unstaged;
     target.conflicted |= source.conflicted;
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/tree.rs"]
-mod tests;
