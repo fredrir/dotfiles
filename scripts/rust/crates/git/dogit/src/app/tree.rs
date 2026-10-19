@@ -7,7 +7,56 @@ struct Node {
     children: Vec<PathBuf>,
 }
 
+pub(super) struct FolderAnimation {
+    path: PathBuf,
+    started: Instant,
+}
+
 impl App {
+    pub(super) fn set_folder_expanded(&mut self, path: PathBuf, expanded: bool) {
+        if !self.query.is_empty() {
+            return;
+        }
+        let changed = if expanded {
+            self.tree_collapsed_mut().remove(&path)
+        } else {
+            self.tree_collapsed_mut().insert(path.clone())
+        };
+        if !changed {
+            return;
+        }
+        let now = Instant::now();
+        let reverse = self
+            .folder_animation
+            .as_ref()
+            .filter(|animation| animation.path == path)
+            .map(|animation| now.saturating_duration_since(animation.started))
+            .filter(|elapsed| *elapsed < view::FolderAnimation::DURATION);
+        let started = reverse
+            .and_then(|elapsed| now.checked_sub(view::FolderAnimation::DURATION - elapsed))
+            .unwrap_or(now);
+        self.folder_animation = Some(FolderAnimation { path, started });
+        self.rebuild();
+    }
+
+    pub(super) fn animate_tree(&mut self, now: Instant, reduced_motion: bool) -> bool {
+        let frame = self.folder_animation.as_ref().and_then(|animation| {
+            let elapsed = now.saturating_duration_since(animation.started);
+            if reduced_motion || elapsed >= view::FolderAnimation::DURATION {
+                return None;
+            }
+            self.entries
+                .iter()
+                .position(|entry| matches!(&entry.target, Target::Path(path, true) if path == &animation.path))
+                .map(|row| view::FolderAnimation { row, elapsed })
+        });
+        if frame.is_none() && self.folder_animation.take().is_some() {
+            self.dirty = true;
+        }
+        self.view.folder_animation = frame;
+        frame.is_some()
+    }
+
     pub(super) fn changes_entries(&self) -> (Vec<Entry>, view::NavSummary) {
         let statuses: BTreeMap<_, _> = self
             .snapshot
@@ -95,13 +144,7 @@ impl App {
         }
         let mut entries = Vec::new();
         let mut pending = vec![(root.clone(), root.clone(), 0)];
-        while let Some((mut path, parent, depth)) = pending.pop() {
-            while let Some(node) = tree.get(&path) {
-                if node.children.len() != 1 || !tree[&node.children[0]].directory {
-                    break;
-                }
-                path = node.children[0].clone();
-            }
+        while let Some((path, parent, depth)) = pending.pop() {
             let node = &tree[&path];
             let mut state = node.state;
             state.expanded =
@@ -134,17 +177,15 @@ impl App {
                 target: Target::Path(path.clone(), node.directory),
             });
             if state.expanded {
+                let mut children: Vec<_> = node.children.iter().collect();
+                children.sort_by_key(|path| (!tree[*path].directory, *path));
                 pending.extend(
-                    node.children
-                        .iter()
+                    children
+                        .into_iter()
                         .rev()
                         .map(|child| (child.clone(), path.clone(), depth + 1)),
                 );
             }
-        }
-        let items: Vec<_> = entries.iter().map(|entry| entry.item.clone()).collect();
-        for (entry, prefix) in entries.iter_mut().zip(view::tree_prefixes(&items)) {
-            entry.item.graph = prefix;
         }
         (entries, summary)
     }
@@ -210,3 +251,7 @@ fn merge_state(target: &mut view::FileState, source: view::FileState) {
     target.unstaged |= source.unstaged;
     target.conflicted |= source.conflicted;
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/tree.rs"]
+mod tests;

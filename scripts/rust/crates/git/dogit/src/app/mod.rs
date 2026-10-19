@@ -367,6 +367,7 @@ struct App {
     changes_filter: Option<DiffSide>,
     all_files: bool,
     collapsed: BTreeSet<PathBuf>,
+    folder_animation: Option<tree::FolderAnimation>,
     query: String,
     dialog: Option<Dialog>,
     marked: BTreeSet<usize>,
@@ -468,6 +469,7 @@ impl App {
             changes_filter: None,
             all_files: false,
             collapsed: BTreeSet::new(),
+            folder_animation: None,
             query: String::new(),
             dialog: None,
             marked: BTreeSet::new(),
@@ -939,6 +941,8 @@ impl App {
     }
 
     fn rebuild(&mut self) {
+        self.view.nav_hovered = None;
+        self.view.folder_animation = None;
         let selected = self.selected().cloned();
         let mut entries = Vec::new();
         let mut changes_summary = None;
@@ -1348,6 +1352,8 @@ impl App {
     }
 
     fn workspace(&mut self, workspace: Workspace) {
+        self.folder_animation = None;
+        self.view.folder_animation = None;
         self.view.nav_manual_scroll = false;
         self.view.canvas_manual_scroll = false;
         self.view.commit_manual_scroll = false;
@@ -1615,11 +1621,12 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
         }
         let reduced_motion = ui_terminal::reduced_motion_requested("DOGIT_REDUCED_MOTION");
         let scrolling = app.animate_scroll(reduced_motion);
+        let tree_animated = app.animate_tree(Instant::now(), reduced_motion);
         let toast_animated = app
             .notification
             .as_ref()
             .is_some_and(|notification| notification.view(reduced_motion).animating());
-        let frame_interval = if toast_animated {
+        let frame_interval = if toast_animated || tree_animated {
             Some(Duration::from_millis(16))
         } else if app.operation.is_some() && !reduced_motion {
             Some(Duration::from_millis(80))

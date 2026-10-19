@@ -78,6 +78,7 @@ impl App {
         if key.kind == KeyEventKind::Release {
             return Ok(());
         }
+        self.view.nav_hovered = None;
         if !matches!(key.code, KeyCode::Modifier(_)) {
             self.scroll.stop();
         }
@@ -540,10 +541,8 @@ impl App {
 
     pub(super) fn toggle_folder(&mut self) {
         if let Some(Target::Path(path, true)) = self.selected().cloned() {
-            if !self.tree_collapsed_mut().remove(&path) {
-                self.tree_collapsed_mut().insert(path);
-            }
-            self.rebuild();
+            let expanded = self.tree_collapsed().contains(&path);
+            self.set_folder_expanded(path, expanded);
         }
     }
 
@@ -552,8 +551,8 @@ impl App {
             return false;
         };
         self.view.nav_manual_scroll = false;
-        if self.query.is_empty() && self.tree_collapsed_mut().remove(&path) {
-            self.rebuild();
+        if self.query.is_empty() && self.tree_collapsed().contains(&path) {
+            self.set_folder_expanded(path, true);
             return true;
         } else if self.entries.get(self.view.selected + 1).is_some_and(
             |entry| matches!(&entry.target, Target::Path(child, _) if child.starts_with(&path)),
@@ -586,8 +585,7 @@ impl App {
             Some(Target::Path(path, true))
                 if self.query.is_empty() && !self.tree_collapsed().contains(&path) =>
             {
-                self.tree_collapsed_mut().insert(path);
-                self.rebuild();
+                self.set_folder_expanded(path, false);
                 return true;
             }
             Some(Target::Path(path, _)) => {
@@ -621,8 +619,9 @@ impl App {
             self.scroll.stop();
         }
         if self.dialog.is_some() {
-            if self.dragging || self.view.divider_hovered {
+            if self.dragging || self.view.divider_hovered || self.view.nav_hovered.is_some() {
                 self.dragging = false;
+                self.view.nav_hovered = None;
                 self.view.divider_hovered = false;
                 self.view.divider_hover_row = None;
                 self.dirty = true;
@@ -638,9 +637,20 @@ impl App {
                     .and_then(|geometry| geometry.divider_hit)
                     .is_some_and(|area| area.contains(point));
             let hover_row = hovered.then_some(event.row);
-            if self.view.divider_hovered != hovered || self.view.divider_hover_row != hover_row {
+            let nav_hovered = self.geometry.as_ref().and_then(|geometry| {
+                if hovered || !geometry.nav.contains(point) {
+                    return None;
+                }
+                let index = geometry.nav_start + usize::from(event.row - geometry.nav.y);
+                (index < self.entries.len()).then_some(index)
+            });
+            if self.view.divider_hovered != hovered
+                || self.view.divider_hover_row != hover_row
+                || self.view.nav_hovered != nav_hovered
+            {
                 self.view.divider_hovered = hovered;
                 self.view.divider_hover_row = hover_row;
+                self.view.nav_hovered = nav_hovered;
                 self.dirty = true;
             }
             return;
@@ -650,6 +660,7 @@ impl App {
         };
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
+                self.view.nav_hovered = None;
                 if let Some((workspace, _)) =
                     geometry.tabs.iter().find(|(_, area)| area.contains(point))
                 {
@@ -689,12 +700,20 @@ impl App {
                     self.view.nav_manual_scroll = false;
                     let index = geometry.nav_start + usize::from(event.row - geometry.nav.y);
                     if index < self.entries.len() {
-                        if self.view.selected == index
+                        let disclosure = geometry
+                            .nav_disclosures
+                            .iter()
+                            .any(|(row, area)| *row == index && area.contains(point));
+                        let was_selected = self.view.selected == index;
+                        self.view.selected = index;
+                        if (disclosure || was_selected)
                             && matches!(self.selected(), Some(Target::Path(_, true)))
                         {
                             self.toggle_folder();
+                            if !was_selected {
+                                self.load_content(true);
+                            }
                         } else {
-                            self.view.selected = index;
                             self.load_content(true);
                         }
                     }

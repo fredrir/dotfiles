@@ -15,6 +15,8 @@ use crate::diff::{DiffSide, ExactDiff, LineKind};
 mod chrome;
 mod commit;
 mod diff;
+mod file_icons;
+mod folder;
 mod navigator;
 mod overlay;
 mod subject;
@@ -25,7 +27,8 @@ mod wrap;
 pub use diff::{
     configured_diff_horizontal_limit, diff_horizontal_limit, diff_rows, text_horizontal_limit,
 };
-pub use navigator::{graph_rows, nav_horizontal_limit, tree_prefixes};
+pub use folder::FolderAnimation;
+pub use navigator::{graph_rows, nav_horizontal_limit};
 pub use overlay::confirmation_scroll_max;
 pub use overlay::inspection_scroll_max;
 pub use toast::ToastView;
@@ -189,6 +192,8 @@ pub struct ViewState {
     pub horizontal: usize,
     pub nav_horizontal: usize,
     pub nav_manual_scroll: bool,
+    pub nav_hovered: Option<usize>,
+    pub folder_animation: Option<FolderAnimation>,
     pub canvas_manual_scroll: bool,
     pub commit_offset: usize,
     pub commit_manual_scroll: bool,
@@ -213,6 +218,8 @@ impl Default for ViewState {
             horizontal: 0,
             nav_horizontal: 0,
             nav_manual_scroll: false,
+            nav_hovered: None,
+            folder_animation: None,
             canvas_manual_scroll: false,
             commit_offset: 0,
             commit_manual_scroll: false,
@@ -307,6 +314,7 @@ pub struct Geometry {
     pub divider_x: Option<u16>,
     pub divider_hit: Option<Rect>,
     pub nav_start: usize,
+    pub nav_disclosures: Vec<(usize, Rect)>,
     pub line_ids: Vec<Option<usize>>,
     pub right_line_ids: Vec<Option<usize>>,
     pub hunk_indices: Vec<Option<usize>>,
@@ -346,7 +354,7 @@ fn palette() -> &'static Palette {
     static PALETTE: OnceLock<Palette> = OnceLock::new();
     PALETTE.get_or_init(|| {
         Palette::from_json(
-            r##"{"version":1,"profile":"dogit","dark":true,"colors":{"fg":"#edf3f8"},"ui":{"foreground":"#edf3f8","muted":"#b0bdcc","accent":"#82d7e9","success":"#edf3f8","warning":"#f4c66a","danger":"#f4c66a","info":"#edf3f8","border":"#53667e","selection_foreground":"#edf3f8","diff_added":"#83dca2","diff_removed":"#ff8c87","diff_context":"#edf3f8","diff_header":"#b0bdcc","ours":"#edf3f8","theirs":"#edf3f8","conflict":"#f4c66a","panel_foreground":"#edf3f8","surface_foreground":"#edf3f8","focus":"#82d7e9"}}"##,
+            r##"{"version":1,"profile":"dogit","dark":true,"colors":{"fg":"#edf3f8"},"ui":{"foreground":"#edf3f8","muted":"#b0bdcc","accent":"#82d7e9","success":"#edf3f8","warning":"#f4c66a","danger":"#f4c66a","info":"#edf3f8","border":"#53667e","selection_foreground":"#edf3f8","selection_background":"#293d50","surface":"#1d2b39","diff_added":"#83dca2","diff_removed":"#ff8c87","diff_context":"#edf3f8","diff_header":"#b0bdcc","ours":"#edf3f8","theirs":"#edf3f8","conflict":"#f4c66a","panel_foreground":"#edf3f8","surface_foreground":"#edf3f8","focus":"#82d7e9"}}"##,
         )
         .unwrap_or_default()
     })
@@ -580,9 +588,11 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             commit_subject = title;
         }
     }
-    if show_nav {
-        render_navigator(frame.buffer_mut(), nav, state, data.items);
-    }
+    let nav_disclosures = if show_nav {
+        render_navigator(frame.buffer_mut(), nav, state, data.items)
+    } else {
+        Vec::new()
+    };
     if show_canvas && !changes {
         render_pane_footer(
             frame.buffer_mut(),
@@ -616,6 +626,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             )
         }),
         nav_start: state.offset,
+        nav_disclosures,
         tabs,
         diff_sides,
         ..Geometry::default()

@@ -227,16 +227,14 @@ pub(super) fn nav_badges(workspace: Workspace, summary: NavSummary, repo: &str) 
             ));
         }
         if summary.staged > 0 {
-            counts.push(Badge::count(
-                summary.staged,
-                "Staged",
+            counts.push(Badge::new(
+                format!("● {} Staged", summary.staged),
                 file_side_style(DiffSide::Index),
             ));
         }
         if summary.unstaged > 0 {
-            counts.push(Badge::count(
-                summary.unstaged,
-                "Unstaged",
+            counts.push(Badge::new(
+                format!("○ {} Unstaged", summary.unstaged),
                 file_side_style(DiffSide::Worktree),
             ));
         }

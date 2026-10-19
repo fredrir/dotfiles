@@ -166,6 +166,9 @@ impl Scroll {
 
 impl App {
     pub(super) fn wheel(&mut self, event: MouseEvent) {
+        if self.view.nav_hovered.take().is_some() {
+            self.dirty = true;
+        }
         let horizontal = matches!(
             event.kind,
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight
