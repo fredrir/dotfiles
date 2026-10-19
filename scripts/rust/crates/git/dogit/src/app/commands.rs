@@ -64,6 +64,9 @@ impl App {
         terminal: &mut Option<crate::session::Session>,
         signals: &mut Option<ui_terminal::SignalGuard>,
     ) -> Result<(), String> {
+        if matches!(action, Action::Commit | Action::Compose) && self.staged_count == 0 {
+            return Ok(());
+        }
         if self.view.focus == Focus::Canvas
             && (self.content_pending || self.preview_target() != self.selected())
             && matches!(
@@ -437,7 +440,9 @@ impl App {
             }
             Dialog::Compose { editor, amend } => {
                 if submit {
-                    if editor.as_str().trim().is_empty() {
+                    if editor.as_str().trim().is_empty()
+                        || (amend.is_none() && self.staged_count == 0)
+                    {
                         self.dialog = Some(dialog);
                         return Ok(());
                     }

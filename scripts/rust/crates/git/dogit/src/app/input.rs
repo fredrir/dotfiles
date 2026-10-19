@@ -31,6 +31,7 @@ impl App {
             .filter(|definition| {
                 let available = match definition.action {
                     Action::Inspect => self.history.current().is_some(),
+                    Action::Commit | Action::Compose => self.staged_count > 0,
                     Action::Stage
                     | Action::Unstage
                     | Action::StageFile

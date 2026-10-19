@@ -213,7 +213,12 @@ pub(super) fn render_footer(
     counts
 }
 
-pub(super) fn nav_badges(workspace: Workspace, summary: NavSummary, repo: &str) -> Vec<Badge> {
+pub(super) fn nav_badges(
+    workspace: Workspace,
+    summary: NavSummary,
+    repo: &str,
+    changes_filter: Option<DiffSide>,
+) -> Vec<Badge> {
     let mut counts = Vec::new();
     if workspace == Workspace::Changes {
         if summary.items > 0
@@ -226,13 +231,13 @@ pub(super) fn nav_badges(workspace: Workspace, summary: NavSummary, repo: &str) 
                 files_style(repo),
             ));
         }
-        if summary.staged > 0 {
+        if summary.staged > 0 || changes_filter == Some(DiffSide::Index) {
             counts.push(Badge::new(
                 format!("{} Staged", summary.staged),
                 file_side_style(DiffSide::Index),
             ));
         }
-        if summary.unstaged > 0 {
+        if summary.unstaged > 0 || changes_filter == Some(DiffSide::Worktree) {
             counts.push(Badge::new(
                 format!("{} Unstaged", summary.unstaged),
                 file_side_style(DiffSide::Worktree),

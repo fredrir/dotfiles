@@ -85,14 +85,7 @@ fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16)
             frame.buffer_mut(),
         );
     }
-    put(
-        frame.buffer_mut(),
-        content.x,
-        area.bottom() - 3,
-        content.width,
-        "↑↓ scroll · PgUp/PgDn · y copy message · Esc close",
-        style(Role::Muted),
-    );
+
     let progress = format!(
         " {}–{} / {} ",
         offset + 1,
@@ -187,27 +180,11 @@ pub(super) fn render_overlay(
                 editor_offset,
                 "No error details available",
             );
-            put(
-                frame.buffer_mut(),
-                area.x + 3,
-                area.bottom() - 3,
-                area.width - 6,
-                "Shift+arrows select · Ctrl+C copy · y copy all",
-                style(Role::Muted),
-            );
-            put(
-                frame.buffer_mut(),
-                area.x + 3,
-                area.bottom() - 2,
-                area.width - 6,
-                "↑↓ / PgUp/PgDn scroll · Ctrl+A select all",
-                style(Role::Muted),
-            );
             let rows = ui_widgets::EditorLayout::new(&editor.value, usize::from(content.width))
                 .rows
                 .len();
             let progress = format!(
-                " Enter / Esc close · {}–{} / {} ",
+                " {}–{} / {} ",
                 *editor_offset + 1,
                 (*editor_offset + usize::from(content.height)).min(rows),
                 rows
@@ -510,14 +487,28 @@ pub(super) fn wrap_detail(detail: &str, width: u16) -> Vec<String> {
     for line in safe_text_multiline(detail).split('\n') {
         let mut row = String::new();
         let mut column = 0;
-        for character in line.chars() {
-            let length = character.width().unwrap_or(0);
-            if column + length > width && !row.is_empty() {
-                rows.push(std::mem::take(&mut row));
+        for token in line.split_inclusive(char::is_whitespace) {
+            let word = token.trim_end();
+            if column + word.width() > width && !row.is_empty() {
+                let trimmed = row.trim_end();
+                if !trimmed.is_empty() {
+                    rows.push(trimmed.to_owned());
+                }
+                row.clear();
                 column = 0;
             }
-            row.push(character);
-            column += length;
+            for grapheme in token.graphemes(true) {
+                let length = grapheme.width();
+                if column + length > width && !row.is_empty() {
+                    if grapheme.chars().all(char::is_whitespace) {
+                        continue;
+                    }
+                    rows.push(std::mem::take(&mut row));
+                    column = 0;
+                }
+                row.push_str(grapheme);
+                column += length;
+            }
         }
         rows.push(row);
     }

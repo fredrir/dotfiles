@@ -129,13 +129,7 @@ impl App {
             "Copied".into()
         } else if self.structure_enabled && self.structural.is_some() {
             "Structural comparison".into()
-        } else if self.view.workspace == Workspace::Changes {
-            match self.changes_filter {
-                Some(DiffSide::Index) => "Staged files · s show all".into(),
-                Some(DiffSide::Worktree) => "Unstaged files · u show all".into(),
-                None => String::new(),
-            }
-        } else if self.view.workspace == Workspace::History {
+        } else if matches!(self.view.workspace, Workspace::Changes | Workspace::History) {
             String::new()
         } else if let Some(Target::Commit(oid)) = self.selected() {
             self.snapshot
@@ -195,6 +189,7 @@ impl App {
             behind: self.snapshot.status.behind,
             items: &self.nav_items,
             nav_summary: Some(self.nav_summary),
+            changes_filter: self.changes_filter,
             diff_counts: self.diff.as_ref().map(|_| self.diff_counts),
             canvas_path: &canvas_path,
             directory_scope: match preview_target.as_ref() {

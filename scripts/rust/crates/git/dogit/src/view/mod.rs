@@ -256,6 +256,7 @@ pub struct RenderData<'a> {
     pub behind: usize,
     pub items: &'a [NavItem],
     pub nav_summary: Option<NavSummary>,
+    pub changes_filter: Option<DiffSide>,
     pub canvas_path: &'a str,
     pub directory_scope: Option<&'a std::path::Path>,
     pub diff_scope: Option<DiffScope>,
@@ -285,6 +286,7 @@ impl Default for RenderData<'_> {
             behind: 0,
             items: &[],
             nav_summary: None,
+            changes_filter: None,
             canvas_path: "",
             directory_scope: None,
             diff_scope: None,
@@ -680,7 +682,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         frame,
         area,
         data,
-        nav_badges(state.workspace, totals, data.repo),
+        nav_badges(state.workspace, totals, data.repo, data.changes_filter),
         if changes { data.canvas_subtitle } else { "" },
     );
     if state.overlay.is_none()

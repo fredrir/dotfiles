@@ -160,7 +160,12 @@ impl App {
         let mut entries = Vec::new();
         let disabled = self.view.workspace == Workspace::Changes && summary.items == 0;
         let mut pending = vec![(root.clone(), root.clone(), 0)];
-        while let Some((path, parent, depth)) = pending.pop() {
+        while let Some((mut path, parent, depth)) = pending.pop() {
+            while let [child] = tree[&path].children.as_slice()
+                && tree[child].directory
+            {
+                path = child.clone();
+            }
             let node = &tree[&path];
             let mut state = node.state;
             state.expanded = node.directory
