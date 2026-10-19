@@ -5,7 +5,7 @@ return {
   settings = {
     accent = "#a9c7f5",
     background = "#101020",
-    glyph_size = 0.7,
+    glyph_size = 0.8,
     keybinds = {
       close = { "Super+w" },
       commands = { "Super+p" },
