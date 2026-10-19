@@ -676,14 +676,11 @@ impl App {
                 }
                 Ok(Prepared::Discard(guard)) => {
                     self.operation = None;
-                    let detail = format!(
-                        "Discard unstaged content in {} file(s):\n{}\n\nStaged content is preserved. Untracked files are deleted.",
-                        guard.paths.len(),
-                        guard
-                            .paths
-                            .iter()
-                            .map(|path| path
-                                .to_string_lossy()
+                    let detail = guard
+                        .paths
+                        .iter()
+                        .map(|path| {
+                            path.to_string_lossy()
                                 .chars()
                                 .map(|character| {
                                     if character.is_control() {
@@ -692,14 +689,22 @@ impl App {
                                         character.to_string()
                                     }
                                 })
-                                .collect::<String>())
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    );
+                                .collect::<String>()
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
                     self.dialog = Some(Dialog::Confirm {
                         action: Action::Discard,
                         target: None,
-                        title: "Discard selected changes".into(),
+                        title: format!(
+                            "Discard changes in {} {}?",
+                            guard.paths.len(),
+                            if guard.paths.len() == 1 {
+                                "file"
+                            } else {
+                                "files"
+                            },
+                        ),
                         detail,
                         discard: Some(guard),
                         abort: None,
@@ -1640,7 +1645,7 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
                 )
                 .map_err(|error| error.to_string())?;
             session
-                .set_mouse_capture(if app.dialog.as_ref().and_then(Dialog::editor).is_some() {
+                .set_mouse_capture(if app.dialog.is_some() {
                     ui_terminal::MouseCapture::Disabled
                 } else {
                     app.mouse_capture
@@ -1705,7 +1710,7 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
                 ui_terminal::Waited::Event(Event::Mouse(mouse))
                     if app.mouse_capture == ui_terminal::MouseCapture::Enabled =>
                 {
-                    app.mouse(mouse)
+                    app.mouse(mouse, &mut terminal, &mut signals)?
                 }
                 ui_terminal::Waited::Event(Event::Resize(_, _)) => {
                     app.view.divider_hover_row = None;

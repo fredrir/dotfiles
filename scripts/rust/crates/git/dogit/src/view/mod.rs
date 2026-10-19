@@ -310,6 +310,8 @@ pub struct Geometry {
     pub commit_scroll_max: usize,
     pub commit_subject: Rect,
     pub editor: Option<Rect>,
+    pub overlay_close: Option<Rect>,
+    pub overlay_confirm: Option<Rect>,
     pub overlay_bounds: Rect,
     pub body: Rect,
     pub nav: Rect,
@@ -366,7 +368,7 @@ fn palette() -> &'static Palette {
     static PALETTE: OnceLock<Palette> = OnceLock::new();
     PALETTE.get_or_init(|| {
         Palette::from_json(
-            r##"{"version":1,"profile":"dogit","dark":true,"colors":{"fg":"#edf3f8"},"ui":{"foreground":"#edf3f8","muted":"#b0bdcc","accent":"#82d7e9","success":"#edf3f8","warning":"#f4c66a","danger":"#f4c66a","info":"#edf3f8","border":"#53667e","selection_foreground":"#edf3f8","selection_background":"#293d50","surface":"#1d2b39","diff_added":"#83dca2","diff_removed":"#ff8c87","diff_context":"#edf3f8","diff_header":"#b0bdcc","ours":"#edf3f8","theirs":"#edf3f8","conflict":"#f4c66a","panel_foreground":"#edf3f8","surface_foreground":"#edf3f8","focus":"#82d7e9"}}"##,
+            r##"{"version":1,"profile":"dogit","dark":true,"colors":{"fg":"#edf3f8"},"ui":{"foreground":"#edf3f8","muted":"#b0bdcc","accent":"#82d7e9","success":"#83dca2","warning":"#f4c66a","danger":"#f4c66a","info":"#edf3f8","border":"#53667e","selection_foreground":"#edf3f8","selection_background":"#293d50","surface":"#1d2b39","diff_added":"#83dca2","diff_removed":"#ff8c87","diff_context":"#edf3f8","diff_header":"#b0bdcc","ours":"#edf3f8","theirs":"#edf3f8","conflict":"#f4c66a","panel_foreground":"#edf3f8","surface_foreground":"#edf3f8","focus":"#82d7e9"}}"##,
         )
         .unwrap_or_default()
     })
@@ -391,7 +393,7 @@ fn style_at_depth(role: Role, depth: ColorDepth) -> Style {
     }
     let foreground = match role {
         Role::Accent | Role::Focus => Color::LightCyan,
-        Role::DiffAdded => Color::LightGreen,
+        Role::Success | Role::DiffAdded => Color::LightGreen,
         Role::DiffRemoved => Color::LightRed,
         Role::Warning | Role::Danger | Role::Conflict => Color::Yellow,
         Role::Border => Color::DarkGray,
@@ -441,21 +443,26 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
 
     if area.width < 20 || area.height < 10 {
         render_footer(frame, area, data, Vec::new(), "");
-        let editor = state
-            .overlay
-            .as_ref()
-            .and_then(|overlay| render_overlay(frame, area, overlay, &mut state.editor_offset));
+        let mut geometry = Geometry {
+            tabs,
+            overlay_bounds: area,
+            ..Geometry::default()
+        };
+        if let Some(overlay) = &state.overlay {
+            render_overlay(
+                frame,
+                area,
+                overlay,
+                &mut state.editor_offset,
+                &mut geometry,
+            );
+        }
         if state.overlay.is_none()
             && let Some(toast) = data.toast
         {
             toast::render(frame.buffer_mut(), area, toast);
         }
-        return Geometry {
-            tabs,
-            overlay_bounds: area,
-            editor,
-            ..Geometry::default()
-        };
+        return geometry;
     }
     let outer = Rect::new(area.x, area.y + 2, area.width, area.height - 3);
     let body = Rect::new(
@@ -661,7 +668,13 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         render_divider_hover(frame.buffer_mut(), body, x, state.divider_hover_row);
     }
     if let Some(overlay) = &state.overlay {
-        geometry.editor = render_overlay(frame, area, overlay, &mut state.editor_offset);
+        render_overlay(
+            frame,
+            area,
+            overlay,
+            &mut state.editor_offset,
+            &mut geometry,
+        );
     }
     geometry.nav_footer = render_footer(
         frame,

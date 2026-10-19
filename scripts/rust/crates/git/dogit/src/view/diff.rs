@@ -421,6 +421,12 @@ fn draw_diff_line(
         buffer,
     );
     let content = content_line(line, presentation, config);
+    highlight_gutter(
+        buffer,
+        area,
+        gutter_width,
+        content.spans.first().and_then(|span| span.style.bg),
+    );
     Paragraph::new(content)
         .scroll((0, horizontal.min(usize::from(u16::MAX)) as u16))
         .render(
@@ -434,6 +440,25 @@ fn draw_diff_line(
         );
     if selected {
         highlight_selected_line(buffer, area);
+    }
+}
+
+pub(super) fn highlight_gutter(
+    buffer: &mut Buffer,
+    area: Rect,
+    gutter_width: u16,
+    background: Option<Color>,
+) {
+    if let Some(background) = background.filter(|color| *color != Color::Reset) {
+        buffer.set_style(
+            Rect::new(
+                area.x,
+                area.y,
+                gutter_width.saturating_add(2).min(area.width),
+                area.height,
+            ),
+            Style::default().bg(background),
+        );
     }
 }
 
@@ -486,16 +511,23 @@ pub(super) fn number_gutter(
 ) -> Line<'static> {
     let mut spans = Vec::new();
     if config.line_numbers {
-        let old_format = if right == Some(false) && config.left_format.is_empty() {
-            std::borrow::Cow::Owned(config.right_format.replace("np", "nm"))
+        if config.left_format.is_empty()
+            && (right == Some(false) || (right.is_none() && line.kind == LineKind::Deletion))
+        {
+            number_format(
+                &mut spans,
+                &config.right_format.replace("{np", "{nm"),
+                "left",
+                line,
+                config,
+            );
         } else {
-            std::borrow::Cow::Borrowed(config.left_format.as_str())
-        };
-        if right != Some(true) {
-            number_format(&mut spans, &old_format, "left", line, config);
-        }
-        if right != Some(false) {
-            number_format(&mut spans, &config.right_format, "right", line, config);
+            if right != Some(true) {
+                number_format(&mut spans, &config.left_format, "left", line, config);
+            }
+            if right != Some(false) {
+                number_format(&mut spans, &config.right_format, "right", line, config);
+            }
         }
     }
     if config.keep_markers {

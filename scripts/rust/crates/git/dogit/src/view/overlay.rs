@@ -5,7 +5,7 @@ pub fn confirmation_scroll_max(detail: &str, outer: Rect) -> u16 {
     let width = outer.width.saturating_sub(8).min(78);
     let rows = wrap_detail(detail, width.saturating_sub(6)).len();
     let height = confirmation_height(rows).min(outer.height.saturating_sub(2));
-    rows.saturating_sub(usize::from(height.saturating_sub(4)))
+    rows.saturating_sub(usize::from(height.saturating_sub(5)))
         .min(usize::from(u16::MAX)) as u16
 }
 
@@ -37,7 +37,7 @@ fn inspection_lines(message: &str, width: u16) -> Vec<Line<'static>> {
     lines
 }
 
-fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16) {
+fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16) -> Option<Rect> {
     let width = outer.width.saturating_sub(8).min(96);
     let rows = inspection_lines(message, width.saturating_sub(6));
     let height = (rows
@@ -47,7 +47,7 @@ fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16)
         .min(usize::from(u16::MAX)) as u16)
         .min(outer.height.saturating_sub(4));
     if width < 12 || height < 7 {
-        return;
+        return None;
     }
     let area = Rect::new(
         outer.x + (outer.width - width) / 2,
@@ -58,11 +58,12 @@ fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16)
     Clear.render(area, frame.buffer_mut());
     frame.buffer_mut().set_style(area, style(Role::Background));
     draw_overlay_frame(frame.buffer_mut(), area, Role::Accent);
+    let close = render_close_button(frame.buffer_mut(), area, Role::Accent);
     border_title(
         frame.buffer_mut(),
         area.x + 2,
         area.y,
-        width - 4,
+        width - 8,
         "Inspect commit message",
         true,
     );
@@ -93,7 +94,7 @@ fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16)
         style(Role::Muted),
     );
     let progress = format!(
-        " {}{} / {} ",
+        " {}–{} / {} ",
         offset + 1,
         (offset + usize::from(content.height)).min(rows.len()),
         rows.len()
@@ -106,10 +107,11 @@ fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16)
         &progress,
         false,
     );
+    Some(close)
 }
 
 fn confirmation_height(rows: usize) -> u16 {
-    rows.saturating_add(4).clamp(8, usize::from(u16::MAX)) as u16
+    rows.saturating_add(5).clamp(8, usize::from(u16::MAX)) as u16
 }
 
 pub(super) fn render_overlay(
@@ -117,10 +119,11 @@ pub(super) fn render_overlay(
     outer: Rect,
     overlay: &Overlay,
     editor_offset: &mut usize,
-) -> Option<Rect> {
+    geometry: &mut Geometry,
+) {
     if let Overlay::Inspect { message, scroll } = overlay {
-        render_inspection(frame, outer, message, *scroll);
-        return None;
+        geometry.overlay_close = render_inspection(frame, outer, message, *scroll);
+        return;
     }
     let width = outer.width.saturating_sub(8).min(78);
     let confirmation = match overlay {
@@ -139,22 +142,21 @@ pub(super) fn render_overlay(
     };
     let height = desired_height.min(outer.height.saturating_sub(2));
     if width < 12 || height < 5 {
-        return None;
+        return;
     }
     let x = outer.x + (outer.width - width) / 2;
     let y = outer.y + (outer.height - height) / 2;
     let area = Rect::new(x, y, width, height);
     Clear.render(area, frame.buffer_mut());
     frame.buffer_mut().set_style(area, style(Role::Background));
-    draw_overlay_frame(
-        frame.buffer_mut(),
-        area,
-        if matches!(overlay, Overlay::Error { .. }) {
-            Role::Danger
-        } else {
-            Role::Accent
-        },
-    );
+    let border_role = if matches!(overlay, Overlay::Error { .. }) {
+        Role::Danger
+    } else {
+        Role::Accent
+    };
+    draw_overlay_frame(frame.buffer_mut(), area, border_role);
+    geometry.overlay_close = Some(render_close_button(frame.buffer_mut(), area, border_role));
+    let title_width = area.width - 8;
     let content = Rect::new(
         area.x + 3,
         area.y + 2,
@@ -168,8 +170,8 @@ pub(super) fn render_overlay(
                 frame.buffer_mut(),
                 area.x + 2,
                 area.y,
-                area.width - 4,
-                &format!(" {} ", elide_end(title, usize::from(area.width - 6))),
+                title_width,
+                &format!(" {} ", elide_end(title, usize::from(title_width - 2))),
                 style(Role::Danger).add_modifier(Modifier::BOLD),
             );
             let content = Rect::new(
@@ -218,31 +220,31 @@ pub(super) fn render_overlay(
                 &elide_end(&progress, usize::from(area.width - 4)),
                 style(Role::Danger),
             );
-            return Some(content);
+            geometry.editor = Some(content);
         }
         Overlay::Compose { editor } => {
             border_title(
                 frame.buffer_mut(),
                 area.x + 2,
                 area.y,
-                area.width - 4,
+                title_width,
                 "Commit Message",
                 true,
             );
             render_editor(frame, content, editor, editor_offset, "Commit message");
-            return Some(content);
+            geometry.editor = Some(content);
         }
         Overlay::Input { title, editor } => {
             border_title(
                 frame.buffer_mut(),
                 area.x + 2,
                 area.y,
-                area.width - 4,
+                title_width,
                 title,
                 true,
             );
             render_editor(frame, content, editor, editor_offset, "");
-            return Some(content);
+            geometry.editor = Some(content);
         }
         Overlay::Commands {
             editor,
@@ -253,7 +255,7 @@ pub(super) fn render_overlay(
                 frame.buffer_mut(),
                 area.x + 2,
                 area.y,
-                area.width - 4,
+                title_width,
                 "Commands",
                 true,
             );
@@ -306,7 +308,7 @@ pub(super) fn render_overlay(
             }
             let input = Rect::new(content.x, content.y, content.width, 1);
             render_editor(frame, input, editor, editor_offset, "Search commands");
-            return Some(input);
+            geometry.editor = Some(input);
         }
         Overlay::Confirm {
             title,
@@ -318,9 +320,15 @@ pub(super) fn render_overlay(
                 frame.buffer_mut(),
                 area.x + 2,
                 area.y,
-                area.width - 4,
+                title_width,
                 title,
                 true,
+            );
+            let content = Rect::new(
+                content.x,
+                content.y,
+                content.width,
+                area.height.saturating_sub(5),
             );
             let lines = confirmation.as_deref().unwrap_or_default();
             let offset =
@@ -338,17 +346,10 @@ pub(super) fn render_overlay(
             })
             .scroll((offset as u16, 0))
             .render(content, frame.buffer_mut());
-            put(
-                frame.buffer_mut(),
-                content.x,
-                area.bottom() - 2,
-                content.width,
-                "Enter to confirm    Esc to cancel",
-                style(Role::Plain),
-            );
+            geometry.overlay_confirm = Some(render_confirm_button(frame.buffer_mut(), area));
             if lines.len() > usize::from(content.height) && content.height > 0 {
                 let label = format!(
-                    "{}{} / {}",
+                    "{}–{} / {}",
                     offset + 1,
                     (offset + usize::from(content.height)).min(lines.len()),
                     lines.len()
@@ -378,7 +379,39 @@ pub(super) fn render_overlay(
             }
         }
     }
-    None
+}
+
+fn render_close_button(buffer: &mut Buffer, area: Rect, role: Role) -> Rect {
+    let button = Rect::new(area.right() - 4, area.y, 2, 1);
+    put(
+        buffer,
+        button.x,
+        button.y,
+        button.width,
+        "\u{f00d} ",
+        style(role).add_modifier(Modifier::BOLD),
+    );
+    button
+}
+
+fn render_confirm_button(buffer: &mut Buffer, area: Rect) -> Rect {
+    let width = 11.min(area.width - 4);
+    let button = Rect::new(area.right() - width - 2, area.bottom() - 2, width, 1);
+    let appearance = Style::default()
+        .fg(Color::Black)
+        .bg(foreground(Role::Success))
+        .add_modifier(Modifier::BOLD);
+    buffer.set_style(button, appearance);
+    let label = if width >= 11 {
+        "Confirm ↵"
+    } else {
+        "Confirm"
+    };
+    Paragraph::new(label)
+        .style(appearance)
+        .centered()
+        .render(button, buffer);
+    button
 }
 
 fn render_editor(

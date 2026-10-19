@@ -630,7 +630,12 @@ impl App {
         false
     }
 
-    pub(super) fn mouse(&mut self, event: MouseEvent) {
+    pub(super) fn mouse(
+        &mut self,
+        event: MouseEvent,
+        terminal: &mut Option<crate::session::Session>,
+        signals: &mut Option<ui_terminal::SignalGuard>,
+    ) -> Result<(), String> {
         if matches!(
             event.kind,
             MouseEventKind::ScrollDown
@@ -639,11 +644,12 @@ impl App {
                 | MouseEventKind::ScrollRight
         ) {
             self.wheel(event);
-            return;
+            return Ok(());
         }
         if event.kind != MouseEventKind::Moved {
             self.scroll.stop();
         }
+        let point = ratatui::layout::Position::new(event.column, event.row);
         if self.dialog.is_some() {
             if self.dragging || self.view.divider_hovered || self.view.nav_hovered.is_some() {
                 self.dragging = false;
@@ -652,9 +658,29 @@ impl App {
                 self.view.divider_hover_row = None;
                 self.dirty = true;
             }
-            return;
+            if event.kind == MouseEventKind::Down(MouseButton::Left)
+                && let Some(geometry) = &self.geometry
+            {
+                let key = if geometry
+                    .overlay_close
+                    .is_some_and(|area| area.contains(point))
+                {
+                    Some(KeyCode::Esc)
+                } else if matches!(self.dialog, Some(Dialog::Confirm { .. }))
+                    && geometry
+                        .overlay_confirm
+                        .is_some_and(|area| area.contains(point))
+                {
+                    Some(KeyCode::Enter)
+                } else {
+                    None
+                };
+                if let Some(key) = key {
+                    return self.key(KeyEvent::new(key, KeyModifiers::NONE), terminal, signals);
+                }
+            }
+            return Ok(());
         }
-        let point = ratatui::layout::Position::new(event.column, event.row);
         if event.kind == MouseEventKind::Moved {
             let hovered = self.dragging
                 || self
@@ -682,10 +708,10 @@ impl App {
                 self.view.nav_hovered = nav_hovered;
                 self.dirty = true;
             }
-            return;
+            return Ok(());
         }
         let Some(geometry) = self.geometry.clone() else {
-            return;
+            return Ok(());
         };
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
@@ -726,8 +752,12 @@ impl App {
                     self.inspect_commit();
                 } else if geometry.nav.contains(point) {
                     let index = geometry.nav_start + usize::from(event.row - geometry.nav.y);
-                    if self.entries.get(index).is_some_and(|entry| entry.item.disabled) {
-                        return;
+                    if self
+                        .entries
+                        .get(index)
+                        .is_some_and(|entry| entry.item.disabled)
+                    {
+                        return Ok(());
                     }
                     self.view.focus = Focus::Navigator;
                     self.view.nav_manual_scroll = false;
@@ -781,6 +811,7 @@ impl App {
             _ => {}
         }
         self.dirty = true;
+        Ok(())
     }
 
     pub(super) fn paste(&mut self, text: &str) {

@@ -14,6 +14,7 @@ pub struct DiffPaint {
 #[derive(Clone, Debug)]
 struct PaintedLine {
     gutter: Line<'static>,
+    background: Option<Color>,
     chunks: Vec<Line<'static>>,
     offsets: Vec<usize>,
 }
@@ -60,6 +61,7 @@ pub fn configured_diff_layout(
                 (line.id, right),
                 PaintedLine {
                     gutter,
+                    background: content.spans.first().and_then(|span| span.style.bg),
                     chunks,
                     offsets,
                 },
@@ -188,6 +190,7 @@ impl DiffPaint {
                 buffer,
             );
         }
+        diff::highlight_gutter(buffer, area, gutter_width, line.background);
         let horizontal = if self.horizontal { horizontal } else { 0 };
         Paragraph::new(chunk.clone())
             .scroll((0, horizontal.min(usize::from(u16::MAX)) as u16))

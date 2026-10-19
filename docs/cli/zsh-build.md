@@ -30,11 +30,12 @@
 | --- | --- |
 | `config/zsh/build.toml` | Targets, ambient variables, commands folded at build time, deferred code |
 | `.cache/zsh/build/zshrc.zsh` | Bundle; built by `dotfile sync`, which runs `zsh-build verify` after a change and warns per difference |
-| `.cache/zsh/build/zshrc.zsh.zwc` | Wordcode; compiled by the build with `$SHELL` if zsh, else `zsh` on `PATH`. A shell recompiles it in the background when older than the bundle or from another zsh version |
+| `.cache/zsh/build/zshrc.zsh.zwc` | Wordcode; compiled by the build with `$SHELL` if zsh, else `zsh` on `PATH`. A shell that read the bundle as text (`$ZSH_EVAL_CONTEXT` not ending in `filecode`), as zsh does when the wordcode is older or from another zsh version, recompiles it in the background; otherwise no process starts |
 | `.cache/zsh/build/zshrc.origins` | Function name to defining `file:line`; read by `zsh-build where` and the bundle's `type`/`whence` |
 | `.cache/zsh/build/zshrc.completions/` | `cached_eval` output that is an autoloadable `#compdef` script; first in `fpath` at a deferred `compinit`, loaded on the first Tab |
-| `.cache/zsh/build/commands.json` | `[fold] commands` and `cached_eval` output kept between builds; reused until the program (symlinks resolved, mtime, size) or its `PATH` changes; a `#!` script also until its git checkout's commit changes, and outside one is not kept; zsh's check of respelled generated code, until zsh changes |
-| `~/.zcompdump-*.fpath` | `fpath` the completion dump was built for; while it matches and the dump is not newer, the bundle runs `compinit -C`. A build removes a dump whose completion functions changed |
+| `.cache/zsh/build/commands.json` | `[fold] commands` and `cached_eval` output kept between builds; reused until the program (symlinks resolved, mtime, size) or its `PATH` changes; a `#!` script also until its git checkout's commit changes, and outside one is not kept; zsh's check of respelled generated code, until zsh changes; completion files plugin jobs write, until the command changes; zsh-autosuggestions' recorded binding, until the bundle changes |
+| `$ZSH_CACHE_DIR/completions/_NAME` | Completion file an oh-my-zsh plugin's background job rewrites on each start; written by the build |
+| `~/.zcompdump-*.fpath` | `fpath` the completion dump was built for; while it matches and the dump is not newer, the bundle runs `compinit -C`. A build removes a dump whose completion functions changed, and `compdump`'s staging files (`<dump>.$HOST.<pid>`) older than a minute |
 | `.cache/zsh/build/zshrc.rcs.zsh` | Guard sourced by `~/.zshenv`; only when every global startup file compiled |
 | `shared/zsh/00-profile.zsh` | `~/.zprofile` (macOS) |
 
@@ -68,6 +69,7 @@
 | `zsh -i -c`, `zsh -i script`, no zle | Runs in place |
 | Line typed before the queue empties | Queue runs first |
 | `compdef` before a deferred `compinit` | Queued in order with the deferred code |
+| `defer source FILE` | `FILE` compiled with the state startup leaves, as a function `defer` queues in its place; as written when it does not compile; top level only |
 | Deferred `compinit` | Sees `fpath` as of its original place, `zshrc.completions/` first |
 | `cached_eval` of a `#compdef` script | File in `zshrc.completions/`; inlined without a deferred `compinit` |
 
@@ -113,6 +115,8 @@
 | `$(locale LC_CTYPE)` | `${langinfo[CODESET]}`; runs `locale` when `zsh/langinfo` fails; kept when `locale` prints more than the codeset |
 | `$(emulate)` | `zsh` at top level; kept once compiled code may change the emulation |
 | `$(command -v name)` | Path on the build search path; kept for functions, aliases, builtins, function bodies, loops |
+| `command rm -f FILE...` | Runs `rm` only when a file is there; `FILE` plain, or double-quoted with only `$`, `{`, `}` expansions |
+| Background job writing `"$ZSH_CACHE_DIR/completions/_NAME"` | Run once by the build against a scratch cache, `NAME` on the search path; its file written by the build; the bundle runs the job only when the file is missing. Kept when it reads a zstyle set before it |
 
 | Decided | Value |
 | --- | --- |
@@ -121,6 +125,16 @@
 | Tests | `has_cmd name`, `(( $+commands[name] ))`, `true`, `false`, `[[ ]]` on constants; with `!`, `&&`, `\|\|` |
 | Function run once | Tests in its body, when only definitions lie between it, the statement it starts and its `unset -f` or `unfunction`, and its file names it nowhere else |
 | Kept | Variable and file tests, loop bodies, arms sharing lines or reading `$?` first |
+
+## zsh-autosuggestions
+
+| Key | Value |
+| --- | --- |
+| Recorded | First run of `_zsh_autosuggest_bind_widgets`, in a login shell on a pty started from the bundle, after `defer source` compiled the plugin; once per bundle text |
+| Emitted | After the plugin: the functions and widgets that run made, and `_ZSH_AUTOSUGGEST_BIND_COUNTS`, as code; no `eval` |
+| Runs when | Widgets and their values, and `ZSH_AUTOSUGGEST_*` parameters, are as recorded; otherwise the plugin binds them |
+| After | The plugin's `_zsh_autosuggest_bind_widgets` is back; the build's helpers are gone |
+| Left to the plugin | Run changes other parameters, removes a function, widget or parameter, or makes a widget other than `user:` or `completion:`; names a function that is not plain; code names an alias set before the bundle; dry run without a record |
 
 ## Errors
 
@@ -183,7 +197,7 @@
 
 | Tolerated | Value |
 | --- | --- |
-| zsh-build's own | `_zsh_build_*`, `__zb<N>`, `__zb0_<N>`, `__zb_head`, `__zbv_*`; the bundle's `type`, `whence` |
+| zsh-build's own | `_zsh_build_*`, `__zb<N>`, `__zb0_<N>`, `__zb_head`, `__zbv_*`; the bundle's `type`, `whence`, which run the builtins when copied without `_zsh_build_whence` |
 | `ZSH_BUILD_SKIP` | Sources only |
 | `fpath` | Bundle's `<target>.completions` dropped |
 | `<target>.completions/` scripts | Sourced in the bundle shell before the dump, aliases off, as the first Tab loads them |
