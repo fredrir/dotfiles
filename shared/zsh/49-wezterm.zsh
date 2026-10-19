@@ -240,7 +240,6 @@ _wezterm_apply_selection_delete() {
   [[ $BUFFER == "$_WEZTERM_SELECTION_BUFFER" && $CURSOR == "$_WEZTERM_SELECTION_CURSOR" ]] || return 0
   unset _WEZTERM_SELECTION_BUFFER _WEZTERM_SELECTION_CURSOR
   if [[ $reply != <->:<->:<-> ]]; then
-    zle -M 'Selection is outside the editable command or cannot be mapped exactly'
     return 0
   fi
   start=${${reply#*:}%%:*} end=${reply##*:}
@@ -258,6 +257,7 @@ add-zle-hook-widget line-init _wezterm_selection_start
 add-zle-hook-widget line-finish _wezterm_selection_finish
 
 if [[ -n $WEZTERM_GO_TO ]]; then
+
   () {
     local REPLY
     _wezterm_go_to_dir "$WEZTERM_GO_TO" && builtin cd -- "$REPLY"

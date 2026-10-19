@@ -20,6 +20,9 @@ return {
       settings = { "Super+," },
       space_1 = { "Alt+1" },
       space_2 = { "Alt+2" },
+      space_3 = { "Alt+3" },
+      space_4 = { "Alt+4" },
+      space_5 = { "Alt+5" },
       tabs = { "Super+k" },
     },
     keyboard_shortcuts = true,
@@ -34,6 +37,9 @@ return {
     show_indexes = false,
     width = 256,
   },
-  spaces = { { icon = "󰋜", id = "home", name = "Home" } },
+  spaces = {
+    { accent = "#eeffd1", icon = "󰋜", id = "home", name = "Home" },
+    { accent = "#d072d5", icon = "󰌠", id = "space-87018dff62bd3e7f3182-1", name = "Pyparser" },
+  },
   templates = {},
 }

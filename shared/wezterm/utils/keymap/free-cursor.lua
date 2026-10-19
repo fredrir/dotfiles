@@ -29,24 +29,24 @@ local selecting = {}
 
 ---@param window Window
 ---@param pane Pane
-local function leave(window, pane)
+---@param preserve_selection? boolean
+local function leave(window, pane, preserve_selection)
   selecting[pane:pane_id()] = nil
-  window:perform_action(
-    act.Multiple {
-      act.CopyMode "ClearSelectionMode",
-      act.CopyMode "Close",
-      act.ScrollToBottom,
-    },
-    pane
-  )
+  ---@type Action[]
+  local actions = { act.CopyMode "Close", act.ScrollToBottom }
+  if not preserve_selection then
+    table.insert(actions, 1, act.CopyMode "ClearSelectionMode")
+  end
+  window:perform_action(act.Multiple(actions), pane)
 end
 
 ---@param name string
 ---@param action Action
+---@param preserve_selection? boolean
 ---@return Action
-local function resume(name, action)
+local function resume(name, action, preserve_selection)
   return callback("resume:" .. name, function(window, pane)
-    leave(window, pane)
+    leave(window, pane, preserve_selection)
     window:perform_action(action, pane)
   end)
 end
@@ -122,7 +122,13 @@ local function key_table(bindings)
   end
 
   for _, binding in ipairs(bindings) do
-    bind(binding.key, binding.mods, resume("binding:" .. binding.key .. ":" .. binding.mods, binding.action))
+    -- The Backspace callback needs the selection after copy mode closes.
+    local preserve_selection = binding.key == "Backspace" and binding.mods == "NONE"
+    bind(
+      binding.key,
+      binding.mods,
+      resume("binding:" .. binding.key .. ":" .. binding.mods, binding.action, preserve_selection)
+    )
   end
 
   ---@type { key: string, movement: CopyModeParams }[]
