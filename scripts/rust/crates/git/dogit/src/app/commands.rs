@@ -149,14 +149,12 @@ impl App {
                 }
             }
             Action::Compose => {
-                self.workspace(Workspace::Changes);
                 self.dialog = Some(Dialog::Compose { editor: ui_widgets::EditorBuffer::default(), amend: None });
                 self.view.editor_offset = 0;
-                self.side = DiffSide::Index;
-                self.view.focus = Focus::Canvas;
-                self.load_content(true);
             },
-            Action::Commit => self.command("Commit", |repo| repo.commit(None, false)),
+            Action::Commit => self.prepare("Commit", |repo| {
+                repo.commit(None, false).map(Prepared::Commit).map_err(|error| error.to_string())
+            }),
             Action::Amend => self.dialog = Some(Dialog::Confirm { action, target: self.snapshot.status.oid.clone().map(Target::Commit), title: "Amend last commit".into(), detail: "Replace the last commit with the staged changes and an edited message. Published history will change.".into(), discard: None, abort: None, scroll: 0 }),
             Action::Fetch => self.command("Fetch", |repo| Ok(repo.fetch())),
             Action::Pull => self.command("Pull", |repo| Ok(repo.pull())),
@@ -371,9 +369,6 @@ impl App {
             return Ok(());
         };
         if key.code == KeyCode::Esc {
-            if matches!(dialog, Dialog::Compose { .. }) {
-                self.load_content(true);
-            }
             return Ok(());
         }
         if let Some(editor) = dialog.editor()

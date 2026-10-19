@@ -101,6 +101,7 @@ impl Dialog {
 
 enum Prepared {
     Commands(Vec<CommandSpec>),
+    Commit(CommandSpec),
     Amend { oid: String, message: String },
     Discard(Box<crate::git::DiscardGuard>),
     Abort(Box<crate::git::OperationGuard>),
@@ -132,7 +133,6 @@ struct PreviewRequest {
     comparison: Option<(String, String)>,
     side: DiffSide,
     all_files: bool,
-    composing: bool,
     structural: bool,
     presentation: DiffPresentationConfig,
     width: usize,
@@ -171,9 +171,8 @@ impl PreviewKey {
             stamps: Vec::new(),
             files: Vec::new(),
         };
-        let working = key.request.composing
-            || (key.request.workspace == Workspace::Changes
-                && matches!(key.request.target, Some(Target::Path(..))));
+        let working = key.request.workspace == Workspace::Changes
+            && matches!(key.request.target, Some(Target::Path(..)));
         if working {
             let index = std::env::var_os("GIT_INDEX_FILE")
                 .map(PathBuf::from)
@@ -558,10 +557,6 @@ impl App {
         self.request_refresh(false);
     }
 
-    fn composing(&self) -> bool {
-        matches!(self.dialog, Some(Dialog::Compose { .. }))
-    }
-
     fn preview_request(&self) -> PreviewRequest {
         let mut presentation = self.presentation_config.clone().unwrap_or_default();
         presentation.split = self.view.split;
@@ -572,7 +567,6 @@ impl App {
             comparison: self.compare.clone(),
             side: self.side,
             all_files: self.all_files,
-            composing: self.composing(),
             structural: self.structure_enabled,
             presentation,
             width: self.geometry.as_ref().map_or(100, |geometry| {
@@ -714,15 +708,11 @@ impl App {
                 }
                 Ok(Prepared::Amend { oid, message }) => {
                     self.operation = None;
-                    self.workspace(Workspace::Changes);
                     self.dialog = Some(Dialog::Compose {
                         editor: ui_widgets::EditorBuffer::new(&message),
                         amend: Some(oid),
                     });
                     self.view.editor_offset = 0;
-                    self.side = DiffSide::Index;
-                    self.view.focus = Focus::Canvas;
-                    self.load_content(true);
                     self.dirty = true;
                 }
                 Ok(Prepared::Commands(commands)) => {
@@ -1154,10 +1144,10 @@ impl App {
         let reset = reset || previous_side != self.side;
         self.content_reset |= reset;
         self.ready_content = None;
-        let clear = self.loaded_preview.as_ref().is_some_and(|key| {
-            key.request.workspace != self.view.workspace
-                || key.request.composing != self.composing()
-        });
+        let clear = self
+            .loaded_preview
+            .as_ref()
+            .is_some_and(|key| key.request.workspace != self.view.workspace);
         if clear {
             self.view.canvas_manual_scroll = false;
             self.view.diff_offset = 0;
@@ -1178,7 +1168,6 @@ impl App {
         let root = self.repo.root.clone();
         let side = self.side;
         let all_files = self.all_files;
-        let composing = self.composing();
         let workspace = self.view.workspace;
         let comparison = self.compare.clone();
         let history_commit = self.history_commit.clone();
@@ -1251,7 +1240,6 @@ impl App {
                 _ => None,
             };
             let mut diff = match target {
-                _ if composing => Some(ExactDiff::staged_cancellable(&root, Some(&cancel))?),
                 Some(Target::Path(path, _)) if history_commit.is_some() => {
                     Some(ExactDiff::commit_cancellable(
                         &root,
@@ -1328,7 +1316,6 @@ impl App {
             let mut text = Vec::new();
             if let Some((path, directory)) = preview_path
                 && !directory
-                && !composing
                 && (all_files && diff.as_ref().is_some_and(|diff| diff.raw.is_empty())
                     || diff.as_ref().is_some_and(|diff| {
                         diff.partial_reason.as_deref()

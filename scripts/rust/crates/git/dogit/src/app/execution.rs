@@ -1,18 +1,92 @@
 use super::*;
+use std::io::{Read, Seek};
+
+fn captured_output(mut output: std::fs::File) -> Result<String, String> {
+    output.rewind().map_err(|error| error.to_string())?;
+    let limit = 256 * 1024;
+    let length = output.metadata().map_err(|error| error.to_string())?.len();
+    if length > limit {
+        output
+            .seek(std::io::SeekFrom::End(-(limit as i64)))
+            .map_err(|error| error.to_string())?;
+    }
+    let mut bytes = Vec::new();
+    output
+        .take(limit)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    let text = String::from_utf8_lossy(&bytes).trim().to_owned();
+    Ok(if length > limit {
+        format!("[Earlier output omitted; showing the last 256 KiB]\n{text}")
+    } else {
+        text
+    })
+}
+
+fn execute_commit(repo: &Repo, spec: &CommandSpec) -> Result<String, String> {
+    let mut lookup = repo.command(&CommandSpec::new("Editor", ["var", "GIT_EDITOR"]));
+    let configured = hostkit::process::output(
+        &mut lookup,
+        hostkit::process::CaptureLimits::default(),
+        Duration::from_secs(5),
+    )
+    .map_err(|error| error.to_string())?;
+    if !configured.status.success() {
+        return Err(String::from_utf8_lossy(&configured.stderr).into_owned());
+    }
+    let configured = String::from_utf8(configured.stdout).map_err(|error| error.to_string())?;
+    let editor = format!("{} \"$@\"", configured.trim());
+    let editor = shlex::try_quote(&editor).map_err(|error| error.to_string())?;
+    let editor_status = tempfile::NamedTempFile::new().map_err(|error| error.to_string())?;
+    // Keep the editor on the terminal while capturing Git's diagnostics separately.
+    let wrapper = format!(
+        r#"sh -c {editor} dogit-editor "$@" </dev/tty >/dev/tty 2>&1
+status=$?
+printf '%s' "$status" > "$DOGIT_EDITOR_STATUS"
+exit "$status""#
+    );
+    let wrapper = shlex::try_quote(&wrapper).map_err(|error| error.to_string())?;
+    let wrapper = format!("sh -c {wrapper} dogit-editor");
+    let output = tempfile::tempfile().map_err(|error| error.to_string())?;
+    let status = repo
+        .command(spec)
+        .arg("--quiet")
+        .env("LC_ALL", "C")
+        .env("GIT_EDITOR", &wrapper)
+        .env("DOGIT_EDITOR_STATUS", editor_status.path())
+        .stdin(Stdio::inherit())
+        .stdout(output.try_clone().map_err(|error| error.to_string())?)
+        .stderr(output.try_clone().map_err(|error| error.to_string())?)
+        .status()
+        .map_err(|error| error.to_string())?;
+    let text = captured_output(output)?.replace(&wrapper, configured.trim());
+    let cancelled = std::fs::read_to_string(editor_status.path()).is_ok_and(|status| {
+        status == "1"
+            || (status == "0"
+                && (text.ends_with("Aborting commit due to empty commit message.")
+                    || text.ends_with("Aborting commit; you did not edit the message.")))
+    });
+    if status.success() || cancelled {
+        Ok(String::new())
+    } else if text.is_empty() {
+        Err(format!("{} did not complete ({status})", spec.label))
+    } else {
+        Err(text)
+    }
+}
 
 pub(super) fn execute_captured(
     repo: &Repo,
     specs: &[CommandSpec],
     cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<String, String> {
-    use std::io::{Read, Seek};
     use std::sync::atomic::Ordering;
     let mut details = Vec::new();
     for spec in specs {
         if cancel.load(Ordering::Acquire) || ui_terminal::termination_requested() {
             return Err("Operation interrupted".into());
         }
-        let mut output = tempfile::tempfile().map_err(|error| error.to_string())?;
+        let output = tempfile::tempfile().map_err(|error| error.to_string())?;
         let mut command = repo.command(spec);
         command
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -40,25 +114,7 @@ pub(super) fn execute_captured(
             }
             std::thread::sleep(Duration::from_millis(20));
         };
-        output.rewind().map_err(|error| error.to_string())?;
-        let limit = 256 * 1024;
-        let length = output.metadata().map_err(|error| error.to_string())?.len();
-        if length > limit {
-            output
-                .seek(std::io::SeekFrom::End(-(limit as i64)))
-                .map_err(|error| error.to_string())?;
-        }
-        let mut bytes = Vec::new();
-        output
-            .take(limit)
-            .read_to_end(&mut bytes)
-            .map_err(|error| error.to_string())?;
-        let text = String::from_utf8_lossy(&bytes).trim().to_owned();
-        let text = if length > limit {
-            format!("[Earlier output omitted; showing the last 256 KiB]\n{text}")
-        } else {
-            text
-        };
+        let text = captured_output(output)?;
         if !status.success() {
             return Err(if text.is_empty() {
                 format!("{} did not complete", spec.label)
@@ -86,7 +142,6 @@ impl App {
             || "Git operation".into(),
             |operation| operation.label.clone(),
         );
-        let editor = matches!(prepared, Prepared::Editor(..));
         drop(terminal.take());
         drop(signals.take());
         let handoff_signals = ui_terminal::SignalGuard::with_options(ui_terminal::SignalOptions {
@@ -96,6 +151,7 @@ impl App {
         .map_err(|error| error.to_string())?;
         let result = (|| -> Result<String, String> {
             match prepared {
+                Prepared::Commit(spec) => execute_commit(&self.repo, &spec),
                 Prepared::Editor(editor, path) => {
                     let mut command = Command::new("sh");
                     command
@@ -128,7 +184,7 @@ impl App {
         self.operation = None;
         if result.as_ref().is_ok_and(|text| text.is_empty()) {
             self.feedback = None;
-        } else if !editor || result.is_err() {
+        } else {
             self.report_result(&label, result);
         }
         self.refresh();

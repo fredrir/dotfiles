@@ -74,10 +74,8 @@ impl App {
         } else {
             ""
         };
-        let composing = self.composing();
         let preview_target = self.preview_target().cloned();
         let canvas_path = match preview_target.as_ref() {
-            _ if composing => String::new(),
             Some(Target::Path(path, _)) | Some(Target::Comparison(path)) => {
                 path.display().to_string()
             }
@@ -103,7 +101,7 @@ impl App {
             ),
             None => String::new(),
         };
-        let diff_scope = (self.view.workspace == Workspace::Changes && !composing)
+        let diff_scope = (self.view.workspace == Workspace::Changes)
             .then(|| {
                 self.entries
                     .get(self.view.selected)
@@ -193,7 +191,7 @@ impl App {
             diff_counts: self.diff.as_ref().map(|_| self.diff_counts),
             canvas_path: &canvas_path,
             directory_scope: match preview_target.as_ref() {
-                Some(Target::Path(path, true)) if !composing => Some(path.as_path()),
+                Some(Target::Path(path, true)) => Some(path.as_path()),
                 _ => None,
             },
             diff_scope,

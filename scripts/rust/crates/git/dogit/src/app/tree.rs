@@ -220,7 +220,7 @@ impl App {
     }
 
     pub(super) fn align_diff_side(&mut self) {
-        if self.view.workspace != Workspace::Changes || self.composing() {
+        if self.view.workspace != Workspace::Changes {
             return;
         }
         if let Some(side) = self.changes_filter {

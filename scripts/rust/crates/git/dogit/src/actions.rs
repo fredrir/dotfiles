@@ -137,13 +137,13 @@ pub const ACTIONS: &[Definition] = &[
     },
     Definition {
         action: Action::Commit,
-        label: "Commit in editor",
-        key: "c",
+        label: "Commit in Git editor",
+        key: "C",
     },
     Definition {
         action: Action::Compose,
-        label: "Compose commit",
-        key: "C",
+        label: "Compose commit in dogit",
+        key: "c",
     },
     Definition {
         action: Action::Amend,

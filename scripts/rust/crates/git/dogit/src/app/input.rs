@@ -250,8 +250,8 @@ impl App {
                     's' if self.view.workspace == Workspace::Stashes => Some(Action::StashApply),
                     'S' => Some(Action::StageFile),
                     'U' => Some(Action::UnstageFile),
-                    'c' => Some(Action::Commit),
-                    'C' => Some(Action::Compose),
+                    'c' => Some(Action::Compose),
+                    'C' => Some(Action::Commit),
                     'a' => Some(Action::Amend),
                     'f' => Some(Action::Fetch),
                     'p' => Some(if self.view.workspace == Workspace::Stashes {
