@@ -1,12 +1,19 @@
 use super::*;
 use unicode_segmentation::UnicodeSegmentation;
 
-pub fn confirmation_scroll_max(detail: &str, outer: Rect) -> u16 {
+pub fn confirmation_scroll_max(detail: &ConfirmationDetail, outer: Rect) -> u16 {
     let width = outer.width.saturating_sub(8).min(78);
-    let rows = wrap_detail(detail, width.saturating_sub(6)).len();
+    let rows = confirmation_rows(detail, width.saturating_sub(6));
     let height = confirmation_height(rows).min(outer.height.saturating_sub(2));
     rows.saturating_sub(usize::from(height.saturating_sub(5)))
         .min(usize::from(u16::MAX)) as u16
+}
+
+fn confirmation_rows(detail: &ConfirmationDetail, width: u16) -> usize {
+    match detail {
+        ConfirmationDetail::Text(text) => wrap_detail(text, width).len(),
+        ConfirmationDetail::Files(files) => files.len(),
+    }
 }
 
 pub fn inspection_scroll_max(message: &str, outer: Rect) -> u16 {
@@ -119,19 +126,15 @@ pub(super) fn render_overlay(
         return;
     }
     let width = outer.width.saturating_sub(8).min(78);
-    let confirmation = match overlay {
-        Overlay::Confirm { detail, .. } => Some(wrap_detail(detail, width.saturating_sub(6))),
-        _ => None,
-    };
     let desired_height = match overlay {
         Overlay::Inspect { .. } => 0,
         Overlay::Error { .. } => outer.height.saturating_sub(4).min(24),
         Overlay::Compose { .. } => 16,
         Overlay::Commands { items, .. } => (items.len() as u16 + 7).min(19),
         Overlay::Input { .. } => 8,
-        Overlay::Confirm { .. } => confirmation
-            .as_ref()
-            .map_or(8, |lines| confirmation_height(lines.len())),
+        Overlay::Confirm { detail, .. } => {
+            confirmation_height(confirmation_rows(detail, width.saturating_sub(6)))
+        }
     };
     let height = desired_height.min(outer.height.saturating_sub(2));
     if width < 12 || height < 5 {
@@ -289,6 +292,7 @@ pub(super) fn render_overlay(
         }
         Overlay::Confirm {
             title,
+            detail,
             destructive,
             scroll,
             ..
@@ -307,29 +311,35 @@ pub(super) fn render_overlay(
                 content.width,
                 area.height.saturating_sub(5),
             );
-            let lines = confirmation.as_deref().unwrap_or_default();
-            let offset =
-                usize::from(*scroll).min(lines.len().saturating_sub(usize::from(content.height)));
-            Paragraph::new(
-                lines
-                    .iter()
-                    .map(|line| Line::from(line.as_str()))
-                    .collect::<Vec<_>>(),
-            )
-            .style(if *destructive {
-                style(Role::Warning)
-            } else {
-                style(Role::Plain)
-            })
-            .scroll((offset as u16, 0))
-            .render(content, frame.buffer_mut());
+            let rows = confirmation_rows(detail, content.width);
+            let offset = usize::from(*scroll).min(rows.saturating_sub(usize::from(content.height)));
+            match detail {
+                ConfirmationDetail::Text(text) => {
+                    Paragraph::new(
+                        wrap_detail(text, content.width)
+                            .into_iter()
+                            .map(Line::from)
+                            .collect::<Vec<_>>(),
+                    )
+                    .style(if *destructive {
+                        style(Role::Warning)
+                    } else {
+                        style(Role::Plain)
+                    })
+                    .scroll((offset as u16, 0))
+                    .render(content, frame.buffer_mut());
+                }
+                ConfirmationDetail::Files(files) => {
+                    navigator::render_file_tree(frame.buffer_mut(), content, offset, files);
+                }
+            }
             geometry.overlay_confirm = Some(render_confirm_button(frame.buffer_mut(), area));
-            if lines.len() > usize::from(content.height) && content.height > 0 {
+            if rows > usize::from(content.height) && content.height > 0 {
                 let label = format!(
                     "{}–{} / {}",
                     offset + 1,
-                    (offset + usize::from(content.height)).min(lines.len()),
-                    lines.len()
+                    (offset + usize::from(content.height)).min(rows),
+                    rows
                 );
                 let label_width = (label.width() as u16 + 2).min(area.width.saturating_sub(4));
                 border_title(
@@ -341,8 +351,8 @@ pub(super) fn render_overlay(
                     false,
                 );
                 let visible = usize::from(content.height);
-                let thumb = (visible * visible / lines.len()).max(1);
-                let top = offset * (visible - thumb) / lines.len().saturating_sub(visible).max(1);
+                let thumb = (visible * visible / rows).max(1);
+                let top = offset * (visible - thumb) / rows.saturating_sub(visible).max(1);
                 for row in top..top + thumb {
                     put(
                         frame.buffer_mut(),

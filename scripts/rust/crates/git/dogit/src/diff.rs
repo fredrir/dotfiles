@@ -376,7 +376,7 @@ impl ExactDiff {
         {
             Some("Symbolic links and submodules must be staged or unstaged as a whole file".into())
         } else if hunks.is_empty() && !raw.is_empty() {
-            Some("This change has no selectable text; use the whole-file action".into())
+            Some("".into())
         } else {
             None
         };

@@ -227,7 +227,7 @@ pub const ACTIONS: &[Definition] = &[
     },
     Definition {
         action: Action::Discard,
-        label: "Discard selected unstaged changes",
+        label: "Unstage selected changes or discard unstaged changes",
         key: "d",
     },
     Definition {

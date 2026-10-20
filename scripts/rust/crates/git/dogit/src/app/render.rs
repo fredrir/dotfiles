@@ -190,6 +190,11 @@ impl App {
             changes_filter: self.changes_filter,
             diff_counts: self.diff.as_ref().map(|_| self.diff_counts),
             canvas_path: &canvas_path,
+            canvas_path_kind: match preview_target.as_ref() {
+                Some(Target::Path(_, true)) => Some(NavKind::Folder),
+                Some(Target::Path(_, false) | Target::Comparison(_)) => Some(NavKind::File),
+                _ => None,
+            },
             directory_scope: match preview_target.as_ref() {
                 Some(Target::Path(path, true)) => Some(path.as_path()),
                 _ => None,

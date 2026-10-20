@@ -1,12 +1,5 @@
 use super::*;
 
-#[derive(Default)]
-struct Node {
-    directory: bool,
-    state: view::FileState,
-    children: Vec<PathBuf>,
-}
-
 pub(super) struct FolderAnimation {
     path: PathBuf,
     started: Instant,
@@ -114,101 +107,32 @@ impl App {
         paths: impl IntoIterator<Item = (&'a Path, view::FileState)>,
     ) -> (Vec<Entry>, view::NavSummary) {
         let query = self.query.to_lowercase();
-        let mut tree = BTreeMap::<PathBuf, Node>::new();
-        let mut summary = view::NavSummary::default();
-        let mut root: Option<PathBuf> = None;
-        for (path, state) in paths {
-            if !query.is_empty() && !path.to_string_lossy().to_lowercase().contains(&query) {
-                continue;
-            }
-            let parent = path.parent().unwrap_or(Path::new(""));
-            if let Some(root) = &mut root {
-                while !parent.starts_with(&root) {
-                    if !root.pop() {
-                        break;
-                    }
-                }
-            } else {
-                root = Some(parent.to_owned());
-            }
-            summary.items += 1;
-            summary.staged += usize::from(state.staged);
-            summary.unstaged += usize::from(state.unstaged);
-            tree.entry(path.to_owned()).or_default().state = state;
-            for parent in path.ancestors().skip(1) {
-                let node = tree.entry(parent.to_owned()).or_default();
-                node.directory = true;
-                merge_state(&mut node.state, state);
-            }
-        }
+        let paths = paths.into_iter().filter(|(path, _)| {
+            query.is_empty() || path.to_string_lossy().to_lowercase().contains(&query)
+        });
+        let (tree, summary) = view::file_tree(&self.repo.root, paths, |path| {
+            !query.is_empty() || !self.tree_collapsed().contains(path)
+        });
         if self.view.workspace == Workspace::Changes
             && self.changes_filter.is_some()
-            && tree.is_empty()
+            && summary.items == 0
         {
             return (Vec::new(), summary);
         }
-        let root = root.unwrap_or_default();
-        tree.entry(root.clone()).or_default().directory = true;
-        let paths: Vec<_> = tree.keys().cloned().collect();
-        for path in paths {
-            if let Some(parent) = path.parent()
-                && let Some(node) = tree.get_mut(parent)
-            {
-                node.children.push(path);
-            }
-        }
-        let mut entries = Vec::new();
         let disabled = self.view.workspace == Workspace::Changes && summary.items == 0;
-        let mut pending = vec![(root.clone(), root.clone(), 0)];
-        while let Some((mut path, parent, depth)) = pending.pop() {
-            while let [child] = tree[&path].children.as_slice()
-                && tree[child].directory
-            {
-                path = child.clone();
-            }
-            let node = &tree[&path];
-            let mut state = node.state;
-            state.expanded = node.directory
-                && (disabled || !query.is_empty() || !self.tree_collapsed().contains(&path));
-            let label = if depth == 0 {
-                if path.as_os_str().is_empty() {
-                    self.repo
-                        .root
-                        .file_name()
-                        .unwrap_or(self.repo.root.as_os_str())
-                } else {
-                    path.as_os_str()
+        let entries = tree
+            .into_iter()
+            .map(|(path, mut item)| {
+                item.disabled = disabled;
+                if disabled && let Some(state) = &mut item.file_state {
+                    state.expanded = true;
                 }
-            } else {
-                path.strip_prefix(&parent).unwrap_or(&path).as_os_str()
-            };
-            entries.push(Entry {
-                item: NavItem {
-                    label: label.to_string_lossy().into_owned(),
-                    depth,
-                    disabled,
-                    kind: if node.directory {
-                        NavKind::Folder
-                    } else {
-                        NavKind::File
-                    },
-                    staged: state.staged,
-                    file_state: Some(state),
-                    ..Default::default()
-                },
-                target: Target::Path(path.clone(), node.directory),
-            });
-            if state.expanded {
-                let mut children: Vec<_> = node.children.iter().collect();
-                children.sort_by_key(|path| (!tree[*path].directory, *path));
-                pending.extend(
-                    children
-                        .into_iter()
-                        .rev()
-                        .map(|child| (child.clone(), path.clone(), depth + 1)),
-                );
-            }
-        }
+                Entry {
+                    target: Target::Path(path, item.kind == NavKind::Folder),
+                    item,
+                }
+            })
+            .collect();
         (entries, summary)
     }
 
@@ -304,10 +228,4 @@ fn deleted_directories(
         }
     }
     directories
-}
-
-fn merge_state(target: &mut view::FileState, source: view::FileState) {
-    target.staged |= source.staged;
-    target.unstaged |= source.unstaged;
-    target.conflicted |= source.conflicted;
 }

@@ -6,9 +6,14 @@ pub fn nav_horizontal_limit(items: &[NavItem], width: u16, workspace: Workspace)
         .zip(tree_decorations(items))
         .map(|(item, decoration)| {
             if item.file_state.is_some() {
-                let layout = TreeLayout::new(item, decoration.status, width);
+                let status = if workspace == Workspace::Changes {
+                    decoration.status
+                } else {
+                    TreeStatus::None
+                };
+                let layout = TreeLayout::new(item, status, width);
                 let label_width = layout.label_width;
-                return safe_text(&item.label)
+                return files::display_path(&item.label)
                     .width()
                     .saturating_sub(usize::from(label_width));
             }
@@ -25,27 +30,25 @@ pub fn nav_horizontal_limit(items: &[NavItem], width: u16, workspace: Workspace)
                 0
             };
             let graph_width = item.graph.width().min(usize::from(width / 3)) as u16;
-            let label_width = width.saturating_sub(
+            let mut label_width = width.saturating_sub(
                 status_width + staged_width + graph_width + u16::from(status_width > 0),
             );
-            safe_text(&label_text(item, workspace))
+            if matches!(
+                item.kind,
+                ItemKind::File | ItemKind::Folder | ItemKind::Worktree
+            ) {
+                label_width =
+                    label_width.saturating_sub(files::FileLabel::decoration_width(label_width));
+                return files::display_path(&item.label)
+                    .width()
+                    .saturating_sub(usize::from(label_width));
+            }
+            safe_text(&item.label)
                 .width()
                 .saturating_sub(usize::from(label_width))
         })
         .max()
         .unwrap_or(0)
-}
-
-fn label_text(item: &NavItem, workspace: Workspace) -> String {
-    if item.kind == ItemKind::Folder && workspace == Workspace::Changes {
-        format!(
-            "{}/{}",
-            item.label.trim_end_matches('/'),
-            if item.detail == "closed" { "…" } else { "" }
-        )
-    } else {
-        item.label.clone()
-    }
 }
 
 pub(super) fn render_navigator(
@@ -96,6 +99,7 @@ pub(super) fn render_navigator(
                     decoration,
                     horizontal: state.nav_horizontal,
                     appearance: row_style,
+                    neutral: state.workspace != Workspace::Changes,
                     animation: state
                         .folder_animation
                         .filter(|animation| !item.disabled && animation.row == row),
@@ -170,18 +174,28 @@ pub(super) fn render_navigator(
                 &item.label,
                 state.nav_horizontal,
             );
+        } else if matches!(
+            item.kind,
+            ItemKind::File | ItemKind::Folder | ItemKind::Worktree
+        ) {
+            let mut label = files::FileLabel::new(&item.label, item.kind != ItemKind::File);
+            label.horizontal = state.nav_horizontal;
+            if current {
+                label.label_style = appearance.add_modifier(Modifier::BOLD);
+            }
+            label.render(buffer, Rect::new(x + graph_width, y, label_width, 1));
         } else {
-            let label = label_text(item, state.workspace);
+            let label = &item.label;
             let label = if state.nav_horizontal > 0 {
                 window(
-                    &safe_text(&label),
+                    &safe_text(label),
                     state.nav_horizontal,
                     usize::from(label_width),
                 )
             } else if item.kind == ItemKind::Stash {
-                elide_end(&label, usize::from(label_width))
+                elide_end(label, usize::from(label_width))
             } else {
-                elide_middle(&label, usize::from(label_width))
+                elide_middle(label, usize::from(label_width))
             };
             put(buffer, x + graph_width, y, label_width, &label, appearance);
         }
@@ -229,6 +243,33 @@ pub(super) fn render_navigator(
         }
     }
     disclosures
+}
+
+pub(super) fn render_file_tree(buffer: &mut Buffer, area: Rect, offset: usize, items: &[NavItem]) {
+    if area.is_empty() {
+        return;
+    }
+    for (row, item) in items
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(usize::from(area.height))
+    {
+        render_tree_item(
+            buffer,
+            Rect::new(area.x, area.y + (row - offset) as u16, area.width, 1),
+            item,
+            TreePaint {
+                file: item.file_state.unwrap_or_default(),
+                decoration: TreeDecoration::default(),
+                horizontal: 0,
+                appearance: style(Role::Muted),
+                neutral: true,
+                animation: None,
+            },
+        );
+    }
+    render_directory_guides(buffer, area, offset, items);
 }
 
 fn render_directory_guides(buffer: &mut Buffer, area: Rect, offset: usize, items: &[NavItem]) {
@@ -435,6 +476,7 @@ struct TreePaint {
     decoration: TreeDecoration,
     horizontal: usize,
     appearance: Style,
+    neutral: bool,
     animation: Option<FolderAnimation>,
 }
 
@@ -449,14 +491,22 @@ fn render_tree_item(
         decoration,
         horizontal,
         appearance,
+        neutral,
         animation,
     } = paint;
+    let decoration = if neutral {
+        TreeDecoration::default()
+    } else {
+        decoration
+    };
     let status = decoration.status;
     buffer.set_style(area, appearance);
     let layout = TreeLayout::new(item, status, area.width);
     let x = area.x + layout.indent;
     let directory = item.kind == ItemKind::Folder;
-    let label_style = if file.staged_deletion || (directory && file.conflicted) {
+    let label_style = if neutral {
+        appearance.fg(foreground(Role::Muted))
+    } else if file.staged_deletion || (directory && file.conflicted) {
         appearance.fg(foreground(Role::DiffRemoved))
     } else if decoration.highlight_directory {
         let side = if file.staged {
@@ -475,51 +525,33 @@ fn render_tree_item(
     } else {
         label_style
     };
-    if layout.decoration > 0 {
-        let (icon, icon_style) = if directory {
-            folder::appearance(
-                file.expanded,
-                animation,
-                label_style.remove_modifier(Modifier::BOLD),
-            )
-        } else {
-            (
-                file_icons::for_path(&item.label),
-                if file.staged_deletion {
-                    label_style
-                } else {
-                    appearance.fg(foreground(Role::Muted))
-                },
-            )
-        };
-        put(buffer, x, area.y, layout.decoration, icon, icon_style);
-    }
-    let disclosure = (directory && !item.disabled && layout.decoration > 0)
-        .then_some(Rect::new(x, area.y, layout.decoration, 1));
-    let horizontal = horizontal.min(
-        safe_text(&item.label)
-            .width()
-            .saturating_sub(usize::from(layout.label_width)),
-    );
-    let label = if horizontal > 0 {
-        window(
-            &safe_text(&item.label),
-            horizontal,
-            usize::from(layout.label_width),
-        )
-    } else if item.depth == 0 && directory {
-        elide_root_path(&item.label, usize::from(layout.label_width))
+    let icon_style = if directory {
+        label_style.remove_modifier(Modifier::BOLD)
+    } else if file.staged_deletion && !neutral {
+        label_style
     } else {
-        elide_middle(&item.label, usize::from(layout.label_width))
+        appearance.fg(foreground(Role::Muted))
     };
-    put(
-        buffer,
-        x + layout.decoration,
-        area.y,
-        layout.label_width,
-        &label,
+    files::FileLabel {
+        text: &item.label,
+        directory,
+        expanded: file.expanded,
+        root: item.depth == 0,
+        horizontal,
+        animation,
         label_style,
+        icon_style,
+    }
+    .render(
+        buffer,
+        Rect::new(x, area.y, layout.decoration + layout.label_width, 1),
     );
+    let disclosure = (directory && !item.disabled && layout.decoration > 0).then_some(Rect::new(
+        x,
+        area.y,
+        layout.decoration,
+        1,
+    ));
     if layout.status_width > 0 {
         let right = area.right() - 2;
         if status == TreeStatus::Mixed {
@@ -571,7 +603,7 @@ impl TreeLayout {
         let available = width.saturating_sub(2);
         let status_width = if available >= 12 { status.width() } else { 0 };
         let content = available.saturating_sub(status_width + u16::from(status_width > 0));
-        let decoration = if content >= 3 { 2 } else { 0 };
+        let decoration = files::FileLabel::decoration_width(content);
         let indent = Self::indent(item.depth, width);
         Self {
             indent,
@@ -579,39 +611,6 @@ impl TreeLayout {
             label_width: content.saturating_sub(indent - 1 + decoration),
             status_width,
         }
-    }
-}
-
-fn elide_root_path(path: &str, width: usize) -> String {
-    let clean = safe_text(path);
-    if clean.width() <= width {
-        return clean;
-    }
-    if width == 0 {
-        return String::new();
-    }
-    let parts: Vec<_> = clean.split('/').collect();
-    let keep_first =
-        parts.len() > 2 && parts[0].width() + parts[parts.len() - 1].width() + 3 <= width;
-    let prefix = if keep_first {
-        format!("{}/…", parts[0])
-    } else {
-        "…".into()
-    };
-    let mut used = prefix.width();
-    let mut start = parts.len();
-    while start > if keep_first { 2 } else { 1 } {
-        let next_width = parts[start - 1].width() + 1;
-        if used + next_width > width {
-            break;
-        }
-        used += next_width;
-        start -= 1;
-    }
-    if start < parts.len() {
-        format!("{prefix}/{}", parts[start..].join("/"))
-    } else {
-        prefix
     }
 }
 

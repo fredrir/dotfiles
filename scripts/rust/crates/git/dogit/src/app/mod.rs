@@ -80,7 +80,7 @@ enum Dialog {
         action: Action,
         target: Option<Target>,
         title: String,
-        detail: String,
+        detail: view::ConfirmationDetail,
         discard: Option<Box<crate::git::DiscardGuard>>,
         abort: Option<Box<crate::git::OperationGuard>>,
         scroll: u16,
@@ -670,23 +670,17 @@ impl App {
                 }
                 Ok(Prepared::Discard(guard)) => {
                     self.operation = None;
-                    let detail = guard
-                        .paths
-                        .iter()
-                        .map(|path| {
-                            path.to_string_lossy()
-                                .chars()
-                                .map(|character| {
-                                    if character.is_control() {
-                                        character.escape_default().to_string()
-                                    } else {
-                                        character.to_string()
-                                    }
-                                })
-                                .collect::<String>()
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
+                    let (files, _) = view::file_tree(
+                        &self.repo.root,
+                        guard
+                            .paths
+                            .iter()
+                            .map(|path| (path.as_path(), view::FileState::default())),
+                        |_| true,
+                    );
+                    let detail = view::ConfirmationDetail::Files(
+                        files.into_iter().map(|(_, item)| item).collect(),
+                    );
                     self.dialog = Some(Dialog::Confirm {
                         action: Action::Discard,
                         target: None,

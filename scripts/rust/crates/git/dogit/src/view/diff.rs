@@ -261,21 +261,6 @@ pub(super) fn render_diff(
                 }
                 continue;
             }
-            let header = if new_file {
-                let path = data
-                    .directory_scope
-                    .or_else(|| diff.path.parent())
-                    .and_then(|root| hunk.file_path.strip_prefix(root).ok())
-                    .unwrap_or(&hunk.file_path);
-                let path = safe_text(&path.to_string_lossy());
-                if config.hunk_headers {
-                    format!("{path}   {}", hunk.header.trim())
-                } else {
-                    path
-                }
-            } else {
-                hunk.header.trim().to_string()
-            };
             put(
                 buffer,
                 area.x,
@@ -284,14 +269,51 @@ pub(super) fn render_diff(
                 &"─".repeat(usize::from(area.width)),
                 border_style,
             );
-            put(
-                buffer,
-                area.x + 2,
-                y,
-                area.width.saturating_sub(4),
-                &format!(" {} ", header.trim()),
-                style(Role::DiffHeader),
-            );
+            let width = area.width.saturating_sub(4);
+            if new_file {
+                let path = data
+                    .directory_scope
+                    .or_else(|| diff.path.parent())
+                    .and_then(|root| hunk.file_path.strip_prefix(root).ok())
+                    .unwrap_or(&hunk.file_path);
+                let path = path.to_string_lossy();
+                let context = if config.hunk_headers {
+                    format!("   {}", safe_text(hunk.header.trim()))
+                } else {
+                    String::new()
+                };
+                let context_width = context.width().min(usize::from(width / 2)) as u16;
+                let path_width = (files::display_path(&path).width() + 2)
+                    .min(usize::from(width.saturating_sub(context_width + 2)))
+                    as u16;
+                put(
+                    buffer,
+                    area.x + 2,
+                    y,
+                    width,
+                    &" ".repeat(usize::from(path_width + context_width + 2)),
+                    style(Role::Muted),
+                );
+                files::FileLabel::new(&path, false)
+                    .render(buffer, Rect::new(area.x + 3, y, path_width, 1));
+                put(
+                    buffer,
+                    area.x + 3 + path_width,
+                    y,
+                    context_width,
+                    &context,
+                    style(Role::DiffHeader),
+                );
+            } else {
+                put(
+                    buffer,
+                    area.x + 2,
+                    y,
+                    width,
+                    &format!(" {} ", hunk.header.trim()),
+                    style(Role::DiffHeader),
+                );
+            }
             continue;
         }
         if split {

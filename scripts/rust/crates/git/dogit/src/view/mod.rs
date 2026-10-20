@@ -16,6 +16,7 @@ mod chrome;
 mod commit;
 mod diff;
 mod file_icons;
+mod files;
 mod folder;
 mod navigator;
 mod overlay;
@@ -27,6 +28,7 @@ mod wrap;
 pub use diff::{
     configured_diff_horizontal_limit, diff_horizontal_limit, diff_rows, text_horizontal_limit,
 };
+pub use files::file_tree;
 pub use folder::FolderAnimation;
 pub use navigator::{graph_rows, nav_horizontal_limit};
 pub use overlay::confirmation_scroll_max;
@@ -145,6 +147,24 @@ pub struct EditorView {
     pub selection: Option<std::ops::Range<usize>>,
 }
 
+#[derive(Clone, Debug)]
+pub enum ConfirmationDetail {
+    Text(String),
+    Files(Vec<NavItem>),
+}
+
+impl From<String> for ConfirmationDetail {
+    fn from(text: String) -> Self {
+        Self::Text(text)
+    }
+}
+
+impl From<&str> for ConfirmationDetail {
+    fn from(text: &str) -> Self {
+        Self::Text(text.into())
+    }
+}
+
 impl From<&ui_widgets::EditorBuffer> for EditorView {
     fn from(editor: &ui_widgets::EditorBuffer) -> Self {
         Self {
@@ -179,7 +199,7 @@ pub enum Overlay {
     },
     Confirm {
         title: String,
-        detail: String,
+        detail: ConfirmationDetail,
         destructive: bool,
         scroll: u16,
     },
@@ -258,6 +278,7 @@ pub struct RenderData<'a> {
     pub nav_summary: Option<NavSummary>,
     pub changes_filter: Option<DiffSide>,
     pub canvas_path: &'a str,
+    pub canvas_path_kind: Option<ItemKind>,
     pub directory_scope: Option<&'a std::path::Path>,
     pub diff_scope: Option<DiffScope>,
     pub canvas_subtitle: &'a str,
@@ -288,6 +309,7 @@ impl Default for RenderData<'_> {
             nav_summary: None,
             changes_filter: None,
             canvas_path: "",
+            canvas_path_kind: None,
             directory_scope: None,
             diff_scope: None,
             canvas_subtitle: "",
@@ -759,14 +781,19 @@ fn render_canvas_context(
     } else {
         let path_x = area.x + 2;
         let path_width = right.saturating_sub(path_x);
-        put(
-            buffer,
-            path_x,
-            area.y,
-            path_width,
-            &elide_middle(data.canvas_path, usize::from(path_width)),
-            style(Role::Plain),
-        );
+        if let Some(kind) = data.canvas_path_kind {
+            files::FileLabel::new(data.canvas_path, kind == ItemKind::Folder)
+                .render(buffer, Rect::new(path_x, area.y, path_width, 1));
+        } else {
+            put(
+                buffer,
+                path_x,
+                area.y,
+                path_width,
+                &elide_middle(data.canvas_path, usize::from(path_width)),
+                style(Role::Plain),
+            );
+        }
     }
     if area.height > 1 {
         let controls_width = sides.last().map_or(0, |(_, rect)| rect.right() - area.x);

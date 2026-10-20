@@ -175,7 +175,7 @@ impl App {
                     Some(Target::Stash(reference, oid)) => format!("Permanently remove {reference} ({}) from this repository.", short(oid)),
                     _ => unreachable!(),
                 };
-                self.dialog = Some(Dialog::Confirm { action, target, title: "Drop selected stash".into(), detail, discard: None, abort: None, scroll: 0 });
+                self.dialog = Some(Dialog::Confirm { action, target, title: "Drop selected stash".into(), detail: detail.into(), discard: None, abort: None, scroll: 0 });
             },
             Action::CherryPick | Action::Revert if matches!(target, Some(Target::Commit(_))) => {
                 if let Some(Target::Commit(oid)) = &target
@@ -188,7 +188,7 @@ impl App {
                     Some(Target::Commit(oid)) => format!("Apply commit {} to the current branch.", short(oid)),
                     _ => unreachable!(),
                 };
-                self.dialog = Some(Dialog::Confirm { action, target, title: label.into(), detail, discard: None, abort: None, scroll: 0 });
+                self.dialog = Some(Dialog::Confirm { action, target, title: label.into(), detail: detail.into(), discard: None, abort: None, scroll: 0 });
             }
             Action::Merge | Action::Rebase => {
                 let value = match &target { Some(Target::Branch(name, true)) => format!("refs/remotes/{name}"), Some(Target::Branch(name, false)) => format!("refs/heads/{name}"), Some(Target::Commit(name)) => name.clone(), _ => String::new() };
@@ -197,6 +197,9 @@ impl App {
             Action::Continue if self.snapshot.operation.is_some() => self.command("Continue operation", |repo| repo.continue_operation()),
             Action::Abort if self.snapshot.operation.is_some() => self.prepare("Review operation", |repo| crate::git::OperationGuard::capture(&repo).map(|guard| Prepared::Abort(Box::new(guard))).map_err(|error| error.to_string())),
             Action::Discard if self.view.workspace == Workspace::Changes => {
+                if self.selected_file_state().is_some_and(|state| state.staged) {
+                    return self.action(Action::UnstageFile, terminal, signals);
+                }
                 let paths = self.paths(target.as_ref(), false);
                 if !paths.is_empty() { self.prepare("Review discard", move |repo| crate::git::DiscardGuard::capture(&repo, &paths).map(|guard| Prepared::Discard(Box::new(guard))).map_err(|error| error.to_string())); }
             }
@@ -591,7 +594,7 @@ impl App {
                                 title: "Rebase current branch".into(),
                                 detail: format!(
                                     "Rewrite current branch commits onto {value}. Published commit identities may change."
-                                ),
+                                ).into(),
                                 discard: None,
                                 abort: None,
                                 scroll: 0,
