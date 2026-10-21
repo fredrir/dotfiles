@@ -118,6 +118,7 @@ struct Data {
 }
 struct Content {
     diff: Option<Arc<ExactDiff>>,
+    image: Option<Arc<crate::image_preview::Preview>>,
     presentation: Option<Arc<DiffPresentation>>,
     text: Vec<String>,
     structural: Option<String>,
@@ -388,6 +389,7 @@ struct App {
     diff_counts: (usize, usize),
     row_split: bool,
     diff: Option<Arc<ExactDiff>>,
+    image: preview::ImageState,
     presentation: Option<Arc<DiffPresentation>>,
     presentation_config: Option<DiffPresentationConfig>,
     split_override: Option<bool>,
@@ -407,9 +409,9 @@ struct App {
     clipboard_worker: Option<Worker<Result<Option<String>, String>>>,
     waker: Option<ui_terminal::InputWake>,
     snapshot_worker: Worker<Result<Data, String>>,
-    content_worker: Worker<Result<Arc<Content>, String>>,
+    content_worker: Worker<Result<preview::Loaded, String>>,
     content_cache: Arc<std::sync::Mutex<preview::Cache>>,
-    ready_content: Option<Result<Arc<Content>, String>>,
+    ready_content: Option<Result<preview::Loaded, String>>,
     content_reset: bool,
     mutation_worker: Worker<Result<String, String>>,
     prepare_worker: Worker<Result<Prepared, String>>,
@@ -485,6 +487,7 @@ impl App {
             dialog: None,
             marked: BTreeSet::new(),
             diff: None,
+            image: preview::ImageState::default(),
             presentation: None,
             presentation_config: None,
             split_override: None,
@@ -538,6 +541,7 @@ impl App {
     fn set_waker(&mut self, wake: ui_terminal::InputWake) {
         self.snapshot_worker.set_waker(wake.clone());
         self.content_worker.set_waker(wake.clone());
+        self.image.set_waker(wake.clone());
         self.prepare_worker.set_waker(wake.clone());
         self.mutation_worker.set_waker(wake.clone());
         self.history.set_waker(wake.clone());
@@ -613,6 +617,7 @@ impl App {
     }
 
     fn collect(&mut self) {
+        self.dirty |= self.image.collect();
         if self.history.collect(&self.repo) {
             if let Some(Dialog::Inspect {
                 message, loading, ..
@@ -828,7 +833,8 @@ impl App {
                 self.row_paint = None;
             }
             match result {
-                Ok(content) => {
+                Ok(loaded) => {
+                    let content = loaded.content;
                     let changed = self.diff.as_ref().map(|diff| &diff.raw)
                         != content.diff.as_ref().map(|diff| &diff.raw);
                     let anchor = (changed && !reset).then(|| self.line_anchor()).flatten();
@@ -838,8 +844,9 @@ impl App {
                         self.row_paint = None;
                     }
                     self.diff = content.diff.clone();
+                    self.image.set(content.image.clone());
                     self.presentation = content.presentation.clone();
-                    self.update_rows();
+                    self.apply_rows(loaded.rows);
                     if let Some(anchor) = anchor {
                         self.restore_line_anchor(&anchor);
                     }
@@ -865,6 +872,7 @@ impl App {
                 }
                 Err(error) => {
                     self.diff = None;
+                    self.image.set(None);
                     self.presentation = None;
                     self.row_map.clear();
                     self.row_paint = None;
@@ -1152,6 +1160,7 @@ impl App {
             self.view.horizontal = 0;
             self.marked.clear();
             self.diff = None;
+            self.image.set(None);
             self.presentation = None;
             self.row_map.clear();
             self.row_paint = None;
@@ -1189,10 +1198,15 @@ impl App {
             geometry.canvas.width.saturating_sub(4) as usize
         });
         let cache = Arc::clone(&self.content_cache);
+        let canvas_width = self
+            .geometry
+            .as_ref()
+            .map_or(0, |geometry| geometry.canvas.width);
         if let Some(Target::Worktree(_)) = &target {
             self.content_worker.invalidate();
             self.content_pending = false;
             self.diff = None;
+            self.image.set(None);
             self.presentation = None;
             self.structural = None;
             self.text.clear();
@@ -1210,7 +1224,7 @@ impl App {
             let presentation_config = request.presentation.clone();
             let key = PreviewKey::capture(&repo, request, &source_snapshot, &source_files)?;
             if let Some(content) = cache.lock().ok().and_then(|mut cache| cache.get(&key)) {
-                return Ok(content);
+                return preview::Loaded::new(content, canvas_width, &cancel);
             }
             let paths = match &target {
                 Some(Target::Commit(oid)) => {
@@ -1310,9 +1324,14 @@ impl App {
                 },
                 _ => None,
             };
+            let image = diff
+                .as_ref()
+                .and_then(|diff| crate::image_preview::Preview::load(diff, &cancel))
+                .map(Arc::new);
             let mut text = Vec::new();
             if let Some((path, directory)) = preview_path
                 && !directory
+                && image.is_none()
                 && (all_files && diff.as_ref().is_some_and(|diff| diff.raw.is_empty())
                     || diff.as_ref().is_some_and(|diff| {
                         diff.partial_reason.as_deref()
@@ -1323,7 +1342,7 @@ impl App {
                 text = lines;
                 diff = None;
             }
-            let structure = if structural {
+            let structure = if structural && image.is_none() {
                 if let Some(document) = &diff {
                     match document.structural_cancellable(width, Some(&cancel)) {
                         Ok(Some(output)) => Some(output),
@@ -1341,6 +1360,7 @@ impl App {
             };
             let presentation = diff
                 .as_ref()
+                .filter(|_| image.is_none())
                 .map(|document| {
                     crate::presentation::render(
                         &root,
@@ -1353,6 +1373,7 @@ impl App {
                 .transpose()?;
             let content = Arc::new(Content {
                 diff: diff.map(Arc::new),
+                image,
                 presentation: presentation.map(Arc::new),
                 text,
                 structural: structure,
@@ -1362,7 +1383,7 @@ impl App {
             if let Ok(mut cache) = cache.lock() {
                 cache.insert(Arc::clone(&content));
             }
-            Ok(content)
+            preview::Loaded::new(content, canvas_width, &cancel)
         });
         self.content_pending = true;
         self.dirty = true;
@@ -1516,53 +1537,16 @@ impl App {
     }
 
     fn update_rows_for_width(&mut self, width: u16) {
-        let cursor = self.row_anchor(self.view.diff_cursor);
-        let viewport = self.row_anchor(self.view.diff_offset);
-        let config = self.diff_config().clone();
-        self.row_width = width;
-        self.row_split = self.view.split && width >= 72;
-        if let Some(diff) = &self.diff {
-            let layout = view::configured_diff_layout(
-                diff,
-                width,
-                self.row_split,
-                self.presentation.as_deref(),
-                &config,
-            );
-            self.row_map = layout.rows;
-            self.row_paint = Some(layout.paint);
-            self.view.horizontal =
-                self.view
-                    .horizontal
-                    .min(view::configured_diff_horizontal_limit(
-                        diff,
-                        width,
-                        self.row_split,
-                        &config,
-                    ));
-        } else {
-            self.row_map.clear();
-            self.row_paint = None;
-        }
-        self.row_config = Some(config);
-        self.changed_lines.clear();
-        self.diff_counts = (0, 0);
-        if let Some(diff) = &self.diff {
-            for line in diff.hunks.iter().flat_map(|hunk| &hunk.lines) {
-                match line.kind {
-                    LineKind::Addition => self.diff_counts.0 += 1,
-                    LineKind::Deletion => self.diff_counts.1 += 1,
-                    LineKind::Context => continue,
-                }
-                self.changed_lines.insert(line.id);
-            }
-        }
-        if let Some(index) = cursor.and_then(|anchor| self.row_for_anchor(anchor)) {
-            self.view.diff_cursor = index;
-        }
-        if let Some(index) = viewport.and_then(|anchor| self.row_for_anchor(anchor)) {
-            self.view.diff_offset = index;
-        }
+        let rows = preview::Rows::new(
+            self.diff.as_deref(),
+            self.presentation.as_deref(),
+            width,
+            self.view.split,
+            self.diff_config(),
+            None,
+        )
+        .expect("layout without a cancellation token cannot be cancelled");
+        self.apply_rows(rows);
     }
 
     fn clamp_cursor(&mut self) {

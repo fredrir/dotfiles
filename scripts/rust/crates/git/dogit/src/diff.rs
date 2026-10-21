@@ -87,6 +87,7 @@ pub struct ExactDiff {
     pub hunks: Vec<Hunk>,
     pub raw: Vec<u8>,
     pub partial_reason: Option<String>,
+    pub binary: bool,
     root: PathBuf,
     snapshot: Option<Snapshot>,
     base: Option<Vec<u8>>,
@@ -98,6 +99,42 @@ pub struct ExactDiff {
 }
 
 impl ExactDiff {
+    pub(crate) fn preview_bytes(
+        &self,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<(Vec<u8>, bool), String> {
+        validate_path(&self.path)?;
+        let reader = Reader {
+            root: &self.root,
+            cancel,
+        };
+        let deleted = !self.new_exists;
+        let bytes = if let Some(comparison) = &self.comparison {
+            let revision = if deleted {
+                comparison
+                    .old
+                    .as_deref()
+                    .ok_or("No previous image available")?
+            } else {
+                &comparison.new
+            };
+            read_blob(reader, revision, &self.path)?
+        } else if self.side == DiffSide::Worktree && !deleted {
+            self.snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.worktree.clone())
+                .ok_or("Image is no longer available in the worktree")?
+        } else {
+            let revision = if self.side == DiffSide::Index && deleted {
+                "HEAD"
+            } else {
+                ""
+            };
+            read_blob(reader, revision, &self.path)?
+        };
+        Ok((bytes, deleted))
+    }
+
     pub(crate) fn cache_bytes(&self) -> usize {
         self.raw.capacity()
             + self.base.as_ref().map_or(0, Vec::capacity)
@@ -364,8 +401,9 @@ impl ExactDiff {
             .filter(|line| !matches!(line.first(), Some(b'+' | b'-' | b' ')))
             .collect::<Vec<_>>();
         let contains = |prefix: &[u8]| headers.iter().any(|line| line.starts_with(prefix));
-        let partial_reason = if contains(b"GIT binary patch") || contains(b"Binary files ") {
-            Some("Binary files must be staged or unstaged as a whole file".into())
+        let binary = contains(b"GIT binary patch") || contains(b"Binary files ");
+        let partial_reason = if binary {
+            Some("Select the file to stage or unstage this binary change".into())
         } else if contains(b"rename from ") || contains(b"copy from ") {
             Some("Renames and copies must be staged or unstaged as a whole file".into())
         } else if contains(b"old mode ") || contains(b"new mode ") {
@@ -396,6 +434,7 @@ impl ExactDiff {
             hunks,
             raw,
             partial_reason,
+            binary,
             root: root.to_owned(),
             snapshot: None,
             base: None,

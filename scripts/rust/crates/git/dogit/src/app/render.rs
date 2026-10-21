@@ -189,7 +189,11 @@ impl App {
             nav_layout: Some(&self.nav_layout),
             nav_summary: Some(self.nav_summary),
             changes_filter: self.changes_filter,
-            diff_counts: self.diff.as_ref().map(|_| self.diff_counts),
+            diff_counts: self
+                .diff
+                .as_ref()
+                .filter(|_| !self.image.is_some())
+                .map(|_| self.diff_counts),
             canvas_path: &canvas_path,
             canvas_path_kind: match preview_target.as_ref() {
                 Some(Target::Path(_, true)) => Some(NavKind::Folder),
@@ -203,6 +207,7 @@ impl App {
             diff_scope,
             canvas_subtitle: &subtitle,
             diff: self.diff.as_deref(),
+            image: self.image.view(),
             presentation: self.presentation.as_deref(),
             diff_rows: Some((&self.row_map, self.row_split, self.row_width)),
             diff_paint: self.row_paint.as_ref(),
@@ -227,6 +232,9 @@ impl App {
             .map_err(|error| error.to_string())?
             .map_err(|error| error.to_string())?;
         self.geometry = geometry;
+        if let Some(geometry) = &self.geometry {
+            self.image.resize(geometry.canvas);
+        }
         let actual_width = self
             .geometry
             .as_ref()

@@ -125,7 +125,7 @@ impl App {
             Action::Stage | Action::Unstage | Action::StageFile | Action::UnstageFile if self.view.workspace == Workspace::Changes => {
                 if self.operation.is_some() { self.note("Finish the current operation first"); return Ok(()); }
                 let unstage = matches!(action, Action::Unstage | Action::UnstageFile);
-                let whole = matches!(action, Action::StageFile | Action::UnstageFile) || self.view.focus == Focus::Navigator;
+                let whole = matches!(action, Action::StageFile | Action::UnstageFile) || self.view.focus == Focus::Navigator || (self.image.is_some() && !self.content_pending);
                 if !whole {
                     if self.structural.is_some() { self.structure_enabled = false; self.load_content(false); self.note("Exact diff opened for staging"); return Ok(()); }
                     let side = if unstage { DiffSide::Index } else { DiffSide::Worktree };

@@ -18,6 +18,7 @@ mod diff;
 mod file_icons;
 mod files;
 mod folder;
+mod image;
 mod navigator;
 mod overlay;
 mod subject;
@@ -30,10 +31,13 @@ pub use diff::{
 };
 pub use files::file_tree;
 pub use folder::FolderAnimation;
+pub use image::ImageView;
+pub(crate) use image::image_area;
 pub use navigator::{NavLayout, graph_rows, nav_horizontal_limit};
 pub use overlay::confirmation_scroll_max;
 pub use overlay::inspection_scroll_max;
 pub use toast::ToastView;
+pub(crate) use wrap::configured_diff_layout_cancellable;
 pub use wrap::{DiffLayout, DiffPaint, configured_diff_layout};
 
 use chrome::{Badge, nav_badges, render_footer, render_pane_footer, render_tabs};
@@ -284,6 +288,7 @@ pub struct RenderData<'a> {
     pub diff_scope: Option<DiffScope>,
     pub canvas_subtitle: &'a str,
     pub diff: Option<&'a ExactDiff>,
+    pub image: Option<ImageView<'a>>,
     pub presentation: Option<&'a crate::presentation::DiffPresentation>,
     pub diff_rows: Option<(&'a [DiffRow], bool, u16)>,
     pub diff_paint: Option<&'a DiffPaint>,
@@ -316,6 +321,7 @@ impl Default for RenderData<'_> {
             diff_scope: None,
             canvas_subtitle: "",
             diff: None,
+            image: None,
             presentation: None,
             diff_rows: None,
             diff_paint: None,
@@ -534,7 +540,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         }
     }
     let values = data.diff_counts.or_else(|| {
-        data.diff.map(|diff| {
+        data.diff.filter(|_| data.image.is_none()).map(|diff| {
             diff.hunks
                 .iter()
                 .flat_map(|hunk| &hunk.lines)
@@ -677,7 +683,9 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         ..Geometry::default()
     };
     if show_canvas {
-        if let Some(structural) = data.structural {
+        if let Some(image) = &data.image {
+            image::render(frame.buffer_mut(), canvas, image, state.overlay.is_none());
+        } else if let Some(structural) = data.structural {
             render_structural(frame.buffer_mut(), canvas, state, structural);
         } else if let Some(diff) = data.diff {
             render_diff(frame.buffer_mut(), canvas, state, data, diff, &mut geometry);

@@ -10,7 +10,7 @@ workspace = true
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["std"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico", "tiff"] }
 clap.workspace = true
 crossterm = { workspace = true, features = ["osc52"] }
 crossbeam-channel.workspace = true

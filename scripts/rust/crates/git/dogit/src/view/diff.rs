@@ -172,7 +172,15 @@ pub(super) fn render_diff(
         <[DiffRow]>::len,
     );
     if row_count == 0 {
-        if let Some(message) = diff.partial_reason.as_deref() {
+        if let Some(message) = if diff.binary {
+            Some(if diff.path.as_os_str().is_empty() {
+                "Binary changes · Select a file to preview it"
+            } else {
+                "Binary file · No image preview available"
+            })
+        } else {
+            diff.partial_reason.as_deref()
+        } {
             put(
                 buffer,
                 area.x + 2,

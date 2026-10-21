@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::*;
 use crate::presentation::{DiffPresentation, DiffPresentationConfig, WrapPolicy};
@@ -31,6 +32,26 @@ pub fn configured_diff_layout(
     presentation: Option<&DiffPresentation>,
     config: &DiffPresentationConfig,
 ) -> DiffLayout {
+    configured_diff_layout_cancellable(diff, width, split, presentation, config, None)
+        .expect("layout without a cancellation token cannot be cancelled")
+}
+
+pub(crate) fn configured_diff_layout_cancellable(
+    diff: &ExactDiff,
+    width: u16,
+    split: bool,
+    presentation: Option<&DiffPresentation>,
+    config: &DiffPresentationConfig,
+    cancel: Option<&AtomicBool>,
+) -> Result<DiffLayout, String> {
+    let cancelled = || {
+        if cancel.is_some_and(|cancel| cancel.load(Ordering::Acquire)) {
+            Err("cancelled".to_owned())
+        } else {
+            Ok(())
+        }
+    };
+    cancelled()?;
     let split = split && width >= 72;
     let mut paint = DiffPaint {
         width,
@@ -40,13 +61,14 @@ pub fn configured_diff_layout(
     };
     let aligned = diff_rows(diff, split);
     if !split {
-        return DiffLayout {
+        return Ok(DiffLayout {
             rows: aligned,
             paint,
-        };
+        });
     }
     let half = width.saturating_sub(1) / 2;
     for line in diff.hunks.iter().flat_map(|hunk| &hunk.lines) {
+        cancelled()?;
         let content = diff::content_line(line, presentation, config);
         for (right, side_width) in [(false, half), (true, width - half - 1)] {
             if (right && line.kind == LineKind::Deletion)
@@ -70,6 +92,7 @@ pub fn configured_diff_layout(
     }
     let mut rows = Vec::with_capacity(aligned.len());
     for row in aligned {
+        cancelled()?;
         if row.line.is_none() && row.right_line.is_none() {
             rows.push(row);
             continue;
@@ -94,7 +117,7 @@ pub fn configured_diff_layout(
             });
         }
     }
-    DiffLayout { rows, paint }
+    Ok(DiffLayout { rows, paint })
 }
 
 fn wrapped_chunks(
