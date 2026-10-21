@@ -242,7 +242,7 @@ impl App {
             return Some(if horizontal {
                 (
                     Region::NavigatorColumns,
-                    view::nav_horizontal_limit(
+                    self.nav_layout.horizontal_limit(
                         &self.nav_items,
                         geometry.nav.width,
                         self.view.workspace,

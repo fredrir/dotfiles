@@ -1,54 +1,97 @@
 use super::*;
 
+#[derive(Default)]
+pub struct NavLayout {
+    decorations: Vec<TreeDecoration>,
+    label_widths: Vec<usize>,
+    guides: Vec<DirectoryGuide>,
+}
+
+impl NavLayout {
+    pub fn new(items: &[NavItem]) -> Self {
+        Self {
+            decorations: tree_decorations(items).collect(),
+            label_widths: items.iter().map(nav_label_width).collect(),
+            guides: directory_guides(items),
+        }
+    }
+
+    pub fn horizontal_limit(&self, items: &[NavItem], width: u16, workspace: Workspace) -> usize {
+        items
+            .iter()
+            .zip(self.decorations.iter().copied())
+            .zip(self.label_widths.iter().copied())
+            .map(|((item, decoration), label_width)| {
+                item_horizontal_limit(item, decoration, label_width, width, workspace)
+            })
+            .max()
+            .unwrap_or(0)
+    }
+}
+
 pub fn nav_horizontal_limit(items: &[NavItem], width: u16, workspace: Workspace) -> usize {
     items
         .iter()
         .zip(tree_decorations(items))
         .map(|(item, decoration)| {
-            if item.file_state.is_some() {
-                let status = if workspace == Workspace::Changes {
-                    decoration.status
-                } else {
-                    TreeStatus::None
-                };
-                let layout = TreeLayout::new(item, status, width);
-                let label_width = layout.label_width;
-                return files::display_path(&item.label)
-                    .width()
-                    .saturating_sub(usize::from(label_width));
-            }
-            let width = width.saturating_sub((item.depth.min(8) * 2) as u16 + 3);
-            let current = item.kind == ItemKind::Worktree && item.status == "current";
-            let status_width = if current || matches!(item.status.as_str(), "." | " ") {
-                0
-            } else {
-                item.status.width().min(8) as u16
-            };
-            let staged_width = if item.staged && width > 22 {
-                if item.detail == "mixed" { 6 } else { 7 }
-            } else {
-                0
-            };
-            let graph_width = item.graph.width().min(usize::from(width / 3)) as u16;
-            let mut label_width = width.saturating_sub(
-                status_width + staged_width + graph_width + u16::from(status_width > 0),
-            );
-            if matches!(
-                item.kind,
-                ItemKind::File | ItemKind::Folder | ItemKind::Worktree
-            ) {
-                label_width =
-                    label_width.saturating_sub(files::FileLabel::decoration_width(label_width));
-                return files::display_path(&item.label)
-                    .width()
-                    .saturating_sub(usize::from(label_width));
-            }
-            safe_text(&item.label)
-                .width()
-                .saturating_sub(usize::from(label_width))
+            item_horizontal_limit(item, decoration, nav_label_width(item), width, workspace)
         })
         .max()
         .unwrap_or(0)
+}
+
+fn nav_label_width(item: &NavItem) -> usize {
+    if item.file_state.is_some()
+        || matches!(
+            item.kind,
+            ItemKind::File | ItemKind::Folder | ItemKind::Worktree
+        )
+    {
+        files::display_path(&item.label).width()
+    } else {
+        safe_text(&item.label).width()
+    }
+}
+
+fn item_horizontal_limit(
+    item: &NavItem,
+    decoration: TreeDecoration,
+    text_width: usize,
+    width: u16,
+    workspace: Workspace,
+) -> usize {
+    if item.file_state.is_some() {
+        let status = if workspace == Workspace::Changes {
+            decoration.status
+        } else {
+            TreeStatus::None
+        };
+        let layout = TreeLayout::new(item, status, width);
+        let label_width = layout.label_width;
+        return text_width.saturating_sub(usize::from(label_width));
+    }
+    let width = width.saturating_sub((item.depth.min(8) * 2) as u16 + 3);
+    let current = item.kind == ItemKind::Worktree && item.status == "current";
+    let status_width = if current || matches!(item.status.as_str(), "." | " ") {
+        0
+    } else {
+        item.status.width().min(8) as u16
+    };
+    let staged_width = if item.staged && width > 22 {
+        if item.detail == "mixed" { 6 } else { 7 }
+    } else {
+        0
+    };
+    let graph_width = item.graph.width().min(usize::from(width / 3)) as u16;
+    let mut label_width = width
+        .saturating_sub(status_width + staged_width + graph_width + u16::from(status_width > 0));
+    if matches!(
+        item.kind,
+        ItemKind::File | ItemKind::Folder | ItemKind::Worktree
+    ) {
+        label_width = label_width.saturating_sub(files::FileLabel::decoration_width(label_width));
+    }
+    text_width.saturating_sub(usize::from(label_width))
 }
 
 pub(super) fn render_navigator(
@@ -56,15 +99,25 @@ pub(super) fn render_navigator(
     area: Rect,
     state: &mut ViewState,
     items: &[NavItem],
+    layout: Option<&NavLayout>,
 ) -> Vec<(usize, Rect)> {
     let mut disclosures = Vec::new();
     if area.is_empty() || items.is_empty() {
         return disclosures;
     }
-    state.nav_horizontal =
-        state
-            .nav_horizontal
-            .min(nav_horizontal_limit(items, area.width, state.workspace));
+    let fallback;
+    let layout = if let Some(layout) = layout {
+        layout
+    } else {
+        fallback = NavLayout::new(items);
+        &fallback
+    };
+    if state.nav_horizontal > 0 {
+        state.nav_horizontal =
+            state
+                .nav_horizontal
+                .min(layout.horizontal_limit(items, area.width, state.workspace));
+    }
     state.selected = state.selected.min(items.len() - 1);
     let height = usize::from(area.height);
     if !state.nav_manual_scroll {
@@ -76,7 +129,7 @@ pub(super) fn render_navigator(
     state.offset = state.offset.min(items.len().saturating_sub(height));
     for (row, (item, decoration)) in items
         .iter()
-        .zip(tree_decorations(items))
+        .zip(layout.decorations.iter().copied())
         .enumerate()
         .skip(state.offset)
         .take(height)
@@ -226,7 +279,7 @@ pub(super) fn render_navigator(
             );
         }
     }
-    render_directory_guides(buffer, area, state.offset, items);
+    render_directory_guides(buffer, area, state.offset, items, &layout.guides);
     if items.len() > height && area.height > 2 {
         let thumb_size = (height * height / items.len()).max(1);
         let thumb_top =
@@ -269,10 +322,16 @@ pub(super) fn render_file_tree(buffer: &mut Buffer, area: Rect, offset: usize, i
             },
         );
     }
-    render_directory_guides(buffer, area, offset, items);
+    render_directory_guides(buffer, area, offset, items, &directory_guides(items));
 }
 
-fn render_directory_guides(buffer: &mut Buffer, area: Rect, offset: usize, items: &[NavItem]) {
+struct DirectoryGuide {
+    parent: usize,
+    first: usize,
+    last: usize,
+}
+
+fn directory_guides(items: &[NavItem]) -> Vec<DirectoryGuide> {
     struct Siblings {
         first: usize,
         last: usize,
@@ -308,16 +367,32 @@ fn render_directory_guides(buffer: &mut Buffer, area: Rect, offset: usize, items
             parents.push(row);
         }
     }
-    for (parent, group) in siblings.into_iter().enumerate() {
-        if group.first == group.last || !group.has_nested_directories {
-            continue;
-        }
+    siblings
+        .into_iter()
+        .enumerate()
+        .filter(|(_, group)| group.first != group.last && group.has_nested_directories)
+        .map(|(parent, group)| DirectoryGuide {
+            parent,
+            first: group.first,
+            last: group.last,
+        })
+        .collect()
+}
+
+fn render_directory_guides(
+    buffer: &mut Buffer,
+    area: Rect,
+    offset: usize,
+    items: &[NavItem],
+    guides: &[DirectoryGuide],
+) {
+    for group in guides {
         let start = (group.first + 1).max(offset);
         let end = group.last.min(offset + usize::from(area.height));
         if start >= end {
             continue;
         }
-        let parent_indent = TreeLayout::indent(items[parent].depth, area.width);
+        let parent_indent = TreeLayout::indent(items[group.parent].depth, area.width);
         let child_indent = TreeLayout::indent(items[group.first].depth, area.width);
         if child_indent <= parent_indent {
             continue;

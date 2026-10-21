@@ -18,6 +18,20 @@ impl App {
                 key.code != KeyCode::Esc
                     && !(key.modifiers.is_empty() && key.code == KeyCode::Enter)
             }
+            ui_terminal::Waited::Event(Event::Key(key))
+                if self.dialog.is_none() && self.view.focus == Focus::Navigator =>
+            {
+                matches!(
+                    key.code,
+                    KeyCode::Up
+                        | KeyCode::Down
+                        | KeyCode::Char('j' | 'k')
+                        | KeyCode::PageUp
+                        | KeyCode::PageDown
+                        | KeyCode::Home
+                        | KeyCode::End
+                ) && key.modifiers.is_empty()
+            }
             _ => false,
         }
     }

@@ -367,6 +367,7 @@ struct App {
     view: ViewState,
     entries: Vec<Entry>,
     nav_items: Vec<NavItem>,
+    nav_layout: view::NavLayout,
     nav_summary: view::NavSummary,
     staged_count: usize,
     unresolved_count: usize,
@@ -470,6 +471,7 @@ impl App {
             view,
             entries: Vec::new(),
             nav_items: Vec::new(),
+            nav_layout: view::NavLayout::default(),
             nav_summary: view::NavSummary::default(),
             staged_count: 0,
             unresolved_count: 0,
@@ -1068,6 +1070,7 @@ impl App {
             .iter()
             .map(|entry| entry.item.clone())
             .collect();
+        self.nav_layout = view::NavLayout::new(&self.nav_items);
         self.nav_summary =
             self.nav_items
                 .iter()

@@ -30,7 +30,7 @@ pub use diff::{
 };
 pub use files::file_tree;
 pub use folder::FolderAnimation;
-pub use navigator::{graph_rows, nav_horizontal_limit};
+pub use navigator::{NavLayout, graph_rows, nav_horizontal_limit};
 pub use overlay::confirmation_scroll_max;
 pub use overlay::inspection_scroll_max;
 pub use toast::ToastView;
@@ -275,6 +275,7 @@ pub struct RenderData<'a> {
     pub ahead: usize,
     pub behind: usize,
     pub items: &'a [NavItem],
+    pub nav_layout: Option<&'a NavLayout>,
     pub nav_summary: Option<NavSummary>,
     pub changes_filter: Option<DiffSide>,
     pub canvas_path: &'a str,
@@ -306,6 +307,7 @@ impl Default for RenderData<'_> {
             ahead: 0,
             behind: 0,
             items: &[],
+            nav_layout: None,
             nav_summary: None,
             changes_filter: None,
             canvas_path: "",
@@ -632,7 +634,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         }
     }
     let nav_disclosures = if show_nav {
-        render_navigator(frame.buffer_mut(), nav, state, data.items)
+        render_navigator(frame.buffer_mut(), nav, state, data.items, data.nav_layout)
     } else {
         Vec::new()
     };

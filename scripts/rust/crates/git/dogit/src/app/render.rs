@@ -186,6 +186,7 @@ impl App {
             ahead: self.snapshot.status.ahead,
             behind: self.snapshot.status.behind,
             items: &self.nav_items,
+            nav_layout: Some(&self.nav_layout),
             nav_summary: Some(self.nav_summary),
             changes_filter: self.changes_filter,
             diff_counts: self.diff.as_ref().map(|_| self.diff_counts),
