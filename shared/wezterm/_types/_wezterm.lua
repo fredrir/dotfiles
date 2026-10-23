@@ -2,6 +2,7 @@
 
 ---@class Window
 ---@field get_input_selection fun(self: Window, pane: Pane): InputSelection?
+---@field get_copy_cursor fun(self: Window, pane: Pane): { x: integer, y: integer }?
 
 ---@class InputSelection
 ---@field get_range fun(self: InputSelection, buffer: string, cursor: integer): {start: integer, ['end']: integer}?

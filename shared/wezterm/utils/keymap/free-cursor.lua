@@ -176,9 +176,46 @@ local activate = callback("activate", function(window, pane)
   window:perform_action(act.CopyMode "ClearPattern", pane)
 end)
 
----@param bindings Key[]
----@return Key[]
-local function key_table(bindings)
+local search = callback("search", function(window, pane)
+  selecting[pane:pane_id()] = nil
+  window:perform_action(
+    act.Multiple {
+      act.CopyMode "ClearSelectionMode",
+      act.CopyMode "ClearPattern",
+      act.Search { CaseSmartString = "" },
+    },
+    pane
+  )
+end)
+
+---@param window Window
+---@param pane Pane
+---@return FreeCursorCell?
+local function copy_cursor(window, pane)
+  local ok, cursor = pcall(function()
+    return window:get_copy_cursor(pane)
+  end)
+  return ok and cursor or nil
+end
+
+local close_search = callback("search:close", function(window, pane)
+  local id = pane:pane_id()
+  selecting[id] = nil
+  window:perform_action(
+    act.Multiple {
+      act.CopyMode "MoveToSelectionOtherEnd",
+      act.CopyMode "ClearSelectionMode",
+      act.CopyMode "ClearPattern",
+      act.CopyMode "AcceptPattern",
+    },
+    pane
+  )
+  jumps[id] = copy_cursor(window, pane)
+end)
+
+---@return Key[] keys
+---@return fun(key: string, mods: string, action: Action) bind
+local function key_list()
   ---@type Key[]
   local keys = {}
   ---@type table<string, integer>
@@ -193,6 +230,14 @@ local function key_table(bindings)
     positions[id] = index
     keys[index] = { key = key, mods = mods, action = action }
   end
+
+  return keys, bind
+end
+
+---@param bindings Key[]
+---@return Key[]
+local function key_table(bindings)
+  local keys, bind = key_list()
 
   for codepoint = 0x20, 0x24f do
     if codepoint < 0x7f or codepoint >= 0xa0 then
@@ -257,6 +302,9 @@ local function key_table(bindings)
   bind("DownArrow", MOD.UNIQUE, jump("next", 1, false))
   bind("DownArrow", MOD.UNIQUE .. "|SHIFT", jump("next:select", 1, true))
 
+  bind("mapped:/", "NONE", search)
+  bind("mapped:/", "SHIFT", search)
+
   bind("c", shortcut_mods, act.CopyTo "Clipboard")
   local exit = callback("leave", leave)
   bind("e", shortcut_mods, exit)
@@ -265,4 +313,46 @@ local function key_table(bindings)
   return keys
 end
 
-return { activate = activate, key_table = key_table }
+---@param bindings Key[]
+---@return Key[]
+local function search_key_table(bindings)
+  local keys, bind = key_list()
+
+  for _, binding in ipairs(bindings) do
+    local text = binding.action.SendString
+    if text and utf8.len(text) == 1 then
+      bind(binding.key, binding.mods, act.SendKey { key = text })
+    else
+      bind(binding.key, binding.mods, resume("search:binding:" .. binding.key .. ":" .. binding.mods, binding.action))
+    end
+  end
+
+  for _, binding in ipairs(motion_keys) do
+    bind(binding.key, binding.mods, act.Nop)
+  end
+
+  bind("Enter", "NONE", act.CopyMode "PriorMatch")
+  bind("Enter", "SHIFT", act.CopyMode "NextMatch")
+  bind("UpArrow", "NONE", act.CopyMode "PriorMatch")
+  bind("DownArrow", "NONE", act.CopyMode "NextMatch")
+  bind("PageUp", "NONE", act.CopyMode "PriorMatchPage")
+  bind("PageDown", "NONE", act.CopyMode "NextMatchPage")
+  bind("r", "CTRL", act.CopyMode "CycleMatchType")
+
+  bind("Backspace", "NONE", act.SendKey { key = "Backspace" })
+  bind("Backspace", MOD.UNIQUE, act.SendKey { key = "Backspace", mods = "ALT" })
+  bind("Backspace", MOD.PRIMARY, act.SendKey { key = "Backspace", mods = "SUPER" })
+  bind("Delete", "NONE", act.SendKey { key = "Delete" })
+  bind("LeftArrow", MOD.UNIQUE, act.SendKey { key = "LeftArrow", mods = "CTRL" })
+  bind("RightArrow", MOD.UNIQUE, act.SendKey { key = "RightArrow", mods = "CTRL" })
+  bind("LeftArrow", MOD.PRIMARY, act.SendKey { key = "Home" })
+  bind("RightArrow", MOD.PRIMARY, act.SendKey { key = "End" })
+
+  bind("c", shortcut_mods, act.CopyTo "Clipboard")
+  bind("e", shortcut_mods, callback("leave", leave))
+  bind("Escape", "NONE", close_search)
+
+  return keys
+end
+
+return { activate = activate, key_table = key_table, search_key_table = search_key_table }

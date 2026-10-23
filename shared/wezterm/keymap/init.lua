@@ -175,7 +175,7 @@ end
 local keymap_config = {
   disable_default_key_bindings = true,
   keys = keys,
-  key_tables = { copy_mode = free_cursor.key_table(keys) },
+  key_tables = { copy_mode = free_cursor.key_table(keys), search_mode = free_cursor.search_key_table(keys) },
   mouse_bindings = mouse_bindings,
   skip_close_confirmation_for_processes_named = skip_close_confirmation,
   use_dead_keys = false,
