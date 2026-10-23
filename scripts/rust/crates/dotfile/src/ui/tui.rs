@@ -806,8 +806,6 @@ pub fn render_buffer_with_palette(
     if model.verbose && row < area.height {
         let panel = Rect::new(area.x, area.y + row, area.width, area.height - row);
         render_items(palette, model, panel, buffer, color);
-    } else if row < area.height {
-        render_notice(palette, model, line_area(area, row), buffer, color);
     }
 }
 
@@ -1684,30 +1682,6 @@ fn render_items(palette: &Palette, model: &UiModel, area: Rect, buffer: &mut Buf
         })
         .collect::<Vec<_>>();
     Paragraph::new(lines).render(inner, buffer);
-}
-
-fn render_notice(palette: &Palette, model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) {
-    let line = match &model.warning {
-        Some((message, _)) => Line::from(vec![
-            Span::styled(
-                "  ! ",
-                ui_style(color, theme_color(palette, Role::Warning), Modifier::BOLD),
-            ),
-            Span::styled(
-                message.clone(),
-                ui_style(
-                    color,
-                    theme_color(palette, Role::Warning),
-                    Modifier::empty(),
-                ),
-            ),
-        ]),
-        None => Line::from(Span::styled(
-            "  ctrl-c to cancel",
-            ui_style(color, theme_color(palette, Role::Border), Modifier::empty()),
-        )),
-    };
-    Paragraph::new(line).render(area, buffer);
 }
 
 fn phase_effect(palette: &Palette, policy: UiPolicy) -> Effect {

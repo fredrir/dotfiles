@@ -114,7 +114,17 @@ impl App {
             && matches!(key.modifiers, KeyModifiers::SHIFT)
             && matches!(key.code, KeyCode::Up | KeyCode::Down)
         {
-            self.move_to_edge(key.code == KeyCode::Down);
+            let end = key.code == KeyCode::Down;
+            let edge = if end {
+                self.entries.len().saturating_sub(1)
+            } else {
+                0
+            };
+            self.move_to_edge(if self.view.selected == edge {
+                !end
+            } else {
+                end
+            });
             return Ok(());
         }
         if self.view.workspace == Workspace::Changes
