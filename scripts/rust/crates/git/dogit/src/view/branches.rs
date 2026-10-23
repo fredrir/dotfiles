@@ -364,6 +364,7 @@ fn rows<'a>(panel: &BranchPanel<'a>, width: u16, now: i64) -> Vec<Row<'a>> {
         rows.push(Row::Blank);
     }
     rows.push(Row::Section(section(branch, overview)));
+    rows.push(Row::Blank);
     let text_width = card(Rect::new(0, 0, width, 1)).width;
     for (index, commit) in overview.commits.iter().enumerate() {
         if index > 0 {
@@ -414,7 +415,7 @@ fn upstream_field(branch: &Branch) -> Vec<Span<'static>> {
 }
 
 fn section(branch: &Branch, overview: &BranchOverview) -> Vec<Span<'static>> {
-    let title = style(Role::Muted).add_modifier(Modifier::BOLD);
+    let title = style(Role::Plain).add_modifier(Modifier::BOLD);
     if overview.total == 0 {
         return vec![Span::styled("Recent commits", title)];
     }
@@ -544,7 +545,12 @@ pub(super) fn render_panel(
         let line_area = Rect::new(inner.x, y, inner.width, 1);
         let text = card(Rect::new(area.x, y, area.width, 1));
         match row {
-            Row::Title => title(buffer, line_area, panel, repo),
+            Row::Title => title(
+                buffer,
+                Rect::new(inner.x, y, area.right().saturating_sub(inner.x + 1), 1),
+                panel,
+                repo,
+            ),
             Row::Field(label, value, aside) => {
                 let label_width = LABEL_WIDTH.min(inner.width);
                 put(buffer, inner.x, y, label_width, label, style(Role::Muted));
@@ -650,30 +656,21 @@ fn title(buffer: &mut Buffer, area: Rect, panel: &BranchPanel<'_>, repo: &str) {
         .iter()
         .map(|badge| badge.width() as u16 + 1)
         .sum::<u16>();
-    let remote_width = remote.map_or(0, |remote| remote.width() as u16 + 2);
+    let remote_width = remote.map_or(0, |remote| remote.width() as u16 + 3);
     let room = area
         .width
         .saturating_sub(badges_width + remote_width + 1)
         .max(area.width / 2);
-    let name = elide_middle(name, usize::from(room.saturating_sub(2)));
-    let x = area.x.saturating_sub(1);
-    let width = name.width() as u16 + 2;
-    put(
-        buffer,
-        x,
-        area.y,
-        width,
-        &format!(" {name} "),
-        chrome::identity_style(label(branch)),
-    );
-    let mut end = x + width;
-    if let Some(remote) = remote {
-        end += render_spans(
+    let mut end = area.x
+        + badge(
             buffer,
-            Rect::new(end + 2, area.y, area.right().saturating_sub(end + 2), 1),
-            &[Span::styled(remote.to_owned(), identity(remote))],
-            Color::Reset,
-        ) + 2;
+            Rect::new(area.x, area.y, room, 1),
+            &elide_middle(name, usize::from(room.saturating_sub(2))),
+            chrome::identity_style(name),
+        );
+    if let Some(remote) = remote {
+        let room = Rect::new(end + 1, area.y, area.right().saturating_sub(end + 1), 1);
+        end = room.x + badge(buffer, room, remote, chrome::identity_style(remote));
     }
     chrome::render_badges(
         buffer,
@@ -681,4 +678,17 @@ fn title(buffer: &mut Buffer, area: Rect, panel: &BranchPanel<'_>, repo: &str) {
         badges,
         false,
     );
+}
+
+fn badge(buffer: &mut Buffer, area: Rect, text: &str, appearance: Style) -> u16 {
+    let width = (text.width() as u16 + 2).min(area.width);
+    put(
+        buffer,
+        area.x,
+        area.y,
+        width,
+        &format!(" {text} "),
+        appearance,
+    );
+    width
 }

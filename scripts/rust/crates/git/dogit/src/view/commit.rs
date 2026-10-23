@@ -192,7 +192,13 @@ pub(super) fn details(
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_secs().min(i64::MAX as u64) as i64);
     let mut rows = vec![
-        (Some(0), "Author:", details.author.clone(), Role::Plain, None),
+        (
+            Some(0),
+            "Author:",
+            details.author.clone(),
+            Role::Plain,
+            None,
+        ),
         (Some(1), "Commit:", details.short_oid(), Role::Accent, None),
         (None, "", String::new(), Role::Plain, None),
         (

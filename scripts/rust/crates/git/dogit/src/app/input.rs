@@ -658,7 +658,9 @@ impl App {
             .geometry
             .as_ref()
             .map_or(self.row_map.len(), |geometry| {
-                let commit_rows = geometry.commit_height.saturating_sub(self.view.commit_offset);
+                let commit_rows = geometry
+                    .commit_height
+                    .saturating_sub(self.view.commit_offset);
                 (usize::from(geometry.canvas.height) + commit_rows)
                     .min(usize::from(geometry.canvas_viewport.height))
                     .max(1)
@@ -679,7 +681,10 @@ impl App {
                 }
             } else if rows.end < self.row_map.len() {
                 let next = self.hunk_rows(self.row_map[rows.end].hunk);
-                (next.start, centered_offset(&next, height).unwrap_or(next.start))
+                (
+                    next.start,
+                    centered_offset(&next, height).unwrap_or(next.start),
+                )
             } else {
                 return;
             }
