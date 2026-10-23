@@ -56,29 +56,29 @@ pub(crate) fn configured_diff_layout_cancellable(
     let mut paint = DiffPaint {
         width,
         split,
-        horizontal: config.split_wrap == WrapPolicy::Disabled,
+        horizontal: config.wrap == WrapPolicy::Disabled,
         lines: BTreeMap::new(),
     };
     let aligned = diff_rows(diff, split);
-    if !split {
-        return Ok(DiffLayout {
-            rows: aligned,
-            paint,
-        });
-    }
     let half = width.saturating_sub(1) / 2;
+    let sides = if split {
+        vec![(false, half), (true, width - half - 1)]
+    } else {
+        vec![(false, width)]
+    };
     for line in diff.hunks.iter().flat_map(|hunk| &hunk.lines) {
         cancelled()?;
         let content = diff::content_line(line, presentation, config);
-        for (right, side_width) in [(false, half), (true, width - half - 1)] {
-            if (right && line.kind == LineKind::Deletion)
-                || (!right && line.kind == LineKind::Addition)
+        for &(right, side_width) in &sides {
+            if split
+                && ((right && line.kind == LineKind::Deletion)
+                    || (!right && line.kind == LineKind::Addition))
             {
                 continue;
             }
-            let gutter = diff::number_gutter(line, Some(right), config);
+            let gutter = diff::number_gutter(line, split.then_some(right), config);
             let content_width = usize::from(side_width).saturating_sub(gutter.width() + 3);
-            let (chunks, offsets) = wrapped_chunks(&content, content_width, config.split_wrap);
+            let (chunks, offsets) = wrapped_chunks(&content, content_width, config.wrap);
             paint.lines.insert(
                 (line.id, right),
                 PaintedLine {
@@ -135,9 +135,11 @@ fn wrapped_chunks(
     let mut offsets = vec![0];
     let mut cells = 0;
     let mut source_offset = 0;
+    let mut boundary = None;
+    let mut has_content = false;
     text::visit_graphemes(content, |symbol, appearance| {
         let length = symbol.width();
-        if cells > 0 && cells + length > width {
+        while cells > 0 && cells + length > width {
             if policy
                 .row_limit()
                 .is_some_and(|limit| chunks.len() >= limit)
@@ -147,18 +149,51 @@ fn wrapped_chunks(
                 }
                 return false;
             }
-            chunks.push(Line::default());
-            offsets.push(source_offset);
-            cells = 0;
-        }
-        if let Some(last) = chunks.last_mut() {
-            text::push_styled(last, symbol, appearance);
+            let tail = if let Some((span, byte, columns)) = boundary.take() {
+                cells -= columns;
+                split_chunk(
+                    chunks.last_mut().expect("a chunk always exists"),
+                    span,
+                    byte,
+                )
+            } else {
+                cells = 0;
+                Line::default()
+            };
+            has_content = !tail.spans.is_empty();
+            chunks.push(tail);
+            offsets.push(source_offset - cells);
         }
         cells += length;
         source_offset += length;
+        has_content |= !symbol.chars().all(char::is_whitespace);
+        if let Some(last) = chunks.last_mut() {
+            text::push_styled(last, symbol, appearance);
+            if has_content
+                && symbol.chars().next().is_some_and(|character| {
+                    character.is_whitespace()
+                        || (character.is_ascii_punctuation() && character != '_')
+                })
+            {
+                boundary = last
+                    .spans
+                    .last()
+                    .map(|span| (last.spans.len() - 1, span.content.len(), cells));
+            }
+        }
         true
     });
     (chunks, offsets)
+}
+
+fn split_chunk(line: &mut Line<'static>, span: usize, byte: usize) -> Line<'static> {
+    let mut tail = line.spans.split_off(span + 1);
+    let boundary = &mut line.spans[span];
+    if byte < boundary.content.len() {
+        let content = boundary.content.to_mut().split_off(byte);
+        tail.insert(0, Span::styled(content, boundary.style));
+    }
+    Line::from(tail)
 }
 
 fn truncated(line: &Line<'_>, width: usize) -> Line<'static> {

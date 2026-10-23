@@ -12,7 +12,7 @@ pub fn configured_diff_horizontal_limit(
     config: &DiffPresentationConfig,
 ) -> usize {
     let split = split && width >= 72;
-    if split && config.split_wrap != WrapPolicy::Disabled {
+    if config.wrap != WrapPolicy::Disabled {
         return 0;
     }
     let width = usize::from(if split {
@@ -156,21 +156,17 @@ pub(super) fn render_diff(
         .filter(|paint| paint.split == split && paint.width == area.width);
     let cached = data
         .diff_rows
-        .filter(|(_, mode, width)| {
-            *mode == split && (!split || (*width == area.width && cached_paint.is_some()))
-        })
-        .map(|(rows, _, _)| rows);
-    let fallback = (split && cached.is_none())
+        .filter(|(_, mode, width)| *mode == split && *width == area.width)
+        .map(|(rows, _, _)| rows)
+        .zip(cached_paint);
+    let fallback = cached
+        .is_none()
         .then(|| configured_diff_layout(diff, area.width, split, data.presentation, config));
-    let all_rows = cached.or_else(|| fallback.as_ref().map(|layout| layout.rows.as_slice()));
-    let paint = fallback
-        .as_ref()
-        .map(|layout| &layout.paint)
-        .or(cached_paint);
-    let row_count = all_rows.map_or_else(
-        || diff.hunks.iter().map(|hunk| hunk.lines.len() + 2).sum(),
-        <[DiffRow]>::len,
-    );
+    let (all_rows, paint) = cached.unwrap_or_else(|| {
+        let layout = fallback.as_ref().expect("uncached diffs have a layout");
+        (layout.rows.as_slice(), &layout.paint)
+    });
+    let row_count = all_rows.len();
     if row_count == 0 {
         if let Some(message) = if diff.binary {
             Some("Binary: No preview available")
@@ -201,22 +197,10 @@ pub(super) fn render_diff(
             state.diff_offset = state.diff_cursor + 1 - usize::from(area.height);
         }
     }
-    let visible_rows;
-    let rows = if let Some(rows) = all_rows {
-        &rows[state.diff_offset..rows.len().min(state.diff_offset + usize::from(area.height))]
-    } else {
-        visible_rows = unified_window(diff, state.diff_offset, usize::from(area.height));
-        &visible_rows
-    };
+    let rows =
+        &all_rows[state.diff_offset..row_count.min(state.diff_offset + usize::from(area.height))];
     let focused_hunk = if state.focus == Focus::Canvas {
-        all_rows.map_or_else(
-            || {
-                unified_window(diff, state.diff_cursor, 1)
-                    .first()
-                    .map(|row| row.hunk)
-            },
-            |rows| rows.get(state.diff_cursor).map(|row| row.hunk),
-        )
+        all_rows.get(state.diff_cursor).map(|row| row.hunk)
     } else {
         None
     };
@@ -322,43 +306,39 @@ pub(super) fn render_diff(
         }
         if split {
             put(buffer, area.x + half, y, 1, "│", style(Role::Border));
-            for (id, x, width, right, part) in [
-                (row.line, area.x, half, false, row.left_part),
-                (
-                    row.right_line,
-                    area.x + half + 1,
-                    area.width - half - 1,
-                    true,
-                    row.right_part,
-                ),
-            ] {
-                if let Some((id, paint)) = id.zip(paint) {
-                    paint.draw(
-                        buffer,
-                        Rect::new(x, y, width, 1),
-                        wrap::PaintedCell {
-                            id,
-                            right,
-                            part,
-                            selected: data.selected_lines.contains(&id),
-                            horizontal: state.horizontal,
-                        },
-                    );
-                }
+        }
+        for (id, x, width, right, part) in [
+            (
+                row.line,
+                area.x,
+                if split { half } else { area.width },
+                false,
+                row.left_part,
+            ),
+            (
+                row.right_line,
+                area.x + half + 1,
+                area.width.saturating_sub(half + 1),
+                true,
+                row.right_part,
+            ),
+        ]
+        .into_iter()
+        .take(if split { 2 } else { 1 })
+        {
+            if let Some(id) = id {
+                paint.draw(
+                    buffer,
+                    Rect::new(x, y, width, 1),
+                    wrap::PaintedCell {
+                        id,
+                        right,
+                        part,
+                        selected: data.selected_lines.contains(&id),
+                        horizontal: state.horizontal,
+                    },
+                );
             }
-        } else if let Some(line) = row.line.and_then(|id| find_line(&diff.hunks[row.hunk], id)) {
-            draw_diff_line(
-                buffer,
-                Rect::new(area.x, y, area.width, 1),
-                line,
-                LineAppearance {
-                    selected: data.selected_lines.contains(&line.id),
-                    horizontal: state.horizontal,
-                    right: None,
-                    presentation: data.presentation,
-                    config,
-                },
-            );
         }
     }
     row_count
@@ -378,95 +358,6 @@ fn hunk_border_style(hunk: &crate::diff::Hunk) -> Style {
         (true, false) => style(Role::DiffAdded),
         (false, true) => style(Role::DiffRemoved),
         (false, false) => style(Role::Border),
-    }
-}
-
-fn unified_window(diff: &ExactDiff, mut offset: usize, height: usize) -> Vec<DiffRow> {
-    let mut rows = Vec::with_capacity(height);
-    for (hunk, block) in diff.hunks.iter().enumerate() {
-        if rows.len() >= height {
-            break;
-        }
-        let count = block.lines.len() + 2;
-        if offset >= count {
-            offset -= count;
-            continue;
-        }
-        for position in (offset..count).take(height - rows.len()) {
-            rows.push(DiffRow {
-                hunk,
-                hunk_end: position == count - 1,
-                line: position
-                    .checked_sub(1)
-                    .and_then(|index| block.lines.get(index))
-                    .map(|line| line.id),
-                ..DiffRow::default()
-            });
-        }
-        offset = 0;
-    }
-    rows
-}
-
-fn find_line(hunk: &crate::diff::Hunk, id: usize) -> Option<&crate::diff::DiffLine> {
-    hunk.lines
-        .binary_search_by_key(&id, |line| line.id)
-        .ok()
-        .map(|index| &hunk.lines[index])
-}
-
-struct LineAppearance<'a> {
-    selected: bool,
-    horizontal: usize,
-    right: Option<bool>,
-    presentation: Option<&'a DiffPresentation>,
-    config: &'a DiffPresentationConfig,
-}
-
-fn draw_diff_line(
-    buffer: &mut Buffer,
-    area: Rect,
-    line: &crate::diff::DiffLine,
-    appearance: LineAppearance<'_>,
-) {
-    let LineAppearance {
-        selected,
-        horizontal,
-        right,
-        presentation,
-        config,
-    } = appearance;
-    let gutter = number_gutter(line, right, config);
-    let gutter_width = gutter.width() as u16;
-    Paragraph::new(gutter).render(
-        Rect::new(
-            area.x + 1,
-            area.y,
-            gutter_width.min(area.width.saturating_sub(1)),
-            1,
-        ),
-        buffer,
-    );
-    let content = content_line(line, presentation, config);
-    highlight_gutter(
-        buffer,
-        area,
-        gutter_width,
-        content.spans.first().and_then(|span| span.style.bg),
-    );
-    Paragraph::new(content)
-        .scroll((0, horizontal.min(usize::from(u16::MAX)) as u16))
-        .render(
-            Rect::new(
-                area.x + gutter_width + 2,
-                area.y,
-                area.width.saturating_sub(gutter_width + 3),
-                1,
-            ),
-            buffer,
-        );
-    if selected {
-        highlight_selected_line(buffer, area);
     }
 }
 

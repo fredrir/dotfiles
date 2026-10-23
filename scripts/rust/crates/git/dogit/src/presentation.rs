@@ -18,7 +18,7 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiffPresentationConfig {
     pub split: bool,
-    pub split_wrap: WrapPolicy,
+    pub wrap: WrapPolicy,
     pub line_numbers: bool,
     pub left_format: String,
     pub right_format: String,
@@ -73,7 +73,7 @@ impl Default for DiffPresentationConfig {
     fn default() -> Self {
         Self {
             split: false,
-            split_wrap: WrapPolicy::Unlimited,
+            wrap: WrapPolicy::Unlimited,
             line_numbers: true,
             left_format: String::new(),
             right_format: "{np:>4}│".into(),
@@ -135,7 +135,7 @@ fn load_config_with_pager(
         ]);
         let active = run(command, None, cancel);
         let features_env = std::env::var("DELTA_FEATURES").ok();
-        config.split_wrap = resolve_wrap_policy(&settings, delta, features_env.as_deref());
+        config.wrap = resolve_wrap_policy(&settings, delta, features_env.as_deref());
         apply_settings(&mut config, &resolved);
         match active {
             Ok(output) => {
