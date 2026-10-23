@@ -72,7 +72,7 @@ impl App {
                     !entry.unmerged && (entry.index == 'D' || entry.worktree == 'D')
                 }),
                 staged_deletion: status.is_some_and(|entry| !entry.unmerged && entry.index == 'D'),
-                expanded: false,
+                ..view::FileState::default()
             };
             (!self.changes_filter.is_some_and(|side| match side {
                 DiffSide::Index => !state.staged,
@@ -102,7 +102,7 @@ impl App {
         )
     }
 
-    fn file_tree_entries<'a>(
+    pub(super) fn file_tree_entries<'a>(
         &self,
         paths: impl IntoIterator<Item = (&'a Path, view::FileState)>,
     ) -> (Vec<Entry>, view::NavSummary) {

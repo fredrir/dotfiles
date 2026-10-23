@@ -228,12 +228,50 @@ impl App {
     fn manual_scroll(&mut self, region: Region) {
         match region {
             Region::Navigator => self.view.nav_manual_scroll = true,
-            Region::Canvas => self.view.canvas_manual_scroll = true,
+            Region::Canvas => {
+                self.view.canvas_manual_scroll = true;
+                if self
+                    .geometry
+                    .as_ref()
+                    .is_some_and(|geometry| geometry.commit_height > 0)
+                {
+                    self.view.commit_manual_scroll = true;
+                }
+            }
             Region::CommitDetails => self.view.commit_manual_scroll = true,
             Region::Editor => self.view.overlay_scroll.editor_manual = true,
             Region::Commands => self.view.overlay_scroll.commands_manual = true,
             _ => {}
         }
+    }
+
+    pub(super) fn page_scroll(&mut self, region: Region, down: bool) {
+        self.manual_scroll(region);
+        let Some(bar) = self
+            .geometry
+            .as_ref()
+            .and_then(|geometry| geometry.scrollbar(region))
+        else {
+            return;
+        };
+        let current = self.scroll_offset(region).unwrap_or(0);
+        let page = bar.visible.saturating_sub(1).max(1);
+        let offset = if down {
+            current.saturating_add(page).min(bar.maximum)
+        } else {
+            current.saturating_sub(page)
+        };
+        self.set_scroll_offset(region, offset);
+    }
+
+    pub(super) fn canvas_edge(&mut self, end: bool) {
+        let maximum = self
+            .geometry
+            .as_ref()
+            .and_then(|geometry| geometry.scrollbar(Region::Canvas))
+            .map_or(0, |bar| bar.maximum);
+        self.manual_scroll(Region::Canvas);
+        self.set_scroll_offset(Region::Canvas, if end { maximum } else { 0 });
     }
 
     pub(super) fn wheel(&mut self, event: MouseEvent) {
@@ -320,6 +358,14 @@ impl App {
         if self.dialog.is_some() {
             return (!horizontal).then_some((Region::Dialog, usize::from(maximum)));
         }
+        if !horizontal && geometry.commit_height > 0 && geometry.canvas_viewport.contains(point) {
+            return Some((
+                Region::Canvas,
+                geometry
+                    .scrollbar(Region::Canvas)
+                    .map_or(0, |bar| bar.maximum),
+            ));
+        }
         if geometry.commit_details.contains(point) {
             return (!horizontal).then_some((Region::CommitDetails, geometry.commit_scroll_max));
         }
@@ -362,6 +408,14 @@ impl App {
         Some(match region {
             Region::Navigator => self.view.offset,
             Region::NavigatorColumns => self.view.nav_horizontal,
+            Region::Canvas
+                if self
+                    .geometry
+                    .as_ref()
+                    .is_some_and(|geometry| geometry.commit_height > 0) =>
+            {
+                self.view.commit_offset
+            }
             Region::Canvas => self.view.diff_offset,
             Region::CanvasColumns => self.view.horizontal,
             Region::CommitDetails => self.view.commit_offset,
@@ -380,7 +434,16 @@ impl App {
         match region {
             Region::Navigator => self.view.offset = offset,
             Region::NavigatorColumns => self.view.nav_horizontal = offset,
-            Region::Canvas => self.view.diff_offset = offset,
+            Region::Canvas => {
+                let prefix = self
+                    .geometry
+                    .as_ref()
+                    .map_or(0, |geometry| geometry.commit_height);
+                if prefix > 0 {
+                    self.view.commit_offset = offset;
+                }
+                self.view.diff_offset = offset.saturating_sub(prefix);
+            }
             Region::CanvasColumns => self.view.horizontal = offset,
             Region::CommitDetails => self.view.commit_offset = offset,
             Region::Editor => self.view.overlay_scroll.editor = offset,

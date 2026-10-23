@@ -30,6 +30,7 @@ enum Target {
     Path(PathBuf, bool),
     Commit(String),
     Branch(String, bool),
+    Tip(String, String),
     Stash(String, String),
     Worktree(PathBuf),
     Comparison(PathBuf),
@@ -44,7 +45,10 @@ struct Entry {
 #[derive(Clone)]
 enum Prompt {
     Search,
-    Branch,
+    Branch(Option<String>),
+    Rename(String),
+    Upstream(String),
+    Push(String),
     Stash,
     Merge,
     Rebase,
@@ -132,6 +136,7 @@ struct PreviewRequest {
     workspace: Workspace,
     history_commit: Option<String>,
     comparison: Option<(String, String)>,
+    branch: Option<(String, Option<String>)>,
     side: DiffSide,
     all_files: bool,
     structural: bool,
@@ -206,6 +211,11 @@ impl PreviewKey {
             key.revisions.push(oid.clone());
         } else if let Some(oid) = &key.request.history_commit {
             key.revisions.push(oid.clone());
+        } else if let Some((reference, _)) = &key.request.branch {
+            key.revisions
+                .push(snapshot.status.oid.clone().unwrap_or_default());
+            key.revisions
+                .push(resolve_preview_revision(repo, snapshot, reference)?);
         } else if let Some(Target::Branch(branch, remote)) = &key.request.target {
             key.revisions
                 .push(snapshot.status.oid.clone().unwrap_or_default());
@@ -327,19 +337,21 @@ fn preview_file(path: &Path) -> Result<Option<Vec<String>>, String> {
     file.take(256 * 1024)
         .read_to_end(&mut bytes)
         .map_err(|error| error.to_string())?;
+    Ok(Some(text_preview(&bytes)))
+}
+
+fn text_preview(bytes: &[u8]) -> Vec<String> {
     if bytes.contains(&0) {
-        return Ok(Some(vec!["Binary file".into()]));
+        return vec!["Binary file".into()];
     }
     if bytes.is_empty() {
-        return Ok(Some(vec!["Empty file".into()]));
+        return vec!["Empty file".into()];
     }
-    Ok(Some(
-        String::from_utf8_lossy(&bytes)
-            .lines()
-            .enumerate()
-            .map(|(index, line)| format!("{:>4}  {line}", index + 1))
-            .collect(),
-    ))
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .enumerate()
+        .map(|(index, line)| format!("{:>4}  {line}", index + 1))
+        .collect()
 }
 
 struct LineAnchor {
@@ -404,6 +416,7 @@ struct App {
     history_commit: Option<String>,
     history: history::History,
     history_collapsed: BTreeSet<PathBuf>,
+    branches: branches::Branches,
     revision_paths: Vec<PathBuf>,
     copy_ack: Option<Instant>,
     clipboard_worker: Option<Worker<Result<Option<String>, String>>>,
@@ -432,6 +445,7 @@ struct App {
     scroll: scroll::Scroll,
 }
 
+mod branches;
 mod clipboard;
 mod commands;
 mod editor;
@@ -440,6 +454,8 @@ mod history;
 mod input;
 mod notification;
 mod preview;
+#[cfg(test)]
+mod preview_scroll_checks;
 mod render;
 mod scroll;
 mod tree;
@@ -509,6 +525,7 @@ impl App {
             history_commit: None,
             history: history::History::default(),
             history_collapsed: BTreeSet::new(),
+            branches: branches::Branches::default(),
             revision_paths: Vec::new(),
             copy_ack: None,
             clipboard_worker: None,
@@ -545,6 +562,7 @@ impl App {
         self.prepare_worker.set_waker(wake.clone());
         self.mutation_worker.set_waker(wake.clone());
         self.history.set_waker(wake.clone());
+        self.branches.set_waker(wake.clone());
         self.waker = Some(wake);
     }
 
@@ -571,6 +589,13 @@ impl App {
             workspace: self.view.workspace,
             history_commit: self.history_commit.clone(),
             comparison: self.compare.clone(),
+            branch: self.branches.open.clone().map(|reference| {
+                let base = self
+                    .branches
+                    .files()
+                    .and_then(|files| files.base().map(str::to_owned));
+                (reference, base)
+            }),
             side: self.side,
             all_files: self.all_files,
             structural: self.structure_enabled,
@@ -618,6 +643,7 @@ impl App {
 
     fn collect(&mut self) {
         self.dirty |= self.image.collect();
+        self.collect_branches();
         if self.history.collect(&self.repo) {
             if let Some(Dialog::Inspect {
                 message, loading, ..
@@ -774,6 +800,7 @@ impl App {
                             .count();
                         self.rebuild();
                     }
+                    self.sync_branch();
                     if let Some(commit) = self.snapshot.commits.first() {
                         self.history.prefetch(&self.repo, commit);
                     }
@@ -825,6 +852,7 @@ impl App {
             if reset {
                 self.view.canvas_manual_scroll = false;
                 self.view.commit_manual_scroll = false;
+                self.view.commit_offset = 0;
                 self.view.diff_offset = 0;
                 self.view.diff_cursor = 0;
                 self.view.horizontal = 0;
@@ -1028,24 +1056,23 @@ impl App {
                 }
             }
             Workspace::Branches => {
-                for branch in &self.snapshot.branches {
-                    if self.matches(&branch.name) {
-                        entries.push(Entry {
-                            target: Target::Branch(branch.name.clone(), branch.remote),
-                            item: nav(
-                                &branch.name,
-                                branch.upstream.as_deref().unwrap_or(""),
-                                if branch.current {
-                                    "HEAD"
-                                } else if branch.remote {
-                                    "remote"
-                                } else {
-                                    ""
-                                },
-                                NavKind::Branch,
-                            ),
-                        });
-                    }
+                if self.snapshot_loaded
+                    && let Some(open) = &self.branches.open
+                    && !self
+                        .snapshot
+                        .branches
+                        .iter()
+                        .any(|branch| branch.full_name == *open)
+                {
+                    self.branches.open = None;
+                    self.view.focus = Focus::Navigator;
+                }
+                if self.branches.open.is_some() {
+                    let (tree, summary) = self.branch_tree_entries();
+                    entries = tree;
+                    changes_summary = Some(summary);
+                } else {
+                    entries = self.branch_entries();
                 }
             }
             Workspace::Stashes => {
@@ -1103,6 +1130,7 @@ impl App {
                             usize::from(item.file_state.is_some_and(|state| state.unstaged));
                     }
                     summary.has_commits |= item.kind == NavKind::Commit;
+                    summary.has_branches |= item.kind == NavKind::Branch;
                     summary
                 });
         if let Some(summary) = changes_summary {
@@ -1157,6 +1185,7 @@ impl App {
 
     fn load_content(&mut self, reset: bool) {
         self.sync_commit_details();
+        self.sync_branch();
         let previous_side = self.side;
         self.align_diff_side();
         let reset = reset || previous_side != self.side;
@@ -1168,6 +1197,7 @@ impl App {
             .is_some_and(|key| key.request.workspace != self.view.workspace);
         if clear {
             self.view.canvas_manual_scroll = false;
+            self.view.commit_offset = 0;
             self.view.diff_offset = 0;
             self.view.diff_cursor = 0;
             self.view.horizontal = 0;
@@ -1215,7 +1245,14 @@ impl App {
             .geometry
             .as_ref()
             .map_or(0, |geometry| geometry.canvas.width);
-        if let Some(Target::Worktree(_)) = &target {
+        let branch_files = self.branches.files().cloned();
+        if matches!(target, Some(Target::Worktree(_) | Target::Branch(..)))
+            || (self.branches.open.is_some() && branch_files.is_none())
+        {
+            if reset {
+                self.view.diff_offset = 0;
+                self.view.canvas_manual_scroll = false;
+            }
             self.content_worker.invalidate();
             self.content_pending = false;
             self.diff = None;
@@ -1259,11 +1296,18 @@ impl App {
                 _ => None,
             };
             let preview_path = match &target {
-                _ if history_commit.is_some() => None,
+                _ if history_commit.is_some() || branch_files.is_some() => None,
                 Some(Target::Path(path, directory)) => Some((path.clone(), *directory)),
                 _ => None,
             };
+            let mut branch_preview = branch_files
+                .as_ref()
+                .map(|files| branches::preview(&repo, files, target.as_ref(), &cancel))
+                .transpose()?;
             let mut diff = match target {
+                _ if branch_preview.is_some() => branch_preview
+                    .as_mut()
+                    .and_then(|preview| preview.diff.take()),
                 Some(Target::Path(path, _)) if history_commit.is_some() => {
                     Some(ExactDiff::commit_cancellable(
                         &root,
@@ -1337,11 +1381,17 @@ impl App {
                 },
                 _ => None,
             };
-            let image = diff
-                .as_ref()
-                .and_then(|diff| crate::image_preview::Preview::load(diff, &cancel))
-                .map(Arc::new);
-            let mut text = Vec::new();
+            let image = branch_preview
+                .as_mut()
+                .and_then(|preview| preview.image.take())
+                .or_else(|| {
+                    diff.as_ref()
+                        .and_then(|diff| crate::image_preview::Preview::load(diff, &cancel))
+                        .map(Arc::new)
+                });
+            let mut text = branch_preview
+                .map(|preview| preview.text)
+                .unwrap_or_default();
             if let Some((path, directory)) = preview_path
                 && !directory
                 && image.is_none()
@@ -1409,6 +1459,7 @@ impl App {
         self.view.nav_manual_scroll = false;
         self.view.canvas_manual_scroll = false;
         self.view.commit_manual_scroll = false;
+        self.view.commit_offset = 0;
         self.view.nav_horizontal = 0;
         self.view.divider_hover_row = None;
         self.dragging = false;
@@ -1418,16 +1469,18 @@ impl App {
             .insert(format!("{:?}", self.view.workspace), self.view.nav_width);
         self.view.workspace = workspace;
         self.history_commit = None;
+        self.branches.open = None;
+        self.branches.origin = None;
         self.revision_paths.clear();
         self.view.nav_width = self
             .saved
             .widths
             .get(&format!("{workspace:?}"))
             .copied()
-            .unwrap_or(if workspace == Workspace::History {
-                50
-            } else {
-                34
+            .unwrap_or(match workspace {
+                Workspace::History => 50,
+                Workspace::Branches => 44,
+                _ => 34,
             });
         self.view.selected = 0;
         self.view.offset = 0;
@@ -1585,6 +1638,7 @@ fn nav(label: &str, detail: &str, status: &str, kind: NavKind) -> NavItem {
         staged: false,
         file_state: None,
         commit: None,
+        branch: None,
     }
 }
 

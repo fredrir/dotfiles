@@ -62,7 +62,7 @@ fn item_horizontal_limit(
     width: u16,
     workspace: Workspace,
 ) -> usize {
-    if item.kind == ItemKind::Commit {
+    if matches!(item.kind, ItemKind::Commit | ItemKind::Branch) {
         return 0;
     }
     if item.file_state.is_some() {
@@ -113,20 +113,17 @@ pub(super) fn render_navigator(
     items: &[NavItem],
     layout: Option<&NavLayout>,
 ) -> Navigation {
-    let visible = if items
-        .first()
-        .is_some_and(|item| item.kind == ItemKind::Commit)
-    {
-        history::visible_items(area.height)
-    } else {
-        usize::from(area.height)
-    };
     let thumb_limit = if state.workspace == Workspace::Changes {
         3
     } else {
         area.height
     };
     let mut navigation = render_items(buffer, area, state, items, layout);
+    let visible = match items.first().map(|item| item.kind) {
+        Some(ItemKind::Commit) => history::visible_items(area.height),
+        Some(ItemKind::Branch) => branches::visible_items(items, area.height),
+        _ => usize::from(area.height),
+    };
     navigation.scrollbar = Scrollbar::new(area, items.len(), visible, state.offset, thumb_limit);
     navigation
 }
@@ -155,6 +152,13 @@ fn render_items(
     {
         state.nav_horizontal = 0;
         return history::render(buffer, area, state, items, &mut layout.history.borrow_mut());
+    }
+    if items
+        .first()
+        .is_some_and(|item| item.kind == ItemKind::Branch)
+    {
+        state.nav_horizontal = 0;
+        return branches::render_list(buffer, area, state, items);
     }
     if state.nav_horizontal > 0 {
         state.nav_horizontal =
@@ -585,7 +589,11 @@ fn render_tree_item(
     let layout = TreeLayout::new(item, status, area.width);
     let x = area.x + layout.indent;
     let directory = item.kind == ItemKind::Folder;
-    let label_style = if neutral {
+    let label_style = if neutral && file.changed && file.deleted {
+        appearance.fg(foreground(Role::DiffRemoved))
+    } else if neutral && file.changed {
+        appearance.fg(foreground(Role::Plain))
+    } else if neutral {
         appearance.fg(foreground(Role::Muted))
     } else if file.staged_deletion || (directory && file.conflicted) {
         appearance.fg(foreground(Role::DiffRemoved))
@@ -633,6 +641,27 @@ fn render_tree_item(
         layout.decoration,
         1,
     ));
+    if layout.stats_width > 0
+        && let Some((added, removed)) = line_stats(file)
+    {
+        let x = area.right() - 1 - layout.stats_width;
+        put(
+            buffer,
+            x,
+            area.y,
+            added.width() as u16,
+            &added,
+            appearance.fg(foreground(Role::DiffAdded)),
+        );
+        put(
+            buffer,
+            area.right() - 1 - removed.width() as u16,
+            area.y,
+            removed.width() as u16,
+            &removed,
+            appearance.fg(foreground(Role::DiffRemoved)),
+        );
+    }
     if layout.status_width > 0 {
         let right = area.right() - 2;
         if status == TreeStatus::Mixed {
@@ -671,6 +700,26 @@ struct TreeLayout {
     decoration: u16,
     label_width: u16,
     status_width: u16,
+    stats_width: u16,
+}
+
+fn line_stats(file: FileState) -> Option<(String, String)> {
+    let (added, removed) = file.lines.filter(|_| file.changed)?;
+    let format = |sign: char, count: usize| {
+        if count > 0 {
+            format!("{sign}{count}")
+        } else {
+            String::new()
+        }
+    };
+    Some((format('+', added), format('-', removed)))
+}
+
+fn line_stats_width(file: FileState) -> u16 {
+    line_stats(file).map_or(0, |(added, removed)| {
+        (added.width() + removed.width() + usize::from(!added.is_empty() && !removed.is_empty()))
+            as u16
+    })
 }
 
 impl TreeLayout {
@@ -682,7 +731,15 @@ impl TreeLayout {
     fn new(item: &NavItem, status: TreeStatus, width: u16) -> Self {
         let available = width.saturating_sub(2);
         let status_width = if available >= 12 { status.width() } else { 0 };
-        let content = available.saturating_sub(status_width + u16::from(status_width > 0));
+        let stats_width = item.file_state.map_or(0, line_stats_width);
+        let stats_width = if available >= stats_width + 16 {
+            stats_width
+        } else {
+            0
+        };
+        let content = available.saturating_sub(
+            status_width + u16::from(status_width > 0) + stats_width + u16::from(stats_width > 0),
+        );
         let decoration = files::FileLabel::decoration_width(content);
         let indent = Self::indent(item.depth, width);
         Self {
@@ -690,6 +747,7 @@ impl TreeLayout {
             decoration,
             label_width: content.saturating_sub(indent - 1 + decoration),
             status_width,
+            stats_width,
         }
     }
 }

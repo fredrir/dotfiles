@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use image::{DynamicImage, ImageFormat, ImageReader};
@@ -25,14 +26,27 @@ impl Preview {
                 });
             }
         };
-        let format = image::guess_format(&bytes).ok().or(extension)?;
-        let image = decode(&bytes, format);
+        let mut preview = Self::decode(&bytes, extension)?;
+        if deleted {
+            preview.label.push_str(" Deleted previous image");
+        }
+        Some(preview)
+    }
+
+    pub(crate) fn from_bytes(path: &Path, bytes: &[u8]) -> Option<Self> {
+        let extension = ImageFormat::from_path(path).ok();
+        if extension.is_none() && !bytes.contains(&0) {
+            return None;
+        }
+        Self::decode(bytes, extension)
+    }
+
+    fn decode(bytes: &[u8], extension: Option<ImageFormat>) -> Option<Self> {
+        let format = image::guess_format(bytes).ok().or(extension)?;
+        let image = decode(bytes, format);
         let mut label = format!("{format:?}").to_uppercase();
         if let Ok(image) = &image {
             label.push_str(&format!(" {} × {}", image.width(), image.height()));
-        }
-        if deleted {
-            label.push_str(" Deleted previous image");
         }
         let image = image.map(|image| {
             if image.width() > 2048 || image.height() > 2048 {

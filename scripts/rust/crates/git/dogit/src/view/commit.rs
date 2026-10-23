@@ -13,7 +13,11 @@ pub(super) fn subject(
     if area.is_empty() {
         return (area, Rect::default());
     }
-    let title = header(buffer, area, details, false, reserved);
+    let title = header(
+        buffer,
+        area,
+        Header::new(area.width, details, false, reserved),
+    );
     let height = title.height.saturating_add(1).min(area.height);
     (
         Rect::new(area.x, area.y + height, area.width, area.height - height),
@@ -69,8 +73,13 @@ impl Header {
         };
         let first_width =
             inner_width.saturating_sub(aside_width + u16::from(aside_width > 0) * GAP + reserved);
+        let subject = details
+            .message
+            .as_deref()
+            .map(|message| message.split('\n').next().unwrap_or_default())
+            .unwrap_or(&details.subject);
         Self {
-            lines: subject::header_lines(&details.subject, inner_width, first_width),
+            lines: subject::header_lines(subject, inner_width, first_width),
             verification,
             aside_width,
             title_width: inner_width,
@@ -80,19 +89,37 @@ impl Header {
     fn height(&self) -> u16 {
         3
     }
+
+    fn message_lines(&self, details: &CommitDetails) -> Vec<Line<'static>> {
+        let mut lines = self.lines.clone();
+        lines.resize(lines.len().max(usize::from(self.height())), Line::default());
+        lines.push(Line::default());
+        if let Some((_, body)) = details
+            .message
+            .as_deref()
+            .and_then(|message| message.split_once('\n'))
+        {
+            lines.extend(
+                overlay::wrap_detail(body, self.title_width)
+                    .into_iter()
+                    .map(|line| Line::styled(line, style(Role::Plain))),
+            );
+        }
+        if details
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains('\n'))
+        {
+            lines.push(Line::default());
+        }
+        lines
+    }
 }
 
-fn header(
-    buffer: &mut Buffer,
-    area: Rect,
-    details: &CommitDetails,
-    show_verification: bool,
-    reserved: u16,
-) -> Rect {
+fn header(buffer: &mut Buffer, area: Rect, header: Header) -> Rect {
     if area.is_empty() {
         return Rect::default();
     }
-    let header = Header::new(area.width, details, show_verification, reserved);
     let height = header.height().min(area.height);
     chrome::render_badges(
         buffer,
@@ -118,20 +145,28 @@ pub(super) fn height(
     details: &CommitDetails,
     show_verification: bool,
     reserved: u16,
-) -> u16 {
+) -> usize {
     let github_rows = details.github.as_ref().map_or(0, |github| {
         let url_width = width.saturating_sub(INSET * 2 + LABEL_WIDTH);
         1 + overlay::wrap_detail(&github.url, url_width).len().min(3) as u16
     });
-    Header::new(width, details, show_verification, reserved).height() + 1 + ROWS + github_rows + 1
+    let header = Header::new(width, details, show_verification, reserved);
+    usize::from(ROWS + github_rows + 1) + header.message_lines(details).len()
 }
 
 #[derive(Default)]
 pub(super) struct Details {
+    pub area: Rect,
     pub fields: Vec<(usize, Rect)>,
     pub title: Rect,
     pub scroll_max: usize,
     pub scrollbar: Option<Scrollbar>,
+}
+
+pub(super) struct Options {
+    pub show_verification: bool,
+    pub reserved: u16,
+    pub inline: bool,
 }
 
 pub(super) fn details(
@@ -140,15 +175,20 @@ pub(super) fn details(
     state: &mut ViewState,
     details: &CommitDetails,
     avatar: Option<&Avatar>,
-    show_verification: bool,
-    reserved: u16,
+    options: Options,
 ) -> Details {
-    if area.width < 8 || area.height < 4 {
+    if area.width < 8 || area.is_empty() {
         return Details::default();
     }
     let focused = state.focus == Focus::CommitDetails;
-    let title = header(buffer, area, details, show_verification, reserved);
-    let content_y = title.bottom() + 1;
+    let title = Header::new(
+        area.width,
+        details,
+        options.show_verification,
+        options.reserved,
+    );
+    let message = title.message_lines(details);
+    let content_y = area.y;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_secs().min(i64::MAX as u64) as i64);
@@ -165,9 +205,6 @@ pub(super) fn details(
         (Some(2), "Date:", details.date(), Role::Plain),
     ];
     let aside_width = COLUMNS;
-    let has_avatar = avatar.is_some()
-        && area.width >= INSET * 2 + LABEL_WIDTH + 18 + GAP + aside_width
-        && area.bottom().saturating_sub(content_y + 1) >= ROWS;
     if let Some(github) = &details.github {
         rows.push((None, "", String::new(), Role::Plain));
         let url_width = area.width.saturating_sub(INSET * 2 + LABEL_WIDTH);
@@ -184,29 +221,82 @@ pub(super) fn details(
             ));
         }
     }
-    let visible = usize::from(area.bottom().saturating_sub(content_y + 1));
+    let viewport = usize::from(area.height).saturating_sub(usize::from(!options.inline));
     let selected_row = rows
         .iter()
         .position(|(field, ..)| *field == Some(state.commit_field))
-        .unwrap_or(0);
-    let maximum = rows.len().saturating_sub(visible);
-    if !state.commit_manual_scroll {
+        .unwrap_or(0)
+        + message.len();
+    let total = message.len() + rows.len();
+    let maximum = total.saturating_sub(viewport);
+    if !state.commit_manual_scroll && !options.inline {
         state.commit_offset = if focused {
             rows.iter()
                 .rposition(|(field, ..)| *field == Some(state.commit_field))
-                .unwrap_or(selected_row)
-                .saturating_sub(visible.saturating_sub(1))
+                .map_or(selected_row, |index| message.len() + index)
+                .saturating_sub(viewport.saturating_sub(1))
                 .min(selected_row)
         } else {
             0
         };
     }
-    state.commit_offset = state.commit_offset.min(maximum);
+    if !options.inline {
+        state.commit_offset = state.commit_offset.min(maximum);
+    }
     let offset = state.commit_offset;
-    let avatar = avatar.filter(|_| has_avatar && offset == 0);
+    let height = if options.inline {
+        (total + 1)
+            .saturating_sub(offset)
+            .min(usize::from(area.height)) as u16
+    } else {
+        area.height
+    };
+    let area = Rect::new(area.x, area.y, area.width, height);
+    let visible = total.saturating_sub(offset).min(viewport);
+    let title_area = Rect::new(
+        area.x,
+        area.y,
+        area.width,
+        title.lines.len().saturating_sub(offset).min(visible) as u16,
+    );
+    if offset == 0 && options.show_verification {
+        chrome::render_badges(
+            buffer,
+            Rect::new(
+                area.right().saturating_sub(INSET + title.aside_width),
+                area.y,
+                title.aside_width,
+                1,
+            ),
+            title.verification,
+            false,
+        );
+    }
+    let metadata_offset = message.len().saturating_sub(offset);
+    let avatar = avatar.filter(|_| {
+        area.width >= INSET * 2 + LABEL_WIDTH + 18 + GAP + aside_width
+            && offset <= message.len()
+            && visible.saturating_sub(metadata_offset) >= usize::from(ROWS)
+    });
+    for (index, line) in message.iter().enumerate().skip(offset).take(visible) {
+        line.render(
+            Rect::new(
+                area.x + INSET,
+                content_y + (index - offset) as u16,
+                area.width.saturating_sub(INSET * 2),
+                1,
+            ),
+            buffer,
+        );
+    }
     let mut fields: Vec<(usize, Rect)> = Vec::new();
-    for (index, (field, label, value, role)) in rows.iter().enumerate().skip(offset).take(visible) {
-        let y = content_y + (index - offset) as u16;
+    for (index, (field, label, value, role)) in rows
+        .iter()
+        .enumerate()
+        .skip(offset.saturating_sub(message.len()))
+        .take(visible.saturating_sub(metadata_offset))
+    {
+        let y = content_y + (message.len() + index - offset) as u16;
         let row = Rect::new(area.x + 1, y, area.width.saturating_sub(2), 1);
         let active = focused && *field == Some(state.commit_field);
         if let Some(field) = field {
@@ -251,16 +341,41 @@ pub(super) fn details(
     }
     if let Some(avatar) = avatar {
         avatar.render(
-            Rect::new(area.right() - INSET - COLUMNS, content_y, COLUMNS, ROWS),
+            Rect::new(
+                area.right() - INSET - COLUMNS,
+                content_y + metadata_offset as u16,
+                COLUMNS,
+                ROWS,
+            ),
             buffer,
         );
     }
 
     let track = Rect::new(area.x, content_y, area.width, visible as u16);
     Details {
+        area,
         fields,
-        title,
+        title: title_area,
         scroll_max: maximum,
-        scrollbar: Scrollbar::new(track, rows.len(), visible, offset, 3),
+        scrollbar: (!options.inline)
+            .then(|| Scrollbar::new(track, total, visible, offset, 3))
+            .flatten(),
     }
+}
+
+pub(super) fn field_offset(
+    width: u16,
+    details: &CommitDetails,
+    reserved: u16,
+    field: usize,
+) -> usize {
+    Header::new(width, details, false, reserved)
+        .message_lines(details)
+        .len()
+        + match field {
+            0 => 0,
+            1 => 1,
+            2 => 4,
+            _ => 6,
+        }
 }

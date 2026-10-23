@@ -25,6 +25,14 @@ pub(super) fn list_label_color(subject: &str) -> Color {
 }
 
 pub(super) fn list_lines(subject: &str, width: u16) -> Vec<Line<'static>> {
+    wrapped_lines(subject, width, 2)
+}
+
+pub(super) fn list_line(subject: &str, width: u16) -> Line<'static> {
+    wrapped_lines(subject, width, 1).swap_remove(0)
+}
+
+fn wrapped_lines(subject: &str, width: u16, limit: usize) -> Vec<Line<'static>> {
     let width = usize::from(width);
     if width == 0 {
         return vec![Line::default()];
@@ -44,9 +52,9 @@ pub(super) fn list_lines(subject: &str, width: u16) -> Vec<Line<'static>> {
     }
     let mut lines = Vec::new();
     let mut start = 0;
-    while start < clean.len() && lines.len() < 2 {
+    while start < clean.len() && lines.len() < limit {
         let rest = &clean[start..];
-        let last = lines.len() == 1;
+        let last = lines.len() + 1 == limit;
         let truncated = last && rest.width() > width;
         let available = width.saturating_sub(usize::from(truncated));
         let mut used = 0;

@@ -22,6 +22,9 @@ pub enum Action {
     Push,
     Switch,
     CreateBranch,
+    DeleteBranch,
+    RenameBranch,
+    SetUpstream,
     StashSave,
     StashApply,
     StashPop,
@@ -168,12 +171,27 @@ pub const ACTIONS: &[Definition] = &[
     Definition {
         action: Action::Switch,
         label: "Switch selected branch or worktree",
-        key: "Enter",
+        key: "s",
     },
     Definition {
         action: Action::CreateBranch,
         label: "Create branch",
         key: "n",
+    },
+    Definition {
+        action: Action::DeleteBranch,
+        label: "Delete selected branch",
+        key: "d",
+    },
+    Definition {
+        action: Action::RenameBranch,
+        label: "Rename selected branch",
+        key: "r",
+    },
+    Definition {
+        action: Action::SetUpstream,
+        label: "Set upstream of selected branch",
+        key: "u",
     },
     Definition {
         action: Action::StashSave,

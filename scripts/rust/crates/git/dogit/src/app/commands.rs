@@ -158,8 +158,16 @@ impl App {
             Action::Amend => self.dialog = Some(Dialog::Confirm { action, target: self.snapshot.status.oid.clone().map(Target::Commit), title: "Amend last commit".into(), detail: "Replace the last commit with the staged changes and an edited message. Published history will change.".into(), discard: None, abort: None, scroll: 0 }),
             Action::Fetch => self.command("Fetch", |repo| Ok(repo.fetch())),
             Action::Pull => self.command("Pull", |repo| Ok(repo.pull())),
+            Action::Push if self.view.workspace == Workspace::Branches => match self.focused_branch().cloned() {
+                Some(branch) if branch.remote => self.note("Select a local branch to push"),
+                Some(branch) => match (branch.upstream_remote, branch.upstream_ref) {
+                    (Some(remote), Some(target)) => self.command("Push branch", move |repo| repo.push_branch(&branch.name, &remote, &target, false)),
+                    _ => self.prompt(Prompt::Push(branch.name.clone()), &format!("Push {} to remote", branch.name), &self.default_remote()),
+                },
+                None => self.command("Push", |repo| Ok(repo.push())),
+            },
             Action::Push => self.command("Push", |repo| Ok(repo.push())),
-            Action::Switch => match target {
+            Action::Switch => match self.branch_target().or(target) {
                 Some(Target::Branch(branch, remote)) => self.command("Switch branch", move |repo| if remote { repo.switch_remote(&branch) } else { repo.switch(&branch) }),
                 Some(Target::Worktree(path)) => {
                     if self.operation.is_some() { self.note("Finish the current operation first"); return Ok(()); }
@@ -167,7 +175,42 @@ impl App {
                 }
                 _ => {},
             },
-            Action::CreateBranch => self.prompt(Prompt::Branch, "Create branch", ""),
+            Action::CreateBranch => match self.branch_target() {
+                Some(Target::Branch(name, remote)) => self.prompt(Prompt::Branch(Some(branches::reference(&name, remote))), &format!("Create branch from {name}"), ""),
+                _ => self.prompt(Prompt::Branch(None), "Create branch", ""),
+            },
+            Action::DeleteBranch => if let Some(branch) = self.focused_branch().cloned() {
+                if branch.current {
+                    self.note("Cannot delete the current branch");
+                    return Ok(());
+                }
+                let head = self.snapshot.status.branch.clone().unwrap_or_else(|| "HEAD".into());
+                let ahead = branch.divergence.map_or(0, |(ahead, _)| ahead);
+                let (title, detail) = if let Some((remote, name)) = branch.remote_parts() {
+                    (format!("Delete {name} from {remote}?"), format!("Removes {name} from {remote} for everyone."))
+                } else if ahead == 0 {
+                    (format!("Delete branch {}?", branch.name), format!("All commits are in {head}."))
+                } else if branch.upstream.is_some() && !branch.upstream_gone && branch.tracking.0 == 0 {
+                    (format!("Delete branch {}?", branch.name), format!("{ahead} {} not in {head} remain on {}.", if ahead == 1 { "commit" } else { "commits" }, branch.upstream.as_deref().unwrap_or_default()))
+                } else {
+                    (format!("Force delete branch {}?", branch.name), format!("{ahead} {} not in {head} will be lost.", if ahead == 1 { "commit" } else { "commits" }))
+                };
+                self.dialog = Some(Dialog::Confirm { action, target: Some(Target::Tip(branch.full_name.clone(), branch.oid.clone())), title, detail: detail.into(), discard: None, abort: None, scroll: 0 });
+            },
+            Action::RenameBranch => match self.focused_branch() {
+                Some(branch) if !branch.remote => { let name = branch.name.clone(); self.prompt(Prompt::Rename(name.clone()), "Rename branch", &name); }
+                Some(_) => self.note("Remote branches cannot be renamed"),
+                None => {}
+            },
+            Action::SetUpstream => match self.focused_branch() {
+                Some(branch) if !branch.remote => {
+                    let value = branch.upstream.clone().unwrap_or_else(|| format!("{}/{}", self.default_remote(), branch.name));
+                    let name = branch.name.clone();
+                    self.prompt(Prompt::Upstream(name.clone()), &format!("Upstream for {name}"), &value);
+                }
+                Some(_) => self.note("Remote branches have no upstream"),
+                None => {}
+            },
             Action::StashSave => self.prompt(Prompt::Stash, "Stash tracked and untracked changes", ""),
             Action::StashApply | Action::StashPop => self.confirmed(action, target, None),
             Action::StashDrop if matches!(target, Some(Target::Stash(..))) => {
@@ -191,7 +234,7 @@ impl App {
                 self.dialog = Some(Dialog::Confirm { action, target, title: label.into(), detail: detail.into(), discard: None, abort: None, scroll: 0 });
             }
             Action::Merge | Action::Rebase => {
-                let value = match &target { Some(Target::Branch(name, true)) => format!("refs/remotes/{name}"), Some(Target::Branch(name, false)) => format!("refs/heads/{name}"), Some(Target::Commit(name)) => name.clone(), _ => String::new() };
+                let value = match &self.branch_target().or(target) { Some(Target::Branch(name, true)) => format!("refs/remotes/{name}"), Some(Target::Branch(name, false)) => format!("refs/heads/{name}"), Some(Target::Commit(name)) => name.clone(), _ => String::new() };
                 self.prompt(if action == Action::Merge { Prompt::Merge } else { Prompt::Rebase }, if action == Action::Merge { "Merge revision into current branch" } else { "Rebase current branch onto revision" }, &value);
             }
             Action::Continue if self.snapshot.operation.is_some() => self.command("Continue operation", |repo| repo.continue_operation()),
@@ -204,6 +247,7 @@ impl App {
                 if !paths.is_empty() { self.prepare("Review discard", move |repo| crate::git::DiscardGuard::capture(&repo, &paths).map(|guard| Prepared::Discard(Box::new(guard))).map_err(|error| error.to_string())); }
             }
             Action::ToggleFiles if self.view.workspace == Workspace::Changes => { self.all_files = !self.all_files; self.rebuild(); self.load_content(true); },
+            Action::ToggleFiles if self.branches.open.is_some() => { self.branches.changed_only = !self.branches.changed_only; self.rebuild(); self.load_content(true); },
             Action::ToggleSide if self.view.workspace == Workspace::Changes => { self.select_diff_side(if self.side == DiffSide::Index { DiffSide::Worktree } else { DiffSide::Index }); },
             Action::ShowStaged => self.toggle_changes_filter(DiffSide::Index),
             Action::ShowUnstaged => self.toggle_changes_filter(DiffSide::Worktree),
@@ -268,6 +312,22 @@ impl App {
                 });
             }
             Action::Abort => self.command("Abort operation", |repo| repo.abort_operation()),
+            Action::DeleteBranch => {
+                if let Some(Target::Tip(reference, oid)) = target {
+                    if let Some((remote, name)) = reference
+                        .strip_prefix("refs/remotes/")
+                        .and_then(|name| name.split_once('/'))
+                    {
+                        let (remote, name) = (remote.to_owned(), name.to_owned());
+                        self.command("Delete remote branch", move |repo| {
+                            repo.delete_remote_branch(&remote, &name)
+                        });
+                    } else if let Some(name) = reference.strip_prefix("refs/heads/") {
+                        let name = name.to_owned();
+                        self.command("Delete branch", move |repo| repo.delete_branch(&name, &oid));
+                    }
+                }
+            }
             Action::StashApply | Action::StashPop | Action::StashDrop => {
                 if let Some(Target::Stash(reference, oid)) = target {
                     self.command(
@@ -333,6 +393,10 @@ impl App {
         terminal: &mut Option<crate::session::Session>,
         signals: &mut Option<ui_terminal::SignalGuard>,
     ) -> Result<(), String> {
+        if self.branch_panel_focused() {
+            self.open_branch_commit();
+            return Ok(());
+        }
         if self.view.focus == Focus::CommitDetails {
             self.activate_commit_field();
             return Ok(());
@@ -354,7 +418,8 @@ impl App {
             Some(Target::Path(_, true)) if self.view.focus == Focus::Navigator => {
                 self.toggle_folder()
             }
-            Some(Target::Branch(..) | Target::Worktree(_)) => {
+            Some(Target::Branch(..)) => self.open_branch(),
+            Some(Target::Worktree(_)) => {
                 return self.action(Action::Switch, terminal, signals);
             }
             _ => self.view.focus = Focus::Canvas,
@@ -580,8 +645,22 @@ impl App {
                             self.rebuild();
                             self.load_content(true);
                         }
-                        Prompt::Branch => self.command("Create branch", move |repo| {
-                            repo.create_branch(&value, None)
+                        Prompt::Branch(start) => self.command("Create branch", move |repo| {
+                            repo.create_branch(&value, start.as_deref())
+                        }),
+                        Prompt::Rename(from) => {
+                            if value != from {
+                                self.command("Rename branch", move |repo| {
+                                    repo.rename_branch(&from, &value)
+                                });
+                            }
+                        }
+                        Prompt::Upstream(branch) => self.command("Set upstream", move |repo| {
+                            let upstream = value.trim();
+                            repo.set_upstream(&branch, (!upstream.is_empty()).then_some(upstream))
+                        }),
+                        Prompt::Push(branch) => self.command("Push branch", move |repo| {
+                            repo.push_branch(&branch, value.trim(), &branch, true)
                         }),
                         Prompt::Stash => self.command("Save stash", move |repo| {
                             repo.stash_save((!value.is_empty()).then_some(value.as_str()), true)

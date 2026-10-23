@@ -53,7 +53,7 @@ impl App {
         let width = view::canvas_width(
             ratatui::layout::Rect::new(0, 0, size.width, size.height),
             &self.view,
-            self.history_commit.is_some(),
+            self.history_commit.is_some() || self.branches.open.is_some(),
         );
         if self.row_width != width
             || self.row_split != (self.view.split && width >= 72)
@@ -92,7 +92,7 @@ impl App {
                 .find(|commit| commit.oid == *oid)
                 .map_or_else(|| short(oid).into(), |commit| commit.subject.clone()),
             Some(Target::Stash(name, _)) => name.clone(),
-            Some(Target::Branch(reference, _)) => reference.clone(),
+            Some(Target::Branch(..) | Target::Tip(..)) => String::new(),
             Some(Target::RevisionAll) | None if self.view.workspace == Workspace::Compare => {
                 self.compare.as_ref().map_or_else(
                     || "Compare revisions".into(),
@@ -131,7 +131,10 @@ impl App {
             "Copied".into()
         } else if self.structure_enabled && self.structural.is_some() {
             "Structural comparison".into()
-        } else if matches!(self.view.workspace, Workspace::Changes | Workspace::History) {
+        } else if matches!(
+            self.view.workspace,
+            Workspace::Changes | Workspace::History | Workspace::Branches
+        ) {
             String::new()
         } else if let Some(Target::Commit(oid)) = self.selected() {
             self.snapshot
@@ -220,6 +223,7 @@ impl App {
             operation: operation.as_ref(),
             toast: toast.as_ref(),
             selected_lines: &self.marked,
+            branch_panel: branches::panel(&self.snapshot, &self.branches, self.branch_target()),
         };
         let mut geometry = None;
         let previous_cursor = self.view.diff_cursor;

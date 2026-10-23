@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io::{Read, Write};
@@ -243,7 +243,7 @@ impl StatusEntry {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Branch {
     pub name: String,
     pub full_name: String,
@@ -251,6 +251,29 @@ pub struct Branch {
     pub current: bool,
     pub remote: bool,
     pub upstream: Option<String>,
+    pub upstream_remote: Option<String>,
+    pub upstream_ref: Option<String>,
+    pub upstream_gone: bool,
+    pub tracking: (usize, usize),
+    pub divergence: Option<(usize, usize)>,
+    pub subject: String,
+    pub author: String,
+    pub timestamp: i64,
+}
+
+impl Branch {
+    pub fn remote_parts(&self) -> Option<(&str, &str)> {
+        self.name.split_once('/').filter(|_| self.remote)
+    }
+}
+
+pub type LineStat = (PathBuf, Option<(usize, usize)>);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TreeEntry {
+    pub mode: String,
+    pub kind: String,
+    pub size: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -363,8 +386,8 @@ impl Repo {
         let status = self.status()?;
         let commits = self.commits(limit)?;
         Ok(Snapshot {
+            branches: self.branches(status.oid.is_some())?,
             status,
-            branches: self.branches()?,
             commits,
             stashes: self.stashes()?,
             worktrees: self.worktrees()?,
@@ -399,24 +422,30 @@ impl Repo {
             .map(|paths| paths.into_iter().collect())
     }
 
-    pub fn branches(&self) -> Result<Vec<Branch>, GitError> {
+    pub fn branches(&self, head: bool) -> Result<Vec<Branch>, GitError> {
+        const FIELDS: usize = 11;
         let output = self.read([
             "for-each-ref",
             "--sort=-committerdate",
-            "--format=%(refname)%00%(objectname)%00%(HEAD)%00%(upstream:short)%00%(symref)%00",
+            "--format=%(refname)%00%(objectname)%00%(HEAD)%00%(upstream:short)%00%(symref)%00%(upstream:track,nobracket)%00%(upstream:remotename)%00%(upstream:remoteref)%00%(committerdate:unix)%00%(authorname)%00%(contents:subject)%00",
             "refs/heads/",
             "refs/remotes/",
         ])?;
+        let divergence = if head {
+            self.divergence()
+        } else {
+            BTreeMap::new()
+        };
+        let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
         let mut branches = Vec::new();
-        for line in output
-            .split(|byte| *byte == b'\n')
-            .filter(|line| !line.is_empty())
-        {
-            let fields: Vec<_> = line.split(|byte| *byte == 0).collect();
-            if fields.len() < 5 {
+        for fields in fields.chunks(FIELDS) {
+            if fields.len() != FIELDS {
+                if fields.iter().all(|field| field.trim_ascii().is_empty()) {
+                    continue;
+                }
                 return Err(GitError::new("Malformed branch data"));
             }
-            let full_name = strict_text(fields[0], "branch name")?;
+            let full_name = strict_text(fields[0].trim_ascii_start(), "branch name")?;
             let remote = full_name.starts_with("refs/remotes/");
             if remote && !fields[4].is_empty() {
                 continue;
@@ -426,20 +455,58 @@ impl Repo {
                 .or_else(|| full_name.strip_prefix("refs/remotes/"))
                 .unwrap_or(&full_name)
                 .to_owned();
+            let track = text(fields[5]);
+            let mut tracking = (0, 0);
+            for part in track.split(", ") {
+                if let Some(count) = part.strip_prefix("ahead ") {
+                    tracking.0 = count.parse().unwrap_or(0);
+                } else if let Some(count) = part.strip_prefix("behind ") {
+                    tracking.1 = count.parse().unwrap_or(0);
+                }
+            }
             branches.push(Branch {
                 name,
-                full_name,
                 oid: strict_text(fields[1], "object ID")?,
                 current: fields[2] == b"*",
                 remote,
                 upstream: nonempty_text(fields[3]),
+                upstream_remote: nonempty_text(fields[6]),
+                upstream_ref: nonempty_text(fields[7]),
+                upstream_gone: track == "gone",
+                tracking,
+                divergence: divergence.get(&full_name).copied(),
+                timestamp: text(fields[8]).parse().unwrap_or(0),
+                author: text(fields[9]),
+                subject: text(fields[10]),
+                full_name,
             });
         }
         Ok(branches)
     }
 
+    fn divergence(&self) -> BTreeMap<String, (usize, usize)> {
+        let Ok(output) = self.read([
+            "for-each-ref",
+            "--format=%(refname)%00%(ahead-behind:HEAD)",
+            "refs/heads/",
+            "refs/remotes/",
+        ]) else {
+            return BTreeMap::new();
+        };
+        output
+            .split(|byte| *byte == b'\n')
+            .filter_map(|line| {
+                let (reference, counts) = text(line)
+                    .split_once('\0')
+                    .map(|(reference, counts)| (reference.to_owned(), counts.to_owned()))?;
+                let (ahead, behind) = counts.split_once(' ')?;
+                Some((reference, (ahead.parse().ok()?, behind.parse().ok()?)))
+            })
+            .collect()
+    }
+
     pub fn commits(&self, limit: usize) -> Result<Vec<Commit>, GitError> {
-        let output = self.read([
+        parse_commits(&self.read([
             OsString::from("log"),
             OsString::from("--exclude=refs/stash"),
             OsString::from("--all"),
@@ -448,31 +515,142 @@ impl Repo {
             OsString::from("--no-show-signature"),
             OsString::from("-z"),
             OsString::from(format!("--max-count={limit}")),
-            OsString::from("--format=%H%x00%P%x00%an%x00%at%x00%s%x00%D%x00%ae"),
+            OsString::from(COMMIT_FORMAT),
             OsString::from("--"),
-        ])?;
-        let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
-        let mut commits = Vec::new();
-        for fields in fields[..fields.len().saturating_sub(1)].chunks(7) {
-            if fields.len() != 7 {
-                return Err(GitError::new("Malformed history data"));
-            }
-            commits.push(Commit {
-                oid: strict_text(fields[0], "object ID")?,
-                parents: text(fields[1])
-                    .split_whitespace()
-                    .map(str::to_owned)
-                    .collect(),
-                author: text(fields[2]),
-                timestamp: text(fields[3])
-                    .parse()
-                    .map_err(|_| GitError::new("Malformed commit time"))?,
-                subject: text(fields[4]),
-                decorations: text(fields[5]),
-                author_email: text(fields[6]),
-            });
+        ])?)
+    }
+
+    pub fn range_commits(
+        &self,
+        base: &str,
+        tip: &str,
+        limit: usize,
+    ) -> Result<Vec<Commit>, GitError> {
+        parse_commits(&self.read([
+            "log".into(),
+            "--no-show-signature".into(),
+            "-z".into(),
+            format!("--max-count={limit}"),
+            COMMIT_FORMAT.into(),
+            "--end-of-options".into(),
+            format!("{base}..{tip}"),
+            "--".into(),
+        ])?)
+    }
+
+    pub fn find_commit(&self, oid: &str) -> Result<Option<Commit>, GitError> {
+        Ok(parse_commits(&self.read([
+            "log",
+            "--no-show-signature",
+            "-z",
+            "--max-count=1",
+            COMMIT_FORMAT,
+            "--end-of-options",
+            oid,
+            "--",
+        ])?)?
+        .pop())
+    }
+
+    pub fn count_range(&self, base: &str, tip: &str) -> Result<usize, GitError> {
+        text(&self.read([
+            "rev-list".into(),
+            "--count".into(),
+            "--end-of-options".into(),
+            format!("{base}..{tip}"),
+            "--".into(),
+        ])?)
+        .trim()
+        .parse()
+        .map_err(|_| GitError::new("Malformed commit count"))
+    }
+
+    pub fn merge_base(&self, left: &str, right: &str) -> Result<Option<String>, GitError> {
+        match self.read(["merge-base", "--end-of-options", left, right]) {
+            Ok(output) => Ok(nonempty_text(trim_newline(&output))),
+            Err(error) if error.status == Some(1) => Ok(None),
+            Err(error) => Err(error),
         }
-        Ok(commits)
+    }
+
+    pub fn tree_paths(&self, revision: &str) -> Result<Vec<PathBuf>, GitError> {
+        self.read([
+            "ls-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            "--full-tree",
+            "--end-of-options",
+            revision,
+        ])?
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty())
+        .map(path_from_bytes)
+        .collect()
+    }
+
+    pub fn line_stats(&self, from: &str, to: &str) -> Result<Vec<LineStat>, GitError> {
+        let output = self.read([
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--numstat",
+            "-z",
+            "--end-of-options",
+            from,
+            to,
+            "--",
+        ])?;
+        output
+            .split(|byte| *byte == 0)
+            .filter(|record| !record.is_empty())
+            .map(|record| {
+                let mut fields = record.splitn(3, |byte| *byte == b'\t');
+                let added = text(fields.next().unwrap_or_default()).parse().ok();
+                let removed = text(fields.next().unwrap_or_default()).parse().ok();
+                let path = fields
+                    .next()
+                    .ok_or_else(|| GitError::new("Malformed diff statistics"))?;
+                Ok((path_from_bytes(path)?, added.zip(removed)))
+            })
+            .collect()
+    }
+
+    pub fn tree_entry(&self, revision: &str, path: &Path) -> Result<Option<TreeEntry>, GitError> {
+        validate_path(path)?;
+        let output = self.read([
+            OsStr::new("ls-tree"),
+            OsStr::new("-l"),
+            OsStr::new("-z"),
+            OsStr::new("--full-tree"),
+            OsStr::new("--end-of-options"),
+            OsStr::new(revision),
+            OsStr::new("--"),
+            path.as_os_str(),
+        ])?;
+        let Some(header) = output
+            .split(|byte| *byte == b'\t')
+            .next()
+            .filter(|_| !output.is_empty())
+        else {
+            return Ok(None);
+        };
+        let header = text(header);
+        let mut fields = header.split_whitespace();
+        Ok(Some(TreeEntry {
+            mode: fields.next().unwrap_or_default().to_owned(),
+            kind: fields.next().unwrap_or_default().to_owned(),
+            size: fields.nth(1).and_then(|size| size.parse().ok()),
+        }))
+    }
+
+    pub fn blob(&self, revision: &str, path: &Path) -> Result<Vec<u8>, GitError> {
+        validate_path(path)?;
+        let mut object = OsString::from(revision);
+        object.push(":");
+        object.push(path);
+        self.read([OsString::from("cat-file"), OsString::from("blob"), object])
     }
 
     pub fn commit_details(&self, oid: &str) -> Result<crate::commit::CommitDetails, GitError> {
@@ -823,12 +1001,99 @@ impl Repo {
         Ok(spec)
     }
 
-    pub fn delete_branch(&self, name: &str) -> Result<CommandSpec, GitError> {
+    pub fn delete_branch(&self, name: &str, expected: &str) -> Result<CommandSpec, GitError> {
         self.validate_branch(name)?;
+        if self.verify_revision(&format!("refs/heads/{name}"))? != expected {
+            return Err(GitError::new("Branch moved; review it before deleting"));
+        }
         Ok(CommandSpec::new(
             "Delete branch",
-            ["branch", "--delete", "--", name],
+            ["branch", "--delete", "--force", "--", name],
         ))
+    }
+
+    pub fn delete_remote_branch(
+        &self,
+        remote: &str,
+        branch: &str,
+    ) -> Result<CommandSpec, GitError> {
+        self.validate_remote(remote)?;
+        self.validate_branch(branch)?;
+        Ok(CommandSpec::new(
+            "Delete remote branch",
+            [
+                "push",
+                "--delete",
+                "--",
+                remote,
+                &format!("refs/heads/{branch}"),
+            ],
+        ))
+    }
+
+    pub fn rename_branch(&self, from: &str, to: &str) -> Result<CommandSpec, GitError> {
+        self.validate_branch(from)?;
+        self.validate_branch(to)?;
+        Ok(CommandSpec::new(
+            "Rename branch",
+            ["branch", "--move", "--", from, to],
+        ))
+    }
+
+    pub fn set_upstream(
+        &self,
+        branch: &str,
+        upstream: Option<&str>,
+    ) -> Result<CommandSpec, GitError> {
+        self.validate_branch(branch)?;
+        let Some(upstream) = upstream else {
+            return Ok(CommandSpec::new(
+                "Unset upstream",
+                ["branch", "--unset-upstream", "--", branch],
+            ));
+        };
+        self.verify_revision(upstream)?;
+        Ok(CommandSpec::new(
+            "Set upstream",
+            [
+                "branch",
+                &format!("--set-upstream-to={upstream}"),
+                "--",
+                branch,
+            ],
+        ))
+    }
+
+    pub fn push_branch(
+        &self,
+        branch: &str,
+        remote: &str,
+        target: &str,
+        track: bool,
+    ) -> Result<CommandSpec, GitError> {
+        self.validate_branch(branch)?;
+        self.validate_remote(remote)?;
+        let target = target.strip_prefix("refs/heads/").unwrap_or(target);
+        self.validate_branch(target)?;
+        let mut spec = CommandSpec::new("Push branch", ["push"]);
+        if track {
+            spec.args.push("--set-upstream".into());
+        }
+        spec.args.extend([
+            "--".into(),
+            remote.into(),
+            format!("refs/heads/{branch}:refs/heads/{target}").into(),
+        ]);
+        Ok(spec)
+    }
+
+    fn validate_remote(&self, remote: &str) -> Result<(), GitError> {
+        if remote.is_empty() || remote.starts_with('-') || remote.contains('\0') {
+            return Err(GitError::new("Invalid remote name"));
+        }
+        self.read(["remote", "get-url", "--", remote])
+            .map(|_| ())
+            .map_err(|_| GitError::new(format!("Unknown remote {remote}")))
     }
 
     fn validate_branch(&self, name: &str) -> Result<(), GitError> {
@@ -1321,6 +1586,33 @@ fn parse_status(bytes: &[u8]) -> Result<Status, GitError> {
         .entries
         .sort_by(|left, right| left.path.cmp(&right.path));
     Ok(status)
+}
+
+const COMMIT_FORMAT: &str = "--format=%H%x00%P%x00%an%x00%at%x00%s%x00%D%x00%ae";
+
+fn parse_commits(output: &[u8]) -> Result<Vec<Commit>, GitError> {
+    let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
+    let mut commits = Vec::new();
+    for fields in fields[..fields.len().saturating_sub(1)].chunks(7) {
+        if fields.len() != 7 {
+            return Err(GitError::new("Malformed history data"));
+        }
+        commits.push(Commit {
+            oid: strict_text(fields[0], "object ID")?,
+            parents: text(fields[1])
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect(),
+            author: text(fields[2]),
+            timestamp: text(fields[3])
+                .parse()
+                .map_err(|_| GitError::new("Malformed commit time"))?,
+            subject: text(fields[4]),
+            decorations: text(fields[5]),
+            author_email: text(fields[6]),
+        });
+    }
+    Ok(commits)
 }
 
 fn text(bytes: &[u8]) -> String {

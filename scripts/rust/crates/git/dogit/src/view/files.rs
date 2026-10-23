@@ -32,6 +32,7 @@ pub fn file_tree<'a>(
         summary.items += 1;
         summary.staged += usize::from(state.staged);
         summary.unstaged += usize::from(state.unstaged);
+        summary.changed += usize::from(state.changed);
         tree.entry(path.to_owned()).or_default().state = state;
         for parent in path.ancestors().skip(1) {
             let node = tree.entry(parent.to_owned()).or_default();
@@ -102,6 +103,7 @@ fn merge_state(target: &mut FileState, source: FileState) {
     target.staged |= source.staged;
     target.unstaged |= source.unstaged;
     target.conflicted |= source.conflicted;
+    target.changed |= source.changed;
 }
 
 pub(super) struct FileLabel<'a> {

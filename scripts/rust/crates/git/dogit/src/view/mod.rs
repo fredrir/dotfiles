@@ -12,6 +12,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::diff::{DiffSide, ExactDiff, LineKind};
 
+mod branches;
 mod chrome;
 mod commit;
 mod diff;
@@ -113,6 +114,7 @@ pub struct NavItem {
     pub disabled: bool,
     pub staged: bool,
     pub commit: Option<CommitSummary>,
+    pub branch: Option<crate::git::Branch>,
     pub file_state: Option<FileState>,
 }
 
@@ -132,6 +134,8 @@ pub struct FileState {
     pub deleted: bool,
     pub staged_deletion: bool,
     pub expanded: bool,
+    pub changed: bool,
+    pub lines: Option<(usize, usize)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -245,6 +249,7 @@ pub struct ViewState {
     pub overlay_scroll: OverlayScroll,
     pub divider_hovered: bool,
     pub divider_hover_row: Option<u16>,
+    pub branch_cursor: usize,
 }
 
 impl Default for ViewState {
@@ -273,6 +278,7 @@ impl Default for ViewState {
             overlay_scroll: OverlayScroll::default(),
             divider_hovered: false,
             divider_hover_row: None,
+            branch_cursor: 0,
         }
     }
 }
@@ -283,6 +289,23 @@ pub struct NavSummary {
     pub staged: usize,
     pub unstaged: usize,
     pub has_commits: bool,
+    pub has_branches: bool,
+    pub changed: usize,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BranchOverview {
+    pub against: String,
+    pub base: Option<crate::git::Commit>,
+    pub commits: Vec<crate::git::Commit>,
+    pub total: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BranchPanel<'a> {
+    pub branch: &'a crate::git::Branch,
+    pub overview: Option<&'a BranchOverview>,
+    pub docked: bool,
 }
 
 pub struct RenderData<'a> {
@@ -313,6 +336,7 @@ pub struct RenderData<'a> {
     pub operation: Option<&'a OperationView>,
     pub toast: Option<&'a ToastView<'a>>,
     pub selected_lines: &'a BTreeSet<usize>,
+    pub branch_panel: Option<BranchPanel<'a>>,
 }
 
 impl Default for RenderData<'_> {
@@ -346,6 +370,7 @@ impl Default for RenderData<'_> {
             operation: None,
             toast: None,
             selected_lines: EMPTY_SELECTION.get_or_init(BTreeSet::new),
+            branch_panel: None,
         }
     }
 }
@@ -355,6 +380,7 @@ pub struct Geometry {
     pub commit_details: Rect,
     pub commit_fields: Vec<(usize, Rect)>,
     pub commit_scroll_max: usize,
+    pub commit_height: usize,
     pub commit_subject: Rect,
     pub editor: Option<Rect>,
     pub overlay_close: Option<Rect>,
@@ -363,6 +389,7 @@ pub struct Geometry {
     pub body: Rect,
     pub nav: Rect,
     pub canvas: Rect,
+    pub canvas_viewport: Rect,
     pub nav_footer: Rect,
     pub canvas_footer: Rect,
     pub divider_x: Option<u16>,
@@ -376,6 +403,7 @@ pub struct Geometry {
     pub hunk_indices: Vec<Option<usize>>,
     pub tabs: Vec<(Workspace, Rect)>,
     pub diff_sides: Vec<(DiffSide, Rect)>,
+    pub branch_commits: Vec<(usize, Rect)>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -522,12 +550,15 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         outer.height - u16::from(!changes),
     );
     let compact = area.width < 80;
+    let docked_branch = data.branch_panel.filter(|panel| panel.docked);
+    let canvas_branch = data.branch_panel.filter(|panel| !panel.docked);
+    let docked = data.inspecting_commit || docked_branch.is_some();
     let show_nav = !compact
         || state.focus == Focus::Navigator
-        || (state.focus == Focus::CommitDetails && data.inspecting_commit);
+        || (state.focus == Focus::CommitDetails && docked);
     let show_canvas = !compact
         || state.focus == Focus::Canvas
-        || (state.focus == Focus::CommitDetails && !data.inspecting_commit);
+        || (state.focus == Focus::CommitDetails && !docked);
     let nav_width = if show_nav && show_canvas {
         state.nav_width.clamp(22, area.width.saturating_sub(34))
     } else if show_nav {
@@ -547,6 +578,9 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     } else {
         Rect::default()
     };
+    let canvas_viewport = canvas;
+    let inline_commit = show_canvas && data.commit.is_some() && !data.inspecting_commit;
+    let canvas_rows = inline_commit.then(|| canvas_row_count(data, canvas.width, state.split));
     let canvas_footer = if show_canvas && !changes {
         Rect::new(canvas.x, outer.bottom() - 1, canvas.width, 1)
     } else {
@@ -587,7 +621,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         counts = badges;
     }
     let title_reserved = if show_canvas && data.commit.is_some() {
-        let badges = render_canvas_badges(frame.buffer_mut(), canvas, std::mem::take(&mut counts));
+        let badges = render_canvas_badges(frame.buffer_mut(), canvas, counts.clone(), false);
         if badges.width > 0 {
             canvas.right() - badges.x
         } else {
@@ -597,6 +631,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         0
     };
     let mut commit_details = Rect::default();
+    let mut commit_height = 0;
     let mut commit_fields = Vec::new();
     let mut commit_scroll_max = 0;
     let mut commit_subject = Rect::default();
@@ -607,8 +642,9 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
                 commit::subject(frame.buffer_mut(), canvas, details, title_reserved);
         }
         if data.inspecting_commit && show_nav {
-            let height =
-                (commit::height(nav.width, details, true, 0) + 2).min(nav.height.saturating_sub(4));
+            let height = commit::height(nav.width, details, true, 0)
+                .saturating_add(2)
+                .min(usize::from(nav.height.saturating_sub(4))) as u16;
             let top = nav.bottom() - height;
             commit_details = Rect::new(nav.x, top + 2, nav.width, height.saturating_sub(2));
             nav.height -= height;
@@ -622,18 +658,35 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
                 style(Role::Border),
             );
         } else if !data.inspecting_commit && show_canvas {
-            let height = commit::height(canvas.width, details, false, title_reserved).min(
-                canvas
-                    .height
-                    .saturating_sub(if state.focus == Focus::CommitDetails {
-                        0
-                    } else {
-                        4
-                    }),
-            );
-            commit_details = Rect::new(canvas.x, canvas.y, canvas.width, height);
-            canvas.y += height;
-            canvas.height -= height;
+            commit_height = commit::height(canvas.width, details, false, title_reserved);
+            if state.diff_offset > 0 {
+                state.commit_offset = commit_height + state.diff_offset;
+            }
+            if state.focus == Focus::CommitDetails && !state.commit_manual_scroll {
+                let selected =
+                    commit::field_offset(canvas.width, details, title_reserved, state.commit_field);
+                state.commit_offset = state.commit_offset.min(selected);
+                if selected >= state.commit_offset + usize::from(canvas.height) {
+                    state.commit_offset = selected + 1 - usize::from(canvas.height);
+                }
+            }
+            let maximum = (commit_height + canvas_rows.unwrap_or(0))
+                .saturating_sub(usize::from(canvas.height));
+            state.commit_offset = state.commit_offset.min(maximum);
+            state.diff_offset = state.commit_offset.saturating_sub(commit_height);
+            commit_details = canvas;
+        }
+        if show_canvas {
+            if data.inspecting_commit || state.commit_offset == 0 {
+                render_canvas_badges(
+                    frame.buffer_mut(),
+                    canvas_viewport,
+                    std::mem::take(&mut counts),
+                    true,
+                );
+            } else {
+                counts.clear();
+            }
         }
         let rendered = commit::details(
             frame.buffer_mut(),
@@ -645,13 +698,21 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             } else {
                 None
             },
-            data.inspecting_commit,
-            if data.inspecting_commit {
-                0
-            } else {
-                title_reserved
+            commit::Options {
+                show_verification: data.inspecting_commit,
+                reserved: if data.inspecting_commit {
+                    0
+                } else {
+                    title_reserved
+                },
+                inline: inline_commit,
             },
         );
+        commit_details = rendered.area;
+        if inline_commit {
+            canvas.y += commit_details.height;
+            canvas.height -= commit_details.height;
+        }
         commit_fields = rendered.fields;
         commit_scroll_max = rendered.scroll_max;
         if let Some(bar) = rendered.scrollbar {
@@ -659,7 +720,9 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         }
         if !data.inspecting_commit {
             commit_subject = rendered.title;
-            if !commit_subject.is_empty() {
+            if !commit_details.is_empty()
+                && state.commit_offset + usize::from(commit_details.height) == commit_height
+            {
                 put(
                     frame.buffer_mut(),
                     commit_details.x,
@@ -670,6 +733,47 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
                 );
             }
         }
+    }
+    let mut branch_commits = Vec::new();
+    if let Some(panel) = docked_branch
+        && show_nav
+    {
+        let limit = (nav.height * 9 / 20)
+            .max(10)
+            .min(nav.height.saturating_sub(4));
+        let height = (branches::panel_height(&panel) + 2).min(usize::from(limit)) as u16;
+        let top = nav.bottom() - height;
+        let area = Rect::new(nav.x, top + 2, nav.width, height.saturating_sub(2));
+        nav.height -= height;
+        let width = (nav.width.saturating_sub(4) / 2).min(24);
+        put(
+            frame.buffer_mut(),
+            nav.x + 2,
+            top,
+            width,
+            &"─".repeat(usize::from(width)),
+            style(Role::Border),
+        );
+        let mut offset = state.commit_offset;
+        let scroll = branches::Scroll {
+            offset: &mut offset,
+            manual: state.commit_manual_scroll,
+            focused: state.focus == Focus::CommitDetails,
+        };
+        let rendered = branches::render_panel(frame.buffer_mut(), area, state, &panel, scroll);
+        state.commit_offset = offset;
+        commit_details = area;
+        commit_scroll_max = rendered.scroll_max;
+        if let Some(bar) = Scrollbar::new(
+            area,
+            rendered.total,
+            usize::from(area.height),
+            state.commit_offset,
+            3,
+        ) {
+            scrollbars.push((ScrollRegion::CommitDetails, bar));
+        }
+        branch_commits = rendered.rows;
     }
     let navigation = if show_nav {
         render_navigator(frame.buffer_mut(), nav, state, data.items, data.nav_layout)
@@ -696,11 +800,17 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         commit_details,
         commit_fields,
         commit_scroll_max,
+        commit_height,
         commit_subject,
         overlay_bounds: area,
         body,
         nav,
         canvas,
+        canvas_viewport: if inline_commit {
+            canvas_viewport
+        } else {
+            canvas
+        },
         canvas_footer,
         divider_x,
         divider_hit: divider_x.map(|x| {
@@ -721,10 +831,23 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         nav_disclosures: navigation.disclosures,
         tabs,
         diff_sides,
+        branch_commits,
         ..Geometry::default()
     };
     if show_canvas {
-        let total = if let Some(image) = &data.image {
+        let total = if let Some(panel) = canvas_branch {
+            let mut offset = state.diff_offset;
+            let scroll = branches::Scroll {
+                offset: &mut offset,
+                manual: state.canvas_manual_scroll,
+                focused: state.focus == Focus::Canvas,
+            };
+            let rendered =
+                branches::render_panel(frame.buffer_mut(), canvas, state, &panel, scroll);
+            state.diff_offset = offset;
+            geometry.branch_commits = rendered.rows;
+            rendered.total
+        } else if let Some(image) = &data.image {
             image::render(frame.buffer_mut(), canvas, image, state.overlay.is_none());
             0
         } else if let Some(structural) = data.structural {
@@ -749,7 +872,16 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         } else {
             0
         };
-        geometry.add_scrollbar(ScrollRegion::Canvas, canvas, total, state.diff_offset);
+        if inline_commit {
+            geometry.add_scrollbar(
+                ScrollRegion::Canvas,
+                canvas_viewport,
+                commit_height + canvas_rows.unwrap_or(total),
+                state.commit_offset,
+            );
+        } else {
+            geometry.add_scrollbar(ScrollRegion::Canvas, canvas, total, state.diff_offset);
+        }
     }
     if state.divider_hovered
         && state.overlay.is_none()
@@ -783,7 +915,34 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     geometry
 }
 
-fn render_canvas_badges(buffer: &mut Buffer, area: Rect, counts: Vec<Badge>) -> Rect {
+fn canvas_row_count(data: &RenderData<'_>, width: u16, split: bool) -> usize {
+    if data.image.is_some() {
+        0
+    } else if let Some(structural) = data.structural {
+        structural.lines().count()
+    } else if let Some(diff) = data.diff {
+        let split = split && width >= 72;
+        data.diff_rows
+            .filter(|(_, mode, columns)| *mode == split && *columns == width)
+            .map_or_else(
+                || {
+                    let config = data
+                        .presentation
+                        .map(|value| &value.config)
+                        .cloned()
+                        .unwrap_or_default();
+                    configured_diff_layout(diff, width, split, data.presentation, &config)
+                        .rows
+                        .len()
+                },
+                |(rows, _, _)| rows.len(),
+            )
+    } else {
+        data.canvas_lines.len()
+    }
+}
+
+fn render_canvas_badges(buffer: &mut Buffer, area: Rect, counts: Vec<Badge>, draw: bool) -> Rect {
     let right = area.right().saturating_sub(1);
     let width = counts
         .iter()
@@ -792,12 +951,11 @@ fn render_canvas_badges(buffer: &mut Buffer, area: Rect, counts: Vec<Badge>) -> 
         .saturating_sub(1);
     let width = width.min(usize::from(area.width.saturating_sub(2))) as u16;
     if !area.is_empty() && width >= 9 {
-        render_pane_footer(
-            buffer,
-            Rect::new(right - width, area.y, width, 1),
-            counts,
-            "",
-        )
+        let area = Rect::new(right - width, area.y, width, 1);
+        if draw {
+            render_pane_footer(buffer, area, counts, "");
+        }
+        area
     } else {
         Rect::new(right, area.y, 0, 0)
     }
@@ -817,7 +975,7 @@ fn render_canvas_context(
     let mut sides = Vec::new();
     let mut left = area.x;
     let mut right = area.right().saturating_sub(1);
-    let badges = render_canvas_badges(buffer, area, counts);
+    let badges = render_canvas_badges(buffer, area, counts, true);
     if badges.width > 0 {
         right = badges.x.saturating_sub(1);
     }

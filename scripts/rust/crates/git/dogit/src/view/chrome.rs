@@ -246,7 +246,7 @@ pub(super) fn nav_badges(
     } else if summary.items > 0 {
         let (singular, plural) = match workspace {
             Workspace::History if summary.has_commits => ("Commit", "Commits"),
-            Workspace::Branches => ("Branch", "Branches"),
+            Workspace::Branches if summary.has_branches => ("Branch", "Branches"),
             Workspace::Stashes => ("Stash", "Stashes"),
             Workspace::Worktrees => ("Worktree", "Worktrees"),
             _ => ("File", "Files"),
@@ -258,6 +258,13 @@ pub(super) fn nav_badges(
             style(Role::Plain)
         };
         counts.push(Badge::count(summary.items, noun, appearance));
+        if workspace == Workspace::Branches && summary.changed > 0 {
+            counts.push(Badge::count(
+                summary.changed,
+                "Changed",
+                file_side_style(DiffSide::Worktree),
+            ));
+        }
     }
     counts
 }

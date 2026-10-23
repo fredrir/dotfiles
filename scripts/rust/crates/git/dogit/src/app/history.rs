@@ -306,6 +306,13 @@ impl App {
                     .commits
                     .iter()
                     .find(|commit| commit.oid == oid)
+                    .or_else(|| {
+                        self.branches
+                            .origin
+                            .as_ref()
+                            .map(|origin| &origin.commit)
+                            .filter(|commit| commit.oid == oid)
+                    })
             })
             .cloned();
         self.history.select(&self.repo, commit.as_ref());
@@ -377,6 +384,8 @@ impl App {
     pub(super) fn tree_collapsed(&self) -> &BTreeSet<PathBuf> {
         if self.history_commit.is_some() {
             &self.history_collapsed
+        } else if self.branches.open.is_some() {
+            &self.branches.collapsed
         } else {
             &self.collapsed
         }
@@ -385,6 +394,8 @@ impl App {
     pub(super) fn tree_collapsed_mut(&mut self) -> &mut BTreeSet<PathBuf> {
         if self.history_commit.is_some() {
             &mut self.history_collapsed
+        } else if self.branches.open.is_some() {
+            &mut self.branches.collapsed
         } else {
             &mut self.collapsed
         }

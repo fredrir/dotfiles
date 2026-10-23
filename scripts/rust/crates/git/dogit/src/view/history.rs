@@ -135,7 +135,13 @@ pub(super) fn render(
     navigation
 }
 
-fn metadata(buffer: &mut Buffer, area: Rect, commit: &CommitSummary, now: i64, appearance: Style) {
+pub(super) fn metadata(
+    buffer: &mut Buffer,
+    area: Rect,
+    commit: &CommitSummary,
+    now: i64,
+    appearance: Style,
+) {
     let muted = appearance.fg(foreground(Role::Muted));
     let age = crate::commit::compact_relative_time(commit.timestamp, now);
     let age_width = age.width().min(usize::from(area.width)) as u16;

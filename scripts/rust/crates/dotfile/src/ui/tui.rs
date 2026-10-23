@@ -1109,12 +1109,6 @@ fn render_decision_body(
                     Line::from(overwrite_spans(palette, decision, *subject, color)),
                     buffer,
                 );
-                render_decision_line(
-                    area,
-                    area.height.saturating_sub(1),
-                    Line::from("  y yes · n no · a all · s skip · j/k scroll · q quit"),
-                    buffer,
-                );
                 return;
             }
             let display_path = compact_text(&super::compact_path(path), width.max(8));

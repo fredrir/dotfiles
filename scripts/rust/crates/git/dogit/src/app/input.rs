@@ -53,10 +53,18 @@ impl App {
                     | Action::ToggleStage
                     | Action::ToggleStageAll
                     | Action::Discard
-                    | Action::ToggleFiles
                     | Action::ShowStaged
                     | Action::ShowUnstaged
                     | Action::ToggleSide => self.view.workspace == Workspace::Changes,
+                    Action::ToggleFiles => {
+                        self.view.workspace == Workspace::Changes || self.branches.open.is_some()
+                    }
+                    Action::DeleteBranch => {
+                        self.focused_branch().is_some_and(|branch| !branch.current)
+                    }
+                    Action::RenameBranch | Action::SetUpstream => {
+                        self.focused_branch().is_some_and(|branch| !branch.remote)
+                    }
                     Action::StashApply | Action::StashPop | Action::StashDrop => {
                         matches!(self.selected(), Some(Target::Stash(..)))
                     }
@@ -66,10 +74,10 @@ impl App {
                     | Action::FollowParent
                     | Action::FollowChild
                     | Action::PinCommit => matches!(self.selected(), Some(Target::Commit(_))),
-                    Action::Switch => matches!(
-                        self.selected(),
-                        Some(Target::Branch(..) | Target::Worktree(_))
-                    ),
+                    Action::Switch => {
+                        self.branch_target().is_some()
+                            || matches!(self.selected(), Some(Target::Worktree(_)))
+                    }
                     Action::Continue | Action::Abort => self.snapshot.operation.is_some(),
                     Action::LoadMore => self.view.workspace == Workspace::History,
                     Action::Edit => self.view.workspace == Workspace::Changes,
@@ -196,13 +204,16 @@ impl App {
                     self.load_content(true);
                 } else if self.history_commit.is_some() {
                     self.leave_commit();
+                } else if self.branches.open.is_some() {
+                    self.leave_branch();
                 } else if self.operation.is_none() {
                     self.quit = true;
                 } else {
                     self.note("An operation is still running");
                 }
             }
-            KeyCode::Backspace => self.leave_commit(),
+            KeyCode::Backspace if self.history_commit.is_some() => self.leave_commit(),
+            KeyCode::Backspace => self.leave_branch(),
             KeyCode::Char(':') | KeyCode::Char('?') => {
                 self.open_actions();
             }
@@ -220,7 +231,33 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => {
                 self.move_cursor(-1, key.modifiers.contains(KeyModifiers::SHIFT))
             }
+            KeyCode::PageDown | KeyCode::PageUp if self.branch_panel_focused() => {
+                let page = self.geometry.as_ref().map_or(5, |geometry| {
+                    (geometry.branch_commits.len().saturating_sub(1)).max(1) as isize
+                });
+                self.move_branch_cursor(if key.code == KeyCode::PageUp {
+                    -page
+                } else {
+                    page
+                });
+            }
             KeyCode::PageDown | KeyCode::PageUp => {
+                if self.view.focus != Focus::Navigator
+                    && self
+                        .geometry
+                        .as_ref()
+                        .is_some_and(|geometry| geometry.commit_height > 0)
+                {
+                    self.page_scroll(view::ScrollRegion::Canvas, key.code == KeyCode::PageDown);
+                    return Ok(());
+                }
+                if self.view.focus == Focus::CommitDetails {
+                    self.page_scroll(
+                        view::ScrollRegion::CommitDetails,
+                        key.code == KeyCode::PageDown,
+                    );
+                    return Ok(());
+                }
                 let page = if self.view.focus == Focus::Navigator {
                     self.geometry.as_ref().map_or(15, |geometry| {
                         geometry.nav_items.len().saturating_sub(1).max(1) as isize
@@ -293,6 +330,16 @@ impl App {
                 let action = match character {
                     'e' => Some(Action::Edit),
                     's' if self.view.workspace == Workspace::Stashes => Some(Action::StashApply),
+                    's' if matches!(
+                        self.view.workspace,
+                        Workspace::Branches | Workspace::Worktrees
+                    ) =>
+                    {
+                        Some(Action::Switch)
+                    }
+                    'u' if self.view.workspace == Workspace::Branches => Some(Action::SetUpstream),
+                    'r' if self.view.workspace == Workspace::Branches => Some(Action::RenameBranch),
+                    'd' if self.view.workspace == Workspace::Branches => Some(Action::DeleteBranch),
                     'S' => Some(Action::StageFile),
                     'U' => Some(Action::UnstageFile),
                     'c' => Some(Action::Compose),
@@ -335,7 +382,7 @@ impl App {
     }
 
     fn cycle_focus(&mut self, backwards: bool) {
-        let panes: &[Focus] = if self.history.current().is_some() {
+        let panes: &[Focus] = if self.history.current().is_some() || self.branches.open.is_some() {
             &[Focus::Navigator, Focus::CommitDetails, Focus::Canvas]
         } else {
             &[Focus::Navigator, Focus::Canvas]
@@ -382,11 +429,12 @@ impl App {
                 }
             }
             Focus::CommitDetails => {
-                if self.history_commit.is_some() && right {
+                let docked = self.history_commit.is_some() || self.branches.open.is_some();
+                if docked && right {
                     self.view.focus = Focus::Canvas;
                     return Ok(());
                 }
-                if self.history_commit.is_none() && !right {
+                if !docked && !right {
                     self.view.focus = Focus::Navigator;
                     return Ok(());
                 }
@@ -442,6 +490,10 @@ impl App {
     }
 
     pub(super) fn move_cursor(&mut self, amount: isize, select: bool) {
+        if self.branch_panel_focused() {
+            self.move_branch_cursor(amount);
+            return;
+        }
         if self.view.focus == Focus::CommitDetails {
             self.view.commit_manual_scroll = false;
             self.view.commit_field = (self.view.commit_field as isize + amount)
@@ -479,6 +531,20 @@ impl App {
     }
 
     fn move_to_edge(&mut self, end: bool) {
+        if self.branch_panel_focused() {
+            self.view.branch_cursor = 0;
+            self.move_branch_cursor(if end { isize::MAX } else { 0 });
+            return;
+        }
+        if self.view.focus == Focus::Canvas
+            && self
+                .geometry
+                .as_ref()
+                .is_some_and(|geometry| geometry.commit_height > 0)
+        {
+            self.canvas_edge(end);
+            return;
+        }
         if self.view.focus == Focus::CommitDetails {
             self.view.commit_manual_scroll = false;
             self.view.commit_field = if end {
@@ -522,10 +588,18 @@ impl App {
 
     fn follow_canvas_cursor(&mut self) {
         self.view.canvas_manual_scroll = false;
-        let height = self
+        let inline_commit = self
             .geometry
             .as_ref()
-            .map_or(1, |geometry| usize::from(geometry.canvas.height).max(1));
+            .is_some_and(|geometry| geometry.commit_height > 0);
+        let height = self.geometry.as_ref().map_or(1, |geometry| {
+            usize::from(if inline_commit {
+                geometry.canvas_viewport.height
+            } else {
+                geometry.canvas.height
+            })
+            .max(1)
+        });
         if self.view.diff_cursor < self.view.diff_offset {
             self.view.diff_offset = self.view.diff_cursor;
         } else if self.view.diff_cursor >= self.view.diff_offset.saturating_add(height) {
@@ -537,6 +611,14 @@ impl App {
                 .max(self.content_line_count)
                 .saturating_sub(height),
         );
+        if inline_commit {
+            self.view.commit_manual_scroll = true;
+            self.view.commit_offset = self
+                .geometry
+                .as_ref()
+                .map_or(0, |geometry| geometry.commit_height)
+                + self.view.diff_offset;
+        }
     }
 
     pub(super) fn mark_current(&mut self, add: bool) {
@@ -638,6 +720,12 @@ impl App {
     }
 
     pub(super) fn leave_commit(&mut self) {
+        if self.history_commit.is_some()
+            && let Some(origin) = self.branches.origin.take()
+        {
+            self.return_to_branch(origin);
+            return;
+        }
         if let Some(oid) = self.history_commit.take() {
             self.view.nav_manual_scroll = false;
             self.rebuild();
@@ -792,6 +880,22 @@ impl App {
                             - i32::from(geometry.divider_x.unwrap_or(event.column)),
                     )
                     .unwrap_or(0);
+                } else if let Some(&(index, _)) = geometry
+                    .branch_commits
+                    .iter()
+                    .find(|(_, area)| area.contains(point))
+                {
+                    let focus = if self.branches.open.is_some() {
+                        Focus::CommitDetails
+                    } else {
+                        Focus::Canvas
+                    };
+                    let again = self.view.focus == focus && self.view.branch_cursor == index;
+                    self.view.focus = focus;
+                    self.view.branch_cursor = index;
+                    if again {
+                        self.open_branch_commit();
+                    }
                 } else if let Some((field, _)) = geometry
                     .commit_fields
                     .iter()
