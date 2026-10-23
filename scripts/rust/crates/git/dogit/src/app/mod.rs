@@ -440,6 +440,7 @@ struct App {
     quit: bool,
     dragging: bool,
     drag_offset: i16,
+    divider_click: Option<Instant>,
     geometry: Option<Geometry>,
     mouse_capture: ui_terminal::MouseCapture,
     scroll: scroll::Scroll,
@@ -470,7 +471,6 @@ impl App {
             Start::Changes => None,
             Start::History => {
                 view.workspace = Workspace::History;
-                view.nav_width = 50;
                 None
             }
             Start::Compare(from, to) => {
@@ -478,9 +478,11 @@ impl App {
                 Some((from, to))
             }
         };
-        if let Some(width) = saved.widths.get(&format!("{:?}", view.workspace)) {
-            view.nav_width = *width;
-        }
+        view.nav_width = saved
+            .widths
+            .get(&format!("{:?}", view.workspace))
+            .copied()
+            .unwrap_or(default_nav_width(view.workspace));
         Self {
             repo,
             snapshot: Snapshot::default(),
@@ -549,6 +551,7 @@ impl App {
             quit: false,
             dragging: false,
             drag_offset: 0,
+            divider_click: None,
             geometry: None,
             mouse_capture: ui_terminal::MouseCapture::Enabled,
             scroll: scroll::Scroll::default(),
@@ -1477,11 +1480,7 @@ impl App {
             .widths
             .get(&format!("{workspace:?}"))
             .copied()
-            .unwrap_or(match workspace {
-                Workspace::History => 50,
-                Workspace::Branches => 44,
-                _ => 34,
-            });
+            .unwrap_or(default_nav_width(workspace));
         self.view.selected = 0;
         self.view.offset = 0;
         self.view.focus = Focus::Navigator;
@@ -1620,6 +1619,16 @@ impl App {
         let len = self.row_map.len().max(self.content_line_count);
         self.view.diff_cursor = self.view.diff_cursor.min(len.saturating_sub(1));
         self.view.diff_offset = self.view.diff_offset.min(len.saturating_sub(1));
+    }
+}
+
+const DOUBLE_CLICK: Duration = Duration::from_millis(500);
+
+fn default_nav_width(workspace: Workspace) -> u16 {
+    match workspace {
+        Workspace::History => 50,
+        Workspace::Branches => 44,
+        _ => 34,
     }
 }
 

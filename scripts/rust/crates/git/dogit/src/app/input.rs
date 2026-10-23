@@ -872,14 +872,27 @@ impl App {
                     .divider_hit
                     .is_some_and(|area| area.contains(point))
                 {
-                    self.dragging = true;
-                    self.view.divider_hovered = true;
-                    self.view.divider_hover_row = Some(event.row);
-                    self.drag_offset = i16::try_from(
-                        i32::from(event.column)
-                            - i32::from(geometry.divider_x.unwrap_or(event.column)),
-                    )
-                    .unwrap_or(0);
+                    let now = Instant::now();
+                    if self
+                        .divider_click
+                        .take()
+                        .is_some_and(|last| now.duration_since(last) < DOUBLE_CLICK)
+                    {
+                        self.view.nav_width = default_nav_width(self.view.workspace);
+                        if self.structure_enabled {
+                            self.load_content(false);
+                        }
+                    } else {
+                        self.divider_click = Some(now);
+                        self.dragging = true;
+                        self.view.divider_hovered = true;
+                        self.view.divider_hover_row = Some(event.row);
+                        self.drag_offset = i16::try_from(
+                            i32::from(event.column)
+                                - i32::from(geometry.divider_x.unwrap_or(event.column)),
+                        )
+                        .unwrap_or(0);
+                    }
                 } else if let Some(&(index, _)) = geometry
                     .branch_commits
                     .iter()
@@ -952,6 +965,7 @@ impl App {
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) if self.dragging => {
+                self.divider_click = None;
                 self.view.nav_width = (i32::from(event.column)
                     - i32::from(geometry.body.x)
                     - i32::from(self.drag_offset))
