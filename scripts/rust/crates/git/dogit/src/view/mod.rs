@@ -299,6 +299,14 @@ pub struct BranchOverview {
     pub base: Option<crate::git::Commit>,
     pub commits: Vec<crate::git::Commit>,
     pub total: usize,
+    pub stat: Option<DiffStat>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DiffStat {
+    pub files: usize,
+    pub added: usize,
+    pub removed: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -741,7 +749,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         let limit = (nav.height * 9 / 20)
             .max(10)
             .min(nav.height.saturating_sub(4));
-        let height = (branches::panel_height(&panel) + 2).min(usize::from(limit)) as u16;
+        let height = (branches::panel_height(&panel, nav.width) + 2).min(usize::from(limit)) as u16;
         let top = nav.bottom() - height;
         let area = Rect::new(nav.x, top + 2, nav.width, height.saturating_sub(2));
         nav.height -= height;
@@ -760,7 +768,8 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             manual: state.commit_manual_scroll,
             focused: state.focus == Focus::CommitDetails,
         };
-        let rendered = branches::render_panel(frame.buffer_mut(), area, state, &panel, scroll);
+        let rendered =
+            branches::render_panel(frame.buffer_mut(), area, state, &panel, data.repo, scroll);
         state.commit_offset = offset;
         commit_details = area;
         commit_scroll_max = rendered.scroll_max;
@@ -842,8 +851,14 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
                 manual: state.canvas_manual_scroll,
                 focused: state.focus == Focus::Canvas,
             };
-            let rendered =
-                branches::render_panel(frame.buffer_mut(), canvas, state, &panel, scroll);
+            let rendered = branches::render_panel(
+                frame.buffer_mut(),
+                canvas,
+                state,
+                &panel,
+                data.repo,
+                scroll,
+            );
             state.diff_offset = offset;
             geometry.branch_commits = rendered.rows;
             rendered.total

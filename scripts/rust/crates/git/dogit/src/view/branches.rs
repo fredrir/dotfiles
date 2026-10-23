@@ -3,13 +3,15 @@ use crate::git::{Branch, Commit};
 
 const MARGIN: u16 = 1;
 const PADDING: u16 = 1;
-const ITEM_HEIGHT: usize = 3;
+const ITEM_HEIGHT: usize = 4;
+const HEADER_HEIGHT: usize = 2;
+const CARD_HEIGHT: u16 = 3;
+const NAME_MIN: u16 = 8;
 const INSET: u16 = 2;
+const RAIL_GAP: u16 = 2;
 const LABEL_WIDTH: u16 = 10;
 const UPSTREAM_AHEAD: &str = "\u{f062}";
 const UPSTREAM_BEHIND: &str = "\u{f063}";
-
-type Spans = Vec<(String, Style)>;
 
 pub(super) fn group(branch: &Branch) -> &str {
     branch.remote_parts().map_or("Local", |(remote, _)| remote)
@@ -30,7 +32,7 @@ fn starts_group(items: &[NavItem], index: usize) -> bool {
 fn content_top(items: &[NavItem], offset: usize, index: usize) -> usize {
     (offset..=index)
         .map(|row| {
-            usize::from(row == offset || starts_group(items, row))
+            usize::from(row == offset || starts_group(items, row)) * HEADER_HEIGHT
                 + if row < index { ITEM_HEIGHT } else { 0 }
         })
         .sum()
@@ -40,8 +42,8 @@ fn scroll_max(items: &[NavItem], height: u16) -> usize {
     let height = usize::from(height);
     let mut rows = 0;
     for index in (0..items.len()).rev() {
-        rows += ITEM_HEIGHT + usize::from(starts_group(items, index));
-        let sticky = usize::from(!starts_group(items, index));
+        rows += ITEM_HEIGHT + usize::from(starts_group(items, index)) * HEADER_HEIGHT;
+        let sticky = usize::from(!starts_group(items, index)) * HEADER_HEIGHT;
         if rows + sticky > height + 1 {
             return (index + 1).min(items.len().saturating_sub(1));
         }
@@ -71,7 +73,8 @@ pub(super) fn render_list(
     if !state.nav_manual_scroll {
         state.offset = state.offset.min(state.selected);
         while state.offset < state.selected
-            && content_top(items, state.offset, state.selected) + 2 > usize::from(area.height)
+            && content_top(items, state.offset, state.selected) + usize::from(CARD_HEIGHT)
+                > usize::from(area.height)
         {
             state.offset += 1;
         }
@@ -87,13 +90,13 @@ pub(super) fn render_list(
             if y >= area.bottom() {
                 break;
             }
-            header(buffer, Rect::new(area.x, y, area.width, 1), group(branch));
-            y += 1;
+            header(buffer, Rect::new(area.x, y, area.width, 1), branch);
+            y = y.saturating_add(HEADER_HEIGHT as u16);
         }
         if y >= area.bottom() {
             break;
         }
-        let height = 2.min(area.bottom() - y);
+        let height = CARD_HEIGHT.min(area.bottom() - y);
         navigation
             .items
             .push((index, Rect::new(area.x, y, area.width, height)));
@@ -110,29 +113,54 @@ pub(super) fn render_list(
             height,
         );
         buffer.set_style(card, appearance);
-        row(buffer, card, branch, appearance, selected, now);
+        render_card(buffer, card, branch, appearance, selected, now);
+        let gap = y.saturating_add(CARD_HEIGHT);
+        if gap < area.bottom() && index + 1 < items.len() && !starts_group(items, index + 1) {
+            divider(buffer, Rect::new(area.x, gap, area.width, 1));
+        }
         y = y.saturating_add(ITEM_HEIGHT as u16);
     }
     navigation
 }
 
-fn header(buffer: &mut Buffer, area: Rect, title: &str) {
-    let x = area.x + MARGIN + PADDING;
-    let width = area.width.saturating_sub(MARGIN * 2 + PADDING + 1);
-    let title = elide_end(title, usize::from(width));
-    let title_width = title.width() as u16;
-    put(
+fn header(buffer: &mut Buffer, area: Rect, branch: &Branch) {
+    ruled_title(
         buffer,
-        x,
-        area.y,
-        width,
-        &title,
-        style(Role::Muted).add_modifier(Modifier::BOLD),
+        list_rule(area),
+        &[Span::styled(
+            chrome::identity_label(group(branch)),
+            style(Role::Plain).add_modifier(Modifier::BOLD),
+        )],
     );
-    let rule = width.saturating_sub(title_width + 1);
+}
+
+fn divider(buffer: &mut Buffer, area: Rect) {
+    let rule = list_rule(area);
     put(
         buffer,
-        x + title_width + 1,
+        rule.x,
+        rule.y,
+        rule.width,
+        &"─".repeat(usize::from(rule.width)),
+        navigator::directory_guide_style(Color::Reset),
+    );
+}
+
+fn list_rule(area: Rect) -> Rect {
+    Rect::new(
+        area.x + MARGIN + PADDING,
+        area.y,
+        area.width.saturating_sub(MARGIN * 2 + PADDING + 1),
+        1,
+    )
+}
+
+fn ruled_title(buffer: &mut Buffer, area: Rect, title: &[Span<'_>]) {
+    let used = render_spans(buffer, area, title, Color::Reset);
+    let rule = area.width.saturating_sub(used + 1);
+    put(
+        buffer,
+        area.x + used + 1,
         area.y,
         rule,
         &"─".repeat(usize::from(rule)),
@@ -140,7 +168,7 @@ fn header(buffer: &mut Buffer, area: Rect, title: &str) {
     );
 }
 
-fn row(
+fn render_card(
     buffer: &mut Buffer,
     area: Rect,
     branch: &Branch,
@@ -148,85 +176,99 @@ fn row(
     selected: bool,
     now: i64,
 ) {
-    let x = area.x + PADDING;
-    let width = area.width.saturating_sub(PADDING * 2);
-    if width < 4 {
+    let text = Rect::new(
+        area.x + PADDING,
+        area.y,
+        area.width.saturating_sub(PADDING * 2),
+        area.height,
+    );
+    if text.width < 4 {
         return;
     }
     let background = appearance.bg.unwrap_or(Color::Reset);
-    let name_style = if branch.current {
-        appearance.fg(foreground(Role::Accent))
-    } else {
-        appearance.fg(foreground(Role::Plain))
-    };
-    let name_style = if branch.current || selected {
-        name_style.add_modifier(Modifier::BOLD)
-    } else {
-        name_style
-    };
-    if branch.current {
-        put(buffer, x, area.y, 1, "●", name_style);
-    }
-    let divergence = divergence(branch);
-    let used = right_spans(
-        buffer,
-        Rect::new(x + 2, area.y, width - 2, 1),
-        &divergence,
-        background,
+    let room = Rect::new(
+        text.x + NAME_MIN + 1,
+        text.y,
+        text.width.saturating_sub(NAME_MIN + 1),
+        1,
     );
-    let name_width = (width - 2).saturating_sub(used + u16::from(used > 0) * 2);
+    let badges = chrome::render_badges(buffer, room, relation(branch), false);
+    let name_width = if badges.width > 0 {
+        badges.x.saturating_sub(text.x + 2)
+    } else {
+        text.width
+    };
+    let name = label(branch);
     put(
         buffer,
-        x + 2,
-        area.y,
+        text.x,
+        text.y,
         name_width,
-        &elide_middle(label(branch), usize::from(name_width)),
-        name_style,
+        &elide_middle(name, usize::from(name_width)),
+        chrome::identity_text_style(name).bg(background),
     );
-    if area.height < 2 {
-        return;
+    if text.height > 1 {
+        let mut line = subject::list_line(&branch.subject, text.width);
+        paint(&mut line, appearance, selected);
+        line.render(Rect::new(text.x, text.y + 1, text.width, 1), buffer);
     }
-    let muted = appearance.fg(foreground(Role::Muted));
-    let mut details = upstream_sync(branch);
-    if !details.is_empty() {
-        details.push(("  ".into(), muted));
-    }
-    details.push((age(branch.timestamp, now), muted));
-    let line = Rect::new(x + 2, area.y + 1, width - 2, 1);
-    let used = right_spans(buffer, line, &details, background);
-    let subject_width = line.width.saturating_sub(used + 2);
-    put(
-        buffer,
-        line.x,
-        line.y,
-        subject_width,
-        &elide_end(&safe_text(&branch.subject), usize::from(subject_width)),
-        muted,
-    );
-}
-
-fn divergence(branch: &Branch) -> Spans {
-    match branch.divergence {
-        _ if branch.current => Vec::new(),
-        None | Some((0, 0)) => Vec::new(),
-        Some((0, _)) => vec![("merged".into(), style(Role::Muted))],
-        Some((ahead, behind)) => [
-            (ahead, "↑", Role::DiffAdded),
-            (behind, "↓", Role::DiffRemoved),
-        ]
-        .into_iter()
-        .filter(|(count, _, _)| *count > 0)
-        .map(|(count, arrow, role)| (format!("{arrow}{count}"), style(role)))
-        .collect(),
+    if text.height > 2 {
+        history::metadata(
+            buffer,
+            Rect::new(text.x, text.y + 2, text.width, 1),
+            &CommitSummary {
+                oid: branch.oid.clone(),
+                parents: Vec::new(),
+                author: branch.author.clone(),
+                timestamp: branch.timestamp,
+            },
+            &upstream_sync(branch),
+            now,
+            appearance,
+        );
     }
 }
 
-fn upstream_sync(branch: &Branch) -> Spans {
+fn paint(line: &mut Line<'_>, appearance: Style, selected: bool) {
+    for span in &mut line.spans {
+        span.style = span
+            .style
+            .bg(appearance.bg.unwrap_or(Color::Reset))
+            .add_modifier(appearance.add_modifier);
+        if selected {
+            span.style = span.style.add_modifier(Modifier::BOLD);
+        }
+    }
+}
+
+fn merged(branch: &Branch) -> bool {
+    !branch.current && matches!(branch.divergence, Some((0, behind)) if behind > 0)
+}
+
+fn relation(branch: &Branch) -> Vec<Badge> {
+    if branch.current {
+        return vec![Badge::new("HEAD".into(), style(Role::Accent))];
+    }
+    if merged(branch) {
+        return vec![Badge::dim("Merged".into())];
+    }
+    let (ahead, behind) = branch.divergence.unwrap_or_default();
+    [
+        (ahead, "↑", Role::DiffAdded),
+        (behind, "↓", Role::DiffRemoved),
+    ]
+    .into_iter()
+    .filter(|(count, _, _)| *count > 0)
+    .map(|(count, arrow, role)| Badge::new(format!("{arrow}{count}"), style(role)))
+    .collect()
+}
+
+fn upstream_sync(branch: &Branch) -> Vec<Span<'static>> {
     if branch.remote || branch.upstream.is_none() {
         return Vec::new();
     }
     if branch.upstream_gone {
-        return vec![("gone".into(), style(Role::Warning))];
+        return vec![Span::styled("gone", style(Role::Warning))];
     }
     let (ahead, behind) = branch.tracking;
     [
@@ -235,66 +277,46 @@ fn upstream_sync(branch: &Branch) -> Spans {
     ]
     .into_iter()
     .filter(|(count, _, _)| *count > 0)
-    .map(|(count, arrow, role)| (format!("{count} {arrow}"), style(role)))
+    .map(|(count, arrow, role)| Span::styled(format!("{count} {arrow}"), style(role)))
     .collect()
 }
 
-fn spans_width(spans: &[(String, Style)]) -> u16 {
-    let separators = spans
-        .windows(2)
-        .filter(|pair| !pair[0].0.ends_with(' ') && !pair[1].0.starts_with(' '))
-        .count();
-    (spans.iter().map(|(text, _)| text.width()).sum::<usize>() + separators) as u16
+fn identity(name: &str) -> Style {
+    chrome::identity_text_style(name).remove_modifier(Modifier::BOLD)
 }
 
-fn right_spans(
-    buffer: &mut Buffer,
-    area: Rect,
-    spans: &[(String, Style)],
-    background: Color,
-) -> u16 {
-    let width = spans_width(spans);
-    if width == 0 || width + 4 > area.width {
-        return 0;
+fn reference_spans(name: &str, remote: Option<&str>, modifier: Modifier) -> Vec<Span<'static>> {
+    let split = remote.and_then(|remote| {
+        name.strip_prefix(remote)?
+            .strip_prefix('/')
+            .map(|rest| (remote, rest))
+    });
+    match split {
+        Some((remote, rest)) => vec![
+            Span::styled(remote.to_owned(), identity(remote).add_modifier(modifier)),
+            Span::styled("/", style(Role::Muted)),
+            Span::styled(rest.to_owned(), identity(rest).add_modifier(modifier)),
+        ],
+        None => vec![Span::styled(
+            name.to_owned(),
+            identity(name).add_modifier(modifier),
+        )],
     }
-    left_spans(
-        buffer,
-        Rect::new(area.right() - width, area.y, width, 1),
-        spans,
-        background,
-    );
-    width
 }
 
-fn left_spans(
-    buffer: &mut Buffer,
-    area: Rect,
-    spans: &[(String, Style)],
-    background: Color,
-) -> u16 {
+fn render_spans(buffer: &mut Buffer, area: Rect, spans: &[Span<'_>], background: Color) -> u16 {
     let mut x = area.x;
-    for (index, (text, appearance)) in spans.iter().enumerate() {
-        if index > 0 && !spans[index - 1].0.ends_with(' ') && !text.starts_with(' ') {
-            x += 1;
-        }
+    for span in spans {
         let available = area.right().saturating_sub(x);
-        let text = elide_end(text, usize::from(available));
+        if available == 0 {
+            break;
+        }
+        let text = elide_end(&span.content, usize::from(available));
         let width = text.width() as u16;
-        put(buffer, x, area.y, width, &text, appearance.bg(background));
+        put(buffer, x, area.y, width, &text, span.style.bg(background));
         x += width;
     }
     x - area.x
-}
-
-fn age(timestamp: i64, now: i64) -> String {
-    let seconds = now.saturating_sub(timestamp).max(0);
-    match seconds {
-        0..3_600 => format!("{}m", seconds / 60),
-        3_600..86_400 => format!("{}h", seconds / 3_600),
-        86_400..2_592_000 => format!("{}d", seconds / 86_400),
-        2_592_000..31_536_000 => format!("{}mo", seconds / 2_592_000),
-        _ => format!("{}y", seconds / 31_536_000),
-    }
 }
 
 fn now() -> i64 {
@@ -305,92 +327,55 @@ fn now() -> i64 {
 
 enum Row<'a> {
     Title,
-    Field(&'static str, Spans),
+    Field(&'static str, Vec<Span<'static>>, Vec<Span<'static>>),
     Blank,
-    Section(String),
-    Commit(usize, &'a Commit, bool),
+    Section(Vec<Span<'static>>),
+    Subject(usize, &'a Commit, Line<'static>, bool),
+    Metadata(usize, &'a Commit),
+    Gap,
     More(usize),
 }
 
-fn rows<'a>(panel: &BranchPanel<'a>, now: i64) -> Vec<Row<'a>> {
+fn rows<'a>(panel: &BranchPanel<'a>, width: u16, now: i64) -> Vec<Row<'a>> {
     let branch = panel.branch;
-    let muted = style(Role::Muted);
     let mut rows = vec![Row::Title, Row::Blank];
-    if let Some((remote, _)) = branch.remote_parts() {
-        rows.push(Row::Field(
-            "Remote:",
-            vec![(remote.into(), style(Role::Plain))],
-        ));
-    } else if let Some(upstream) = &branch.upstream {
-        let mut value = vec![(upstream.clone(), style(Role::Plain))];
-        let (ahead, behind) = branch.tracking;
-        if branch.upstream_gone {
-            value.push(("gone".into(), style(Role::Warning)));
-        } else if ahead == 0 && behind == 0 {
-            value.push(("in sync".into(), muted));
-        }
-        if ahead > 0 {
-            value.push((format!("{ahead} ahead"), style(Role::DiffAdded)));
-        }
-        if behind > 0 {
-            value.push((format!("{behind} behind"), style(Role::DiffRemoved)));
-        }
-        rows.push(Row::Field("Upstream:", value));
-    } else {
-        rows.push(Row::Field("Upstream:", vec![("none".into(), muted)]));
+    if !branch.remote {
+        rows.push(Row::Field("Upstream:", upstream_field(branch), Vec::new()));
     }
-    rows.push(Row::Field(
-        "Updated:",
-        vec![
-            (
-                crate::commit::relative_time(branch.timestamp, now),
-                style(Role::Plain),
-            ),
-            (format!("by {}", branch.author), muted),
-        ],
-    ));
-    rows.push(Row::Field(
-        "Tip:",
-        vec![
-            (short(&branch.oid), style(Role::Accent)),
-            (safe_text(&branch.subject), style(Role::Plain)),
-        ],
-    ));
     let Some(overview) = panel.overview else {
         return rows;
     };
-    if let Some(base) = overview.base.as_ref().filter(|_| !branch.current) {
+    if let Some(base) = overview.base.as_ref().filter(|base| base.oid != branch.oid) {
+        let mut value = vec![
+            Span::styled(short(&base.oid), style(Role::Accent)),
+            Span::raw("  "),
+        ];
+        value.extend(subject::list_line(&base.subject, u16::MAX).spans);
         rows.push(Row::Field(
             "Base:",
-            vec![
-                (short(&base.oid), style(Role::Accent)),
-                (crate::commit::relative_time(base.timestamp, now), muted),
-            ],
+            value,
+            vec![Span::styled(
+                crate::commit::compact_relative_time(base.timestamp, now),
+                style(Role::Muted),
+            )],
         ));
     }
-    rows.push(Row::Blank);
-    let against = &overview.against;
-    rows.push(Row::Section(if against.is_empty() {
-        "No upstream".into()
-    } else if overview.total == 0 && branch.current {
-        format!("Up to date with {against}")
-    } else if overview.total == 0 {
-        format!("Merged into {against}")
-    } else {
-        format!(
-            "{} {} ahead of {against}",
-            overview.total,
-            if overview.total == 1 {
-                "commit"
-            } else {
-                "commits"
-            }
-        )
-    }));
-    for (index, commit) in overview.commits.iter().enumerate() {
+    if rows.len() > 2 {
         rows.push(Row::Blank);
-        rows.push(Row::Commit(index, commit, true));
-        rows.push(Row::Commit(index, commit, false));
+    }
+    rows.push(Row::Section(section(branch, overview)));
+    let text_width = card(Rect::new(0, 0, width, 1)).width;
+    for (index, commit) in overview.commits.iter().enumerate() {
+        if index > 0 {
+            rows.push(Row::Gap);
+        }
+        for (line, subject) in subject::list_lines(&commit.subject, text_width)
+            .into_iter()
+            .enumerate()
+        {
+            rows.push(Row::Subject(index, commit, subject, line == 0));
+        }
+        rows.push(Row::Metadata(index, commit));
     }
     if overview.total > overview.commits.len() {
         rows.push(Row::Blank);
@@ -399,12 +384,92 @@ fn rows<'a>(panel: &BranchPanel<'a>, now: i64) -> Vec<Row<'a>> {
     rows
 }
 
+fn upstream_field(branch: &Branch) -> Vec<Span<'static>> {
+    let Some(upstream) = &branch.upstream else {
+        return vec![Span::styled("none", style(Role::Muted))];
+    };
+    let mut spans = reference_spans(
+        upstream,
+        branch.upstream_remote.as_deref(),
+        Modifier::empty(),
+    );
+    let (ahead, behind) = branch.tracking;
+    let status = if branch.upstream_gone {
+        vec![("gone".to_owned(), Role::Warning)]
+    } else {
+        [
+            (ahead, "ahead", Role::DiffAdded),
+            (behind, "behind", Role::DiffRemoved),
+        ]
+        .into_iter()
+        .filter(|(count, _, _)| *count > 0)
+        .map(|(count, word, role)| (format!("{count} {word}"), role))
+        .collect()
+    };
+    for (text, role) in status {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(text, style(role)));
+    }
+    spans
+}
+
+fn section(branch: &Branch, overview: &BranchOverview) -> Vec<Span<'static>> {
+    let title = style(Role::Muted).add_modifier(Modifier::BOLD);
+    if overview.total == 0 {
+        return vec![Span::styled("Recent commits", title)];
+    }
+    let noun = if overview.total == 1 {
+        "commit"
+    } else {
+        "commits"
+    };
+    let mut spans = vec![Span::styled(
+        format!("{} {noun} not on ", overview.total),
+        title,
+    )];
+    spans.extend(reference_spans(
+        &overview.against,
+        branch.upstream_remote.as_deref().filter(|_| branch.current),
+        Modifier::BOLD,
+    ));
+    spans
+}
+
+fn header_badges(panel: &BranchPanel<'_>, repo: &str) -> Vec<Badge> {
+    if let Some(stat) = panel
+        .overview
+        .and_then(|overview| overview.stat)
+        .filter(|stat| stat.files > 0)
+    {
+        let noun = if stat.files == 1 { "File" } else { "Files" };
+        return vec![
+            Badge::new(format!("{} {noun}", stat.files), chrome::files_style(repo)),
+            Badge::new(format!("+{}", stat.added), style(Role::DiffAdded)),
+            Badge::new(format!("-{}", stat.removed), style(Role::DiffRemoved)),
+        ];
+    }
+    if merged(panel.branch) {
+        return vec![Badge::dim("Merged".into())];
+    }
+    Vec::new()
+}
+
 fn short(oid: &str) -> String {
     oid.chars().take(7).collect()
 }
 
-pub(super) fn panel_height(panel: &BranchPanel<'_>) -> usize {
-    rows(panel, now()).len() + 1
+fn card(row: Rect) -> Rect {
+    let x = row.x + INSET + RAIL_GAP + PADDING;
+    Rect::new(
+        x,
+        row.y,
+        row.right().saturating_sub(x + MARGIN + 1 + PADDING),
+        1,
+    )
+}
+
+pub(super) fn panel_height(panel: &BranchPanel<'_>, width: u16) -> usize {
+    rows(panel, width, now()).len() + 1
 }
 
 #[derive(Default)]
@@ -425,30 +490,36 @@ pub(super) fn render_panel(
     area: Rect,
     state: &mut ViewState,
     panel: &BranchPanel<'_>,
+    repo: &str,
     scroll: Scroll<'_>,
 ) -> Panel {
     let now = now();
-    let rows = rows(panel, now);
+    let rows = rows(panel, area.width, now);
     let commits = panel.overview.map_or(0, |overview| overview.commits.len());
     state.branch_cursor = state.branch_cursor.min(commits.saturating_sub(1));
     let viewport = usize::from(area.height);
     let maximum = rows.len().saturating_sub(viewport);
+    let cursor = state.branch_cursor;
     if !scroll.manual
         && scroll.focused
-        && let Some(cursor) = rows.iter().position(
-            |row| matches!(row, Row::Commit(index, _, true) if *index == state.branch_cursor),
-        )
+        && let Some(top) = rows
+            .iter()
+            .position(|row| matches!(row, Row::Subject(index, ..) if *index == cursor))
     {
-        let first = if state.branch_cursor == 0 {
+        let end = rows
+            .iter()
+            .position(|row| matches!(row, Row::Metadata(index, _) if *index == cursor))
+            .map_or(top + 1, |row| row + 1);
+        let first = if cursor == 0 {
             rows.iter()
                 .position(|row| matches!(row, Row::Section(_)))
-                .unwrap_or(cursor)
+                .unwrap_or(top)
         } else {
-            cursor
+            top
         };
         *scroll.offset = (*scroll.offset).min(first);
-        if cursor + 2 > *scroll.offset + viewport {
-            *scroll.offset = cursor + 2 - viewport.min(cursor + 2);
+        if end > *scroll.offset + viewport {
+            *scroll.offset = end - viewport.min(end);
         }
     }
     *scroll.offset = (*scroll.offset).min(maximum);
@@ -467,93 +538,95 @@ pub(super) fn render_panel(
         area.width.saturating_sub(INSET * 2),
         area.height,
     );
+    let rail = identity(label(panel.branch));
     for (line, row) in rows.iter().enumerate().skip(offset).take(viewport) {
         let y = area.y + (line - offset) as u16;
         let line_area = Rect::new(inner.x, y, inner.width, 1);
+        let text = card(Rect::new(area.x, y, area.width, 1));
         match row {
-            Row::Title => title(buffer, line_area, panel.branch),
-            Row::Field(label, value) => {
+            Row::Title => title(buffer, line_area, panel, repo),
+            Row::Field(label, value, aside) => {
                 let label_width = LABEL_WIDTH.min(inner.width);
                 put(buffer, inner.x, y, label_width, label, style(Role::Muted));
-                left_spans(
+                let aside_width = aside.iter().map(Span::width).sum::<usize>() as u16;
+                let aside_width = if aside_width + 2 < inner.width.saturating_sub(label_width) / 2 {
+                    render_spans(
+                        buffer,
+                        Rect::new(inner.right() - aside_width, y, aside_width, 1),
+                        aside,
+                        Color::Reset,
+                    ) + 2
+                } else {
+                    0
+                };
+                render_spans(
                     buffer,
                     Rect::new(
                         inner.x + label_width,
                         y,
-                        inner.width.saturating_sub(label_width),
+                        inner.width.saturating_sub(label_width + aside_width),
                         1,
                     ),
-                    &value
-                        .iter()
-                        .enumerate()
-                        .map(|(index, (text, appearance))| {
-                            (
-                                if index > 0 {
-                                    format!("  {text}")
-                                } else {
-                                    text.clone()
-                                },
-                                *appearance,
-                            )
-                        })
-                        .collect::<Vec<_>>(),
+                    value,
                     Color::Reset,
                 );
             }
-            Row::Section(text) => put(
-                buffer,
-                inner.x,
-                y,
-                inner.width,
-                &elide_end(text, usize::from(inner.width)),
-                style(Role::Muted).add_modifier(Modifier::BOLD),
-            ),
+            Row::Section(spans) => ruled_title(buffer, line_area, spans),
             Row::More(count) => put(
                 buffer,
-                inner.x,
+                text.x,
                 y,
-                inner.width,
+                text.width,
                 &format!("{count} more"),
                 style(Role::Muted),
             ),
-            Row::Commit(index, commit, first) => {
-                let selected = *index == state.branch_cursor && scroll.focused;
+            Row::Gap => put(buffer, inner.x, y, 1, "│", rail),
+            Row::Subject(index, commit, _, _) | Row::Metadata(index, commit) => {
+                let selected = *index == cursor && scroll.focused;
                 let appearance = navigator::row_style(selected, selected, false);
-                let card = Rect::new(
-                    area.x + MARGIN,
-                    y,
-                    area.width.saturating_sub(MARGIN * 2 + 1),
-                    1,
-                );
-                buffer.set_style(card, appearance);
-                let text = Rect::new(
-                    card.x + PADDING,
-                    y,
-                    card.width.saturating_sub(PADDING * 2),
-                    1,
-                );
-                if *first {
-                    let mut line = subject::list_line(&commit.subject, text.width);
-                    for span in &mut line.spans {
-                        span.style = span.style.bg(appearance.bg.unwrap_or(Color::Reset));
-                        if selected {
-                            span.style = span.style.add_modifier(Modifier::BOLD);
-                        }
+                let card_area = Rect::new(text.x - PADDING, y, text.width + PADDING * 2, 1);
+                buffer.set_style(card_area, appearance);
+                match row {
+                    Row::Subject(_, _, subject, true) => {
+                        let node = if selected {
+                            rail.fg(subject::list_label_color(&commit.subject))
+                        } else {
+                            rail
+                        };
+                        put(
+                            buffer,
+                            inner.x,
+                            y,
+                            1,
+                            "●",
+                            node.add_modifier(Modifier::BOLD),
+                        );
+                        let mut subject = subject.clone();
+                        paint(&mut subject, appearance, selected);
+                        subject.render(text, buffer);
                     }
-                    line.render(text, buffer);
-                } else {
-                    history::metadata(
-                        buffer,
-                        text,
-                        &CommitSummary {
-                            oid: commit.oid.clone(),
-                            parents: Vec::new(),
-                            author: commit.author.clone(),
-                            timestamp: commit.timestamp,
-                        },
-                        now,
-                        appearance,
-                    );
+                    Row::Subject(_, _, subject, false) => {
+                        put(buffer, inner.x, y, 1, "│", rail);
+                        let mut subject = subject.clone();
+                        paint(&mut subject, appearance, selected);
+                        subject.render(text, buffer);
+                    }
+                    _ => {
+                        put(buffer, inner.x, y, 1, "│", rail);
+                        history::metadata(
+                            buffer,
+                            text,
+                            &CommitSummary {
+                                oid: commit.oid.clone(),
+                                parents: Vec::new(),
+                                author: commit.author.clone(),
+                                timestamp: commit.timestamp,
+                            },
+                            &[],
+                            now,
+                            appearance,
+                        );
+                    }
                 }
                 match geometry.rows.iter_mut().find(|(row, _)| row == index) {
                     Some((_, rect)) => rect.height += 1,
@@ -568,29 +641,44 @@ pub(super) fn render_panel(
     geometry
 }
 
-fn title(buffer: &mut Buffer, area: Rect, branch: &Branch) {
-    let divergence = divergence(branch);
-    let used = right_spans(buffer, area, &divergence, Color::Reset);
-    let width = area.width.saturating_sub(used + u16::from(used > 0) * 2);
-    let appearance = if branch.current {
-        style(Role::Accent)
-    } else {
-        style(Role::Plain)
-    }
-    .add_modifier(Modifier::BOLD);
-    let x = if branch.current && width > 2 {
-        put(buffer, area.x, area.y, 1, "●", appearance);
-        area.x + 2
-    } else {
-        area.x
-    };
-    let width = width.saturating_sub(x - area.x);
+fn title(buffer: &mut Buffer, area: Rect, panel: &BranchPanel<'_>, repo: &str) {
+    let branch = panel.branch;
+    let name = label(branch);
+    let remote = branch.remote_parts().map(|(remote, _)| remote);
+    let badges = header_badges(panel, repo);
+    let badges_width = badges
+        .iter()
+        .map(|badge| badge.width() as u16 + 1)
+        .sum::<u16>();
+    let remote_width = remote.map_or(0, |remote| remote.width() as u16 + 2);
+    let room = area
+        .width
+        .saturating_sub(badges_width + remote_width + 1)
+        .max(area.width / 2);
+    let name = elide_middle(name, usize::from(room.saturating_sub(2)));
+    let x = area.x.saturating_sub(1);
+    let width = name.width() as u16 + 2;
     put(
         buffer,
         x,
         area.y,
         width,
-        &elide_middle(&branch.name, usize::from(width)),
-        appearance,
+        &format!(" {name} "),
+        chrome::identity_style(label(branch)),
+    );
+    let mut end = x + width;
+    if let Some(remote) = remote {
+        end += render_spans(
+            buffer,
+            Rect::new(end + 2, area.y, area.right().saturating_sub(end + 2), 1),
+            &[Span::styled(remote.to_owned(), identity(remote))],
+            Color::Reset,
+        ) + 2;
+    }
+    chrome::render_badges(
+        buffer,
+        Rect::new(end + 2, area.y, area.right().saturating_sub(end + 2), 1),
+        badges,
+        false,
     );
 }

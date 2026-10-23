@@ -4,11 +4,24 @@ use super::*;
 pub(super) struct Badge {
     pub label: String,
     appearance: Style,
+    dim: bool,
 }
 
 impl Badge {
     pub fn new(label: String, appearance: Style) -> Self {
-        Self { label, appearance }
+        Self {
+            label,
+            appearance,
+            dim: false,
+        }
+    }
+
+    pub fn dim(label: String) -> Self {
+        Self {
+            label,
+            appearance: style(Role::Muted),
+            dim: true,
+        }
     }
 
     pub fn width(&self) -> usize {
@@ -261,7 +274,7 @@ pub(super) fn nav_badges(
     counts
 }
 
-fn files_style(repo: &str) -> Style {
+pub(super) fn files_style(repo: &str) -> Style {
     if repo.is_empty() {
         style(Role::Plain)
     } else {
@@ -337,7 +350,11 @@ pub(super) fn render_badges(
     };
     let rendered = Rect::new(x, area.y, width, 1);
     for (badge, width) in sized {
-        let appearance = badge_style(badge.appearance, color_depth()).add_modifier(Modifier::BOLD);
+        let appearance = if badge.dim {
+            dim_badge_style()
+        } else {
+            badge_style(badge.appearance, color_depth()).add_modifier(Modifier::BOLD)
+        };
         put(
             buffer,
             x,
@@ -384,7 +401,25 @@ fn identity_color(name: &str) -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
-fn identity_label(name: &str) -> String {
+fn dim_badge_style() -> Style {
+    let appearance = style(Role::Muted);
+    if color_depth() == ColorDepth::Ansi16 {
+        return appearance.bg(Color::DarkGray);
+    }
+    let backdrop = Palette::current()
+        .background(Role::Background)
+        .rgb()
+        .unwrap_or([0; 3]);
+    let muted = palette().color(Role::Muted).rgb().unwrap_or([128; 3]);
+    let channels: [u8; 3] = std::array::from_fn(|index| {
+        (f64::from(backdrop[index]) * 0.7 + f64::from(muted[index]) * 0.3).round() as u8
+    });
+    appearance.bg(ui_theme::Color::Rgb(channels[0], channels[1], channels[2])
+        .at_depth(color_depth())
+        .ratatui())
+}
+
+pub(super) fn identity_label(name: &str) -> String {
     let mut label = safe_text(name);
     if let Some((index, letter)) = label
         .char_indices()

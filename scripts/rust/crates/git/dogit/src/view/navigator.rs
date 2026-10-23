@@ -426,7 +426,7 @@ fn render_directory_guides(
     }
 }
 
-fn directory_guide_style(background: Color) -> Style {
+pub(super) fn directory_guide_style(background: Color) -> Style {
     let appearance = style(Role::Border).bg(background);
     if color_depth() == ColorDepth::Ansi16 {
         return appearance;

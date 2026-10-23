@@ -5,6 +5,7 @@ use std::sync::atomic::AtomicBool;
 use crate::git::{Branch, Commit, GitError};
 
 const COMMIT_LIMIT: usize = 200;
+const RECENT_LIMIT: usize = 20;
 const OVERVIEW_CACHE: usize = 32;
 const BLOB_LIMIT: u64 = 32 * 1024 * 1024;
 const TEXT_LIMIT: usize = 256 * 1024;
@@ -479,23 +480,41 @@ impl App {
 
 fn load_overview(repo: &Repo, key: &OverviewKey) -> Result<view::BranchOverview, GitError> {
     let Some((label, against)) = &key.against else {
-        return Ok(view::BranchOverview::default());
+        return Ok(view::BranchOverview {
+            commits: repo.recent_commits(&key.tip, RECENT_LIMIT)?,
+            ..view::BranchOverview::default()
+        });
     };
-    let base = match repo.merge_base(against, &key.tip)? {
-        Some(oid) => repo.find_commit(&oid)?,
-        None => None,
-    };
+    let base = repo.merge_base(against, &key.tip)?;
     let total = repo.count_range(against, &key.tip)?;
     let commits = if total > 0 {
         repo.range_commits(against, &key.tip, COMMIT_LIMIT)?
     } else {
-        Vec::new()
+        repo.recent_commits(&key.tip, RECENT_LIMIT)?
+    };
+    let stat = match &base {
+        Some(base) if *base != key.tip => Some(repo.line_stats(base, &key.tip)?.into_iter().fold(
+            view::DiffStat::default(),
+            |stat, (_, lines)| {
+                let (added, removed) = lines.unwrap_or_default();
+                view::DiffStat {
+                    files: stat.files + 1,
+                    added: stat.added + added,
+                    removed: stat.removed + removed,
+                }
+            },
+        )),
+        _ => None,
     };
     Ok(view::BranchOverview {
         against: label.clone(),
-        base,
+        base: match base {
+            Some(oid) => repo.find_commit(&oid)?,
+            None => None,
+        },
         commits,
         total,
+        stat,
     })
 }
 

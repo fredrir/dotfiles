@@ -526,6 +526,14 @@ impl Repo {
         tip: &str,
         limit: usize,
     ) -> Result<Vec<Commit>, GitError> {
+        self.log(format!("{base}..{tip}"), limit)
+    }
+
+    pub fn recent_commits(&self, tip: &str, limit: usize) -> Result<Vec<Commit>, GitError> {
+        self.log(tip.into(), limit)
+    }
+
+    fn log(&self, revision: String, limit: usize) -> Result<Vec<Commit>, GitError> {
         parse_commits(&self.read([
             "log".into(),
             "--no-show-signature".into(),
@@ -533,7 +541,7 @@ impl Repo {
             format!("--max-count={limit}"),
             COMMIT_FORMAT.into(),
             "--end-of-options".into(),
-            format!("{base}..{tip}"),
+            revision,
             "--".into(),
         ])?)
     }

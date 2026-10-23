@@ -126,6 +126,7 @@ pub(super) fn render(
                 buffer,
                 Rect::new(text.x, metadata_y, text.width, 1),
                 commit,
+                &[],
                 now,
                 appearance,
             );
@@ -139,14 +140,33 @@ pub(super) fn metadata(
     buffer: &mut Buffer,
     area: Rect,
     commit: &CommitSummary,
+    aside: &[Span<'static>],
     now: i64,
     appearance: Style,
 ) {
     let muted = appearance.fg(foreground(Role::Muted));
-    let age = crate::commit::compact_relative_time(commit.timestamp, now);
-    let age_width = age.width().min(usize::from(area.width)) as u16;
-    let left_width = area.width.saturating_sub(age_width + 2);
     let oid: String = commit.oid.chars().take(7).collect();
+    let mut right = Line::default();
+    let aside_width = aside.iter().map(Span::width).sum::<usize>() + aside.len() * 2;
+    if usize::from(area.width) >= oid.width() + aside_width + 16 {
+        let background = appearance.bg.unwrap_or(Color::Reset);
+        for span in aside {
+            right
+                .spans
+                .push(span.clone().style(span.style.bg(background)));
+            right.spans.push(Span::styled("  ", muted));
+        }
+    }
+    right.spans.push(Span::styled(
+        crate::commit::compact_relative_time(commit.timestamp, now),
+        muted,
+    ));
+    let right_width = (right.width() as u16).min(area.width);
+    right.render(
+        Rect::new(area.right() - right_width, area.y, right_width, 1),
+        buffer,
+    );
+    let left_width = area.width.saturating_sub(right_width + 2);
     let hash_width = oid.width().min(usize::from(left_width)) as u16;
     put(buffer, area.x, area.y, hash_width, &oid, muted);
     let author_width = left_width.saturating_sub(hash_width + 2);
@@ -160,12 +180,4 @@ pub(super) fn metadata(
             muted,
         );
     }
-    put(
-        buffer,
-        area.right() - age_width,
-        area.y,
-        age_width,
-        &age,
-        muted,
-    );
 }
