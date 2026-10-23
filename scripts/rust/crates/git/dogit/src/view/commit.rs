@@ -192,20 +192,23 @@ pub(super) fn details(
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_secs().min(i64::MAX as u64) as i64);
     let mut rows = vec![
-        (Some(0), "Author:", details.author.clone(), Role::Plain),
-        (Some(1), "Commit:", details.short_oid(), Role::Accent),
-        (None, "", String::new(), Role::Plain),
+        (Some(0), "Author:", details.author.clone(), Role::Plain, None),
+        (Some(1), "Commit:", details.short_oid(), Role::Accent, None),
+        (None, "", String::new(), Role::Plain, None),
         (
-            None,
-            "Authored:",
-            crate::commit::relative_time(details.timestamp, now),
-            Role::Muted,
+            Some(2),
+            "Date:",
+            details.date(),
+            Role::Plain,
+            Some((
+                format!(", {}", crate::commit::relative_time(details.timestamp, now)),
+                Role::Muted,
+            )),
         ),
-        (Some(2), "Date:", details.date(), Role::Plain),
     ];
     let aside_width = COLUMNS;
     if let Some(github) = &details.github {
-        rows.push((None, "", String::new(), Role::Plain));
+        rows.push((None, "", String::new(), Role::Plain, None));
         let url_width = area.width.saturating_sub(INSET * 2 + LABEL_WIDTH);
         for (index, part) in overlay::wrap_detail(&github.url, url_width)
             .into_iter()
@@ -217,6 +220,7 @@ pub(super) fn details(
                 if index == 0 { "GitHub:" } else { "" },
                 part,
                 Role::Accent,
+                None,
             ));
         }
     }
@@ -290,7 +294,7 @@ pub(super) fn details(
         );
     }
     let mut fields: Vec<(usize, Rect)> = Vec::new();
-    for (index, (field, label, value, role)) in rows
+    for (index, (field, label, value, role, suffix)) in rows
         .iter()
         .enumerate()
         .skip(offset.saturating_sub(message.len()))
@@ -324,12 +328,15 @@ pub(super) fn details(
             label,
             appearance.fg(foreground(Role::Muted)),
         );
+        let value_width = text_width.saturating_sub(label_width);
+        let value = elide_end(value, usize::from(value_width));
+        let value_x = area.x + 2 + label_width;
         put(
             buffer,
-            area.x + 2 + label_width,
+            value_x,
             y,
-            text_width.saturating_sub(label_width),
-            &elide_end(value, usize::from(text_width.saturating_sub(label_width))),
+            value_width,
+            &value,
             appearance
                 .fg(foreground(if active { Role::Accent } else { *role }))
                 .add_modifier(if active {
@@ -338,6 +345,18 @@ pub(super) fn details(
                     Modifier::empty()
                 }),
         );
+        if let Some((suffix, role)) = suffix {
+            let used = (value.width() as u16).min(value_width);
+            let remaining = value_width - used;
+            put(
+                buffer,
+                value_x + used,
+                y,
+                remaining,
+                &elide_end(suffix, usize::from(remaining)),
+                appearance.fg(foreground(*role)),
+            );
+        }
     }
     if let Some(avatar) = avatar {
         avatar.render(

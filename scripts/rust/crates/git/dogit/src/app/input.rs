@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use super::*;
 
 impl App {
@@ -651,39 +653,61 @@ impl App {
         let Some(current) = self.row_map.get(self.view.diff_cursor) else {
             return;
         };
-        let start = self.row_map.partition_point(|row| row.hunk < current.hunk);
-        let end = self.row_map.partition_point(|row| row.hunk <= current.hunk);
+        let rows = self.hunk_rows(current.hunk);
         let height = self
             .geometry
             .as_ref()
             .map_or(self.row_map.len(), |geometry| {
-                usize::from(geometry.canvas.height).max(1)
+                let commit_rows = geometry.commit_height.saturating_sub(self.view.commit_offset);
+                (usize::from(geometry.canvas.height) + commit_rows)
+                    .min(usize::from(geometry.canvas_viewport.height))
+                    .max(1)
             });
         let step = height.saturating_sub(2).max(1);
-        let offset = if forward {
-            if end > self.view.diff_offset.saturating_add(height) {
-                self.view
-                    .diff_offset
-                    .saturating_add(step)
-                    .min(end.saturating_sub(height))
-                    .max(start)
-            } else if end < self.row_map.len() {
-                end
+        let offset = self.view.diff_offset;
+        let (cursor, offset) = if forward {
+            if rows.end > offset.saturating_add(height) {
+                match centered_offset(&rows, height) {
+                    Some(centered) => (rows.start, centered),
+                    None => {
+                        let paged = offset
+                            .saturating_add(step)
+                            .min(rows.end - height)
+                            .max(rows.start);
+                        (paged, paged)
+                    }
+                }
+            } else if rows.end < self.row_map.len() {
+                let next = self.hunk_rows(self.row_map[rows.end].hunk);
+                (next.start, centered_offset(&next, height).unwrap_or(next.start))
             } else {
                 return;
             }
-        } else if self.view.diff_offset > start {
-            self.view.diff_offset.saturating_sub(step).max(start)
-        } else if let Some(previous) = start.checked_sub(1) {
-            let previous_hunk = self.row_map[previous].hunk;
-            let previous_start = self.row_map.partition_point(|row| row.hunk < previous_hunk);
-            start.saturating_sub(height).max(previous_start)
+        } else if offset > rows.start {
+            match centered_offset(&rows, height) {
+                Some(centered) => (rows.start, centered),
+                None => {
+                    let paged = offset.saturating_sub(step).max(rows.start);
+                    (paged, paged)
+                }
+            }
+        } else if let Some(previous) = rows.start.checked_sub(1) {
+            let previous = self.hunk_rows(self.row_map[previous].hunk);
+            match centered_offset(&previous, height) {
+                Some(centered) => (previous.start, centered),
+                None => (previous.end - height, previous.end - height),
+            }
         } else {
             return;
         };
-        self.view.diff_cursor = offset;
+        self.view.diff_cursor = cursor;
         self.view.diff_offset = offset;
         self.follow_canvas_cursor();
+    }
+
+    fn hunk_rows(&self, hunk: usize) -> Range<usize> {
+        self.row_map.partition_point(|row| row.hunk < hunk)
+            ..self.row_map.partition_point(|row| row.hunk <= hunk)
     }
 
     pub(super) fn jump_hunk(&mut self, forward: bool) {
@@ -1016,4 +1040,8 @@ impl App {
         }
         self.dirty = true;
     }
+}
+
+fn centered_offset(rows: &Range<usize>, height: usize) -> Option<usize> {
+    (rows.len() <= height).then(|| rows.start.saturating_sub((height - rows.len()) / 2))
 }
