@@ -38,7 +38,7 @@ pub(crate) use image::image_area;
 pub use navigator::{NavLayout, nav_horizontal_limit};
 pub use overlay::confirmation_scroll_max;
 pub use overlay::inspection_scroll_max;
-pub use scrollbar::Scrollbar;
+pub use scrollbar::{OverlayScroll, ScrollRegion, Scrollbar, ScrollbarDrag};
 pub use toast::ToastView;
 pub(crate) use wrap::configured_diff_layout_cancellable;
 pub use wrap::{DiffLayout, DiffPaint, configured_diff_layout};
@@ -233,8 +233,8 @@ pub struct ViewState {
     pub nav_horizontal: usize,
     pub nav_manual_scroll: bool,
     pub nav_hovered: Option<usize>,
-    pub nav_scrollbar_hovered: bool,
-    pub nav_scrollbar_drag: Option<(u16, usize)>,
+    pub scrollbar_hovered: Option<ScrollRegion>,
+    pub scrollbar_drag: Option<ScrollbarDrag>,
     pub folder_animation: Option<FolderAnimation>,
     pub canvas_manual_scroll: bool,
     pub commit_offset: usize,
@@ -242,7 +242,7 @@ pub struct ViewState {
     pub split: bool,
     pub nav_width: u16,
     pub overlay: Option<Overlay>,
-    pub editor_offset: usize,
+    pub overlay_scroll: OverlayScroll,
     pub divider_hovered: bool,
     pub divider_hover_row: Option<u16>,
 }
@@ -261,8 +261,8 @@ impl Default for ViewState {
             nav_horizontal: 0,
             nav_manual_scroll: false,
             nav_hovered: None,
-            nav_scrollbar_hovered: false,
-            nav_scrollbar_drag: None,
+            scrollbar_hovered: None,
+            scrollbar_drag: None,
             folder_animation: None,
             canvas_manual_scroll: false,
             commit_offset: 0,
@@ -270,7 +270,7 @@ impl Default for ViewState {
             split: false,
             nav_width: 34,
             overlay: None,
-            editor_offset: 0,
+            overlay_scroll: OverlayScroll::default(),
             divider_hovered: false,
             divider_hover_row: None,
         }
@@ -369,7 +369,7 @@ pub struct Geometry {
     pub divider_hit: Option<Rect>,
     pub nav_items: Vec<(usize, Rect)>,
     pub nav_scroll_max: usize,
-    pub nav_scrollbar: Option<Scrollbar>,
+    pub scrollbars: Vec<(ScrollRegion, Scrollbar)>,
     pub nav_disclosures: Vec<(usize, Rect)>,
     pub line_ids: Vec<Option<usize>>,
     pub right_line_ids: Vec<Option<usize>>,
@@ -502,7 +502,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
                 frame,
                 area,
                 overlay,
-                &mut state.editor_offset,
+                &mut state.overlay_scroll,
                 &mut geometry,
             );
         }
@@ -511,6 +511,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         {
             toast::render(frame.buffer_mut(), area, toast);
         }
+        geometry.render_scrollbars(frame.buffer_mut(), state);
         return geometry;
     }
     let outer = Rect::new(area.x, area.y + 2, area.width, area.height - 3);
@@ -599,6 +600,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     let mut commit_fields = Vec::new();
     let mut commit_scroll_max = 0;
     let mut commit_subject = Rect::default();
+    let mut scrollbars = Vec::new();
     if let Some(details) = data.commit {
         if show_canvas && data.inspecting_commit {
             (canvas, commit_subject) =
@@ -633,7 +635,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             canvas.y += height;
             canvas.height -= height;
         }
-        let (fields, title, scroll_max) = commit::details(
+        let rendered = commit::details(
             frame.buffer_mut(),
             commit_details,
             state,
@@ -650,10 +652,23 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
                 title_reserved
             },
         );
-        commit_fields = fields;
-        commit_scroll_max = scroll_max;
+        commit_fields = rendered.fields;
+        commit_scroll_max = rendered.scroll_max;
+        if let Some(bar) = rendered.scrollbar {
+            scrollbars.push((ScrollRegion::CommitDetails, bar));
+        }
         if !data.inspecting_commit {
-            commit_subject = title;
+            commit_subject = rendered.title;
+            if !commit_subject.is_empty() {
+                put(
+                    frame.buffer_mut(),
+                    commit_details.x,
+                    commit_details.bottom() - 1,
+                    commit_details.width,
+                    &"─".repeat(usize::from(commit_details.width)),
+                    style(Role::Border),
+                );
+            }
         }
     }
     let navigation = if show_nav {
@@ -674,6 +689,9 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     } else {
         (canvas, Vec::new())
     };
+    if let Some(bar) = navigation.scrollbar {
+        scrollbars.push((ScrollRegion::Navigator, bar));
+    }
     let mut geometry = Geometry {
         commit_details,
         commit_fields,
@@ -699,24 +717,39 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         }),
         nav_items: navigation.items,
         nav_scroll_max: navigation.scroll_max,
-        nav_scrollbar: navigation.scrollbar,
+        scrollbars,
         nav_disclosures: navigation.disclosures,
         tabs,
         diff_sides,
         ..Geometry::default()
     };
     if show_canvas {
-        if let Some(image) = &data.image {
+        let total = if let Some(image) = &data.image {
             image::render(frame.buffer_mut(), canvas, image, state.overlay.is_none());
+            0
         } else if let Some(structural) = data.structural {
+            let total = structural.lines().count();
+            state.diff_offset = state
+                .diff_offset
+                .min(total.saturating_sub(usize::from(canvas.height)));
             render_structural(frame.buffer_mut(), canvas, state, structural);
+            total
         } else if let Some(diff) = data.diff {
-            render_diff(frame.buffer_mut(), canvas, state, data, diff, &mut geometry);
+            render_diff(frame.buffer_mut(), canvas, state, data, diff, &mut geometry)
         } else if !data.canvas_lines.is_empty() {
+            let total = data.canvas_lines.len();
+            state.diff_offset = state
+                .diff_offset
+                .min(total.saturating_sub(usize::from(canvas.height)));
             render_text(frame.buffer_mut(), canvas, state, data.canvas_lines);
+            total
         } else if changes && totals.items == 0 {
             render_no_changes(frame.buffer_mut(), canvas);
-        }
+            0
+        } else {
+            0
+        };
+        geometry.add_scrollbar(ScrollRegion::Canvas, canvas, total, state.diff_offset);
     }
     if state.divider_hovered
         && state.overlay.is_none()
@@ -729,11 +762,12 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             frame,
             area,
             overlay,
-            &mut state.editor_offset,
+            &mut state.overlay_scroll,
             &mut geometry,
         );
     }
 
+    geometry.render_scrollbars(frame.buffer_mut(), state);
     geometry.nav_footer = render_footer(
         frame,
         area,

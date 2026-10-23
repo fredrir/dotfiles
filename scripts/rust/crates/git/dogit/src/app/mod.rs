@@ -713,7 +713,7 @@ impl App {
                         editor: ui_widgets::EditorBuffer::new(&message),
                         amend: Some(oid),
                     });
-                    self.view.editor_offset = 0;
+                    self.view.overlay_scroll.editor = 0;
                     self.dirty = true;
                 }
                 Ok(Prepared::Commands(commands)) => {
@@ -947,7 +947,7 @@ impl App {
                     title: format!("{} failed", notification::capitalize(label)),
                     editor,
                 });
-                self.view.editor_offset = 0;
+                self.view.overlay_scroll.editor = 0;
                 self.scroll.stop();
             }
             Ok(_) if !label.starts_with("Stage") && !label.starts_with("Unstage") => {
@@ -1627,11 +1627,7 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
                 )
                 .map_err(|error| error.to_string())?;
             session
-                .set_mouse_capture(if app.dialog.is_some() {
-                    ui_terminal::MouseCapture::Disabled
-                } else {
-                    app.mouse_capture
-                })
+                .set_mouse_capture(app.mouse_capture)
                 .map_err(|error| error.to_string())?;
             session
                 .set_tree_shortcuts(

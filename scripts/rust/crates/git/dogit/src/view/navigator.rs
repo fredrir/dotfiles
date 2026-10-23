@@ -126,23 +126,8 @@ pub(super) fn render_navigator(
     } else {
         area.height
     };
-    let bar = Scrollbar::new(area, items.len(), visible, state.offset, thumb_limit);
-    let content = Rect {
-        width: bar.map_or(area.width, |bar| bar.content_width(area)),
-        ..area
-    };
-    let mut navigation = render_items(buffer, content, state, items, layout);
+    let mut navigation = render_items(buffer, area, state, items, layout);
     navigation.scrollbar = Scrollbar::new(area, items.len(), visible, state.offset, thumb_limit);
-    if let Some(bar) = navigation.scrollbar
-        && state.offset > 0
-    {
-        bar.render(buffer, state);
-    } else {
-        state.nav_scrollbar_hovered = false;
-        if navigation.scrollbar.is_none() {
-            state.nav_scrollbar_drag = None;
-        }
-    }
     navigation
 }
 

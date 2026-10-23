@@ -150,7 +150,7 @@ impl App {
             }
             Action::Compose => {
                 self.dialog = Some(Dialog::Compose { editor: ui_widgets::EditorBuffer::default(), amend: None });
-                self.view.editor_offset = 0;
+                self.view.overlay_scroll.editor = 0;
             },
             Action::Commit => self.prepare("Commit", |repo| {
                 repo.commit(None, false).map(Prepared::Commit).map_err(|error| error.to_string())
@@ -312,7 +312,7 @@ impl App {
     }
 
     pub(super) fn prompt(&mut self, prompt: Prompt, title: &str, value: &str) {
-        self.view.editor_offset = 0;
+        self.view.overlay_scroll.editor = 0;
         self.dialog = Some(Dialog::Input {
             prompt,
             title: title.into(),
@@ -321,7 +321,7 @@ impl App {
     }
 
     pub(super) fn open_actions(&mut self) {
-        self.view.editor_offset = 0;
+        self.view.overlay_scroll.editor = 0;
         self.dialog = Some(Dialog::Actions {
             editor: ui_widgets::EditorBuffer::default(),
             selected: 0,

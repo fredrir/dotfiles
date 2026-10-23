@@ -4,7 +4,7 @@ mod graph;
 
 const CARD_HEIGHT: u16 = 4;
 const SUBJECT_HEIGHT: u16 = 2;
-const GRAPH_MARGIN: u16 = 2;
+const HORIZONTAL_MARGIN: u16 = 1;
 const CARD_PADDING: u16 = 1;
 
 pub(super) fn visible_items(height: u16) -> usize {
@@ -29,7 +29,8 @@ impl Layout {
         self.graph_width = self
             .graph
             .width((width.saturating_sub(24) / 2).clamp(1, 11));
-        let text_width = width.saturating_sub(self.card_offset() + CARD_PADDING * 2);
+        let text_width =
+            width.saturating_sub(self.card_offset() + HORIZONTAL_MARGIN + CARD_PADDING * 2);
         self.subjects = items
             .iter()
             .map(|item| subject::list_lines(&item.label, text_width))
@@ -37,7 +38,7 @@ impl Layout {
     }
 
     fn card_offset(&self) -> u16 {
-        self.graph_width + GRAPH_MARGIN * 2
+        self.graph_width + HORIZONTAL_MARGIN * 2
     }
 }
 
@@ -82,7 +83,7 @@ pub(super) fn render(
             selected && state.focus == Focus::Navigator,
             state.nav_hovered == Some(index),
         );
-        let graph = Rect::new(area.x + GRAPH_MARGIN, y, layout.graph_width, height);
+        let graph = Rect::new(area.x + HORIZONTAL_MARGIN, y, layout.graph_width, height);
         layout.graph.render(
             buffer,
             graph,
@@ -93,7 +94,7 @@ pub(super) fn render(
         let content = Rect::new(
             area.x + offset,
             y,
-            area.width.saturating_sub(offset),
+            area.width.saturating_sub(offset + HORIZONTAL_MARGIN),
             (CARD_HEIGHT - 1).min(height),
         );
         buffer.set_style(content, appearance);

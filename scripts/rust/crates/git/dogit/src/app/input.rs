@@ -97,6 +97,8 @@ impl App {
         if !matches!(key.code, KeyCode::Modifier(_)) {
             self.scroll.stop();
             self.reset_scrollbar();
+            self.view.overlay_scroll.editor_manual = false;
+            self.view.overlay_scroll.commands_manual = false;
         }
         self.dirty = true;
         if key.code == KeyCode::Char('h') && key.modifiers == KeyModifiers::CONTROL {
@@ -685,8 +687,10 @@ impl App {
             self.scroll.stop();
         }
         let point = ratatui::layout::Position::new(event.column, event.row);
+        if self.scrollbar_mouse(event) {
+            return Ok(());
+        }
         if self.dialog.is_some() {
-            self.reset_scrollbar();
             if self.dragging || self.view.divider_hovered || self.view.nav_hovered.is_some() {
                 self.dragging = false;
                 self.view.nav_hovered = None;
@@ -715,9 +719,6 @@ impl App {
                     return self.key(KeyEvent::new(key, KeyModifiers::NONE), terminal, signals);
                 }
             }
-            return Ok(());
-        }
-        if self.scrollbar_mouse(event) {
             return Ok(());
         }
         if event.kind == MouseEventKind::Moved {
@@ -864,6 +865,8 @@ impl App {
     }
 
     pub(super) fn paste(&mut self, text: &str) {
+        self.view.overlay_scroll.editor_manual = false;
+        self.view.overlay_scroll.commands_manual = false;
         if let Some(Dialog::Compose { editor, .. }) = &mut self.dialog {
             editor.paste(text);
         } else if let Some(Dialog::Input { editor, .. }) = &mut self.dialog {

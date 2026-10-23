@@ -142,9 +142,9 @@ pub(super) fn render_diff(
     data: &RenderData<'_>,
     diff: &ExactDiff,
     geometry: &mut Geometry,
-) {
+) -> usize {
     if area.is_empty() {
-        return;
+        return 0;
     }
     let split = state.split && area.width >= 72;
     let default_config = DiffPresentationConfig::default();
@@ -188,7 +188,7 @@ pub(super) fn render_diff(
         } else {
             render_no_changes(buffer, area);
         }
-        return;
+        return 0;
     }
     state.diff_cursor = state.diff_cursor.min(row_count - 1);
     state.diff_offset = state
@@ -361,6 +361,7 @@ pub(super) fn render_diff(
             );
         }
     }
+    row_count
 }
 
 fn hunk_border_style(hunk: &crate::diff::Hunk) -> Style {

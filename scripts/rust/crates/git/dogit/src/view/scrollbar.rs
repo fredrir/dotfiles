@@ -1,14 +1,80 @@
 use super::*;
 
-const GUTTER_WIDTH: u16 = 3;
 const SUBROWS: usize = 2;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrollRegion {
+    Navigator,
+    NavigatorColumns,
+    Canvas,
+    CanvasColumns,
+    CommitDetails,
+    Dialog,
+    Editor,
+    Commands,
+}
+
+impl ScrollRegion {
+    pub fn horizontal(self) -> bool {
+        matches!(self, Self::NavigatorColumns | Self::CanvasColumns)
+    }
+
+    pub fn overlay(self) -> bool {
+        matches!(self, Self::Dialog | Self::Editor | Self::Commands)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ScrollbarDrag {
+    pub region: ScrollRegion,
+    pub row: u16,
+    pub offset: usize,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct OverlayScroll {
+    pub editor: usize,
+    pub editor_manual: bool,
+    pub commands: usize,
+    pub commands_manual: bool,
+}
+
+impl Geometry {
+    pub fn scrollbar(&self, region: ScrollRegion) -> Option<Scrollbar> {
+        self.scrollbars
+            .iter()
+            .find(|(key, _)| *key == region)
+            .map(|(_, bar)| *bar)
+    }
+
+    pub(super) fn add_scrollbar(
+        &mut self,
+        region: ScrollRegion,
+        area: Rect,
+        total: usize,
+        offset: usize,
+    ) {
+        if let Some(bar) = Scrollbar::new(area, total, usize::from(area.height), offset, 3) {
+            self.scrollbars.push((region, bar));
+        }
+    }
+
+    pub(super) fn render_scrollbars(&self, buffer: &mut Buffer, state: &ViewState) {
+        for &(region, bar) in &self.scrollbars {
+            if state.overlay.is_some() == region.overlay() && bar.offset > 0 {
+                bar.render(buffer, state, region);
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Scrollbar {
-    pub gutter: Rect,
+    pub track: Rect,
     pub thumb: Rect,
     pub maximum: usize,
     pub visible: usize,
+    pub offset: usize,
     start: usize,
     length: usize,
 }
@@ -22,15 +88,10 @@ impl Scrollbar {
         thumb_limit: u16,
     ) -> Option<Self> {
         let maximum = total.saturating_sub(visible);
-        if maximum == 0 || area.height < 2 || area.width <= GUTTER_WIDTH {
+        if maximum == 0 || area.height < 2 || area.width == 0 {
             return None;
         }
-        let gutter = Rect::new(
-            area.right() - GUTTER_WIDTH,
-            area.y,
-            GUTTER_WIDTH,
-            area.height,
-        );
+        let track = Rect::new(area.right() - 1, area.y, 1, area.height);
         let span = usize::from(area.height) * SUBROWS;
         let length = scale(visible, span, total)
             .min(usize::from(thumb_limit) * SUBROWS)
@@ -41,17 +102,14 @@ impl Scrollbar {
         let top = (start / SUBROWS) as u16;
         let height = (start % SUBROWS + length).div_ceil(SUBROWS) as u16;
         Some(Self {
-            gutter,
-            thumb: Rect::new(gutter.x + 1, gutter.y + top, 1, height),
+            track,
+            thumb: Rect::new(track.x, track.y + top, 1, height),
             maximum,
             visible,
+            offset,
             start,
             length,
         })
-    }
-
-    pub fn content_width(self, area: Rect) -> u16 {
-        self.gutter.x.saturating_sub(area.x)
     }
 
     pub fn grabs_thumb(self, row: u16) -> bool {
@@ -73,7 +131,7 @@ impl Scrollbar {
         if delta == 0 {
             return origin_offset;
         }
-        let travel = usize::from(self.gutter.height) * SUBROWS - self.length;
+        let travel = usize::from(self.track.height) * SUBROWS - self.length;
         let top = scale(origin_offset, travel, self.maximum) as i128 + delta;
         if top <= 0 {
             return 0;
@@ -87,28 +145,34 @@ impl Scrollbar {
             as usize
     }
 
-    pub(super) fn render(self, buffer: &mut Buffer, state: &ViewState) {
-        let interacting = state.overlay.is_none()
-            && (state.nav_scrollbar_hovered || state.nav_scrollbar_drag.is_some());
+    pub(super) fn render(self, buffer: &mut Buffer, state: &ViewState, region: ScrollRegion) {
+        let interacting = state.scrollbar_hovered == Some(region)
+            || state
+                .scrollbar_drag
+                .is_some_and(|drag| drag.region == region);
+        let focused = match region {
+            ScrollRegion::Navigator => state.focus == Focus::Navigator,
+            ScrollRegion::Canvas => state.focus == Focus::Canvas,
+            ScrollRegion::CommitDetails => state.focus == Focus::CommitDetails,
+            _ => region.overlay(),
+        };
         let appearance = style(if interacting {
             Role::Accent
-        } else if state.focus == Focus::Navigator {
+        } else if focused {
             Role::Muted
         } else {
             Role::Border
         });
-        for y in self.gutter.y..self.gutter.bottom() {
-            put(
-                buffer,
-                self.gutter.x,
-                y,
-                self.gutter.width,
-                "   ",
-                style(Role::Plain),
-            );
-        }
         for y in self.thumb.y..self.thumb.bottom() {
-            let row = usize::from(y - self.gutter.y) * SUBROWS;
+            // Clear a wide glyph that crosses the thumb column so it cannot hide the overlay.
+            if self.thumb.x > buffer.area.x {
+                let previous = &mut buffer[(self.thumb.x - 1, y)];
+                if previous.symbol().width() > 1 {
+                    previous.set_symbol(" ");
+                }
+            }
+            let appearance = appearance.bg(buffer[(self.thumb.x, y)].bg);
+            let row = usize::from(y - self.track.y) * SUBROWS;
             let start = self.start.saturating_sub(row).min(SUBROWS);
             let end = (self.start + self.length).saturating_sub(row).min(SUBROWS);
             let (symbol, appearance) = if start > 0 {

@@ -119,7 +119,19 @@ pub(super) fn height(
     show_verification: bool,
     reserved: u16,
 ) -> u16 {
-    Header::new(width, details, show_verification, reserved).height() + 1 + ROWS + 4 + 1
+    let github_rows = details.github.as_ref().map_or(0, |github| {
+        let url_width = width.saturating_sub(INSET * 2 + LABEL_WIDTH);
+        1 + overlay::wrap_detail(&github.url, url_width).len().min(3) as u16
+    });
+    Header::new(width, details, show_verification, reserved).height() + 1 + ROWS + github_rows + 1
+}
+
+#[derive(Default)]
+pub(super) struct Details {
+    pub fields: Vec<(usize, Rect)>,
+    pub title: Rect,
+    pub scroll_max: usize,
+    pub scrollbar: Option<Scrollbar>,
 }
 
 pub(super) fn details(
@@ -130,9 +142,9 @@ pub(super) fn details(
     avatar: Option<&Avatar>,
     show_verification: bool,
     reserved: u16,
-) -> (Vec<(usize, Rect)>, Rect, usize) {
+) -> Details {
     if area.width < 8 || area.height < 4 {
-        return (Vec::new(), Rect::default(), 0);
+        return Details::default();
     }
     let focused = state.focus == Focus::CommitDetails;
     let title = header(buffer, area, details, show_verification, reserved);
@@ -244,5 +256,11 @@ pub(super) fn details(
         );
     }
 
-    (fields, title, maximum)
+    let track = Rect::new(area.x, content_y, area.width, visible as u16);
+    Details {
+        fields,
+        title,
+        scroll_max: maximum,
+        scrollbar: Scrollbar::new(track, rows.len(), visible, offset, 3),
+    }
 }

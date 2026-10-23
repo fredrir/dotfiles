@@ -9,21 +9,7 @@ const MAX_SPEED: f64 = 6.0;
 const COLUMNS_PER_ROW: f64 = 2.0;
 const EASE: Duration = Duration::from_millis(40);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Region {
-    Navigator,
-    NavigatorColumns,
-    Canvas,
-    CanvasColumns,
-    CommitDetails,
-    Dialog,
-}
-
-impl Region {
-    fn horizontal(self) -> bool {
-        matches!(self, Self::NavigatorColumns | Self::CanvasColumns)
-    }
-}
+use view::ScrollRegion as Region;
 
 #[derive(Default)]
 struct Wheel {
@@ -149,7 +135,7 @@ impl Scroll {
     ) {
         self.glides.retain_mut(|glide| {
             let from = glide.shown;
-            glide.advance(now, instant || glide.region == Region::Navigator);
+            glide.advance(now, instant || !glide.region.horizontal());
             apply(glide.region, from, glide.shown) && !glide.settled()
         });
     }
@@ -165,63 +151,89 @@ impl Scroll {
 
 impl App {
     pub(super) fn reset_scrollbar(&mut self) {
-        if self.view.nav_scrollbar_hovered || self.view.nav_scrollbar_drag.is_some() {
-            self.view.nav_scrollbar_hovered = false;
-            self.view.nav_scrollbar_drag = None;
+        if self.view.scrollbar_hovered.take().is_some() || self.view.scrollbar_drag.is_some() {
+            self.view.scrollbar_drag = None;
             self.dirty = true;
         }
     }
 
     pub(super) fn scrollbar_mouse(&mut self, event: MouseEvent) -> bool {
-        let Some(bar) = self
-            .geometry
-            .as_ref()
-            .and_then(|geometry| geometry.nav_scrollbar)
-            .filter(|_| self.view.offset > 0 || self.view.nav_scrollbar_drag.is_some())
-        else {
+        let point = ratatui::layout::Position::new(event.column, event.row);
+        let drag = self.view.scrollbar_drag;
+        let bar = self.geometry.as_ref().and_then(|geometry| {
+            geometry.scrollbars.iter().copied().find(|(region, bar)| {
+                self.dialog.is_some() == region.overlay()
+                    && if let Some(drag) = drag {
+                        drag.region == *region
+                    } else {
+                        bar.offset > 0 && bar.track.contains(point)
+                    }
+            })
+        });
+        let Some((region, bar)) = bar else {
             self.reset_scrollbar();
             return false;
         };
-        let point = ratatui::layout::Position::new(event.column, event.row);
-        let hovered = bar.gutter.contains(point) && !self.dragging;
-        if self.view.nav_scrollbar_hovered != hovered {
-            self.view.nav_scrollbar_hovered = hovered;
+        let hovered = (bar.track.contains(point) && !self.dragging).then_some(region);
+        if self.view.scrollbar_hovered != hovered {
+            self.view.scrollbar_hovered = hovered;
             self.dirty = true;
         }
-        if let Some((origin_row, origin_offset)) = self.view.nav_scrollbar_drag {
+        if let Some(drag) = drag {
             match event.kind {
                 MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left) => {
-                    self.view.offset = bar.drag(event.row, origin_row, origin_offset);
+                    self.set_scroll_offset(region, bar.drag(event.row, drag.row, drag.offset));
                     if event.kind == MouseEventKind::Up(MouseButton::Left) {
-                        self.view.nav_scrollbar_drag = None;
+                        self.view.scrollbar_drag = None;
                     }
                     self.dirty = true;
                     return true;
                 }
                 MouseEventKind::Moved => {
-                    self.view.nav_scrollbar_drag = None;
+                    self.view.scrollbar_drag = None;
                     self.dirty = true;
                 }
                 _ => {}
             }
         }
-        if !hovered {
+        if hovered.is_none() {
             return false;
         }
         self.view.nav_hovered = None;
         self.view.divider_hovered = false;
         self.view.divider_hover_row = None;
         if event.kind == MouseEventKind::Down(MouseButton::Left) {
-            self.view.focus = Focus::Navigator;
-            self.view.nav_manual_scroll = true;
+            match region {
+                Region::Navigator => self.view.focus = Focus::Navigator,
+                Region::Canvas => self.view.focus = Focus::Canvas,
+                Region::CommitDetails => self.view.focus = Focus::CommitDetails,
+                _ => {}
+            }
+            self.manual_scroll(region);
+            let offset = self.scroll_offset(region).unwrap_or(bar.offset);
             if bar.grabs_thumb(event.row) {
-                self.view.nav_scrollbar_drag = Some((event.row, self.view.offset));
+                self.view.scrollbar_drag = Some(view::ScrollbarDrag {
+                    region,
+                    row: event.row,
+                    offset,
+                });
             } else {
-                self.view.offset = bar.page(event.row, self.view.offset);
+                self.set_scroll_offset(region, bar.page(event.row, offset));
             }
             self.dirty = true;
         }
         true
+    }
+
+    fn manual_scroll(&mut self, region: Region) {
+        match region {
+            Region::Navigator => self.view.nav_manual_scroll = true,
+            Region::Canvas => self.view.canvas_manual_scroll = true,
+            Region::CommitDetails => self.view.commit_manual_scroll = true,
+            Region::Editor => self.view.overlay_scroll.editor_manual = true,
+            Region::Commands => self.view.overlay_scroll.commands_manual = true,
+            _ => {}
+        }
     }
 
     pub(super) fn wheel(&mut self, event: MouseEvent) {
@@ -248,12 +260,7 @@ impl App {
         let Some(current) = self.scroll_offset(region) else {
             return;
         };
-        match region {
-            Region::Navigator => self.view.nav_manual_scroll = true,
-            Region::Canvas => self.view.canvas_manual_scroll = true,
-            Region::CommitDetails => self.view.commit_manual_scroll = true,
-            _ => {}
-        }
+        self.manual_scroll(region);
         self.scroll
             .push(region, current, direction, maximum, Instant::now());
         self.dirty = true;
@@ -282,6 +289,13 @@ impl App {
         horizontal: bool,
     ) -> Option<(Region, usize)> {
         let geometry = self.geometry.as_ref()?;
+        if !horizontal
+            && let Some((region, bar)) = geometry.scrollbars.iter().find(|(region, bar)| {
+                self.dialog.is_some() == region.overlay() && bar.track.contains(point)
+            })
+        {
+            return Some((*region, bar.maximum));
+        }
         let maximum = match &self.dialog {
             Some(Dialog::Inspect { message, .. }) => {
                 view::inspection_scroll_max(message, geometry.overlay_bounds)
@@ -289,7 +303,18 @@ impl App {
             Some(Dialog::Confirm { detail, .. }) => {
                 view::confirmation_scroll_max(detail, geometry.overlay_bounds)
             }
-            Some(_) => return None,
+            Some(Dialog::Error { .. } | Dialog::Compose { .. } | Dialog::Input { .. }) => {
+                return (!horizontal)
+                    .then(|| geometry.scrollbar(Region::Editor))
+                    .flatten()
+                    .map(|bar| (Region::Editor, bar.maximum));
+            }
+            Some(Dialog::Actions { .. }) => {
+                return (!horizontal)
+                    .then(|| geometry.scrollbar(Region::Commands))
+                    .flatten()
+                    .map(|bar| (Region::Commands, bar.maximum));
+            }
             None => 0,
         };
         if self.dialog.is_some() {
@@ -304,9 +329,7 @@ impl App {
                     Region::NavigatorColumns,
                     self.nav_layout.horizontal_limit(
                         &self.nav_items,
-                        geometry
-                            .nav_scrollbar
-                            .map_or(geometry.nav.width, |bar| bar.content_width(geometry.nav)),
+                        geometry.nav.width,
                         self.view.workspace,
                     ),
                 )
@@ -320,10 +343,15 @@ impl App {
             } else {
                 (
                     Region::Canvas,
-                    self.row_map
-                        .len()
-                        .max(self.content_line_count)
-                        .saturating_sub(usize::from(geometry.canvas.height)),
+                    geometry.scrollbar(Region::Canvas).map_or_else(
+                        || {
+                            self.row_map
+                                .len()
+                                .max(self.content_line_count)
+                                .saturating_sub(usize::from(geometry.canvas.height))
+                        },
+                        |bar| bar.maximum,
+                    ),
                 )
             });
         }
@@ -337,6 +365,8 @@ impl App {
             Region::Canvas => self.view.diff_offset,
             Region::CanvasColumns => self.view.horizontal,
             Region::CommitDetails => self.view.commit_offset,
+            Region::Editor => self.view.overlay_scroll.editor,
+            Region::Commands => self.view.overlay_scroll.commands,
             Region::Dialog => match &self.dialog {
                 Some(Dialog::Inspect { scroll, .. } | Dialog::Confirm { scroll, .. }) => {
                     usize::from(*scroll)
@@ -353,6 +383,8 @@ impl App {
             Region::Canvas => self.view.diff_offset = offset,
             Region::CanvasColumns => self.view.horizontal = offset,
             Region::CommitDetails => self.view.commit_offset = offset,
+            Region::Editor => self.view.overlay_scroll.editor = offset,
+            Region::Commands => self.view.overlay_scroll.commands = offset,
             Region::Dialog => {
                 if let Some(Dialog::Inspect { scroll, .. } | Dialog::Confirm { scroll, .. }) =
                     &mut self.dialog

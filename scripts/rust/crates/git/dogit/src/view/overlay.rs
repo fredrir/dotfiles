@@ -44,7 +44,13 @@ fn inspection_lines(message: &str, width: u16) -> Vec<Line<'static>> {
     lines
 }
 
-fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16) -> Option<Rect> {
+fn render_inspection(
+    frame: &mut Frame,
+    outer: Rect,
+    message: &str,
+    scroll: u16,
+    geometry: &mut Geometry,
+) -> Option<Rect> {
     let width = outer.width.saturating_sub(8).min(96);
     let rows = inspection_lines(message, width.saturating_sub(6));
     let height = (rows
@@ -76,6 +82,7 @@ fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16)
     );
     let content = Rect::new(area.x + 3, area.y + 2, width - 6, height - 6);
     let offset = usize::from(scroll.min(inspection_scroll_max(message, outer)));
+    geometry.add_scrollbar(ScrollRegion::Dialog, content, rows.len(), offset);
     for (index, line) in rows
         .iter()
         .enumerate()
@@ -118,11 +125,11 @@ pub(super) fn render_overlay(
     frame: &mut Frame,
     outer: Rect,
     overlay: &Overlay,
-    editor_offset: &mut usize,
+    scroll_state: &mut OverlayScroll,
     geometry: &mut Geometry,
 ) {
     if let Overlay::Inspect { message, scroll } = overlay {
-        geometry.overlay_close = render_inspection(frame, outer, message, *scroll);
+        geometry.overlay_close = render_inspection(frame, outer, message, *scroll, geometry);
         return;
     }
     let width = outer.width.saturating_sub(8).min(78);
@@ -180,7 +187,8 @@ pub(super) fn render_overlay(
                 frame,
                 content,
                 editor,
-                editor_offset,
+                scroll_state,
+                geometry,
                 "No error details available",
             );
             let rows = ui_widgets::EditorLayout::new(&editor.value, usize::from(content.width))
@@ -188,8 +196,8 @@ pub(super) fn render_overlay(
                 .len();
             let progress = format!(
                 " {}{} / {} ",
-                *editor_offset + 1,
-                (*editor_offset + usize::from(content.height)).min(rows),
+                scroll_state.editor + 1,
+                (scroll_state.editor + usize::from(content.height)).min(rows),
                 rows
             );
             put(
@@ -200,7 +208,6 @@ pub(super) fn render_overlay(
                 &elide_end(&progress, usize::from(area.width - 4)),
                 style(Role::Danger),
             );
-            geometry.editor = Some(content);
         }
         Overlay::Compose { editor } => {
             border_title(
@@ -211,8 +218,14 @@ pub(super) fn render_overlay(
                 "Commit Message",
                 true,
             );
-            render_editor(frame, content, editor, editor_offset, "Commit message");
-            geometry.editor = Some(content);
+            render_editor(
+                frame,
+                content,
+                editor,
+                scroll_state,
+                geometry,
+                "Commit message",
+            );
         }
         Overlay::Input { title, editor } => {
             border_title(
@@ -223,8 +236,7 @@ pub(super) fn render_overlay(
                 title,
                 true,
             );
-            render_editor(frame, content, editor, editor_offset, "");
-            geometry.editor = Some(content);
+            render_editor(frame, content, editor, scroll_state, geometry, "");
         }
         Overlay::Commands {
             editor,
@@ -248,8 +260,14 @@ pub(super) fn render_overlay(
                     &"─".repeat(usize::from(content.width)),
                     style(Role::Border),
                 );
-                let rows = usize::from(content.height - 2);
-                let offset = selected.saturating_sub(rows.saturating_sub(1));
+                let track = Rect::new(content.x, content.y + 2, content.width, content.height - 2);
+                let rows = usize::from(track.height);
+                if !scroll_state.commands_manual {
+                    scroll_state.commands = selected.saturating_sub(rows.saturating_sub(1));
+                }
+                let offset = scroll_state.commands.min(items.len().saturating_sub(rows));
+                scroll_state.commands = offset;
+                geometry.add_scrollbar(ScrollRegion::Commands, track, items.len(), offset);
                 for (index, item) in items.iter().enumerate().skip(offset).take(rows) {
                     let y = content.y + 2 + (index - offset) as u16;
                     let appearance =
@@ -282,8 +300,14 @@ pub(super) fn render_overlay(
                 }
             }
             let input = Rect::new(content.x, content.y, content.width, 1);
-            render_editor(frame, input, editor, editor_offset, "Search commands");
-            geometry.editor = Some(input);
+            render_editor(
+                frame,
+                input,
+                editor,
+                scroll_state,
+                geometry,
+                "Search commands",
+            );
         }
         Overlay::Confirm {
             title,
@@ -308,6 +332,7 @@ pub(super) fn render_overlay(
             );
             let rows = confirmation_rows(detail, content.width);
             let offset = usize::from(*scroll).min(rows.saturating_sub(usize::from(content.height)));
+            geometry.add_scrollbar(ScrollRegion::Dialog, content, rows, offset);
             match detail {
                 ConfirmationDetail::Text(text) => {
                     Paragraph::new(
@@ -345,19 +370,6 @@ pub(super) fn render_overlay(
                     &label,
                     false,
                 );
-                let visible = usize::from(content.height);
-                let thumb = (visible * visible / rows).max(1);
-                let top = offset * (visible - thumb) / rows.saturating_sub(visible).max(1);
-                for row in top..top + thumb {
-                    put(
-                        frame.buffer_mut(),
-                        area.right() - 2,
-                        content.y + row as u16,
-                        1,
-                        "┃",
-                        style(Role::Accent),
-                    );
-                }
             }
         }
     }
@@ -400,12 +412,15 @@ fn render_editor(
     frame: &mut Frame,
     content: Rect,
     editor: &EditorView,
-    offset: &mut usize,
+    scroll_state: &mut OverlayScroll,
+    geometry: &mut Geometry,
     placeholder: &str,
 ) {
+    geometry.editor = Some(content);
     if content.is_empty() {
         return;
     }
+    let offset = &mut scroll_state.editor;
     let value = editor.value.as_str();
     let cursor = editor.cursor;
     let selection = editor.selection.as_ref();
@@ -414,11 +429,14 @@ fn render_editor(
     let total = layout.rows.len();
     let visible = usize::from(content.height);
     *offset = (*offset).min(total.saturating_sub(visible));
-    if cursor_row < *offset {
-        *offset = cursor_row;
-    } else if cursor_row >= *offset + visible {
-        *offset = cursor_row + 1 - visible;
+    if !scroll_state.editor_manual {
+        if cursor_row < *offset {
+            *offset = cursor_row;
+        } else if cursor_row >= *offset + visible {
+            *offset = cursor_row + 1 - visible;
+        }
     }
+    geometry.add_scrollbar(ScrollRegion::Editor, content, total, *offset);
     for visible_row in 0..visible {
         let row = *offset + visible_row;
         let y = content.y + visible_row as u16;
@@ -477,10 +495,12 @@ fn render_editor(
             style(Role::Muted),
         );
     }
-    frame.set_cursor_position((
-        content.x + column as u16,
-        content.y + (cursor_row - *offset) as u16,
-    ));
+    if (*offset..offset.saturating_add(visible)).contains(&cursor_row) {
+        frame.set_cursor_position((
+            content.x + column as u16,
+            content.y + (cursor_row - *offset) as u16,
+        ));
+    }
 }
 
 pub(super) fn wrap_detail(detail: &str, width: u16) -> Vec<String> {
