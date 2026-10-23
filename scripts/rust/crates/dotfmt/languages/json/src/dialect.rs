@@ -9,10 +9,17 @@ pub enum Dialect {
     Json,
     Jsonc,
     Hujson,
+    Jsonl,
 }
 
 impl Dialect {
-    pub const ALL: [Self; 4] = [Self::Auto, Self::Json, Self::Jsonc, Self::Hujson];
+    pub const ALL: [Self; 5] = [
+        Self::Auto,
+        Self::Json,
+        Self::Jsonc,
+        Self::Hujson,
+        Self::Jsonl,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -20,6 +27,7 @@ impl Dialect {
             Self::Json => "json",
             Self::Jsonc => "jsonc",
             Self::Hujson => "hujson",
+            Self::Jsonl => "jsonl",
         }
     }
 
@@ -29,6 +37,7 @@ impl Dialect {
             Self::Json => &[],
             Self::Jsonc => &["json-with-comments"],
             Self::Hujson => &["jwcc"],
+            Self::Jsonl => &["ndjson", "jsonlines"],
         }
     }
 
@@ -54,6 +63,7 @@ impl Dialect {
             "json" => Some(Self::Json),
             "jsonc" => Some(Self::Jsonc),
             "hujson" | "jwcc" => Some(Self::Hujson),
+            "jsonl" | "ndjson" | "jsonlines" => Some(Self::Jsonl),
             _ => None,
         }
     }

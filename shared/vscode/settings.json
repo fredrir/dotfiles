@@ -39,6 +39,9 @@
   "[jsonc]": {
     "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
+  "[jsonl]": {
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+  },
   "[lua]": {
     "editor.quickSuggestions": {
       "other": true,
@@ -78,7 +81,8 @@
     {
       "command": "dotfmt -l json -eq --stdin \"${file}\"",
       "languages": [
-        "json"
+        "json",
+        "jsonl"
       ]
     },
     {

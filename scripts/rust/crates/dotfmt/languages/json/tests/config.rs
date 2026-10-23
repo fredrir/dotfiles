@@ -71,4 +71,9 @@ fn dialect_parsing_preserves_aliases_and_configuration_case_sensitivity() {
         expected
     );
     assert!(Dialect::parse("unknown", true).is_err());
+    assert_eq!(Dialect::parse("NDJSON", true), Ok(Dialect::Jsonl));
+    assert_eq!(
+        Dialect::for_path(std::path::Path::new("rows.jsonlines")),
+        Some(Dialect::Jsonl)
+    );
 }

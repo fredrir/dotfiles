@@ -40,17 +40,13 @@ fn shape(
                 text,
                 repairs: Repairs::default(),
             })
-            .map_err(|problem| {
-                Diagnostic::new(DiagnosticKind::Syntax, problem.message)
-                    .with_path(path)
-                    .with_location(problem.line, Some(problem.column))
-            });
+            .map_err(|problem| syntax(path, problem));
     }
-    let parsed = parse::parse(input, Options { editor }).map_err(|problem| {
-        Diagnostic::new(DiagnosticKind::Syntax, problem.message)
-            .with_path(path)
-            .with_location(problem.line, Some(problem.column))
-    })?;
+    if dialect == Dialect::Jsonl {
+        return lines(path, input, config, editor);
+    }
+    let parsed =
+        parse::parse(input, Options { editor }).map_err(|problem| syntax(path, problem))?;
     let Some(value) = parsed.value else {
         // jq makes nothing of an empty input, so nothing is what an empty file
         // becomes. Anything else that holds no value is refused instead: a file
@@ -70,6 +66,32 @@ fn shape(
         text: render::write(&value, config.layout()),
         repairs: parsed.repairs,
     })
+}
+
+fn lines(
+    path: &Path,
+    input: &[u8],
+    config: &Config,
+    editor: bool,
+) -> Result<Formatted, Diagnostic> {
+    let streamed =
+        parse::stream(input, Options { editor }).map_err(|problem| syntax(path, problem))?;
+    // Blank lines hold no record, but a file of only comments still refuses.
+    if streamed.values.is_empty() && !input.trim_ascii().is_empty() {
+        return Err(Diagnostic::new(DiagnosticKind::Syntax, "expected a value")
+            .with_path(path)
+            .with_location(1, Some(1)));
+    }
+    Ok(Formatted {
+        text: render::write_lines(&streamed.values, config.final_newline),
+        repairs: streamed.repairs,
+    })
+}
+
+fn syntax(path: &Path, problem: parse::Problem) -> Diagnostic {
+    Diagnostic::new(DiagnosticKind::Syntax, problem.message)
+        .with_path(path)
+        .with_location(problem.line, Some(problem.column))
 }
 
 /// Validate output in its dialect and require a stable second formatting pass.

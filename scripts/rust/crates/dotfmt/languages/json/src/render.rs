@@ -40,6 +40,25 @@ pub fn write(value: &Value, layout: Layout) -> String {
     out
 }
 
+/// One compact value a line, as `jq -c` writes a stream.
+pub fn write_lines(values: &[Value], final_newline: bool) -> String {
+    let compact = Layout {
+        indent: Indent::Compact,
+        final_newline: false,
+    };
+    let mut out = String::new();
+    for (at, value) in values.iter().enumerate() {
+        if at > 0 {
+            out.push('\n');
+        }
+        value_into(&mut out, value, compact, 0);
+    }
+    if final_newline && !values.is_empty() {
+        out.push('\n');
+    }
+    out
+}
+
 fn value_into(out: &mut String, value: &Value, layout: Layout, depth: usize) {
     match value {
         Value::Null => out.push_str("null"),

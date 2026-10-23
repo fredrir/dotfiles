@@ -46,14 +46,13 @@ pub struct Parsed {
     pub repairs: Repairs,
 }
 
+pub struct Streamed {
+    pub values: Vec<Value>,
+    pub repairs: Repairs,
+}
+
 pub fn parse(input: &[u8], options: Options) -> Result<Parsed, Problem> {
-    let mut parser = Parser {
-        input,
-        at: 0,
-        editor: options.editor,
-        repairs: Repairs::default(),
-        depth: 0,
-    };
+    let mut parser = Parser::new(input, options);
     parser.trivia()?;
     if parser.at == input.len() {
         return Ok(Parsed {
@@ -74,6 +73,22 @@ pub fn parse(input: &[u8], options: Options) -> Result<Parsed, Problem> {
     })
 }
 
+/// Any run of values however they are spaced, as `jq -c` reads JSON Lines.
+pub fn stream(input: &[u8], options: Options) -> Result<Streamed, Problem> {
+    let mut parser = Parser::new(input, options);
+    let mut values = Vec::new();
+    loop {
+        parser.trivia()?;
+        if parser.at == input.len() {
+            return Ok(Streamed {
+                values,
+                repairs: parser.repairs,
+            });
+        }
+        values.push(parser.value()?);
+    }
+}
+
 struct Parser<'a> {
     input: &'a [u8],
     at: usize,
@@ -82,7 +97,17 @@ struct Parser<'a> {
     depth: usize,
 }
 
-impl Parser<'_> {
+impl<'a> Parser<'a> {
+    fn new(input: &'a [u8], options: Options) -> Self {
+        Parser {
+            input,
+            at: 0,
+            editor: options.editor,
+            repairs: Repairs::default(),
+            depth: 0,
+        }
+    }
+
     fn peek(&self) -> Option<u8> {
         self.input.get(self.at).copied()
     }

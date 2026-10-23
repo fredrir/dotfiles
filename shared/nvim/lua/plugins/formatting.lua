@@ -20,6 +20,7 @@ return {
         javascriptreact = { "biome" },
         json = { "dotfmt" },
         jsonc = { "dotfmt" },
+        jsonl = { "dotfmt" },
         lua = { "dotfmt" },
         markdown = { "dotfmt" },
         python = { "ruff_format" },

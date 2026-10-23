@@ -114,3 +114,67 @@ fn the_repairs_are_counted_for_the_caller_to_report() {
     assert_eq!(formatted.repairs.of(Repair::Quote), 1);
     assert_eq!(formatted.repairs.of(Repair::Comment), 1);
 }
+
+fn jsonl(body: &str, config: &Config, editor: bool) -> Result<String, String> {
+    format(
+        Path::new("stdin"),
+        body.as_bytes(),
+        config,
+        editor,
+        Dialect::Jsonl,
+    )
+    .map(|formatted| formatted.text)
+    .map_err(|message| message.to_string())
+}
+
+#[test]
+fn jsonl_writes_one_compact_record_a_line() {
+    let config = Config::default();
+    assert_eq!(
+        jsonl(
+            "{\"a\": 1,\n \"b\": [1, 2]}\n\n\n{\"c\":\"x\\ny\"} 1e2\n",
+            &config,
+            false
+        ),
+        Ok("{\"a\":1,\"b\":[1,2]}\n{\"c\":\"x\\ny\"}\n1E+2\n".to_owned())
+    );
+    let body = "{\"a\":1}\n[true]\n";
+    assert_eq!(jsonl(body, &config, false), Ok(body.to_owned()));
+}
+
+#[test]
+fn jsonl_ignores_indent_and_follows_final_newline() {
+    let config = Config {
+        indent: crate::render::Indent::Spaces(4),
+        final_newline: false,
+        ..Config::default()
+    };
+    assert_eq!(
+        jsonl("{\"a\": [1]}\n{}\n", &config, false),
+        Ok("{\"a\":[1]}\n{}".to_owned())
+    );
+}
+
+#[test]
+fn jsonl_without_records_is_empty_unless_something_was_written() {
+    let config = Config::default();
+    assert_eq!(jsonl("", &config, false), Ok(String::new()));
+    assert_eq!(jsonl(" \n\n", &config, false), Ok(String::new()));
+    assert_eq!(
+        jsonl("// just a note\n", &config, true),
+        Err("stdin:1:1: expected a value".to_owned())
+    );
+}
+
+#[test]
+fn jsonl_errors_point_at_the_record_and_editor_repairs_each_one() {
+    let config = Config::default();
+    assert_eq!(
+        jsonl("{\"a\":1}\n{\"b\":}\n", &config, false),
+        Err("stdin:2:6: unexpected }".to_owned())
+    );
+    assert_eq!(
+        jsonl("{a: 1,}\n{'b': True}\n", &config, true),
+        Ok("{\"a\":1}\n{\"b\":true}\n".to_owned())
+    );
+}

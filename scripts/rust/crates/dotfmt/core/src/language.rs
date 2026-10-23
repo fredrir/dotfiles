@@ -41,7 +41,15 @@ impl Language {
     pub fn extensions(self) -> &'static [&'static str] {
         match self {
             Self::Conf => &["conf", "config", "dotfile"],
-            Self::Json => &["json", "jsonc", "hujson", "jwcc"],
+            Self::Json => &[
+                "json",
+                "jsonc",
+                "hujson",
+                "jwcc",
+                "jsonl",
+                "ndjson",
+                "jsonlines",
+            ],
             Self::Lua => &["lua", "luau"],
             Self::Markdown => &["md", "markdown", "mdown", "mkd"],
             Self::Yaml => &["yaml", "yml"],

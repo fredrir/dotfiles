@@ -35,8 +35,8 @@ markdown {
 
 json {
   enabled        = true   # true | false
-  dialect        = auto   # auto | json | jsonc | hujson (jwcc)
-  indent         = 2      # -1 = tabs; 0 = compact; 1..7 = spaces
+  dialect        = auto   # auto | json | jsonc | hujson (jwcc) | jsonl (ndjson)
+  indent         = 2      # -1 = tabs; 0 = compact; 1..7 = spaces; jsonl is always compact
   quote_style    = double # double only
   final_newline  = true   # true | false
 
