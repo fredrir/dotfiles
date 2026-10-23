@@ -167,6 +167,12 @@ pub(super) fn header_lines(subject: &str, width: u16, first_width: u16) -> Vec<L
     lines
 }
 
+pub(super) fn leads_with_badge(line: &Line<'_>) -> bool {
+    line.spans
+        .first()
+        .is_some_and(|span| span.content.starts_with(' '))
+}
+
 fn append(
     lines: &mut Vec<Line<'static>>,
     token: String,

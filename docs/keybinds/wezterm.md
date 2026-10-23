@@ -24,7 +24,7 @@
 | <code>SHIFT+UpArrow</code> | [<code>act.SendString(map.shift_up)</code>](../../shared/wezterm/keymap/motion-keys.lua#L110) | Send String: map.shift_up |
 | <code>mod+key</code> | [<code>binding.action</code>](../../shared/wezterm/utils/keymap/bind-keys.lua#L29) | Binding action<br><code>bind_keys; for _, binding in ipairs(bindings); for _, key in ipairs(binds); for _, mod in ipairs(mods); unresolved modifier expression; unresolved key expression</code> |
 | <code>mods+binds</code> | [<code>rev and action.action or action</code>](../../shared/wezterm/utils/keymap/keybind.lua#L7) | Rev and action action or action<br><code>keybind; unresolved modifier expression; unresolved key expression</code> |
-| <code>mods+key</code> | [<code>action</code>](../../shared/wezterm/utils/keymap/free-cursor.lua#L194) | Action<br><code>key_table; bind; unresolved modifier expression; unresolved key expression</code> |
+| <code>mods+key</code> | [<code>action</code>](../../shared/wezterm/utils/keymap/free-cursor.lua#L231) | Action<br><code>key_list; bind; unresolved modifier expression; unresolved key expression</code> |
 | <code>rev_mod+key</code> | [<code>binding.rev</code>](../../shared/wezterm/utils/keymap/bind-keys.lua#L36) | Binding rev<br><code>bind_keys; for _, binding in ipairs(bindings); for _, key in ipairs(binds); for _, mod in ipairs(mods); rev_mod; unresolved modifier expression; unresolved key expression</code> |
 
 ## Mac Keybinds

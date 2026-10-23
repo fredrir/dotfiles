@@ -92,7 +92,6 @@ impl Header {
 
     fn message_lines(&self, details: &CommitDetails) -> Vec<Line<'static>> {
         let mut lines = self.lines.clone();
-        lines.resize(lines.len().max(usize::from(self.height())), Line::default());
         lines.push(Line::default());
         if let Some((_, body)) = details
             .message
@@ -279,9 +278,10 @@ pub(super) fn details(
             && visible.saturating_sub(metadata_offset) >= usize::from(ROWS)
     });
     for (index, line) in message.iter().enumerate().skip(offset).take(visible) {
+        let outdent = u16::from(index < title.lines.len() && subject::leads_with_badge(line));
         line.render(
             Rect::new(
-                area.x + INSET,
+                area.x + INSET - outdent,
                 content_y + (index - offset) as u16,
                 area.width.saturating_sub(INSET * 2),
                 1,

@@ -29,14 +29,6 @@ pub(super) fn render_tabs(
         return Vec::new();
     }
     let active = state.workspace;
-    put(
-        frame.buffer_mut(),
-        area.x,
-        area.y + 1,
-        area.width,
-        &"─".repeat(usize::from(area.width)),
-        style(Role::Border),
-    );
     let available = area.width.saturating_sub(4);
     let widths = Workspace::ALL.map(|workspace| workspace.label().width() as u16 + 6);
     let selected = Workspace::ALL
