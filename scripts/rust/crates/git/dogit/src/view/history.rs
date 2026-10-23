@@ -26,9 +26,7 @@ impl Layout {
         }
         self.width = width;
         self.graph = graph::Graph::new(items);
-        self.graph_width = self
-            .graph
-            .width((width.saturating_sub(24) / 2).clamp(1, 11));
+        self.graph_width = self.graph.width((width.saturating_sub(24) / 3).clamp(1, 6));
         let text_width =
             width.saturating_sub(self.card_offset() + HORIZONTAL_MARGIN + CARD_PADDING * 2);
         self.subjects = items

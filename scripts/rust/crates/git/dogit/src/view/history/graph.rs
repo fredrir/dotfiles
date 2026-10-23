@@ -1,7 +1,7 @@
 use super::*;
 
 const NODE_WIDTH: usize = 1;
-const STEP: usize = 2;
+const STEP: usize = 1;
 const UP: u8 = 1;
 const RIGHT: u8 = 2;
 const DOWN: u8 = 4;
