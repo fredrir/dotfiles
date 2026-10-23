@@ -15,6 +15,7 @@ if platform.is_mac then
     ---
     SUPER_REV = "CMD|SHIFT",
     UNIQUE_REV = "OPT|SHIFT",
+    SYSTEM_REV = "CMD|OPT",
     SHIFT_RIGHT_REV = "CTRL|ALT|CMD|SHIFT",
     ---
     SPLITBELOW = "'",
@@ -29,7 +30,8 @@ else
     SHIFT_RIGHT = "CTRL|ALT|SHIFT",
     ---
     SUPER_REV = "CTRL|SHIFT",
-    UNIQUE_REV = "CTRL|ALT",
+    UNIQUE_REV = "ALT|SHIFT",
+    SYSTEM_REV = "CTRL|ALT",
     ---
     SPLITBELOW = "§",
   }

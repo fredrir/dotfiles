@@ -2,12 +2,11 @@
 ---@field PRIMARY string
 ---@field SECONDARY string
 ---@field UNIQUE string
----@field SHIFT_RIGHT string
----@field SHIFT_RIGHT_REV string?
 ---@field REV table<string, string>
 ---@field EDGE string
 ---@field SUPER_REV string
----@field SUPER_REV_2 string
----@field EDGE_REV string
+---@field SYSTEM_REV string
+---@field SHIFT_RIGHT string
+---@field SHIFT_RIGHT_REV string?
 ---@field SPLITBELOW string
 ---@field UNIQUE_XOR string[]

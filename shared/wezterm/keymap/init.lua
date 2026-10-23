@@ -16,7 +16,6 @@ local MOD = require "keymap.modifiers"
 local open_vscode = require "utils.keymap.open-vscode"
 local open_jetbrains = require "utils.keymap.open-jetbrains"
 local open_github = require "utils.keymap.open-github"
-local git_add = require "utils.keymap.git-add"
 local open_yazi = require "utils.keymap.open-yazi"
 local quick_yazi = require "utils.keymap.quick-yazi"
 local quick_dogit = require "utils.keymap.quick-dogit"
@@ -102,7 +101,7 @@ local bindings = {
 
   ------ Wezterm ------
 
-  keybind("ReloadConfiguration", MOD.SUPER_REV, "r"),
+  keybind("ReloadConfiguration", MOD.SYSTEM_REV, "r"),
 
   -- Font size --
   keybind(act.IncreaseFontSize, MOD.SUPER_REV, "+"),
@@ -140,6 +139,7 @@ local bindings = {
   keybind(cd_git_root, MOD.SHIFT_RIGHT, "g"),
   keybind(go_to "OLDPWD", MOD.SHIFT_RIGHT, "j"),
   keybind(go_to "PYPARSER", { MOD.SHIFT_RIGHT }, "q"),
+  keybind(go_to "PYPARSER/review-ui", { MOD.SHIFT_RIGHT }, "e"),
   keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
   keybind(go_to "HOME/rif", MOD.SHIFT_RIGHT, "r"),
   keybind(go_to "HOME/ArchTeX", { MOD.SHIFT_RIGHT }, "a"),

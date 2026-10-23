@@ -17,6 +17,7 @@ return {
       quick_terminal = { "Super+Enter" },
       rail = { "Super+b" },
       refresh = {},
+      rename_tab = { "Super+Shift+r" },
       settings = { "Super+," },
       space_1 = { "Alt+1" },
       space_2 = { "Alt+2" },
