@@ -3,6 +3,9 @@ use crossterm::SynchronizedUpdate;
 
 impl App {
     pub(super) fn draw(&mut self, terminal: &mut crate::session::Session) -> Result<(), String> {
+        if self.dialog.is_some() {
+            self.reset_scrollbar();
+        }
         self.view.overlay = self.dialog.as_ref().map(|dialog| match dialog {
             Dialog::Error { title, editor } => Overlay::Error {
                 title: title.clone(),

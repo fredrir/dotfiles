@@ -47,7 +47,6 @@ impl Wheel {
             self.events.pop_front();
         }
         self.events.push_back(now);
-        // WezTerm reports one event per trackpad delta, so event density stands in for velocity
         let rate = self.events.len() as f64 / RATE_WINDOW.as_secs_f64();
         let speed = 1.0 + ((rate - PRECISE_RATE).max(0.0) / RATE_SPAN).powf(1.5);
         let distance = speed.min(MAX_SPEED) * unit + self.remainder;
@@ -150,7 +149,7 @@ impl Scroll {
     ) {
         self.glides.retain_mut(|glide| {
             let from = glide.shown;
-            glide.advance(now, instant);
+            glide.advance(now, instant || glide.region == Region::Navigator);
             apply(glide.region, from, glide.shown) && !glide.settled()
         });
     }
@@ -165,7 +164,68 @@ impl Scroll {
 }
 
 impl App {
+    pub(super) fn reset_scrollbar(&mut self) {
+        if self.view.nav_scrollbar_hovered || self.view.nav_scrollbar_drag.is_some() {
+            self.view.nav_scrollbar_hovered = false;
+            self.view.nav_scrollbar_drag = None;
+            self.dirty = true;
+        }
+    }
+
+    pub(super) fn scrollbar_mouse(&mut self, event: MouseEvent) -> bool {
+        let Some(bar) = self
+            .geometry
+            .as_ref()
+            .and_then(|geometry| geometry.nav_scrollbar)
+            .filter(|_| self.view.offset > 0 || self.view.nav_scrollbar_drag.is_some())
+        else {
+            self.reset_scrollbar();
+            return false;
+        };
+        let point = ratatui::layout::Position::new(event.column, event.row);
+        let hovered = bar.gutter.contains(point) && !self.dragging;
+        if self.view.nav_scrollbar_hovered != hovered {
+            self.view.nav_scrollbar_hovered = hovered;
+            self.dirty = true;
+        }
+        if let Some((origin_row, origin_offset)) = self.view.nav_scrollbar_drag {
+            match event.kind {
+                MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left) => {
+                    self.view.offset = bar.drag(event.row, origin_row, origin_offset);
+                    if event.kind == MouseEventKind::Up(MouseButton::Left) {
+                        self.view.nav_scrollbar_drag = None;
+                    }
+                    self.dirty = true;
+                    return true;
+                }
+                MouseEventKind::Moved => {
+                    self.view.nav_scrollbar_drag = None;
+                    self.dirty = true;
+                }
+                _ => {}
+            }
+        }
+        if !hovered {
+            return false;
+        }
+        self.view.nav_hovered = None;
+        self.view.divider_hovered = false;
+        self.view.divider_hover_row = None;
+        if event.kind == MouseEventKind::Down(MouseButton::Left) {
+            self.view.focus = Focus::Navigator;
+            self.view.nav_manual_scroll = true;
+            if bar.grabs_thumb(event.row) {
+                self.view.nav_scrollbar_drag = Some((event.row, self.view.offset));
+            } else {
+                self.view.offset = bar.page(event.row, self.view.offset);
+            }
+            self.dirty = true;
+        }
+        true
+    }
+
     pub(super) fn wheel(&mut self, event: MouseEvent) {
+        self.reset_scrollbar();
         if self.view.nav_hovered.take().is_some() {
             self.dirty = true;
         }
@@ -244,17 +304,14 @@ impl App {
                     Region::NavigatorColumns,
                     self.nav_layout.horizontal_limit(
                         &self.nav_items,
-                        geometry.nav.width,
+                        geometry
+                            .nav_scrollbar
+                            .map_or(geometry.nav.width, |bar| bar.content_width(geometry.nav)),
                         self.view.workspace,
                     ),
                 )
             } else {
-                (
-                    Region::Navigator,
-                    self.entries
-                        .len()
-                        .saturating_sub(usize::from(geometry.nav.height)),
-                )
+                (Region::Navigator, geometry.nav_scroll_max)
             });
         }
         if geometry.canvas.contains(point) {

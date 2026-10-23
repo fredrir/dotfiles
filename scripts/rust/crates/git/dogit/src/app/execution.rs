@@ -38,7 +38,6 @@ fn execute_commit(repo: &Repo, spec: &CommandSpec) -> Result<String, String> {
     let editor = format!("{} \"$@\"", configured.trim());
     let editor = shlex::try_quote(&editor).map_err(|error| error.to_string())?;
     let editor_status = tempfile::NamedTempFile::new().map_err(|error| error.to_string())?;
-    // Keep the editor on the terminal while capturing Git's diagnostics separately.
     let wrapper = format!(
         r#"sh -c {editor} dogit-editor "$@" </dev/tty >/dev/tty 2>&1
 status=$?
@@ -102,7 +101,6 @@ pub(super) fn execute_captured(
         } else {
             command.stdin(Stdio::null());
         }
-        // A separate session also prevents hooks and SSH from opening dogit's /dev/tty.
         let mut child = hostkit::process::ChildGroup::spawn_detached(&mut command)
             .map_err(|error| format!("{}: {error}", spec.label))?;
         let status = loop {

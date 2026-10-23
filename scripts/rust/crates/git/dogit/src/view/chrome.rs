@@ -94,7 +94,7 @@ pub(super) fn render_footer(
     area: Rect,
     data: &RenderData<'_>,
     badges: Vec<Badge>,
-    detail: &str,
+    detail: Option<&str>,
 ) -> Rect {
     if area.width < 4 || area.height == 0 {
         return Rect::default();
@@ -164,7 +164,7 @@ pub(super) fn render_footer(
             detail_area.x,
             y,
             detail_area.width,
-            &elide_end(detail, usize::from(detail_area.width)),
+            &elide_end(detail.unwrap_or_default(), usize::from(detail_area.width)),
             style(Role::Plain),
         );
     }

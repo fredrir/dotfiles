@@ -8,34 +8,97 @@ pub(super) fn prefix_style(prefix: &str) -> Style {
         .bg(badge.fg.unwrap_or(Color::Reset))
 }
 
-pub(super) fn render_list(buffer: &mut Buffer, area: Rect, subject: &str, offset: usize) {
-    if area.is_empty() {
-        return;
+fn list_text(subject: &str) -> String {
+    safe_text(subject)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub(super) fn list_label_color(subject: &str) -> Color {
+    let clean = list_text(subject);
+    crate::commit::subject::Subject::parse(&clean)
+        .prefixes
+        .first()
+        .and_then(|prefix| chrome::identity_text_style(prefix).fg)
+        .unwrap_or_else(|| foreground(Role::Plain))
+}
+
+pub(super) fn list_lines(subject: &str, width: u16) -> Vec<Line<'static>> {
+    let width = usize::from(width);
+    if width == 0 {
+        return vec![Line::default()];
     }
-    let clean = safe_text(subject);
+    let clean = list_text(subject);
     let parsed = crate::commit::subject::Subject::parse(&clean);
-    let mut spans = Vec::new();
+    let mut colors = Vec::new();
     let mut consumed = 0;
     for prefix in parsed.prefixes {
         let Some(start) = clean[consumed..].find(prefix).map(|index| consumed + index) else {
             continue;
         };
-        spans.push(Span::styled(&clean[consumed..start], style(Role::Plain)));
         let end = start + prefix.len();
         let end = end + usize::from(clean[end..].starts_with(':'));
-        spans.push(Span::styled(
-            &clean[start..end],
-            chrome::identity_text_style(prefix),
-        ));
+        colors.push((start..end, chrome::identity_text_style(prefix)));
         consumed = end;
     }
-    spans.push(Span::styled(&clean[consumed..], style(Role::Plain)));
-    ratatui::widgets::Paragraph::new(Line::from(spans))
-        .scroll((0, offset.min(u16::MAX as usize) as u16))
-        .render(area, buffer);
-    if offset == 0 && clean.width() > usize::from(area.width) {
-        put(buffer, area.right() - 1, area.y, 1, "…", style(Role::Plain));
+    let mut lines = Vec::new();
+    let mut start = 0;
+    while start < clean.len() && lines.len() < 2 {
+        let rest = &clean[start..];
+        let last = lines.len() == 1;
+        let truncated = last && rest.width() > width;
+        let available = width.saturating_sub(usize::from(truncated));
+        let mut used = 0;
+        let mut end = start;
+        for grapheme in rest.graphemes(true) {
+            if used + grapheme.width() > available {
+                break;
+            }
+            used += grapheme.width();
+            end += grapheme.len();
+        }
+        if !last
+            && end < clean.len()
+            && !clean[end..].starts_with(' ')
+            && let Some(boundary) = clean[start..end].rfind(' ')
+        {
+            end = start + boundary;
+        }
+        let text = clean[start..end].trim_end();
+        let mut line = Line::default();
+        for (index, grapheme) in text.grapheme_indices(true) {
+            let appearance = colors
+                .iter()
+                .find(|(range, _)| range.contains(&(start + index)))
+                .map_or_else(|| style(Role::Plain), |(_, appearance)| *appearance);
+            if let Some(span) = line
+                .spans
+                .last_mut()
+                .filter(|span| span.style == appearance)
+            {
+                span.content.to_mut().push_str(grapheme);
+            } else {
+                line.spans
+                    .push(Span::styled(grapheme.to_owned(), appearance));
+            }
+        }
+        if truncated {
+            line.spans.push(Span::styled("…", style(Role::Muted)));
+        }
+        lines.push(line);
+        if end == start {
+            break;
+        }
+        start = end;
+        while clean[start..].starts_with(' ') {
+            start += 1;
+        }
     }
+    if lines.is_empty() {
+        lines.push(Line::default());
+    }
+    lines
 }
 
 pub(super) fn lines(subject: &str, width: u16) -> Vec<Line<'static>> {

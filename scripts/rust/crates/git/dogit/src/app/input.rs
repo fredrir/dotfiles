@@ -96,6 +96,7 @@ impl App {
         self.view.nav_hovered = None;
         if !matches!(key.code, KeyCode::Modifier(_)) {
             self.scroll.stop();
+            self.reset_scrollbar();
         }
         self.dirty = true;
         if key.code == KeyCode::Char('h') && key.modifiers == KeyModifiers::CONTROL {
@@ -107,19 +108,22 @@ impl App {
         if key.code == KeyCode::Esc && self.notification.take().is_some() {
             return Ok(());
         }
-        if self.view.workspace == Workspace::Changes && self.view.focus == Focus::Navigator {
-            if key.modifiers == KeyModifiers::SUPER
-                && matches!(key.code, KeyCode::Up | KeyCode::Down)
-            {
-                self.move_to_edge(key.code == KeyCode::Down);
-                return Ok(());
+        if self.view.focus == Focus::Navigator
+            && matches!(key.modifiers, KeyModifiers::SHIFT)
+            && matches!(key.code, KeyCode::Up | KeyCode::Down)
+        {
+            self.move_to_edge(key.code == KeyCode::Down);
+            return Ok(());
+        }
+        if self.view.workspace == Workspace::Changes
+            && self.view.focus == Focus::Navigator
+            && key.code == KeyCode::Char(' ')
+            && key.modifiers == KeyModifiers::SHIFT
+        {
+            if key.kind != KeyEventKind::Repeat {
+                return self.action(Action::ToggleStageAll, terminal, signals);
             }
-            if key.code == KeyCode::Char(' ') && key.modifiers == KeyModifiers::SHIFT {
-                if key.kind != KeyEventKind::Repeat {
-                    return self.action(Action::ToggleStageAll, terminal, signals);
-                }
-                return Ok(());
-            }
+            return Ok(());
         }
         if let KeyCode::Char(character) = key.code {
             if character.is_ascii_digit() && !(key.modifiers - KeyModifiers::SHIFT).is_empty() {
@@ -204,8 +208,23 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => {
                 self.move_cursor(-1, key.modifiers.contains(KeyModifiers::SHIFT))
             }
-            KeyCode::PageDown => self.move_cursor(15, false),
-            KeyCode::PageUp => self.move_cursor(-15, false),
+            KeyCode::PageDown | KeyCode::PageUp => {
+                let page = if self.view.focus == Focus::Navigator {
+                    self.geometry.as_ref().map_or(15, |geometry| {
+                        geometry.nav_items.len().saturating_sub(1).max(1) as isize
+                    })
+                } else {
+                    15
+                };
+                self.move_cursor(
+                    if key.code == KeyCode::PageUp {
+                        -page
+                    } else {
+                        page
+                    },
+                    false,
+                );
+            }
             KeyCode::Home => self.move_to_edge(false),
             KeyCode::End => self.move_to_edge(true),
             KeyCode::Left | KeyCode::Char('h') => {
@@ -340,6 +359,7 @@ impl App {
                     return Ok(());
                 }
             }
+            Focus::Canvas if right && self.view.workspace == Workspace::History => {}
             Focus::Canvas => {
                 if self.scroll_canvas_horizontal(if right { 8 } else { -8 }) {
                     return Ok(());
@@ -666,6 +686,7 @@ impl App {
         }
         let point = ratatui::layout::Position::new(event.column, event.row);
         if self.dialog.is_some() {
+            self.reset_scrollbar();
             if self.dragging || self.view.divider_hovered || self.view.nav_hovered.is_some() {
                 self.dragging = false;
                 self.view.nav_hovered = None;
@@ -696,6 +717,9 @@ impl App {
             }
             return Ok(());
         }
+        if self.scrollbar_mouse(event) {
+            return Ok(());
+        }
         if event.kind == MouseEventKind::Moved {
             let hovered = self.dragging
                 || self
@@ -708,7 +732,11 @@ impl App {
                 if hovered || !geometry.nav.contains(point) {
                     return None;
                 }
-                let index = geometry.nav_start + usize::from(event.row - geometry.nav.y);
+                let index = geometry
+                    .nav_items
+                    .iter()
+                    .find(|(_, area)| area.contains(point))?
+                    .0;
                 self.entries
                     .get(index)
                     .filter(|entry| !entry.item.disabled)
@@ -766,7 +794,13 @@ impl App {
                 } else if geometry.commit_subject.contains(point) {
                     self.inspect_commit();
                 } else if geometry.nav.contains(point) {
-                    let index = geometry.nav_start + usize::from(event.row - geometry.nav.y);
+                    let Some(&(index, _)) = geometry
+                        .nav_items
+                        .iter()
+                        .find(|(_, area)| area.contains(point))
+                    else {
+                        return Ok(());
+                    };
                     if self
                         .entries
                         .get(index)

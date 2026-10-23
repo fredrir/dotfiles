@@ -29,12 +29,11 @@ impl Preview {
         let image = decode(&bytes, format);
         let mut label = format!("{format:?}").to_uppercase();
         if let Ok(image) = &image {
-            label.push_str(&format!(" · {} × {}", image.width(), image.height()));
+            label.push_str(&format!(" {} × {}", image.width(), image.height()));
         }
         if deleted {
-            label.push_str(" · Deleted — previous image");
+            label.push_str(" Deleted previous image");
         }
-        // Keep cached previews and terminal encoding bounded even for large source images.
         let image = image.map(|image| {
             if image.width() > 2048 || image.height() > 2048 {
                 image.resize(2048, 2048, image::imageops::FilterType::Triangle)

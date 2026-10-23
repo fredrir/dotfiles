@@ -94,7 +94,7 @@ fn render_inspection(frame: &mut Frame, outer: Rect, message: &str, scroll: u16)
     }
 
     let progress = format!(
-        " {}–{} / {} ",
+        " {}{} / {} ",
         offset + 1,
         (offset + usize::from(content.height)).min(rows.len()),
         rows.len()
@@ -187,7 +187,7 @@ pub(super) fn render_overlay(
                 .rows
                 .len();
             let progress = format!(
-                " {}–{} / {} ",
+                " {}{} / {} ",
                 *editor_offset + 1,
                 (*editor_offset + usize::from(content.height)).min(rows),
                 rows
@@ -252,16 +252,11 @@ pub(super) fn render_overlay(
                 let offset = selected.saturating_sub(rows.saturating_sub(1));
                 for (index, item) in items.iter().enumerate().skip(offset).take(rows) {
                     let y = content.y + 2 + (index - offset) as u16;
-                    if index == *selected {
-                        put(
-                            frame.buffer_mut(),
-                            content.x.saturating_sub(2),
-                            y,
-                            1,
-                            "┃",
-                            style(Role::Accent),
-                        );
-                    }
+                    let appearance =
+                        navigator::row_style(index == *selected, index == *selected, false);
+                    frame
+                        .buffer_mut()
+                        .set_style(Rect::new(content.x, y, content.width, 1), appearance);
                     let detail_width =
                         item.detail.width().min(usize::from(content.width / 3)) as u16;
                     put(
@@ -271,9 +266,9 @@ pub(super) fn render_overlay(
                         content.width.saturating_sub(detail_width + 2),
                         &item.label,
                         if index == *selected {
-                            style(Role::Accent)
+                            appearance.fg(foreground(Role::Accent))
                         } else {
-                            style(Role::Plain)
+                            appearance
                         },
                     );
                     put(
@@ -282,7 +277,7 @@ pub(super) fn render_overlay(
                         y,
                         detail_width,
                         &item.detail,
-                        style(Role::Plain),
+                        appearance.fg(foreground(Role::Muted)),
                     );
                 }
             }
@@ -336,7 +331,7 @@ pub(super) fn render_overlay(
             geometry.overlay_confirm = Some(render_confirm_button(frame.buffer_mut(), area));
             if rows > usize::from(content.height) && content.height > 0 {
                 let label = format!(
-                    "{}–{} / {}",
+                    "{}{} / {}",
                     offset + 1,
                     (offset + usize::from(content.height)).min(rows),
                     rows

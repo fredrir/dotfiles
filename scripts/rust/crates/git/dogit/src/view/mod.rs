@@ -18,9 +18,11 @@ mod diff;
 mod file_icons;
 mod files;
 mod folder;
+mod history;
 mod image;
 mod navigator;
 mod overlay;
+mod scrollbar;
 mod subject;
 mod text;
 mod toast;
@@ -33,9 +35,10 @@ pub use files::file_tree;
 pub use folder::FolderAnimation;
 pub use image::ImageView;
 pub(crate) use image::image_area;
-pub use navigator::{NavLayout, graph_rows, nav_horizontal_limit};
+pub use navigator::{NavLayout, nav_horizontal_limit};
 pub use overlay::confirmation_scroll_max;
 pub use overlay::inspection_scroll_max;
+pub use scrollbar::Scrollbar;
 pub use toast::ToastView;
 pub(crate) use wrap::configured_diff_layout_cancellable;
 pub use wrap::{DiffLayout, DiffPaint, configured_diff_layout};
@@ -109,8 +112,16 @@ pub struct NavItem {
     pub kind: ItemKind,
     pub disabled: bool,
     pub staged: bool,
-    pub graph: String,
+    pub commit: Option<CommitSummary>,
     pub file_state: Option<FileState>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CommitSummary {
+    pub oid: String,
+    pub parents: Vec<String>,
+    pub author: String,
+    pub timestamp: i64,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -222,6 +233,8 @@ pub struct ViewState {
     pub nav_horizontal: usize,
     pub nav_manual_scroll: bool,
     pub nav_hovered: Option<usize>,
+    pub nav_scrollbar_hovered: bool,
+    pub nav_scrollbar_drag: Option<(u16, usize)>,
     pub folder_animation: Option<FolderAnimation>,
     pub canvas_manual_scroll: bool,
     pub commit_offset: usize,
@@ -248,6 +261,8 @@ impl Default for ViewState {
             nav_horizontal: 0,
             nav_manual_scroll: false,
             nav_hovered: None,
+            nav_scrollbar_hovered: false,
+            nav_scrollbar_drag: None,
             folder_animation: None,
             canvas_manual_scroll: false,
             commit_offset: 0,
@@ -352,7 +367,9 @@ pub struct Geometry {
     pub canvas_footer: Rect,
     pub divider_x: Option<u16>,
     pub divider_hit: Option<Rect>,
-    pub nav_start: usize,
+    pub nav_items: Vec<(usize, Rect)>,
+    pub nav_scroll_max: usize,
+    pub nav_scrollbar: Option<Scrollbar>,
     pub nav_disclosures: Vec<(usize, Rect)>,
     pub line_ids: Vec<Option<usize>>,
     pub right_line_ids: Vec<Option<usize>>,
@@ -474,7 +491,7 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     let changes = state.workspace == Workspace::Changes;
 
     if area.width < 20 || area.height < 10 {
-        render_footer(frame, area, data, Vec::new(), "");
+        render_footer(frame, area, data, Vec::new(), Some(""));
         let mut geometry = Geometry {
             tabs,
             overlay_bounds: area,
@@ -639,10 +656,10 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             commit_subject = title;
         }
     }
-    let nav_disclosures = if show_nav {
+    let navigation = if show_nav {
         render_navigator(frame.buffer_mut(), nav, state, data.items, data.nav_layout)
     } else {
-        Vec::new()
+        navigator::Navigation::default()
     };
     if show_canvas && !changes {
         render_pane_footer(
@@ -670,14 +687,20 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
         divider_x,
         divider_hit: divider_x.map(|x| {
             Rect::new(
-                x.saturating_sub(2),
+                if navigation.scrollbar.is_some() {
+                    x
+                } else {
+                    x.saturating_sub(2)
+                },
                 body.y + 1,
-                5,
+                if navigation.scrollbar.is_some() { 3 } else { 5 },
                 body.height.saturating_sub(2),
             )
         }),
-        nav_start: state.offset,
-        nav_disclosures,
+        nav_items: navigation.items,
+        nav_scroll_max: navigation.scroll_max,
+        nav_scrollbar: navigation.scrollbar,
+        nav_disclosures: navigation.disclosures,
         tabs,
         diff_sides,
         ..Geometry::default()
@@ -710,12 +733,13 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
             &mut geometry,
         );
     }
+
     geometry.nav_footer = render_footer(
         frame,
         area,
         data,
         nav_badges(state.workspace, totals, data.repo, data.changes_filter),
-        if changes { data.canvas_subtitle } else { "" },
+        None,
     );
     if state.overlay.is_none()
         && let Some(toast) = data.toast

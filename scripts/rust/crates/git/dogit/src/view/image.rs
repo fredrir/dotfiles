@@ -38,7 +38,6 @@ pub(super) fn render(buffer: &mut Buffer, canvas: Rect, image: &ImageView<'_>, v
             .render(area, buffer);
     } else if let Some(protocol) = image.protocol {
         let size = protocol.area();
-        // Wait for the worker to resize rather than clipping a native terminal image.
         if size.width > area.width || size.height > area.height {
             return;
         }

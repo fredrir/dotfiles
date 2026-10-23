@@ -143,7 +143,7 @@ impl<'a> FileLabel<'a> {
             let (icon, appearance) = if self.directory {
                 folder::appearance(self.expanded, self.animation, self.icon_style)
             } else {
-                (file_icons::for_path(self.text), self.icon_style)
+                file_icons::appearance(self.text, self.icon_style)
             };
             put(buffer, area.x, area.y, decoration, icon, appearance);
         }

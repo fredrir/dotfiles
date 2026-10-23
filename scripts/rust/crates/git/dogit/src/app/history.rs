@@ -5,6 +5,33 @@ use crate::commit::{
     github::{Batch, CommitMetadata},
 };
 
+pub(super) fn visible_parents<'a>(
+    commits: &'a [crate::git::Commit],
+    visible: &BTreeSet<&str>,
+) -> BTreeMap<&'a str, Vec<String>> {
+    let mut ancestors: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for commit in commits.iter().rev() {
+        let mut parents = Vec::new();
+        let mut seen = BTreeSet::new();
+        for parent in &commit.parents {
+            let nearest = if visible.contains(parent.as_str()) {
+                std::slice::from_ref(parent)
+            } else {
+                ancestors
+                    .get(parent.as_str())
+                    .map_or(std::slice::from_ref(parent), Vec::as_slice)
+            };
+            for oid in nearest {
+                if seen.insert(oid.as_str()) {
+                    parents.push(oid.clone());
+                }
+            }
+        }
+        ancestors.insert(commit.oid.as_str(), parents);
+    }
+    ancestors
+}
+
 #[derive(Default)]
 pub(super) struct History {
     selected: Option<String>,

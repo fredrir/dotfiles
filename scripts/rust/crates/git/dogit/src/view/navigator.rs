@@ -5,6 +5,7 @@ pub struct NavLayout {
     decorations: Vec<TreeDecoration>,
     label_widths: Vec<usize>,
     guides: Vec<DirectoryGuide>,
+    history: std::cell::RefCell<history::Layout>,
 }
 
 impl NavLayout {
@@ -13,6 +14,7 @@ impl NavLayout {
             decorations: tree_decorations(items).collect(),
             label_widths: items.iter().map(nav_label_width).collect(),
             guides: directory_guides(items),
+            history: std::cell::RefCell::default(),
         }
     }
 
@@ -60,6 +62,9 @@ fn item_horizontal_limit(
     width: u16,
     workspace: Workspace,
 ) -> usize {
+    if item.kind == ItemKind::Commit {
+        return 0;
+    }
     if item.file_state.is_some() {
         let status = if workspace == Workspace::Changes {
             decoration.status
@@ -82,9 +87,8 @@ fn item_horizontal_limit(
     } else {
         0
     };
-    let graph_width = item.graph.width().min(usize::from(width / 3)) as u16;
-    let mut label_width = width
-        .saturating_sub(status_width + staged_width + graph_width + u16::from(status_width > 0));
+    let mut label_width =
+        width.saturating_sub(status_width + staged_width + u16::from(status_width > 0));
     if matches!(
         item.kind,
         ItemKind::File | ItemKind::Folder | ItemKind::Worktree
@@ -94,16 +98,64 @@ fn item_horizontal_limit(
     text_width.saturating_sub(usize::from(label_width))
 }
 
+#[derive(Default)]
+pub(super) struct Navigation {
+    pub items: Vec<(usize, Rect)>,
+    pub disclosures: Vec<(usize, Rect)>,
+    pub scroll_max: usize,
+    pub scrollbar: Option<Scrollbar>,
+}
+
 pub(super) fn render_navigator(
     buffer: &mut Buffer,
     area: Rect,
     state: &mut ViewState,
     items: &[NavItem],
     layout: Option<&NavLayout>,
-) -> Vec<(usize, Rect)> {
-    let mut disclosures = Vec::new();
+) -> Navigation {
+    let visible = if items
+        .first()
+        .is_some_and(|item| item.kind == ItemKind::Commit)
+    {
+        history::visible_items(area.height)
+    } else {
+        usize::from(area.height)
+    };
+    let thumb_limit = if state.workspace == Workspace::Changes {
+        3
+    } else {
+        area.height
+    };
+    let bar = Scrollbar::new(area, items.len(), visible, state.offset, thumb_limit);
+    let content = Rect {
+        width: bar.map_or(area.width, |bar| bar.content_width(area)),
+        ..area
+    };
+    let mut navigation = render_items(buffer, content, state, items, layout);
+    navigation.scrollbar = Scrollbar::new(area, items.len(), visible, state.offset, thumb_limit);
+    if let Some(bar) = navigation.scrollbar
+        && state.offset > 0
+    {
+        bar.render(buffer, state);
+    } else {
+        state.nav_scrollbar_hovered = false;
+        if navigation.scrollbar.is_none() {
+            state.nav_scrollbar_drag = None;
+        }
+    }
+    navigation
+}
+
+fn render_items(
+    buffer: &mut Buffer,
+    area: Rect,
+    state: &mut ViewState,
+    items: &[NavItem],
+    layout: Option<&NavLayout>,
+) -> Navigation {
+    let mut navigation = Navigation::default();
     if area.is_empty() || items.is_empty() {
-        return disclosures;
+        return navigation;
     }
     let fallback;
     let layout = if let Some(layout) = layout {
@@ -112,6 +164,13 @@ pub(super) fn render_navigator(
         fallback = NavLayout::new(items);
         &fallback
     };
+    if items
+        .first()
+        .is_some_and(|item| item.kind == ItemKind::Commit)
+    {
+        state.nav_horizontal = 0;
+        return history::render(buffer, area, state, items, &mut layout.history.borrow_mut());
+    }
     if state.nav_horizontal > 0 {
         state.nav_horizontal =
             state
@@ -127,6 +186,7 @@ pub(super) fn render_navigator(
         }
     }
     state.offset = state.offset.min(items.len().saturating_sub(height));
+    navigation.scroll_max = items.len().saturating_sub(height);
     for (row, (item, decoration)) in items
         .iter()
         .zip(layout.decorations.iter().copied())
@@ -135,13 +195,15 @@ pub(super) fn render_navigator(
         .take(height)
     {
         let y = area.y + (row - state.offset) as u16;
+        let row_area = Rect::new(area.x, y, area.width, 1);
+        navigation.items.push((row, row_area));
         let selected = !item.disabled && row == state.selected;
         let active = selected && state.focus == Focus::Navigator;
         if let Some(file) = item.file_state {
             let row_style = if item.disabled {
                 style(Role::Muted).add_modifier(Modifier::DIM)
             } else {
-                tree_row_style(selected, active, state.nav_hovered == Some(row))
+                row_style(selected, active, state.nav_hovered == Some(row))
             };
             let disclosure = render_tree_item(
                 buffer,
@@ -159,32 +221,20 @@ pub(super) fn render_navigator(
                 },
             );
             if let Some(disclosure) = disclosure {
-                disclosures.push((row, disclosure));
+                navigation.disclosures.push((row, disclosure));
             }
             continue;
         }
-        if selected {
-            put(
-                buffer,
-                area.x,
-                y,
-                1,
-                "┃",
-                if active {
-                    style(Role::Accent)
-                } else {
-                    style(Role::Border)
-                },
-            );
-        }
+        let row_style = row_style(selected, active, state.nav_hovered == Some(row));
+        buffer.set_style(row_area, row_style);
         let indent = (item.depth.min(8) * 2) as u16;
         let x = area.x + 2 + indent;
         let width = area.width.saturating_sub(indent + 3);
         let current = item.kind == ItemKind::Worktree && item.status == "current";
         let appearance = if current {
-            style(Role::Accent)
+            row_style.fg(foreground(Role::Accent))
         } else {
-            style(Role::Plain)
+            row_style
         };
         let status = if current || matches!(item.status.as_str(), "." | " ") {
             ""
@@ -202,41 +252,20 @@ pub(super) fn render_navigator(
         } else {
             0
         };
-        let graph_width = item.graph.width().min(usize::from(width / 3)) as u16;
-        if !item.graph.is_empty() {
-            put(
-                buffer,
-                x,
-                y,
-                graph_width,
-                &item.graph,
-                if active {
-                    style(Role::Accent)
-                } else {
-                    style(Role::Plain)
-                },
-            );
-        }
-        let label_width = width.saturating_sub(
-            status_width + staged_width + graph_width + u16::from(status_width > 0),
-        );
-        if item.kind == ItemKind::Commit {
-            subject::render_list(
-                buffer,
-                Rect::new(x + graph_width, y, label_width, 1),
-                &item.label,
-                state.nav_horizontal,
-            );
-        } else if matches!(
+        let label_width =
+            width.saturating_sub(status_width + staged_width + u16::from(status_width > 0));
+        if matches!(
             item.kind,
             ItemKind::File | ItemKind::Folder | ItemKind::Worktree
         ) {
             let mut label = files::FileLabel::new(&item.label, item.kind != ItemKind::File);
             label.horizontal = state.nav_horizontal;
+            label.label_style = appearance;
+            label.icon_style = appearance.fg(foreground(Role::Muted));
             if current {
                 label.label_style = appearance.add_modifier(Modifier::BOLD);
             }
-            label.render(buffer, Rect::new(x + graph_width, y, label_width, 1));
+            label.render(buffer, Rect::new(x, y, label_width, 1));
         } else {
             let label = &item.label;
             let label = if state.nav_horizontal > 0 {
@@ -250,7 +279,7 @@ pub(super) fn render_navigator(
             } else {
                 elide_middle(label, usize::from(label_width))
             };
-            put(buffer, x + graph_width, y, label_width, &label, appearance);
+            put(buffer, x, y, label_width, &label, appearance);
         }
         if staged_width > 0 {
             put(
@@ -259,7 +288,7 @@ pub(super) fn render_navigator(
                 y,
                 staged_width,
                 stage_label,
-                style(Role::Plain),
+                row_style,
             );
         }
         if status_width > 0 {
@@ -275,27 +304,12 @@ pub(super) fn render_navigator(
                 y,
                 status_width,
                 status,
-                status_style,
+                status_style.bg(row_style.bg.unwrap_or(Color::Reset)),
             );
         }
     }
     render_directory_guides(buffer, area, state.offset, items, &layout.guides);
-    if items.len() > height && area.height > 2 {
-        let thumb_size = (height * height / items.len()).max(1);
-        let thumb_top =
-            state.offset * (height - thumb_size) / items.len().saturating_sub(height).max(1);
-        for row in thumb_top..thumb_top + thumb_size {
-            put(
-                buffer,
-                area.right() - 1,
-                area.y + row as u16,
-                1,
-                "│",
-                style(Role::Accent),
-            );
-        }
-    }
-    disclosures
+    navigation
 }
 
 pub(super) fn render_file_tree(buffer: &mut Buffer, area: Rect, offset: usize, items: &[NavItem]) {
@@ -399,13 +413,11 @@ fn render_directory_guides(
         }
         let indent = child_indent;
         for (row, item) in items.iter().enumerate().take(end).skip(start) {
-            // Narrow panes can compress several levels into one column.
             if indent >= TreeLayout::indent(item.depth, area.width) {
                 continue;
             }
             let x = area.x + indent;
             let y = area.y + (row - offset) as u16;
-            // Inset each end equally from the neighboring folder's icon row.
             let below_icon = TreeLayout::indent(items[row - 1].depth, area.width) <= indent;
             let above_icon = TreeLayout::indent(items[row + 1].depth, area.width) <= indent;
             let symbol = match (below_icon, above_icon) {
@@ -445,7 +457,16 @@ fn directory_guide_style(background: Color) -> Style {
         .ratatui())
 }
 
-fn tree_row_style(selected: bool, active: bool, hovered: bool) -> Style {
+pub(super) fn row_style(selected: bool, active: bool, hovered: bool) -> Style {
+    if !ui_theme::ColorMode::Auto.enabled(true) {
+        return style(Role::Plain).add_modifier(if active {
+            Modifier::REVERSED
+        } else if selected || hovered {
+            Modifier::BOLD
+        } else {
+            Modifier::empty()
+        });
+    }
     let role = if active {
         Role::Selection
     } else if selected || hovered {
@@ -670,7 +691,6 @@ struct TreeLayout {
 impl TreeLayout {
     fn indent(depth: usize, width: u16) -> u16 {
         let step = if width >= 28 { 2 } else { 1 };
-        // Keep equal-depth icons aligned across different icon and status widths.
         1 + ((depth.min(8) * step) as u16).min(width.saturating_sub(16))
     }
 
@@ -687,93 +707,4 @@ impl TreeLayout {
             status_width,
         }
     }
-}
-
-pub fn graph_rows(commits: &[crate::git::Commit]) -> Vec<String> {
-    let mut lanes = Vec::<Option<String>>::new();
-    let mut rows = Vec::with_capacity(commits.len());
-    for commit in commits {
-        let lane = lanes
-            .iter()
-            .position(|oid| oid.as_ref() == Some(&commit.oid))
-            .unwrap_or_else(|| {
-                let lane = lanes
-                    .iter()
-                    .position(Option::is_none)
-                    .unwrap_or(lanes.len());
-                if lane == lanes.len() {
-                    lanes.push(None);
-                }
-                lanes[lane] = Some(commit.oid.clone());
-                lane
-            });
-        let occupied = lanes.iter().map(Option::is_some).collect::<Vec<_>>();
-        lanes[lane] = None;
-        let mut targets = Vec::new();
-        for parent in &commit.parents {
-            let target = lanes
-                .iter()
-                .position(|oid| oid.as_ref() == Some(parent))
-                .unwrap_or_else(|| {
-                    let target = if lanes[lane].is_none() {
-                        lane
-                    } else {
-                        lanes
-                            .iter()
-                            .enumerate()
-                            .skip(lane + 1)
-                            .find_map(|(index, value)| value.is_none().then_some(index))
-                            .unwrap_or(lanes.len())
-                    };
-                    if target == lanes.len() {
-                        lanes.push(None);
-                    }
-                    lanes[target] = Some(parent.clone());
-                    target
-                });
-            targets.push(target);
-        }
-        let width = occupied.len().max(lanes.len()).min(6);
-        let mut row = vec![' '; width * 2];
-        for (position, present) in occupied.iter().take(width).enumerate() {
-            if *present {
-                row[position * 2] = '│';
-            }
-        }
-        for target in targets.into_iter().filter(|target| *target != lane) {
-            if lane >= width || target >= width {
-                continue;
-            }
-            for (column, cell) in row
-                .iter_mut()
-                .enumerate()
-                .take(lane.max(target) * 2)
-                .skip(lane.min(target) * 2 + 1)
-            {
-                *cell = if column % 2 == 0 && *cell == '│' {
-                    '┼'
-                } else {
-                    '─'
-                };
-            }
-            row[target * 2] = match (target < lane, occupied.get(target) == Some(&true)) {
-                (true, true) => '├',
-                (false, true) => '┤',
-                (true, false) => '┌',
-                (false, false) => '┐',
-            };
-        }
-        if lane < width {
-            row[lane * 2] = '●';
-        }
-        let mut row = row.into_iter().collect::<String>();
-        if occupied.len().max(lanes.len()) > 6 {
-            row.push_str("… ");
-        }
-        rows.push(row);
-        while lanes.last() == Some(&None) {
-            lanes.pop();
-        }
-    }
-    rows
 }

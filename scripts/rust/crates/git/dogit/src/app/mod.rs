@@ -967,6 +967,7 @@ impl App {
     }
 
     fn rebuild(&mut self) {
+        self.reset_scrollbar();
         self.view.nav_hovered = None;
         self.view.folder_animation = None;
         let selected = self.selected().cloned();
@@ -984,31 +985,43 @@ impl App {
                     entries = tree;
                     changes_summary = Some(summary);
                 } else {
-                    let graphs = view::graph_rows(&self.snapshot.commits);
-                    for (index, commit) in self.snapshot.commits.iter().enumerate() {
-                        if !self.matches(&format!(
-                            "{} {} {} {}",
-                            commit.oid, commit.subject, commit.author, commit.decorations
-                        )) {
+                    let visible: BTreeSet<_> = self
+                        .snapshot
+                        .commits
+                        .iter()
+                        .filter(|commit| {
+                            self.matches(&format!(
+                                "{} {} {} {}",
+                                commit.oid, commit.subject, commit.author, commit.decorations
+                            ))
+                        })
+                        .map(|commit| commit.oid.as_str())
+                        .collect();
+                    let mut parents = history::visible_parents(&self.snapshot.commits, &visible);
+                    for commit in &self.snapshot.commits {
+                        if !visible.contains(commit.oid.as_str()) {
                             continue;
                         }
                         entries.push(Entry {
                             target: Target::Commit(commit.oid.clone()),
                             item: NavItem {
                                 label: commit.subject.clone(),
-                                detail: format!("{}  {}", short(&commit.oid), commit.decorations),
                                 status: if self.compare_base.as_deref() == Some(commit.oid.as_str())
                                 {
                                     "base".into()
                                 } else {
                                     String::new()
                                 },
-                                depth: 0,
                                 kind: NavKind::Commit,
-                                disabled: false,
-                                staged: false,
-                                file_state: None,
-                                graph: graphs.get(index).cloned().unwrap_or_default(),
+                                commit: Some(view::CommitSummary {
+                                    oid: commit.oid.clone(),
+                                    parents: parents
+                                        .remove(commit.oid.as_str())
+                                        .unwrap_or_default(),
+                                    author: commit.author.clone(),
+                                    timestamp: commit.timestamp,
+                                }),
+                                ..NavItem::default()
                             },
                         });
                     }
@@ -1390,6 +1403,7 @@ impl App {
     }
 
     fn workspace(&mut self, workspace: Workspace) {
+        self.reset_scrollbar();
         self.folder_animation = None;
         self.view.folder_animation = None;
         self.view.nav_manual_scroll = false;
@@ -1570,7 +1584,7 @@ fn nav(label: &str, detail: &str, status: &str, kind: NavKind) -> NavItem {
         disabled: false,
         staged: false,
         file_state: None,
-        graph: String::new(),
+        commit: None,
     }
 }
 
@@ -1591,7 +1605,7 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
     let input = ui_terminal::Input::new().map_err(|error| error.to_string())?;
     app.set_waker(input.waker());
     app.refresh();
-    let mut last_frame = Instant::now();
+    let mut last_frame = Instant::now() - scroll::FRAME;
     let mut toast_was_visible = false;
     let mut toast_was_animated = false;
     let mut queued = None;
@@ -1642,17 +1656,17 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
         } else {
             None
         };
-        if app.dirty
+        let redraw = app.dirty
             || toast_was_visible != toast_visible
             || toast_was_animated != toast_animated
-            || frame_interval.is_some_and(|interval| last_frame.elapsed() >= interval)
-        {
+            || frame_interval.is_some_and(|interval| last_frame.elapsed() >= interval);
+        if redraw && last_frame.elapsed() >= scroll::FRAME {
             app.dirty = false;
             app.draw(terminal.as_mut().ok_or("terminal unavailable")?)?;
             last_frame = Instant::now();
+            toast_was_visible = toast_visible;
+            toast_was_animated = toast_animated;
         }
-        toast_was_visible = toast_visible;
-        toast_was_animated = toast_animated;
         let mut wait = frame_interval.map_or(Duration::from_millis(150), |interval| {
             interval.saturating_sub(last_frame.elapsed())
         });
@@ -1661,6 +1675,9 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
         }
         if scrolling {
             wait = wait.min(scroll::FRAME);
+        }
+        if redraw {
+            wait = wait.min(scroll::FRAME.saturating_sub(last_frame.elapsed()));
         }
         let mut waited = match queued.take() {
             Some(event) => event,
@@ -1681,6 +1698,7 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
                     app.mouse(mouse, &mut terminal, &mut signals)?
                 }
                 ui_terminal::Waited::Event(Event::Resize(_, _)) => {
+                    app.reset_scrollbar();
                     app.view.divider_hover_row = None;
                     app.dragging = false;
                     app.view.divider_hovered = false;
@@ -1691,6 +1709,7 @@ pub fn run(directory: &Path, start: Start, mouse: bool) -> Result<(), String> {
                 }
                 ui_terminal::Waited::Event(Event::FocusGained) => app.refresh(),
                 ui_terminal::Waited::Event(Event::FocusLost) => {
+                    app.reset_scrollbar();
                     app.view.divider_hover_row = None;
                     app.dragging = false;
                     app.view.divider_hovered = false;

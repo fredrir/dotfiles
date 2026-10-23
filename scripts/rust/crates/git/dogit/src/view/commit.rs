@@ -204,9 +204,8 @@ pub(super) fn details(
                 fields.push((*field, row));
             }
         }
-        if active {
-            put(buffer, row.x, y, 1, "┃", style(Role::Accent));
-        }
+        let appearance = navigator::row_style(active, active, false);
+        buffer.set_style(row, appearance);
         let text_width = area.width.saturating_sub(
             4 + if avatar.is_some() && index < usize::from(ROWS) {
                 aside_width + GAP
@@ -221,7 +220,7 @@ pub(super) fn details(
             y,
             label_width,
             label,
-            style(Role::Muted),
+            appearance.fg(foreground(Role::Muted)),
         );
         put(
             buffer,
@@ -229,11 +228,13 @@ pub(super) fn details(
             y,
             text_width.saturating_sub(label_width),
             &elide_end(value, usize::from(text_width.saturating_sub(label_width))),
-            style(if active { Role::Accent } else { *role }).add_modifier(if active {
-                Modifier::BOLD
-            } else {
-                Modifier::empty()
-            }),
+            appearance
+                .fg(foreground(if active { Role::Accent } else { *role }))
+                .add_modifier(if active {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                }),
         );
     }
     if let Some(avatar) = avatar {

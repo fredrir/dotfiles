@@ -215,7 +215,6 @@ fn deleted_directories(
     if directories.is_empty() {
         return directories;
     }
-    // Use all known files, including those hidden by the current filters or query.
     for path in files
         .iter()
         .map(PathBuf::as_path)

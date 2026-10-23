@@ -89,6 +89,30 @@ pub fn relative_time(timestamp: i64, now: i64) -> String {
     }
 }
 
+pub fn compact_relative_time(timestamp: i64, now: i64) -> String {
+    let seconds = now.abs_diff(timestamp);
+    let duration = if seconds >= 31_536_000 {
+        let count = seconds / 31_536_000;
+        format!("{count} year{}", if count == 1 { "" } else { "s" })
+    } else if seconds >= 2_592_000 {
+        let count = seconds / 2_592_000;
+        format!("{count} month{}", if count == 1 { "" } else { "s" })
+    } else if seconds >= 86_400 {
+        format!("{}d", seconds / 86_400)
+    } else if seconds >= 3_600 {
+        format!("{}h", seconds / 3_600)
+    } else if seconds >= 60 {
+        format!("{}min", seconds / 60)
+    } else {
+        format!("{seconds}s")
+    };
+    if timestamp > now {
+        format!("in {duration}")
+    } else {
+        format!("{duration} ago")
+    }
+}
+
 pub(crate) fn github_repository(remote: &str) -> Option<String> {
     let path = remote
         .trim()
