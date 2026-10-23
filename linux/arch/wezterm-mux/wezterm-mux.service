@@ -7,6 +7,7 @@ Environment=USER=%u
 ExecStart=%h/.local/bin/wezterm-mux-server
 Restart=always
 RestartSec=2
+OOMPolicy=continue
 
 [Install]
 WantedBy=default.target
