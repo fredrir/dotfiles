@@ -17,28 +17,28 @@
 | Key | Action | Description |
 | --- | --- | --- |
 | <code>CTRL+{ Up = { streak = 1, button = "Left" } }</code> | [<code>wezterm.action.OpenLinkAtMouseCursor</code>](../../shared/wezterm/keymap/mouse-bindings.lua#L7) | Open Link At Mouse Cursor<br><code>mouse</code> |
-| <code>SHIFT+DownArrow</code> | [<code>act.SendString(map.shift_down)</code>](../../shared/wezterm/keymap/motion-keys.lua#L118) | Send String: map.shift_down |
-| <code>SHIFT+Enter</code> | [<code>act.SendString(map.shift_enter)</code>](../../shared/wezterm/keymap/motion-keys.lua#L136) | Send String: map.shift_enter |
-| <code>SHIFT+LeftArrow</code> | [<code>act.SendString(map.shift_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L100) | Send String: map.shift_left |
-| <code>SHIFT+RightArrow</code> | [<code>act.SendString(map.shift_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L106) | Send String: map.shift_right |
-| <code>SHIFT+UpArrow</code> | [<code>act.SendString(map.shift_up)</code>](../../shared/wezterm/keymap/motion-keys.lua#L112) | Send String: map.shift_up |
+| <code>SHIFT+DownArrow</code> | [<code>act.SendString(map.shift_down)</code>](../../shared/wezterm/keymap/motion-keys.lua#L116) | Send String: map.shift_down |
+| <code>SHIFT+Enter</code> | [<code>act.SendString(map.shift_enter)</code>](../../shared/wezterm/keymap/motion-keys.lua#L134) | Send String: map.shift_enter |
+| <code>SHIFT+LeftArrow</code> | [<code>act.SendString(map.shift_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L98) | Send String: map.shift_left |
+| <code>SHIFT+RightArrow</code> | [<code>act.SendString(map.shift_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L104) | Send String: map.shift_right |
+| <code>SHIFT+UpArrow</code> | [<code>act.SendString(map.shift_up)</code>](../../shared/wezterm/keymap/motion-keys.lua#L110) | Send String: map.shift_up |
 | <code>mod+key</code> | [<code>binding.action</code>](../../shared/wezterm/utils/keymap/bind-keys.lua#L29) | Binding action<br><code>bind_keys; for _, binding in ipairs(bindings); for _, key in ipairs(binds); for _, mod in ipairs(mods); unresolved modifier expression; unresolved key expression</code> |
 | <code>mods+binds</code> | [<code>rev and action.action or action</code>](../../shared/wezterm/utils/keymap/keybind.lua#L7) | Rev and action action or action<br><code>keybind; unresolved modifier expression; unresolved key expression</code> |
-| <code>mods+key</code> | [<code>action</code>](../../shared/wezterm/utils/keymap/free-cursor.lua#L99) | Action<br><code>key_table; bind; unresolved modifier expression; unresolved key expression</code> |
+| <code>mods+key</code> | [<code>action</code>](../../shared/wezterm/utils/keymap/free-cursor.lua#L194) | Action<br><code>key_table; bind; unresolved modifier expression; unresolved key expression</code> |
 | <code>rev_mod+key</code> | [<code>binding.rev</code>](../../shared/wezterm/utils/keymap/bind-keys.lua#L36) | Binding rev<br><code>bind_keys; for _, binding in ipairs(bindings); for _, key in ipairs(binds); for _, mod in ipairs(mods); rev_mod; unresolved modifier expression; unresolved key expression</code> |
 
 ## Mac Keybinds
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code>CMD+Backspace</code> | [<code>act.SendString(map.ctrl_u)</code>](../../shared/wezterm/keymap/motion-keys.lua#L151) | Send String: map.ctrl_u |
+| <code>CMD+Backspace</code> | [<code>act.SendString(map.ctrl_u)</code>](../../shared/wezterm/keymap/motion-keys.lua#L149) | Send String: map.ctrl_u |
 | <code>CMD+DownArrow</code> | [<code>document_edge("End", act.ScrollToBottom)</code>](../../shared/wezterm/keymap/motion-keys.lua#L56) | Document edge: End", act.ScrollToBottom |
-| <code>CMD+Enter</code> | [<code>act.SendString(map.ctrl_e .. map.shift_enter)</code>](../../shared/wezterm/keymap/motion-keys.lua#L141) | Send String: map.ctrl_e .. map.shift_enter |
+| <code>CMD+Enter</code> | [<code>act.SendString(map.ctrl_e .. map.shift_enter)</code>](../../shared/wezterm/keymap/motion-keys.lua#L139) | Send String: map.ctrl_e .. map.shift_enter |
 | <code>CMD+LeftArrow</code> | [<code>act.SendString(map.home)</code>](../../shared/wezterm/keymap/motion-keys.lua#L35) | Send String: map.home |
 | <code>CMD+RightArrow</code> | [<code>act.SendString(map.line_end)</code>](../../shared/wezterm/keymap/motion-keys.lua#L42) | Send String: map.line_end |
-| <code>CMD+SHIFT+Backspace</code> | [<code>act.SendString(map.ctrl_k)</code>](../../shared/wezterm/keymap/motion-keys.lua#L156) | Send String: map.ctrl_k |
+| <code>CMD+SHIFT+Backspace</code> | [<code>act.SendString(map.ctrl_k)</code>](../../shared/wezterm/keymap/motion-keys.lua#L154) | Send String: map.ctrl_k |
 | <code>CMD+SHIFT+DownArrow</code> | [<code>act.SendString(map.ctrl_shift_end)</code>](../../shared/wezterm/keymap/motion-keys.lua#L80) | Send String: map.ctrl_shift_end |
-| <code>CMD+SHIFT+Enter</code> | [<code>act.SendString(map.ctrl_a .. map.shift_enter .. map.ctrl_b)</code>](../../shared/wezterm/keymap/motion-keys.lua#L146) | Send String: map.ctrl_a .. map.shift_enter .. map.ctrl_b |
+| <code>CMD+SHIFT+Enter</code> | [<code>act.SendString(map.ctrl_a .. map.shift_enter .. map.ctrl_b)</code>](../../shared/wezterm/keymap/motion-keys.lua#L144) | Send String: map.ctrl_a .. map.shift_enter .. map.ctrl_b |
 | <code>CMD+SHIFT+LeftArrow</code> | [<code>act.SendString(map.shift_home)</code>](../../shared/wezterm/keymap/motion-keys.lua#L62) | Send String: map.shift_home |
 | <code>CMD+SHIFT+RightArrow</code> | [<code>act.SendString(map.shift_end)</code>](../../shared/wezterm/keymap/motion-keys.lua#L68) | Send String: map.shift_end |
 | <code>CMD+SHIFT+UpArrow</code> | [<code>act.SendString(map.ctrl_shift_home)</code>](../../shared/wezterm/keymap/motion-keys.lua#L74) | Send String: map.ctrl_shift_home |
@@ -46,11 +46,11 @@
 | <code>CMD+phys:h</code> | [<code>act.SendKey({ key = "h", mods = "CTRL" })</code>](../../shared/wezterm/keymap/physical-keys.lua#L29) | Send Key |
 | <code>CMD+phys:r</code> | [<code>act.SendKey({ key = "r", mods = "CTRL" })</code>](../../shared/wezterm/keymap/physical-keys.lua#L19) | Send Key |
 | <code>CMD+{ Up = { streak = 1, button = "Left" } }</code> | [<code>wezterm.action.OpenLinkAtMouseCursor</code>](../../shared/wezterm/keymap/mouse-bindings.lua#L15) | Open Link At Mouse Cursor<br><code>mouse</code> |
-| <code>OPT+DownArrow</code> | [<code>act.ScrollToPrompt(1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L93) | Scroll To Prompt: 1 |
+| <code>OPT+DownArrow</code> | [<code>act.ScrollToPrompt(1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L92) | Scroll To Prompt: 1 |
 | <code>OPT+LeftArrow</code> | [<code>act.SendString(map.ctrl_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L21) | Send String: map.ctrl_left |
 | <code>OPT+RightArrow</code> | [<code>act.SendString(map.ctrl_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L28) | Send String: map.ctrl_right |
-| <code>OPT+SHIFT+LeftArrow</code> | [<code>act.SendString(map.ctrl_shift_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L124) | Send String: map.ctrl_shift_left |
-| <code>OPT+SHIFT+RightArrow</code> | [<code>act.SendString(map.ctrl_shift_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L130) | Send String: map.ctrl_shift_right |
+| <code>OPT+SHIFT+LeftArrow</code> | [<code>act.SendString(map.ctrl_shift_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L122) | Send String: map.ctrl_shift_left |
+| <code>OPT+SHIFT+RightArrow</code> | [<code>act.SendString(map.ctrl_shift_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L128) | Send String: map.ctrl_shift_right |
 | <code>OPT+UpArrow</code> | [<code>act.ScrollToPrompt(-1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L87) | Scroll To Prompt: -1 |
 | <code>OPT+phys:Equal</code> | [<code>act.SendString("&#96;")</code>](../../shared/wezterm/keymap/physical-keys.lua#L13) | Send String: &#96; |
 | <code>OPT+phys:RightBracket</code> | [<code>act.SendString("~")</code>](../../shared/wezterm/keymap/physical-keys.lua#L16) | Send String: ~ |
@@ -63,20 +63,20 @@
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code>ALT+DownArrow</code> | [<code>act.ScrollToPrompt(1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L93) | Scroll To Prompt: 1 |
+| <code>ALT+DownArrow</code> | [<code>act.ScrollToPrompt(1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L92) | Scroll To Prompt: 1 |
 | <code>ALT+LeftArrow</code> | [<code>act.SendString(map.ctrl_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L21) | Send String: map.ctrl_left |
 | <code>ALT+RightArrow</code> | [<code>act.SendString(map.ctrl_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L28) | Send String: map.ctrl_right |
-| <code>ALT+SHIFT+LeftArrow</code> | [<code>act.SendString(map.ctrl_shift_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L124) | Send String: map.ctrl_shift_left |
-| <code>ALT+SHIFT+RightArrow</code> | [<code>act.SendString(map.ctrl_shift_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L130) | Send String: map.ctrl_shift_right |
+| <code>ALT+SHIFT+LeftArrow</code> | [<code>act.SendString(map.ctrl_shift_left)</code>](../../shared/wezterm/keymap/motion-keys.lua#L122) | Send String: map.ctrl_shift_left |
+| <code>ALT+SHIFT+RightArrow</code> | [<code>act.SendString(map.ctrl_shift_right)</code>](../../shared/wezterm/keymap/motion-keys.lua#L128) | Send String: map.ctrl_shift_right |
 | <code>ALT+UpArrow</code> | [<code>act.ScrollToPrompt(-1)</code>](../../shared/wezterm/keymap/motion-keys.lua#L87) | Scroll To Prompt: -1 |
-| <code>CTRL+Backspace</code> | [<code>act.SendString(map.ctrl_u)</code>](../../shared/wezterm/keymap/motion-keys.lua#L151) | Send String: map.ctrl_u |
+| <code>CTRL+Backspace</code> | [<code>act.SendString(map.ctrl_u)</code>](../../shared/wezterm/keymap/motion-keys.lua#L149) | Send String: map.ctrl_u |
 | <code>CTRL+DownArrow</code> | [<code>document_edge("End", act.ScrollToBottom)</code>](../../shared/wezterm/keymap/motion-keys.lua#L56) | Document edge: End", act.ScrollToBottom |
-| <code>CTRL+Enter</code> | [<code>act.SendString(map.ctrl_e .. map.shift_enter)</code>](../../shared/wezterm/keymap/motion-keys.lua#L141) | Send String: map.ctrl_e .. map.shift_enter |
+| <code>CTRL+Enter</code> | [<code>act.SendString(map.ctrl_e .. map.shift_enter)</code>](../../shared/wezterm/keymap/motion-keys.lua#L139) | Send String: map.ctrl_e .. map.shift_enter |
 | <code>CTRL+LeftArrow</code> | [<code>act.SendString(map.home)</code>](../../shared/wezterm/keymap/motion-keys.lua#L35) | Send String: map.home |
 | <code>CTRL+RightArrow</code> | [<code>act.SendString(map.line_end)</code>](../../shared/wezterm/keymap/motion-keys.lua#L42) | Send String: map.line_end |
-| <code>CTRL+SHIFT+Backspace</code> | [<code>act.SendString(map.ctrl_k)</code>](../../shared/wezterm/keymap/motion-keys.lua#L156) | Send String: map.ctrl_k |
+| <code>CTRL+SHIFT+Backspace</code> | [<code>act.SendString(map.ctrl_k)</code>](../../shared/wezterm/keymap/motion-keys.lua#L154) | Send String: map.ctrl_k |
 | <code>CTRL+SHIFT+DownArrow</code> | [<code>act.SendString(map.ctrl_shift_end)</code>](../../shared/wezterm/keymap/motion-keys.lua#L80) | Send String: map.ctrl_shift_end |
-| <code>CTRL+SHIFT+Enter</code> | [<code>act.SendString(map.ctrl_a .. map.shift_enter .. map.ctrl_b)</code>](../../shared/wezterm/keymap/motion-keys.lua#L146) | Send String: map.ctrl_a .. map.shift_enter .. map.ctrl_b |
+| <code>CTRL+SHIFT+Enter</code> | [<code>act.SendString(map.ctrl_a .. map.shift_enter .. map.ctrl_b)</code>](../../shared/wezterm/keymap/motion-keys.lua#L144) | Send String: map.ctrl_a .. map.shift_enter .. map.ctrl_b |
 | <code>CTRL+SHIFT+LeftArrow</code> | [<code>act.SendString(map.shift_home)</code>](../../shared/wezterm/keymap/motion-keys.lua#L62) | Send String: map.shift_home |
 | <code>CTRL+SHIFT+RightArrow</code> | [<code>act.SendString(map.shift_end)</code>](../../shared/wezterm/keymap/motion-keys.lua#L68) | Send String: map.shift_end |
 | <code>CTRL+SHIFT+UpArrow</code> | [<code>act.SendString(map.ctrl_shift_home)</code>](../../shared/wezterm/keymap/motion-keys.lua#L74) | Send String: map.ctrl_shift_home |

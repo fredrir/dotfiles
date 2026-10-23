@@ -41,6 +41,7 @@ return {
   spaces = {
     { accent = "#eeffd1", icon = "󰋜", id = "home", name = "Home" },
     { accent = "#d072d5", icon = "󰌠", id = "space-87018dff62bd3e7f3182-1", name = "Pyparser" },
+    { accent = "#d8fd98", icon = "", id = "space-1587418e12257e8d719302-1", name = "Div" },
   },
   templates = {},
 }

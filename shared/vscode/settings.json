@@ -144,6 +144,7 @@
   "files.associations": {
     "*.hujson": "jsonc",
     "*.lua": "lua",
+    "*.jsonlines": "jsonl",
     "*.dotfile": "properties",
     "Cargo.lock": "properties",
     "uv.lock": "properties",

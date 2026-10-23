@@ -12,3 +12,6 @@
 
 ---@class PaneMetadata
 ---@field remote_pane_id? integer
+
+---@class Pane
+---@field get_text_from_region fun(self: Pane, start_x: integer, start_y: integer, end_x: integer, end_y: integer): string

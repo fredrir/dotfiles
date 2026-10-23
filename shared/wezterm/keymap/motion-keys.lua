@@ -88,13 +88,11 @@ local motion_keys = {
     key = "UpArrow",
     mods = MOD.UNIQUE,
     action = act.ScrollToPrompt(-1),
-    free_cursor = { MoveBackwardZoneOfType = "Prompt" },
   },
   { -- Next prompt
     key = "DownArrow",
     mods = MOD.UNIQUE,
     action = act.ScrollToPrompt(1),
-    free_cursor = { MoveForwardZoneOfType = "Prompt" },
   },
 
   { -- Select char left
