@@ -1,15 +1,13 @@
-package clipboard
+package print
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"dotfiles/tools/internal/clipboard/utils"
 )
 
-func CopyFilePretty(target string) error {
+func PrintFilePretty(target string) error {
 	absPath, err := filepath.Abs(target)
 	if err != nil {
 		return fmt.Errorf("resolve path: %w", err)
@@ -23,7 +21,11 @@ func CopyFilePretty(target string) error {
 	ext := strings.TrimPrefix(filepath.Ext(absPath), ".")
 	content := fmt.Sprintf("---\n**%s:**\n```%s\n%s```\n---\n", absPath, ext, string(fileBytes))
 
-	utils.CopyString(content)
+	_, err = fmt.Fprintln(os.Stdout, content)
+
+	if err != nil {
+		return fmt.Errorf("print content: %w", err)
+	}
 
 	return nil
 }
