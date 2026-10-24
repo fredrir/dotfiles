@@ -242,6 +242,7 @@ fn malformed_configuration_reports_source_and_line() {
         ("json {}\njson {}", "duplicate json block"),
         ("markdown {}\nmd {}", "duplicate markdown block"),
         ("yaml {}\nyml {}", "duplicate yaml block"),
+        ("toml {}\ntoml {}", "duplicate toml block"),
         ("lua { width = 80\nwidth = 90 }", "duplicate setting"),
         ("lua { enabled = perhaps }", "true or false"),
         (

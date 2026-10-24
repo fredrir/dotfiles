@@ -6,8 +6,7 @@ use common::dotfmt;
 use std::fs;
 use testkit::tree_pairs;
 
-const CONFIG: &str =
-    "{\n indent = 2\n final_newline = false\n}\njson {}\nlua {}\nmarkdown {}\nconf {}\nyaml {}\n";
+const CONFIG: &str = "{\n indent = 2\n final_newline = false\n}\njson {}\nlua {}\nmarkdown {}\nconf {}\ntoml {}\nyaml {}\n";
 
 #[test]
 fn stdin_aliases_and_extensionless_explicit_languages_work() {
@@ -60,6 +59,29 @@ fn yaml_aliases_files_and_dialects_work() {
         .run();
     assert_eq!(output.code(), Some(1), "{output:?}");
     assert!(output.stderr.contains("yaml has no"), "{output:?}");
+}
+
+#[test]
+fn toml_files_are_selected_formatted_and_dialects_are_rejected() {
+    let root = tree_pairs(&[("dotfmt.dotfile", CONFIG), ("a.toml", "b   =  1 # note\n")]);
+    let output = dotfmt(root.path()).arg("a.toml").run();
+    assert!(output.success(), "{output:?}");
+    let formatted = fs::read_to_string(root.path().join("a.toml")).unwrap();
+    assert!(formatted.contains("b = 1"), "{formatted}");
+    assert!(formatted.contains("# note"), "{formatted}");
+    let output = dotfmt(root.path())
+        .args(["--editor", "-l", "toml"])
+        .stdin("c   =  2 # keep\n")
+        .run();
+    assert!(output.success(), "{output:?}");
+    assert!(output.stdout.contains("c = 2"), "{output:?}");
+    assert!(output.stdout.contains("# keep"), "{output:?}");
+    let output = dotfmt(root.path())
+        .args(["--dialect", "strict", "--stdin", "a.toml"])
+        .stdin("a = 1")
+        .run();
+    assert_eq!(output.code(), Some(1), "{output:?}");
+    assert!(output.stderr.contains("toml has no"), "{output:?}");
 }
 
 #[test]

@@ -126,6 +126,25 @@ fn syntax_failures_are_structured_and_valid_files_continue() {
 }
 
 #[test]
+fn toml_syntax_failures_keep_the_original_file_and_report_syntax() {
+    let root = tree_pairs(&[("dotfmt.dotfile", "toml {}\n"), ("a.toml", "b = = 1\n")]);
+    let mut session = Session::with_paths(root.path().into(), None);
+    let outcome = session.run(format(&["a.toml"], None)).unwrap();
+    assert!(outcome.failed());
+    let Outcome::Formatted { files, .. } = outcome else {
+        panic!("expected formatting")
+    };
+    assert_eq!(
+        files[0].result.as_ref().unwrap_err().kind,
+        DiagnosticKind::Syntax
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.toml")).unwrap(),
+        "b = = 1\n"
+    );
+}
+
+#[test]
 fn repeated_session_requests_keep_dialect_overrides_separate() {
     let root = tree_pairs(&[("dotfmt.dotfile", "json { dialect = jsonc }\n")]);
     let mut session = Session::with_paths(root.path().into(), None);

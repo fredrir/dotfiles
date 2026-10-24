@@ -17,6 +17,7 @@ pub enum Engine {
         dotfmt_markdown::config::Config,
         dotfmt_markdown::dialect::Dialect,
     ),
+    Toml(dotfmt_toml::config::Config),
     Yaml(dotfmt_yaml::config::Config),
 }
 
@@ -45,6 +46,7 @@ impl Engine {
                 dotfmt_markdown::config::Config::from_settings(settings)?,
                 dotfmt_markdown::dialect::Dialect::Auto,
             ),
+            Language::Toml => Self::Toml(dotfmt_toml::config::Config::from_settings(settings)?),
             Language::Yaml => Self::Yaml(dotfmt_yaml::config::Config::from_settings(settings)?),
         };
         engine.with_dialect(dialect)
@@ -56,6 +58,11 @@ impl Engine {
             Self::Conf(_) => {
                 if !value.eq_ignore_ascii_case("auto") {
                     return Err(configuration(format!("conf has no {value:?} dialect")));
+                }
+            }
+            Self::Toml(_) => {
+                if !value.eq_ignore_ascii_case("auto") {
+                    return Err(configuration(format!("toml has no {value:?} dialect")));
                 }
             }
             Self::Yaml(_) => {
@@ -121,6 +128,7 @@ impl Engine {
                     formatted
                 }
             }
+            Self::Toml(config) => dotfmt_toml::format(utf8(input)?, config)?,
             Self::Yaml(config) => dotfmt_yaml::format(utf8(input)?, config)?,
         };
         Ok(Formatted { text, repairs })

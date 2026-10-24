@@ -1,8 +1,8 @@
 {
-  # width = 80                   # Lua lines / Markdown tables / YAML flow collections
-  # indent = 2                   # conf / JSON / Lua / YAML
+  # width = 80                   # Lua lines / Markdown tables / YAML flow collections / TOML arrays / inline tables
+  # indent = 2                   # conf / JSON / Lua / TOML / YAML
   # final_newline = false        # true | false
-  # quote_style = double         # double | single | auto | auto-prefer-double | auto-prefer-single
+  # quote_style = double         # double | single | auto | auto-prefer-double | auto-prefer-single; TOML preserves quoting
 }
 
 conf {
@@ -59,6 +59,32 @@ lua {
   sort_requires             = false              # true | false
   final_newline             = false              # true | false
   verify                    = false              # true | false; reparse formatted output
+
+  included_files {}
+  excluded_files {}
+}
+
+toml {
+  enabled               = true  # true | false
+  indent                = 2     # 1..16; spaces / tab width
+  width                 = 80    # 1..10000; arrays / inline tables
+  final_newline         = true  # true | false
+  line_endings          = unix  # unix | windows
+  allowed_blank_lines   = 1     # 0..10
+  align_entries         = false # true | false
+  align_comments        = true  # true | false
+  align_single_comments = true  # true | false
+  array_trailing_comma  = true  # true | false
+  array_auto_expand     = true  # true | false
+  array_auto_collapse   = true  # true | false
+  compact_arrays        = true  # true | false
+  compact_inline_tables = false # true | false
+  compact_entries       = false # true | false
+  inline_table_expand   = true  # true | false
+  indent_tables         = false # true | false
+  indent_entries        = false # true | false
+  reorder_keys          = false # true | false
+  format_comments       = false # true | false; space after #
 
   included_files {}
   excluded_files {}

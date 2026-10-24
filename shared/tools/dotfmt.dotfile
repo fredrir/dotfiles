@@ -25,6 +25,13 @@ json {
 
 lua {}
 
+toml {
+  width                = 100
+  align_entries        = true
+  array_trailing_comma = true
+  allowed_blank_lines  = 1
+}
+
 yaml {
   excluded_files {
     .sops.yaml

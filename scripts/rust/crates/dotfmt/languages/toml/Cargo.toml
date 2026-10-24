@@ -1,0 +1,13 @@
+[package]
+name              = "dotfmt-toml"
+version.workspace = true
+description       = "Formats TOML"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace = true
+toml_edit = { version = "0.22", default-features = false, features = ["parse"] }

@@ -1459,6 +1459,7 @@ dependencies = [
  "dotfmt-json",
  "dotfmt-lua",
  "dotfmt-markdown",
+ "dotfmt-toml",
  "dotfmt-yaml",
  "rayon",
  "tempfile",
@@ -1506,6 +1507,14 @@ dependencies = [
  "comrak",
  "dotfmt-core",
  "unicode-width",
+]
+
+[[package]]
+name = "dotfmt-toml"
+version = "0.1.0"
+dependencies = [
+ "dotfmt-core",
+ "toml_edit",
 ]
 
 [[package]]

@@ -3,25 +3,22 @@
 ## Commands
 
 <!-- cli:commands:start -->
-| Command            | Description                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------ |
-| `zsh-build`        | Compiles the zsh startup config into one bundle with fixed command output folded in. |
-| `zsh-build where`  | Prints the file and line where bundled shell functions were defined.                 |
-| `zsh-build verify` | Compares the state a login shell reaches from the bundle and from the sources.       |
+| Command           | Description                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| `zsh-build`       | Compiles the zsh startup config into one bundle with fixed command output folded in. |
+| `zsh-build where` | Prints the file and line where bundled shell functions were defined.                 |
 <!-- cli:commands:end -->
 
 ## Flags
 
 <!-- cli:flags:start -->
-| Flag                    | Description                                                              |
-| ----------------------- | ------------------------------------------------------------------------ |
-| `-n`, `--dry-run`       | Shows whether the bundle would change without writing it.                |
-| `--root <ROOT>`         | Sets the dotfiles checkout; defaults to `$DOTFILES`, then `~/dotfiles`.  |
-| `-v`, `--verbose`       | Shows differing values in full; multi-line ones as a diff.               |
-| `-d`, `--direct`        | Sources the bundle in place of `~/.zshrc`, for one built under `--root`. |
-| `-h`, `--help`          | Shows help for the selected command and exits.                           |
-| `--completions <SHELL>` | Prints a shell completion script for the named shell and exits.          |
-| `-V`, `--version`       | Prints the version and exits.                                            |
+| Flag                    | Description                                                             |
+| ----------------------- | ----------------------------------------------------------------------- |
+| `-n`, `--dry-run`       | Shows whether the bundle would change without writing it.               |
+| `--root <ROOT>`         | Sets the dotfiles checkout; defaults to `$DOTFILES`, then `~/dotfiles`. |
+| `-h`, `--help`          | Shows help for the selected command and exits.                          |
+| `--completions <SHELL>` | Prints a shell completion script for the named shell and exits.         |
+| `-V`, `--version`       | Prints the version and exits.                                           |
 <!-- cli:flags:end -->
 
 ## Files

@@ -30,6 +30,8 @@ fn native_dialects_and_case_insensitive_extensions_are_detected() {
         ("script.LUAU", Language::Lua),
         ("README.mdown", Language::Markdown),
         ("README.mkd", Language::Markdown),
+        ("config.toml", Language::Toml),
+        ("config.TOML", Language::Toml),
         ("config.yaml", Language::Yaml),
         ("config.YML", Language::Yaml),
     ] {
