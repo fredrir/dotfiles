@@ -13,6 +13,7 @@ fn help_completions_and_metadata_describe_the_unified_cli() {
     assert!(output.success(), "{output:?}");
     for flag in [
         "--check",
+        "--clean",
         "--add",
         "--sync",
         "--dialect",

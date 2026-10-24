@@ -15,6 +15,7 @@ dotfmt -l json,markdown,yaml .
 dotfmt -l lua --dialect luau script.luau
 dotfmt -l conf --stdin ~/.ssh/config < ~/.ssh/config
 dotfmt -e note.md < note.md
+dotfmt -c -l md note.md
 dotfmt --add .
 dotfmt --sync .
 ```
@@ -34,6 +35,7 @@ Selection uses filenames and `dotfmt.dotfile`, not the editor's filetype. For JS
 | ------------------------- | ------------------------------------------------------------------------------------------------- |
 | `-l`, `--lang <LANGUAGE>` | Select configured languages; repeat or comma-separate conf, json, lua, markdown (md), yaml (yml). |
 | `--check`                 | Report formatting differences without writing files.                                              |
+| `-c`, `--clean`           | Format Markdown and strip all Markdown formatting; requires --lang markdown.                      |
 | `-a`, `--add`             | Offer dotfmt.dotfile to the target, asking before writing.                                        |
 | `-s`, `--sync`            | Replace an existing target dotfmt.dotfile with the shared configuration.                          |
 | `--dialect <DIALECT>`     | Override the dialect for one selected language.                                                   |
@@ -129,7 +131,7 @@ The shipped config enables all five languages. `dotfile sync` installs it. `--ad
 
 Markdown table dividers use three dashes by default, preserving alignment colons. Set `autosize_table = true` in the `markdown` block to size dividers to aligned columns; compact tables keep three dashes.
 
-Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. Markdown drops leading blank lines and collapses runs longer than `blank_lines` outside code and HTML blocks. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; JSONC/HuJSON editor mode preserves comments. JSONL reads any whitespace-separated values, like `jq -c`, and writes one compact record per line, dropping blank lines. YAML output must parse to the same values as its input, otherwise the file is left unchanged.
+Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. Markdown drops leading blank lines and collapses runs longer than `blank_lines` outside code and HTML blocks. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; `--clean` with `--lang markdown` formats and then strips all Markdown formatting, leaving plain text, code and table cells. JSONC/HuJSON editor mode preserves comments. JSONL reads any whitespace-separated values, like `jq -c`, and writes one compact record per line, dropping blank lines. YAML output must parse to the same values as its input, otherwise the file is left unchanged.
 
 | Result | Exit status |
 | --- | --- |

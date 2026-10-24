@@ -49,6 +49,7 @@ pub(super) enum Work {
         buffer: Option<BufferJob>,
         unreadable: usize,
         check: bool,
+        clean: bool,
     },
     Owns(Vec<PathBuf>),
 }
@@ -286,6 +287,7 @@ impl Session {
                 .chain(request.languages.iter().copied()),
         )
         .map_err(|error| vec![error])?;
+        ensure_clean(&request).map_err(|error| vec![error])?;
         let mut jobs = Vec::new();
         for selected in files {
             match self.engines.get(
@@ -350,6 +352,7 @@ impl Session {
                 buffer,
                 unreadable,
                 check,
+                clean: request.clean,
             },
             parallel,
         })
@@ -405,6 +408,15 @@ fn ensure_dialect(
     if unique.len() != 1 {
         return Err(configuration(
             "--dialect requires one selected language; use --lang LANGUAGE",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_clean(request: &Request) -> Result<(), Diagnostic> {
+    if request.clean && request.languages != [Language::Markdown] {
+        return Err(configuration(
+            "--clean requires --lang markdown (or md); it formats Markdown and strips all formatting",
         ));
     }
     Ok(())

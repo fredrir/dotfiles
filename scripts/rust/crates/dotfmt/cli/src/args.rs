@@ -20,6 +20,10 @@ pub struct Cli {
     #[arg(long, conflicts_with_all = ["add", "sync"])]
     pub check: bool,
 
+    /// Format Markdown and strip all Markdown formatting; requires --lang markdown.
+    #[arg(short = 'c', long, conflicts_with_all = ["add", "sync", "owns"])]
+    pub clean: bool,
+
     /// Offer dotfmt.dotfile configuration to the target.
     #[arg(short = 'a', long, conflicts_with_all = ["sync", "stdin", "editor", "languages", "dialect"])]
     pub add: bool,

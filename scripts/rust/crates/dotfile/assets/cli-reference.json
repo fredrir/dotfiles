@@ -405,6 +405,7 @@
     "dotfmt": {
       "--lang": "Select configured languages; repeat or comma-separate conf, json, lua, markdown (md), yaml (yml).",
       "--check": "Report formatting differences without writing files.",
+      "--clean": "Format Markdown and strip all Markdown formatting; requires --lang markdown.",
       "--add": "Offer dotfmt.dotfile to the target, asking before writing.",
       "--sync": "Replace an existing target dotfmt.dotfile with the shared configuration.",
       "--dialect": "Override the dialect for one selected language.",

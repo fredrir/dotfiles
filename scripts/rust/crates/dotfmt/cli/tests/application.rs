@@ -17,6 +17,7 @@ fn format(targets: &[&str], buffer: Option<Buffer>) -> Request {
         },
         languages: Vec::new(),
         dialect: None,
+        clean: false,
     }
 }
 
@@ -145,6 +146,7 @@ fn repeated_session_requests_keep_dialect_overrides_separate() {
             },
             languages: vec![Language::Json],
             dialect: None,
+            clean: false,
         })
         .unwrap();
     let Outcome::Owned(paths) = owned else {

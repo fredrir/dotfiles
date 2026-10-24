@@ -18,6 +18,7 @@ impl Session {
             buffer,
             unreadable,
             check,
+            clean,
         } = work
         else {
             let Work::Owns(paths) = work else {
@@ -30,14 +31,17 @@ impl Session {
                 matches!(buffer.language, Some(Language::Lua | Language::Yaml))
             });
         let execute = || {
-            let buffer = buffer.map(format_buffer);
+            let buffer = buffer.map(|buffer| format_buffer(buffer, clean));
             let files = if parallel {
                 files
                     .par_iter()
-                    .map(|job| format_file(job, check))
+                    .map(|job| format_file(job, check, clean))
                     .collect()
             } else {
-                files.iter().map(|job| format_file(job, check)).collect()
+                files
+                    .iter()
+                    .map(|job| format_file(job, check, clean))
+                    .collect()
             };
             Outcome::Formatted {
                 files,
@@ -56,11 +60,11 @@ impl Session {
     }
 }
 
-fn format_file(job: &Job, check: bool) -> FileOutcome {
+fn format_file(job: &Job, check: bool, clean: bool) -> FileOutcome {
     let result = (|| {
         let input = fs::read(&job.absolute)
             .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
-        let formatted = job.engine.format(&job.path, &input, false, job.markdown)?;
+        let formatted = job.engine.format(&job.path, &input, false, job.markdown, clean)?;
         let changed = formatted.text.as_bytes() != input;
         if changed && !check {
             dotfmt_core::file::replace(&job.absolute, formatted.text.as_bytes())
@@ -79,11 +83,11 @@ fn format_file(job: &Job, check: bool) -> FileOutcome {
     }
 }
 
-fn format_buffer(job: BufferJob) -> BufferOutcome {
+fn format_buffer(job: BufferJob, clean: bool) -> BufferOutcome {
     let input = job.input;
     let result = match job.engine {
         Some(engine) => engine
-            .format(&input.path, &input.input, input.editor, job.markdown)
+            .format(&input.path, &input.input, input.editor, job.markdown, clean)
             .map(|formatted| {
                 let output = formatted.text.into_bytes();
                 BufferChange {

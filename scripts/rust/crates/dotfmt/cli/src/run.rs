@@ -99,6 +99,7 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
         operation,
         languages: cli.languages.clone(),
         dialect: cli.dialect.clone(),
+        clean: cli.clean,
     });
     if let Some(input) = editor_input
         && outcome.as_ref().map_or(true, Outcome::failed)

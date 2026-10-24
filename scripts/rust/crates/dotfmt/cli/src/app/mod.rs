@@ -39,6 +39,7 @@ pub struct Request {
     pub operation: Operation,
     pub languages: Vec<Language>,
     pub dialect: Option<String>,
+    pub clean: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]

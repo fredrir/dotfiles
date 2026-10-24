@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod dialect;
+mod clean;
 mod obsidian;
 mod source;
 mod tables;
@@ -38,6 +39,12 @@ pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {
     format_resolved(input, config).map_err(|error| Diagnostic::new(DiagnosticKind::Internal, error))
 }
 
+/// Render the document as plain text: formatting, list and link syntax are
+/// stripped to their content, while code, HTML and table cells keep their text.
+pub fn clean(input: &str, config: &Config) -> String {
+    clean::clean(input, config)
+}
+
 fn format_resolved(input: &str, config: &Config) -> Result<String, String> {
     let normalized = input.replace("\r\n", "\n");
     let input = without_leading_blank_lines(&normalized);
@@ -62,6 +69,10 @@ fn format_resolved(input: &str, config: &Config) -> Result<String, String> {
     if !input.ends_with('\n') && output.ends_with('\n') {
         output.pop();
     }
+    Ok(finish(output, config))
+}
+
+fn finish(mut output: String, config: &Config) -> String {
     let trailing_blank_bytes: usize = output
         .split_inclusive('\n')
         .rev()
@@ -79,7 +90,7 @@ fn format_resolved(input: &str, config: &Config) -> Result<String, String> {
     if config.final_newline && !output.is_empty() && !output.ends_with('\n') {
         output.push('\n');
     }
-    Ok(output)
+    output
 }
 
 // A document of only blank lines is left to the trailing blank line handling.

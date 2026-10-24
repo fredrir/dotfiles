@@ -16,13 +16,13 @@
     "editor.defaultFormatter": "charliermarsh.ruff"
   },
   "[javascript]": {
-    "editor.defaultFormatter": "biomejs.biome"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[javascriptreact]": {
-    "editor.defaultFormatter": "biomejs.biome"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[typescript]": {
-    "editor.defaultFormatter": "vscode.typescript-language-features"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[typescriptreact]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -31,7 +31,7 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[html]": {
-    "editor.defaultFormatter": "biomejs.biome"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[json]": {
     "editor.defaultFormatter": "jkillian.custom-local-formatters"
@@ -79,38 +79,38 @@
       ]
     },
     {
-      "command": "dotfmt -l json -eq --stdin \"${file}\" &> /dev/null",
+      "command": "dotfmt -l json -eq --stdin \"${file}\"",
       "languages": [
         "json",
       ]
     },
     {
-      "command": "dotfmt -l json -q --dialect jsonc --stdin \"${file}\" &> /dev/null",
+      "command": "dotfmt -l json -q --dialect jsonc --stdin \"${file}\"",
       "languages": [
         "jsonc"
       ]
     },
     {
-      "command": "dotfmt -l json -q --dialect jsonl --stdin \"${file}\" &> /dev/null",
+      "command": "dotfmt -l json -q --dialect jsonl --stdin \"${file}\"",
       "languages": [
         "jsonl",
         "ndjson"
       ]
     },
     {
-      "command": "dotfmt -l conf -eq --stdin \"${file}\" &> /dev/null",
+      "command": "dotfmt -l conf -eq --stdin \"${file}\"",
       "languages": [
         "properties"
       ]
     },
     {
-      "command": "dotfmt -l lua -eq --stdin \"${file}\" &> /dev/null",
+      "command": "dotfmt -l lua -eq --stdin \"${file}\"",
       "languages": [
         "lua"
       ]
     },
     {
-      "command": "dotfmt -l markdown -eq --stdin \"${file}\" &> /dev/null",
+      "command": "dotfmt -l markdown -eq --stdin \"${file}\"",
       "languages": [
         "markdown",
         "skill",
@@ -120,7 +120,7 @@
       ]
     },
     {
-      "command": "dotfmt -l yaml -eq --stdin \"${file}\" &> /dev/null",
+      "command": "dotfmt -l yaml -eq --stdin \"${file}\"",
       "languages": [
         "yaml"
       ]

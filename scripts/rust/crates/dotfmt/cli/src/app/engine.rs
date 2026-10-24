@@ -85,6 +85,7 @@ impl Engine {
         input: &[u8],
         editor: bool,
         detected: dotfmt_markdown::dialect::Dialect,
+        clean: bool,
     ) -> Result<Formatted, Diagnostic> {
         let mut repairs = Repairs::default();
         let text = match self {
@@ -113,7 +114,12 @@ impl Engine {
             Self::Markdown(config, dialect) => {
                 let mut config = config.clone();
                 config.dialect = dialect.resolve(config.dialect, detected);
-                dotfmt_markdown::format(utf8(input)?, &config)?
+                let formatted = dotfmt_markdown::format(utf8(input)?, &config)?;
+                if clean {
+                    dotfmt_markdown::clean(&formatted, &config)
+                } else {
+                    formatted
+                }
             }
             Self::Yaml(config) => dotfmt_yaml::format(utf8(input)?, config)?,
         };
