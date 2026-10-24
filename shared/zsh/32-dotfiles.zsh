@@ -19,6 +19,10 @@ alias pp="hwire -i"
 alias ss="sysinfo -p"
 alias ssp="sysinfo -s"
 
+dotfmt() {
+  dotfmt "@" >/dev/null 2>&1
+}
+
 if [[ "$HOST" == "macie" ]]; then
   alias sspa="sysinfo -st archie"
 fi

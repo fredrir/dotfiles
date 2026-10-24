@@ -19,3 +19,12 @@ has_cmd nvim &&
   export NVIM="$DOTFILES/shared/nvim" \
     EDITOR=nvim \
     SUDO_EDITOR="$(command -v nvim)"
+
+if [[ -n $MACOS ]]; then
+  export PQRS_ORG_CODE_SIGN_IDENTITY=328DA931088483D470314E48FF31DDB2195996EC
+  export PQRS_ORG_INSTALLER_CODE_SIGN_IDENTITY=328DA931088483D470314E48FF31DDB2195996EC
+fi
+
+if [[ -n $LINUX ]]; then
+  export DOCLING_MCP_CONVERSION_MODE=local
+fi
