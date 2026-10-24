@@ -1,3 +1,5 @@
+use workstation::Answer::No;
+
 use super::*;
 use crate::git::{Branch, Commit};
 
@@ -394,18 +396,11 @@ fn upstream_field(branch: &Branch) -> Vec<Span<'static>> {
         branch.upstream_remote.as_deref(),
         Modifier::empty(),
     );
-    let (ahead, behind) = branch.tracking;
+
     let status = if branch.upstream_gone {
         vec![("gone".to_owned(), Role::Warning)]
     } else {
-        [
-            (ahead, "ahead", Role::DiffAdded),
-            (behind, "behind", Role::DiffRemoved),
-        ]
-        .into_iter()
-        .filter(|(count, _, _)| *count > 0)
-        .map(|(count, word, role)| (format!("{count} {word}"), role))
-        .collect()
+        Vec::new()
     };
     for (text, role) in status {
         spans.push(Span::raw("  "));
@@ -425,7 +420,7 @@ fn section(branch: &Branch, overview: &BranchOverview) -> Vec<Span<'static>> {
         "commits"
     };
     let mut spans = vec![Span::styled(
-        format!("{} {noun} not on ", overview.total),
+        format!("{} {noun} ahead of ", overview.total),
         title,
     )];
     spans.extend(reference_spans(
