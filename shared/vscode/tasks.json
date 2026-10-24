@@ -29,7 +29,6 @@
       "type": "shell",
       "command": "copy-file-pretty",
       "args": [
-        "-f",
         "${file}"
       ],
       "options": {

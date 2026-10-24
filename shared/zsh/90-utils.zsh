@@ -237,3 +237,10 @@ if has_cmd hexcat || has_cmd bat; then
     done
   }
 fi
+
+has_cmd print-file-pretty && has_cmd dclip && copy-file-pretty() {
+  local -a args=("$@")
+  (( ${args[(I)-[fn]]} )) || args=(-f "${args[@]}")
+  setopt localoptions pipefail
+  print-file-pretty "${args[@]}" | dclip
+}
