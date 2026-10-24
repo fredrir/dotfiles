@@ -19,7 +19,7 @@ alias l="ls"
 alias la="ls -a"
 alias ll="ls -lah"
 alias lld="eza -lahX --no-permissions --no-filesize --no-user --time=modified --sort=modified" # Last modified
-alias llc="eza -lahX --no-permissions --no-filesize --no-user --time=created --sort=modified"
+alias llc="eza -lahX --no-permissions --no-filesize --no-user --time=created --sort=created"
 
 alias cdf="cd ../frontend"
 alias cdb="cd ../backend"

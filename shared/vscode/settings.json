@@ -363,5 +363,6 @@
   },
   "litellm-vscode-chat.commitGeneration.enabled": false,
   "redhat.telemetry.enabled": false,
-  "explorer.confirmPasteNative": false
+  "explorer.confirmPasteNative": false,
+  "editor.inlayHints.enabled": "off"
 }
