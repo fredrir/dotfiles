@@ -79,6 +79,13 @@
       ]
     },
     {
+      "command": "dotfmt -l bib -eq --stdin \"${file}\"",
+      "languages": [
+        "bibtex",
+        "bib"
+      ]
+    },
+    {
       "command": "dotfmt -l json -eq --stdin \"${file}\"",
       "languages": [
         "json"
@@ -101,6 +108,15 @@
       "command": "dotfmt -l conf -eq --stdin \"${file}\"",
       "languages": [
         "properties"
+      ]
+    },
+    {
+      "command": "dotfmt -l latex -eq --stdin \"${file}\"",
+      "languages": [
+        "latex",
+        "tex",
+        "plaintex",
+        "context"
       ]
     },
     {
@@ -132,6 +148,12 @@
       ]
     }
   ],
+  "[latex]": {
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+  },
+  "[bibtex]": {
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+  },
   "[yaml]": {
     "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
@@ -146,6 +168,16 @@
     "*.lua": "lua",
     "*.jsonlines": "jsonl",
     "*.dotfile": "properties",
+    "*.ctx": "latex",
+    "*.mkii": "latex",
+    "*.mkiv": "latex",
+    "*.mkvi": "latex",
+    "*.mkxl": "latex",
+    "*.dtx": "latex",
+    "*.ins": "latex",
+    "*.bbx": "latex",
+    "*.cbx": "latex",
+    "*.lbx": "latex",
     "Cargo.lock": "properties",
     "uv.lock": "properties",
     "*.just": "just"

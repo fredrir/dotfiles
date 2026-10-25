@@ -30,7 +30,13 @@ impl Session {
             || buffer.as_ref().is_some_and(|buffer| {
                 matches!(
                     buffer.language,
-                    Some(Language::Lua | Language::Toml | Language::Yaml)
+                    Some(
+                        Language::Bib
+                            | Language::Latex
+                            | Language::Lua
+                            | Language::Toml
+                            | Language::Yaml,
+                    )
                 )
             });
         let execute = || {

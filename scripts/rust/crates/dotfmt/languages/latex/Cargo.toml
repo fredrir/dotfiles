@@ -1,0 +1,13 @@
+[package]
+name              = "dotfmt-latex"
+version.workspace = true
+description       = "Formats LaTeX"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace = true
+tex-fmt               = { version = "0.5.7", default-features = false }

@@ -10,8 +10,10 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub enum Engine {
+    Bib(dotfmt_bib::config::Config),
     Conf(dotfmt_conf::config::Config),
     Json(dotfmt_json::config::Config, dotfmt_json::dialect::Dialect),
+    Latex(dotfmt_latex::config::Config, dotfmt_latex::dialect::Dialect),
     Lua(dotfmt_lua::config::Config, dotfmt_lua::dialect::Dialect),
     Markdown(
         dotfmt_markdown::config::Config,
@@ -33,10 +35,15 @@ impl Engine {
         dialect: Option<&str>,
     ) -> Result<Self, Diagnostic> {
         let engine = match language {
+            Language::Bib => Self::Bib(dotfmt_bib::config::Config::from_settings(settings)?),
             Language::Conf => Self::Conf(dotfmt_conf::config::Config::from_settings(settings)?),
             Language::Json => Self::Json(
                 dotfmt_json::config::Config::from_settings(settings)?,
                 dotfmt_json::dialect::Dialect::Auto,
+            ),
+            Language::Latex => Self::Latex(
+                dotfmt_latex::config::Config::from_settings(settings)?,
+                dotfmt_latex::dialect::Dialect::Auto,
             ),
             Language::Lua => Self::Lua(
                 dotfmt_lua::config::Config::from_settings(settings)?,
@@ -55,6 +62,11 @@ impl Engine {
     pub fn with_dialect(mut self, dialect: Option<&str>) -> Result<Self, Diagnostic> {
         let value = dialect.unwrap_or("auto");
         match &mut self {
+            Self::Bib(_) => {
+                if !value.eq_ignore_ascii_case("auto") {
+                    return Err(configuration(format!("bib has no {value:?} dialect")));
+                }
+            }
             Self::Conf(_) => {
                 if !value.eq_ignore_ascii_case("auto") {
                     return Err(configuration(format!("conf has no {value:?} dialect")));
@@ -73,6 +85,10 @@ impl Engine {
             Self::Json(_, dialect) => {
                 *dialect =
                     dotfmt_json::dialect::Dialect::parse(value, true).map_err(configuration)?
+            }
+            Self::Latex(_, dialect) => {
+                *dialect =
+                    dotfmt_latex::dialect::Dialect::parse(value, true).map_err(configuration)?
             }
             Self::Lua(_, dialect) => {
                 *dialect =
@@ -96,6 +112,7 @@ impl Engine {
     ) -> Result<Formatted, Diagnostic> {
         let mut repairs = Repairs::default();
         let text = match self {
+            Self::Bib(config) => dotfmt_bib::format(utf8(input)?, config)?,
             Self::Conf(config) => dotfmt_conf::format(path, input, config)?,
             Self::Json(config, dialect) => {
                 let output = dotfmt_json::format(
@@ -112,6 +129,9 @@ impl Engine {
                 )?;
                 repairs = output.repairs;
                 output.text
+            }
+            Self::Latex(config, dialect) => {
+                dotfmt_latex::format(utf8(input)?, config, dialect.resolve(config.dialect, path))?
             }
             Self::Lua(config, dialect) => dotfmt_lua::format_with_dialect(
                 utf8(input)?,

@@ -40,3 +40,17 @@ yaml {
     **/gh/hosts.yml
   }
 }
+
+latex {
+  width          = 100
+  indent         = 2
+  wrap           = true
+  format_tables  = false
+}
+
+bib {
+  indent          = 2
+  align           = true
+  trailing_comma  = false
+  blank_lines     = 1
+}

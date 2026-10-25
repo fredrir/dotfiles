@@ -1,7 +1,7 @@
 [package]
 name              = "dotfmt"
 version.workspace = true
-description       = "Unified configurable formatter for configuration files, JSON, Lua, Markdown, TOML, and YAML"
+description       = "Unified configurable formatter for configuration files, JSON, LaTeX, Lua, Markdown, TOML, and YAML"
 edition.workspace = true
 license.workspace = true
 
@@ -13,8 +13,10 @@ clap.workspace        = true
 workstation           = { workspace = true, features = ["walk"] }
 dotfmt-core.workspace = true
 rayon.workspace       = true
+dotfmt-bib            = { path = "../languages/bib" }
 dotfmt-conf           = { path = "../languages/conf" }
 dotfmt-json           = { path = "../languages/json" }
+dotfmt-latex          = { path = "../languages/latex" }
 dotfmt-lua            = { path = "../languages/lua" }
 dotfmt-markdown       = { path = "../languages/markdown" }
 dotfmt-toml           = { path = "../languages/toml" }

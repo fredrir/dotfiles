@@ -269,7 +269,7 @@
     "dotfile theme check": "Validates every profile and resolved application color pair.",
     "dotfile theme contrast": "Prints one or every profile's resolved contrast matrix.",
     "dotfile theme outputs": "Prints the files owned by the theme generator.",
-    "dotfmt": "Formats configured conf, JSON, Lua, Markdown, TOML and YAML files with one layered configuration.",
+    "dotfmt": "Formats configured BibTeX, conf, JSON, LaTeX, Lua, Markdown, TOML and YAML files with one layered configuration.",
     "dspell": "Prints the misspelled word at or before the cursor and its guesses as JSON.",
     "dwin": "Focuses a window without raising its app's other windows.",
     "flatten": "Lifts a directory's contents out of the directories holding them.",
@@ -403,7 +403,7 @@
       "--verbose": "Lists every row instead of truncating sections after 12 rows."
     },
     "dotfmt": {
-      "--lang": "Select configured languages; repeat or comma-separate conf, json, lua, markdown (md), toml, yaml (yml).",
+      "--lang": "Select configured languages; repeat or comma-separate bib (bibtex, biblatex), conf, json, latex (tex), lua, markdown (md), toml, yaml (yml).",
       "--check": "Report formatting differences without writing files.",
       "--clean": "Format Markdown and strip all Markdown formatting; requires --lang markdown.",
       "--add": "Offer dotfmt.dotfile to the target, asking before writing.",

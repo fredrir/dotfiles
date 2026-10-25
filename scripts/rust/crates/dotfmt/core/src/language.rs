@@ -2,8 +2,10 @@ use std::path::Path;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Language {
+    Bib,
     Conf,
     Json,
+    Latex,
     Lua,
     Markdown,
     Toml,
@@ -11,9 +13,11 @@ pub enum Language {
 }
 
 impl Language {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
+        Self::Bib,
         Self::Conf,
         Self::Json,
+        Self::Latex,
         Self::Lua,
         Self::Markdown,
         Self::Toml,
@@ -22,8 +26,10 @@ impl Language {
 
     pub fn name(self) -> &'static str {
         match self {
+            Self::Bib => "bib",
             Self::Conf => "conf",
             Self::Json => "json",
+            Self::Latex => "latex",
             Self::Lua => "lua",
             Self::Markdown => "markdown",
             Self::Toml => "toml",
@@ -33,8 +39,10 @@ impl Language {
 
     pub fn aliases(self) -> &'static [&'static str] {
         match self {
+            Self::Bib => &["bib", "bibtex", "biblatex"],
             Self::Conf => &["conf"],
             Self::Json => &["json"],
+            Self::Latex => &["latex", "tex"],
             Self::Lua => &["lua"],
             Self::Markdown => &["markdown", "md"],
             Self::Toml => &["toml"],
@@ -44,6 +52,7 @@ impl Language {
 
     pub fn extensions(self) -> &'static [&'static str] {
         match self {
+            Self::Bib => &["bib"],
             Self::Conf => &["conf", "config", "dotfile"],
             Self::Json => &[
                 "json",
@@ -54,6 +63,10 @@ impl Language {
                 "ndjson",
                 "jsonlines",
             ],
+            Self::Latex => &[
+                "tex", "ltx", "latex", "sty", "cls", "dtx", "ins", "def", "clo", "lco", "fd",
+                "bbx", "cbx", "lbx", "pgf", "tikz", "ctx", "mkii", "mkiv", "mkvi", "mkxl",
+            ],
             Self::Lua => &["lua", "luau"],
             Self::Markdown => &["md", "markdown", "mdown", "mkd"],
             Self::Toml => &["toml"],
@@ -63,8 +76,10 @@ impl Language {
 
     pub fn default_stdin(self) -> &'static Path {
         Path::new(match self {
+            Self::Bib => "stdin.bib",
             Self::Conf => "stdin.conf",
             Self::Json => "stdin.json",
+            Self::Latex => "stdin.tex",
             Self::Lua => "stdin.lua",
             Self::Markdown => "stdin.md",
             Self::Toml => "stdin.toml",
@@ -78,7 +93,7 @@ impl Language {
             .find(|language| language.aliases().contains(&value))
             .ok_or_else(|| {
                 format!(
-                    "unknown language '{value}'; expected conf, json, lua, markdown (md), toml, or yaml (yml)"
+                    "unknown language '{value}'; expected bib (bibtex, biblatex), conf, json, latex (tex), lua, markdown (md), toml, or yaml (yml)"
                 )
             })
     }

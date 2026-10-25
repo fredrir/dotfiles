@@ -37,7 +37,7 @@ fn help_completions_and_metadata_describe_the_unified_cli() {
     assert!(output.stdout.contains("\"--lang\""));
     assert!(
         output.stdout.contains(
-            "\"choices\":[\"conf\",\"json\",\"lua\",\"md\",\"markdown\",\"toml\",\"yml\",\"yaml\"]"
+            "\"choices\":[\"bibtex\",\"biblatex\",\"bib\",\"conf\",\"json\",\"tex\",\"latex\",\"lua\",\"md\",\"markdown\",\"toml\",\"yml\",\"yaml\"]"
         ),
         "{output:?}"
     );
@@ -56,10 +56,12 @@ fn add_prompts_and_sync_only_updates_an_existing_unified_config() {
     assert!(output.success(), "{output:?}");
     let bundled = fs::read_to_string(root.path().join("dotfmt.dotfile")).unwrap();
     for language in [
+        "bib {",
         "conf {",
-        "markdown {",
         "json {",
+        "latex {",
         "lua {",
+        "markdown {",
         "toml {",
         "yaml {",
     ] {

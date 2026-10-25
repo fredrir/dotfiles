@@ -53,7 +53,7 @@ fn self_formatting_compact_configuration_preserves_effective_settings() {
     use dotfmt_core::config::Resolver;
     use dotfmt_core::language::Language;
     for original in [
-        "conf{}\njson{indent=4}\nlua{include{ *.custom }}\nmarkdown{width=80\n}\n",
+        "conf{}\njson{indent=4}\nlua{include{ *.custom }}\nmarkdown{width=80\n}\nlatex{width=90}\nbib{align=false}\n",
         r#"{
 width = 80       # global width
 indent = 2 # global indent

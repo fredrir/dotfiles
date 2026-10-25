@@ -1,0 +1,12 @@
+[package]
+name              = "dotfmt-bib"
+version.workspace = true
+description       = "Format BibTeX and BibLaTeX bibliographies without changing values"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace = true

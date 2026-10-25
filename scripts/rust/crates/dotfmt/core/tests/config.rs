@@ -240,6 +240,8 @@ fn malformed_configuration_reports_source_and_line() {
         ("{ width = 0 }", "positive integer"),
         ("{ final_newline = maybe }", "true or false"),
         ("json {}\njson {}", "duplicate json block"),
+        ("bib {}\nbibtex {}", "duplicate bib block"),
+        ("latex {}\ntex {}", "duplicate latex block"),
         ("markdown {}\nmd {}", "duplicate markdown block"),
         ("yaml {}\nyml {}", "duplicate yaml block"),
         ("toml {}\ntoml {}", "duplicate toml block"),
