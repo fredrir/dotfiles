@@ -97,14 +97,16 @@ _zcomp_complete() {
   local _zcomp_tag _zcomp_label line orig=${_zcomp_orig[$service]:-} ret=1
   # Colors only where they render: fzf-tab passes display strings to fzf with --ansi.
   local color=${${functions[fzf-tab-complete]:+--color}:-} # shucked: ignore=C001
-  local -a initial
+  local -a initial buffer
   if (( IN_FZF_TAB && $+commands[fzf] )); then
     case $service in
     bun|bunx|npm|npx|pnpm|pn|pnpx|pnx|yarn) initial=(--cached) ;; # shucked: ignore=C001
     esac
   fi
+  # jq reads keys from whatever the line pipes or redirects into it.
+  [[ $service == jq ]] && buffer=(--lbuffer="$LBUFFER" --rbuffer="$RBUFFER") # shucked: ignore=C001
   _zcomp_lines=("${(@f)$(command zcomp complete --command="$service" --current="$CURRENT" \
-    --prefix="$PREFIX" $color "${initial[@]}" -- "${words[@]}" 2>/dev/null)}")
+    --prefix="$PREFIX" $color "${initial[@]}" "${buffer[@]}" -- "${words[@]}" 2>/dev/null)}")
 
   if (( IN_FZF_TAB && $+commands[fzf] )) && (( ${_zcomp_lines[(Ie)search]} )); then
     # Cancellation must not fall through to another completion attempt.
@@ -130,7 +132,7 @@ _zcomp_complete() {
       ;;
     files)
       _zcomp_add && ret=0
-      _files && ret=0
+      _files ${fields[2]:+-g "$fields[2]"} && ret=0
       ;;
     dirs)
       _zcomp_add && ret=0
@@ -165,7 +167,7 @@ _zcomp_register() {
   [[ $fn == _zcomp_complete ]] || _zcomp_orig[$command]=$fn
   compdef _zcomp_complete "$command"
   # Ranked candidates keep the order zcomp gives them, fzf-tab included.
-  zstyle ":completion:*:*:$command:*:(registry|popular|dist-tags|versions|sessions|gallery|thinking|values|scripts|schemes)" sort false
+  zstyle ":completion:*:*:$command:*:(registry|popular|dist-tags|versions|sessions|gallery|thinking|values|scripts|schemes|keys|variables|keywords|formats)" sort false
   zstyle ":fzf-tab:complete:$command:*" prefix ''
   # The query is the typed word; a shared prefix of the colored display lines is only escape codes.
   zstyle ":fzf-tab:complete:$command:*" query-string input

@@ -340,7 +340,7 @@
     "hwtune curve bench": "Measures per-core single-thread throughput as a clock-stretching detector.",
     "hwtune gpu": "Sweeps GPU power caps through LACT.",
     "hwtune gpu sweep": "Measures GPU metrics at each power cap, then restores the original cap.",
-    "zcomp": "Prints zsh completion candidates for npm, pnpm, yarn, bun, their runners, pi, and shadcn.",
+    "zcomp": "Prints zsh completion candidates for npm, pnpm, yarn, bun, their runners, pi, shadcn, and jq.",
     "zcomp complete": "Prints the candidates for the word under the cursor; called by the zsh integration.",
     "zcomp refresh": "Rebuilds one cached source; started in the background when a cache goes stale.",
     "zcomp warm": "Starts background rebuilds for missing or stale caches; run at shell start.",
@@ -582,7 +582,9 @@
       "--command": "Selects the command being completed, such as `pnpm` or `bunx`.",
       "--current": "Selects the cursor word by its position, counting from 1 like `$CURRENT`.",
       "--prefix": "Sets the cursor word up to the cursor, like `$PREFIX`.",
-      "--color": "Colors the candidates with the dotfile theme; set by the zsh integration under fzf-tab."
+      "--color": "Colors the candidates with the dotfile theme; set by the zsh integration under fzf-tab.",
+      "--lbuffer": "Sets the command line left of the cursor, like `$LBUFFER`; passed for `jq`.",
+      "--rbuffer": "Sets the command line right of the cursor, like `$RBUFFER`; passed for `jq`."
     },
     "zsh-build": {
       "--dry-run": "Shows whether the bundle would change without writing it.",

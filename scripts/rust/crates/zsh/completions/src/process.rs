@@ -1,6 +1,7 @@
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -49,4 +50,85 @@ pub fn output(program: &Path, args: &[&str], cwd: &Path, timeout: Duration) -> O
     // Some tools print help to stderr.
     let text = if text.trim().is_empty() { errors } else { text };
     (!text.trim().is_empty()).then_some(text)
+}
+
+pub struct Lines {
+    pub lines: Vec<String>,
+    // The exit code, when the command ended on its own.
+    pub code: Option<i32>,
+}
+
+// Stderr lines that `keep` accepts, stopping the command after `limit` of them or at `timeout`.
+pub fn stderr_lines(
+    program: &Path,
+    args: &[String],
+    cwd: &Path,
+    stdin: Option<Vec<u8>>,
+    timeout: Duration,
+    keep: fn(&str) -> bool,
+    limit: usize,
+) -> Lines {
+    let mut found = Lines {
+        lines: Vec::new(),
+        code: None,
+    };
+    let spawned = Command::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn();
+    let Ok(mut child) = spawned else {
+        return found;
+    };
+    if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
+        thread::spawn(move || {
+            let _ = pipe.write_all(&bytes);
+        });
+    }
+    let Some(stderr) = child.stderr.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return found;
+    };
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(stderr).split(b'\n') {
+            let Ok(line) = line else { break };
+            let line = String::from_utf8_lossy(&line);
+            if keep(&line) && sender.send(line.into_owned()).is_err() {
+                break;
+            }
+        }
+    });
+    let deadline = Instant::now() + timeout;
+    let mut ended = false;
+    while found.lines.len() < limit {
+        match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(line) => found.lines.push(line),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                ended = true;
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => break,
+        }
+    }
+    while ended && Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                found.code = status.code();
+                return found;
+            }
+            Ok(None) => thread::sleep(POLL),
+            Err(_) => break,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    found
 }

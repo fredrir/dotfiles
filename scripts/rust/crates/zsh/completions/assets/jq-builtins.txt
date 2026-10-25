@@ -1,0 +1,204 @@
+IN	whether the input is among the outputs of s
+INDEX	object of the inputs keyed by f
+JOIN	join with an index from INDEX
+abs	absolute value
+acos	arc cosine
+acosh	inverse hyperbolic cosine
+add	sum, concatenate or merge the elements, or the outputs of f
+all	whether every element, or every output of f, is true
+any	whether some element, or some output of f, is true
+arrays	select arrays
+ascii	character for a codepoint
+ascii_downcase	lowercase ASCII letters
+ascii_upcase	uppercase ASCII letters
+asin	arc sine
+asinh	inverse hyperbolic sine
+atan	arc tangent
+atan2	arc tangent of y/x
+atanh	inverse hyperbolic tangent
+booleans	select booleans
+bsearch	index of a value in a sorted array
+builtins	builtin functions as name/arity
+capture	object of named regex captures
+cbrt	cube root
+ceil	round up
+combinations	cartesian products of arrays
+contains	whether the input contains the argument
+copysign	magnitude of x with the sign of y
+cos	cosine
+cosh	hyperbolic cosine
+date	seconds since epoch to ISO 8601
+dateadd	add seconds to a date
+datesub	subtract seconds from a date
+debug	print the input, or msg, to stderr
+del	delete the paths of f
+delpaths	delete the given paths
+drem	IEEE remainder
+empty	no output
+endswith	whether the string ends with the argument
+env	environment variables
+erf	error function
+erfc	complementary error function
+error	raise an error
+exp	e to the power of the input
+exp10	10 to the power of the input
+exp2	2 to the power of the input
+explode	string to codepoints
+expm1	e to the power of the input, minus 1
+fabs	absolute value
+fdim	positive difference
+finites	select finite numbers
+first	first element, or first output of f
+flatten	flatten nested arrays, optionally to a depth
+floor	round down
+fma	x * y + z, rounded once
+fmax	larger of two numbers
+fmin	smaller of two numbers
+fmod	floating-point remainder
+format	apply a format by name, such as "csv"
+frexp	mantissa and exponent
+from_entries	object from key and value entries
+fromdate	ISO 8601 to seconds since epoch
+fromdateiso8601	ISO 8601 to seconds since epoch
+fromjson	parse a JSON string
+fromstream	values from [path, leaf] events
+gamma	log gamma
+get_jq_origin	directory of the jq binary
+get_prog_origin	directory of the filter file
+get_search_list	module search paths
+getpath	value at a path
+gmtime	seconds since epoch to broken-down UTC time
+group_by	group elements by f
+gsub	replace every regex match
+halt	stop without output
+halt_error	stop, printing the input to stderr
+has	whether the object has the key, or the array the index
+have_decnum	whether decimal numbers are supported
+have_literal_numbers	whether number literals keep their precision
+hypot	hypotenuse
+implode	codepoints to string
+in	whether the input is a key of the argument
+index	first index of a substring or element
+indices	every index of a substring or element
+infinite	positive infinity
+input	next input
+input_filename	name of the current input file
+input_line_number	line number of the current input
+inputs	every remaining input
+inside	whether the argument contains the input
+isempty	whether f has no output
+isfinite	whether the number is finite
+isinfinite	whether the number is infinite
+isnan	whether the number is NaN
+isnormal	whether the number is normal
+isvalid	whether f succeeds
+iterables	select arrays and objects
+j0	Bessel function of the first kind, order 0
+j1	Bessel function of the first kind, order 1
+jn	Bessel function of the first kind, order n
+join	join strings with a separator
+keys	sorted keys, or array indices
+keys_unsorted	keys in insertion order
+last	last element, or last output of f
+ldexp	x * 2 to the power of e
+leaf_paths	paths to every scalar
+length	length of a string, array or object, or a number's absolute value
+lgamma	log gamma
+lgamma_r	log gamma and its sign
+limit	first n outputs of f
+localtime	seconds since epoch to broken-down local time
+log	natural logarithm
+log10	base 10 logarithm
+log1p	natural logarithm of 1 + x
+log2	base 2 logarithm
+logb	exponent of a number
+ltrim	remove leading whitespace
+ltrimstr	remove a prefix
+map	apply f to each element
+map_values	apply f to each value
+match	regex match objects
+max	largest element
+max_by	element with the largest f
+min	smallest element
+min_by	element with the smallest f
+mktime	broken-down time to seconds since epoch
+modf	fractional and integer parts
+modulemeta	metadata of a module
+nan	not a number
+nearbyint	round to the nearest integer
+nextafter	next number toward y
+nexttoward	next number toward y
+normals	select normal numbers
+not	logical not
+now	seconds since epoch
+nth	nth element, or nth output of f
+nulls	select nulls
+numbers	select numbers
+objects	select objects
+path	path of each output of f
+paths	paths to every value, or to those where f is true
+pick	keep only the paths of f
+pow	x to the power of y
+range	numbers from from up to upto, stepping by by
+recurse	the input and every value inside it, or recursion through f
+recurse_down	the input and every value inside it
+remainder	IEEE remainder
+repeat	apply f again and again, emitting each result
+reverse	reverse an array or string
+rindex	last index of a substring or element
+rint	round to the nearest integer
+round	round half away from zero
+rtrim	remove trailing whitespace
+rtrimstr	remove a suffix
+scalars	select values that are not arrays or objects
+scalb	x * 2 to the power of e
+scalbln	x * 2 to the power of e
+scan	every regex match
+select	keep the input when f is true
+setpath	set the value at a path
+significand	mantissa between 1 and 2
+sin	sine
+sinh	hyperbolic sine
+skip	outputs of f after the first n
+sort	sort an array
+sort_by	sort by f
+split	split a string by a separator or regex
+splits	stream of the parts between regex matches
+sqrt	square root
+startswith	whether the string starts with the argument
+stderr	print the input to stderr
+strflocaltime	format local time
+strftime	format broken-down time
+strings	select strings
+strptime	parse a string into broken-down time
+sub	replace the first regex match
+tan	tangent
+tanh	hyperbolic tangent
+test	whether a regex matches
+tgamma	gamma function
+to_entries	object to key and value entries
+toarray	wrap a non-array in an array
+toboolean	parse "true" or "false"
+todate	seconds since epoch to ISO 8601
+todateiso8601	seconds since epoch to ISO 8601
+tojson	serialize as a JSON string
+tonumber	parse a number
+tostream	[path, leaf] events of the input
+tostring	convert to a string
+transpose	transpose an array of arrays
+trim	remove surrounding whitespace
+trimstr	remove a prefix and a suffix
+trunc	round toward zero
+truncate_stream	drop leading path parts of stream events
+type	name of the type
+unique	sorted unique elements
+unique_by	elements unique by f
+until	apply update until cond is true
+utf8bytelength	length in UTF-8 bytes
+values	select non-null values
+walk	apply f to every value, bottom up
+while	apply update while cond is true, emitting each value
+with_entries	map over key and value entries
+y0	Bessel function of the second kind, order 0
+y1	Bessel function of the second kind, order 1
+yn	Bessel function of the second kind, order n

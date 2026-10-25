@@ -4,6 +4,7 @@ mod cache;
 mod context;
 mod help;
 mod http;
+mod jq;
 mod line;
 mod node;
 mod pi;
@@ -29,7 +30,7 @@ const SHIM: &str = include_str!("../assets/zcomp.zsh");
 #[derive(Parser)]
 #[command(
     version,
-    about = "Completion candidates for node package managers, pi and shadcn, answered for zsh"
+    about = "Completion candidates for node package managers, pi, shadcn and jq, answered for zsh"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -62,6 +63,22 @@ enum Action {
 
         #[arg(long, help = "Color the candidates with the dotfile theme")]
         color: bool,
+
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            requires = "rbuffer",
+            help = "The command line left of the cursor, like `$LBUFFER`"
+        )]
+        lbuffer: Option<String>,
+
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            requires = "lbuffer",
+            help = "The command line right of the cursor, like `$RBUFFER`"
+        )]
+        rbuffer: Option<String>,
 
         #[arg(long, hide = true)]
         picker: bool,
@@ -100,13 +117,18 @@ fn main() -> ExitCode {
             current,
             prefix,
             color,
+            lbuffer,
+            rbuffer,
             picker,
             cached,
             words,
         }) => {
             let mut ctx = Context::from_env();
             ctx.cached_packages = cached;
-            let line = Line::new(words, current, prefix);
+            let mut line = Line::new(words, current, prefix);
+            if let (Some(left), Some(right)) = (lbuffer, rbuffer) {
+                line = line.with_buffer(left, right);
+            }
             let style = if color {
                 Style::for_mode(ColorMode::Auto, true)
             } else {
@@ -145,6 +167,9 @@ fn complete(ctx: &Context, command: &str, line: &Line) -> Reply {
     if command == "shadcn" {
         return shadcn::complete(ctx, line);
     }
+    if command == "jq" {
+        return jq::complete(ctx, line);
+    }
     match Manager::from_command(command) {
         Some((manager, runner)) => node::complete(ctx, line, manager, runner),
         None => Reply::new(),
@@ -177,6 +202,9 @@ fn refresh(ctx: &Context, source: &str, args: &[String]) -> bool {
         "shadcn-spec" => ctx
             .which("shadcn")
             .is_some_and(|binary| cache::refresh(ctx, &shadcn::spec::SpecSource { binary })),
+        "jq-builtins" => ctx
+            .which("jq")
+            .is_some_and(|binary| cache::refresh(ctx, &jq::builtins::BuiltinsSource { binary })),
         _ => false,
     }
 }
@@ -184,6 +212,9 @@ fn refresh(ctx: &Context, source: &str, args: &[String]) -> bool {
 fn warm(ctx: &Context) {
     if let Some(binary) = ctx.which("shadcn") {
         cache::warm(ctx, &shadcn::spec::SpecSource { binary });
+    }
+    if let Some(binary) = ctx.which("jq") {
+        cache::warm(ctx, &jq::builtins::BuiltinsSource { binary });
     }
     let mut any_manager = false;
     for manager in Manager::ALL {
@@ -213,7 +244,7 @@ fn shim() -> String {
     let commands: Vec<&str> = Manager::ALL
         .iter()
         .flat_map(|manager| manager.commands().iter().map(|(name, _)| *name))
-        .chain(["pi", "shadcn"])
+        .chain(["pi", "shadcn", "jq"])
         .collect();
     SHIM.replace("{{COMMANDS}}", &commands.join(" "))
 }

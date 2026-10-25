@@ -7,6 +7,8 @@ pub struct Line {
     pub current: usize,
     // The current word up to the cursor.
     pub prefix: String,
+    // The whole command line left and right of the cursor, when the shell passed it.
+    pub buffer: Option<(String, String)>,
 }
 
 #[derive(Debug, Default)]
@@ -33,7 +35,13 @@ impl Line {
             words,
             current,
             prefix,
+            buffer: None,
         }
+    }
+
+    pub fn with_buffer(mut self, left: String, right: String) -> Line {
+        self.buffer = Some((left, right));
+        self
     }
 
     pub fn before(&self) -> &[String] {

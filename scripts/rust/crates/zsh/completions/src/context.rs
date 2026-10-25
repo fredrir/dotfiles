@@ -75,6 +75,12 @@ impl Context {
             .filter(|value| !value.is_empty())
     }
 
+    pub fn vars(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.vars
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+    }
+
     pub fn var_path(&self, name: &str) -> Option<PathBuf> {
         self.var(name).map(|value| self.expand(value))
     }

@@ -20,7 +20,10 @@ pub struct Reply {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Section {
     Group(Group),
-    Files { directories: bool },
+    Files {
+        directories: bool,
+        glob: Option<String>,
+    },
     Message(String),
 }
 
@@ -158,11 +161,25 @@ impl Reply {
     }
 
     pub fn files(&mut self) {
-        self.target().push(Section::Files { directories: false });
+        self.target().push(Section::Files {
+            directories: false,
+            glob: None,
+        });
+    }
+
+    // Files matching `glob` first, then any file when none do.
+    pub fn files_matching(&mut self, glob: &str) {
+        self.target().push(Section::Files {
+            directories: false,
+            glob: Some(glob.into()),
+        });
     }
 
     pub fn directories(&mut self) {
-        self.target().push(Section::Files { directories: true });
+        self.target().push(Section::Files {
+            directories: true,
+            glob: None,
+        });
     }
 
     pub fn message(&mut self, text: impl Into<String>) {
@@ -244,8 +261,12 @@ impl Reply {
 fn render_sections(out: &mut String, sections: &[Section], style: &Style) {
     for section in sections {
         match section {
-            Section::Files { directories } => {
-                out.push_str(if *directories { "dirs\n" } else { "files\n" });
+            Section::Files { directories, glob } => {
+                out.push_str(if *directories { "dirs" } else { "files" });
+                if let Some(glob) = glob {
+                    let _ = write!(out, "\t{}", clean(glob));
+                }
+                out.push('\n');
             }
             Section::Message(text) => {
                 let _ = writeln!(out, "message\t{}", clean(text));

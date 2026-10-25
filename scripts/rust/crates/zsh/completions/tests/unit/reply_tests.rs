@@ -55,6 +55,15 @@ fn groups_render_as_tab_separated_lines() {
 }
 
 #[test]
+fn file_sections_carry_their_glob() {
+    let mut reply = Reply::new();
+    reply.files_matching("*.json(-.)");
+    reply.files();
+    reply.directories();
+    assert_eq!(reply.plain(), "files\t*.json(-.)\nfiles\ndirs\n");
+}
+
+#[test]
 fn a_value_is_offered_once_across_groups() {
     let mut reply = Reply::new();
     reply.group(Group::new("history", "recent").items([Item::bare("react"), Item::bare("vue")]));
