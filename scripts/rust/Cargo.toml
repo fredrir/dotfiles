@@ -69,44 +69,41 @@ undocumented_unsafe_blocks = "deny"
 
 # Versions for anything more than one crate depends on
 [workspace.dependencies]
-age = "0.12.1"
-clap = { version = "4", features = ["derive"] }
-clap_complete = "4"
-crossbeam-channel = "0.5"
-crossterm = "0.29"
-libc = "0.2"
-nix = "0.30.1"
-rustix = "1.1.4"
-ratatui = { version = "0.30.2", default-features = false, features = [
-  "crossterm_0_29",
-  "scrolling-regions",
-] }
-rayon = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.10"
-tachyonfx = { version = "0.25.1", default-features = false, features = ["std"] }
-tempfile = "3"
-workstation = { path = "crates/workstation" }
-dotfmt-core = { path = "crates/dotfmt/core" }
-gitkit = { path = "crates/git/gitkit" }
-hostkit = { path = "crates/hostkit" }
-testkit = { path = "crates/testkit" }
-ui-cli = { path = "crates/ui/cli" }
-ui-batch = { path = "crates/ui/batch" }
-ui-diff-view = { path = "crates/ui/diff-view" }
-ui-file-explorer = { path = "crates/ui/file-explorer" }
-ui-gallery = { path = "crates/ui/gallery" }
-ui-picker = { path = "crates/ui/picker" }
-ui-progress = { path = "crates/ui/progress" }
-ui-terminal = { path = "crates/ui/terminal" }
-ui-theme = { path = "crates/ui/theme" }
-ui-widgets = { path = "crates/ui/widgets" }
-zsh-build = { path = "crates/zsh/build" }
-unicode-width = "0.2"
+age                  = "0.12.1"
+clap                 = { version = "4", features = ["derive"] }
+clap_complete        = "4"
+crossbeam-channel    = "0.5"
+crossterm            = "0.29"
+libc                 = "0.2"
+nix                  = "0.30.1"
+rustix               = "1.1.4"
+ratatui              = { version = "0.30.2", default-features = false, features = ["crossterm_0_29", "scrolling-regions"] }
+rayon                = "1"
+serde                = { version = "1", features = ["derive"] }
+serde_json           = "1"
+sha2                 = "0.10"
+tachyonfx            = { version = "0.25.1", default-features = false, features = ["std"] }
+tempfile             = "3"
+workstation          = { path = "crates/workstation" }
+dotfmt-core          = { path = "crates/dotfmt/core" }
+gitkit               = { path = "crates/git/gitkit" }
+hostkit              = { path = "crates/hostkit" }
+testkit              = { path = "crates/testkit" }
+ui-cli               = { path = "crates/ui/cli" }
+ui-batch             = { path = "crates/ui/batch" }
+ui-diff-view         = { path = "crates/ui/diff-view" }
+ui-file-explorer     = { path = "crates/ui/file-explorer" }
+ui-gallery           = { path = "crates/ui/gallery" }
+ui-picker            = { path = "crates/ui/picker" }
+ui-progress          = { path = "crates/ui/progress" }
+ui-terminal          = { path = "crates/ui/terminal" }
+ui-theme             = { path = "crates/ui/theme" }
+ui-widgets           = { path = "crates/ui/widgets" }
+zsh-build            = { path = "crates/zsh/build" }
+unicode-width        = "0.2"
 unicode-segmentation = "1.13"
-similar = "2"
-sysinfo_backend = { package = "sysinfo", version = "0.39.6", default-features = false }
+similar              = "2"
+sysinfo_backend      = { package = "sysinfo", version = "0.39.6", default-features = false }
 
 gix-glob   = "0.27.1"
 gix-ignore = "0.22.1"

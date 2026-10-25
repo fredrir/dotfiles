@@ -15,6 +15,7 @@
 | ----------------------- | ------------------------------------------------------------------------------------------------- |
 | `-f`, `--full`          | Prints the full path instead of a relative one.                                                   |
 | `-r`, `--relative`      | Prints the path relative to the home directory, or the full path outside it. This is the default. |
+| `-g`, `--git`           | Prints the path relative to the repository root, or the `--relative` path outside one.            |
 | `-h`, `--help`          | Shows help for the selected command and exits.                                                    |
 | `--completions <SHELL>` | Prints a shell completion script for the named shell and exits.                                   |
 | `-V`, `--version`       | Prints the version and exits.                                                                     |

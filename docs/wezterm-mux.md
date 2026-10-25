@@ -35,7 +35,6 @@ reached through `socat`.
 | Mux restart | `[Y/n]` prompt naming the machines; terminates their local sessions; remote shells return as orphans |
 | macOS Local Network | Allow `wezterm-mux-server` per WezTerm update; else cable/LAN: `No route to host` |
 
-
 | Route | macie `tls_servers` | macie peer-facing | archie `tls_servers` | archie peer-facing |
 | --- | --- | --- | --- | --- |
 | cable | 127.0.0.1:8443 | 10.77.77.1:8443 | 10.77.77.2:8443 | 10.77.77.2:8443 |
@@ -177,7 +176,6 @@ literal to bind even with `ip_nonlocal_bind`.
 | --- | --- | --- |
 | server verifying its peer | client cert Subject CN | `CN=fredrir` (`$USER`) |
 | client verifying the server | server cert SAN | `DNS:<hostname>` |
-
 
 ```
 mtls ca                  # macie only, once -- the key was destroyed after signing,

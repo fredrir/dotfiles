@@ -4,13 +4,11 @@
 # are inherited from Yazi's shipped configuration.
 
 [opener]
-edit = [
-  { run = '''
+edit = [{ run = '''
       [ -z "$YAZI_OPEN_VSCODE" ] && exec ${EDITOR:-nvim} %s
       cd %s1 2>/dev/null
       printf "\033]1337;SetUserVar=OPEN_VSCODE=$(pwd | tr -d "\n" | base64 | tr -d "\n")\007"
-    ''', desc = "$EDITOR", for = "unix", block = true },
-]
+    ''', desc = "$EDITOR", for = "unix", block = true }]
 
 [[plugin.prepend_fetchers]]
 url   = "*"

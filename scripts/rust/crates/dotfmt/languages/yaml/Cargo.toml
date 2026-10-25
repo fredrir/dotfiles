@@ -9,6 +9,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-dotfmt-core.workspace = true
-saphyr-parser = "0.1"
+dotfmt-core.workspace   = true
+saphyr-parser           = "0.1"
 unicode-width.workspace = true

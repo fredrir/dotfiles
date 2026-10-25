@@ -26,7 +26,6 @@ probe sees 10.77.77.2:22
 new session uses USB
 ```
 
-
 | Event | Existing SSH | Next `ssh archie` |
 | --- | --- | --- |
 | Home Wi-Fi, no cable/direct AP | Current connection continues | **LAN** |
@@ -80,7 +79,6 @@ archie-direct benchmark shared
 archie-direct stop
 ```
 
-
 ```
 dotfile system install --yes
 sudo systemctl daemon-reload
@@ -104,7 +102,6 @@ ssh wifi-archie            direct Wi-Fi, or nothing
 ssh lan-archie             filtered regular LAN, or nothing
 ssh 100.124.205.100        tailscale, or nothing
 ```
-
 
 ```
 ssh -G 10.77.77.2 | grep -i hostkeyalias

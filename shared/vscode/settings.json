@@ -55,7 +55,7 @@
     "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[toml]": {
-    "editor.defaultFormatter": "tamasfe.even-better-toml"
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[rust]": {
     "editor.defaultFormatter": "rust-lang.rust-analyzer"
@@ -81,7 +81,7 @@
     {
       "command": "dotfmt -l json -eq --stdin \"${file}\"",
       "languages": [
-        "json",
+        "json"
       ]
     },
     {
@@ -124,6 +124,12 @@
       "languages": [
         "yaml"
       ]
+    },
+    {
+      "command": "dotfmt -l toml -eq --stdin \"${file}\"",
+      "languages": [
+        "toml"
+      ]
     }
   ],
   "[yaml]": {
@@ -135,12 +141,6 @@
   "[properties]": {
     "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
-  "evenBetterToml.formatter.alignEntries": true,
-  "evenBetterToml.formatter.arrayTrailingComma": true,
-  "evenBetterToml.formatter.columnWidth": 100,
-  "evenBetterToml.formatter.allowedBlankLines": 1,
-  "evenBetterToml.formatter.trailingNewline": false,
-  "evenBetterToml.formatter.indentString": " ",
   "files.associations": {
     "*.hujson": "jsonc",
     "*.lua": "lua",
@@ -183,7 +183,6 @@
     "markdown": false,
     "scminput": false
   },
-  "evenBetterToml.taplo.configFile.enabled": true,
   "workbench.browser.showInTitleBar": false,
   "biome.enabled": true,
   "biome.requireConfiguration": false,
@@ -194,8 +193,6 @@
   "settingsSync.ignoredExtensions": [
     "github.copilot-chat"
   ],
-  "evenBetterToml.taplo.configFile.path": "/Users/fredrir/dotfiles/shared/tools/.taplo.toml",
-  "evenBetterToml.taplo.path": "/opt/homebrew/bin/taplo",
   "extensions.ignoreRecommendations": true,
   "security.workspace.trust.untrustedFiles": "open",
   "terminal.integrated.enableNotifications": false,
@@ -336,7 +333,7 @@
   "window.commandCenter": false,
   "window.title": " ",
   "chat.agent.maxRequests": 500,
-  "chat.planAgent.defaultModel": "DeepSeek V4.1 Flash (deepseek)",
+  "chat.planAgent.defaultModel": "DeepSeek V4.1 Flash 1017 Instant (customendpoint)",
   "editor.formatOnSave": true,
   "chat.viewSessions.orientation": "stacked",
   "litellm-vscode-chat.servers": [

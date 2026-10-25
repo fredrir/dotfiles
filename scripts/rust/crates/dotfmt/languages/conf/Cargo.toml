@@ -9,5 +9,5 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-dotfmt-core.workspace = true
+dotfmt-core.workspace   = true
 unicode-width.workspace = true

@@ -9,7 +9,7 @@ description       = "Shared terminal presentation and interaction primitives"
 workspace = true
 
 [dependencies]
-ui-theme.workspace      = true
-ui-terminal.workspace   = true
-unicode-width.workspace = true
+ui-theme.workspace             = true
+ui-terminal.workspace          = true
+unicode-width.workspace        = true
 unicode-segmentation.workspace = true

@@ -9,5 +9,5 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-ignore = "0.4"
+ignore             = "0.4"
 tempfile.workspace = true

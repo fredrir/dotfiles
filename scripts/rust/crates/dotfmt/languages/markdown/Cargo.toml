@@ -9,6 +9,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-dotfmt-core.workspace = true
-comrak = { version = "0.48", default-features = false }
+dotfmt-core.workspace   = true
+comrak                  = { version = "0.48", default-features = false }
 unicode-width.workspace = true

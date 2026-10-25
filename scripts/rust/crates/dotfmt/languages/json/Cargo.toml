@@ -10,4 +10,4 @@ workspace = true
 
 [dependencies]
 dotfmt-core.workspace = true
-indexmap = "2"
+indexmap              = "2"
