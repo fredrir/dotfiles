@@ -1,5 +1,3 @@
-use workstation::Answer::No;
-
 use super::*;
 use crate::git::{Branch, Commit};
 

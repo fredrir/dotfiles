@@ -1,11 +1,10 @@
 use std::collections::BTreeMap;
-use std::io::Read;
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-const STATE_LIMIT: usize = 2 * 1024 * 1024;
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SavedState {
@@ -18,13 +17,10 @@ impl SavedState {
     }
 
     fn load_path(path: &Path) -> Self {
-        let mut bytes = Vec::new();
-        let result = std::fs::File::open(path)
-            .and_then(|file| file.take(STATE_LIMIT as u64 + 1).read_to_end(&mut bytes));
-        if result.is_err() || bytes.len() > STATE_LIMIT {
-            return Self::default();
-        }
-        serde_json::from_slice(&bytes).unwrap_or_default()
+        std::fs::File::open(path)
+            .ok()
+            .and_then(|file| serde_json::from_reader(BufReader::new(file)).ok())
+            .unwrap_or_default()
     }
 
     pub fn save(&self, root: &Path) -> std::io::Result<()> {

@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read};
+use std::io::{BufReader, Cursor};
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -20,7 +20,6 @@ use sha2::{Digest, Sha256};
 pub const COLUMNS: u16 = 10;
 pub const ROWS: u16 = 5;
 const SOURCE_SIZE: u32 = 256;
-const BYTE_LIMIT: usize = 2 * 1024 * 1024;
 
 pub enum Avatar {
     Native(Protocol),
@@ -67,7 +66,7 @@ impl Avatar {
             u32::from(COLUMNS) * u32::from(cell_width),
             u32::from(ROWS) * u32::from(cell_height),
         );
-        if width == 0 || height == 0 || width > 2048 || height > 2048 {
+        if width == 0 || height == 0 {
             return None;
         }
         let diameter = width.min(height);
@@ -156,7 +155,7 @@ pub(crate) fn load(url: &str, picker: &Picker, cancel: &AtomicBool) -> Option<Av
         picker,
         cancel,
         super::github::cache_directory().as_deref(),
-        |url, cancel| super::github::fetch(url, BYTE_LIMIT, cancel),
+        super::github::fetch,
     )
 }
 
@@ -178,17 +177,13 @@ fn load_cached(
         {
             return None;
         }
-        let mut bytes = Vec::new();
-        file.take(BYTE_LIMIT as u64 + 1)
-            .read_to_end(&mut bytes)
-            .ok()?;
-        decode(&bytes)
+        decode(BufReader::new(file))
     });
     let image = if let Some(image) = cached {
         image
     } else {
         let url = format!("{}?s={SOURCE_SIZE}", url.split('?').next()?);
-        let image = decode(&fetch(&url, cancel)?)?;
+        let image = decode(Cursor::new(fetch(&url, cancel)?))?;
         if let Some(path) = path {
             let mut encoded = Cursor::new(Vec::new());
             if image
@@ -203,23 +198,20 @@ fn load_cached(
     Avatar::encode(image, picker)
 }
 
-fn decode(bytes: &[u8]) -> Option<RgbaImage> {
-    if bytes.len() > BYTE_LIMIT {
-        return None;
-    }
-    let mut reader = image::ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()?;
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(2048);
-    limits.max_image_height = Some(2048);
-    limits.max_alloc = Some(32 * 1024 * 1024);
-    reader.limits(limits);
+fn decode(reader: impl std::io::BufRead + std::io::Seek) -> Option<RgbaImage> {
+    let mut reader = image::ImageReader::new(reader).with_guessed_format().ok()?;
+    reader.no_limits();
+    let image = reader.decode().ok()?;
+    let side = image.width().min(image.height());
     Some(
-        reader
-            .decode()
-            .ok()?
-            .resize_to_fill(
+        image
+            .crop_imm(
+                (image.width() - side) / 2,
+                (image.height() - side) / 2,
+                side,
+                side,
+            )
+            .resize_exact(
                 SOURCE_SIZE,
                 SOURCE_SIZE,
                 image::imageops::FilterType::Lanczos3,

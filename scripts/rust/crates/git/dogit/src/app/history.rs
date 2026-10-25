@@ -5,6 +5,69 @@ use crate::commit::{
     github::{Batch, CommitMetadata},
 };
 
+impl App {
+    pub(super) fn history_page_size(&self) -> usize {
+        crossterm::terminal::size()
+            .map_or(24, |(_, rows)| usize::from(rows))
+            .max(1)
+    }
+
+    pub(super) fn collect_history(&mut self) {
+        let Some(stream) = &self.history_stream else {
+            return;
+        };
+        let wanted = self.history_incoming.is_some()
+            || self.snapshot.commits.is_empty()
+            || (self.view.workspace == Workspace::History
+                && self.history_commit.is_none()
+                && (self.history_more
+                    || !self.query.is_empty()
+                    || self
+                        .view
+                        .selected
+                        .max(self.view.offset)
+                        .saturating_add(stream.page_size)
+                        >= self.entries.len()));
+        if !wanted {
+            return;
+        }
+        let result = match stream.try_next() {
+            Some(result) => result,
+            None if stream.is_finished() && self.history_incoming.is_some() => Ok(Vec::new()),
+            None => return,
+        };
+        self.history_more = false;
+        match result {
+            Ok(commits) => {
+                let previous = self.selected().cloned();
+                if let Some(incoming) = &mut self.history_incoming {
+                    incoming.extend(commits);
+                    if incoming.len() < self.snapshot.commits.len() && !stream.is_finished() {
+                        return;
+                    }
+                    self.snapshot.commits = self.history_incoming.take().unwrap_or_default();
+                } else {
+                    self.snapshot.commits.extend(commits);
+                }
+                if let Some(commit) = self.snapshot.commits.first() {
+                    self.history.prefetch(&self.repo, commit);
+                }
+                if self.view.workspace == Workspace::History && self.history_commit.is_none() {
+                    self.rebuild();
+                    if previous != self.selected().cloned() {
+                        self.load_content(true);
+                    }
+                }
+                self.dirty = true;
+            }
+            Err(error) => {
+                self.history_incoming = None;
+                self.note(error.to_string());
+            }
+        }
+    }
+}
+
 pub(super) fn visible_parents<'a>(
     commits: &'a [crate::git::Commit],
     visible: &BTreeSet<&str>,

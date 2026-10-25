@@ -8,9 +8,12 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use sha2::{Digest, Sha256};
+
+mod history;
+pub use history::CommitStream;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GitError {
@@ -207,6 +210,7 @@ pub struct Snapshot {
     pub status: Status,
     pub branches: Vec<Branch>,
     pub commits: Vec<Commit>,
+    pub history_refs: Vec<(String, String)>,
     pub stashes: Vec<Stash>,
     pub worktrees: Vec<Worktree>,
     pub operation: Option<Operation>,
@@ -382,13 +386,17 @@ impl Repo {
         capture(&mut self.command(&spec), self.cancellation.as_deref())
     }
 
-    pub fn snapshot(&self, limit: usize) -> Result<Snapshot, GitError> {
+    pub fn snapshot(&self) -> Result<Snapshot, GitError> {
         let status = self.status()?;
-        let commits = self.commits(limit)?;
+        let mut history_refs = self.history_refs()?;
+        if let Some(oid) = &status.oid {
+            history_refs.push(("HEAD".into(), oid.clone()));
+        }
         Ok(Snapshot {
             branches: self.branches(status.oid.is_some())?,
             status,
-            commits,
+            commits: Vec::new(),
+            history_refs,
             stashes: self.stashes()?,
             worktrees: self.worktrees()?,
             operation: self.operation()?,
@@ -505,45 +513,25 @@ impl Repo {
             .collect()
     }
 
-    pub fn commits(&self, limit: usize) -> Result<Vec<Commit>, GitError> {
-        parse_commits(&self.read([
-            OsString::from("log"),
-            OsString::from("--exclude=refs/stash"),
-            OsString::from("--all"),
-            OsString::from("--topo-order"),
-            OsString::from("--date-order"),
-            OsString::from("--no-show-signature"),
-            OsString::from("-z"),
-            OsString::from(format!("--max-count={limit}")),
-            OsString::from(COMMIT_FORMAT),
-            OsString::from("--"),
-        ])?)
+    pub fn history_refs(&self) -> Result<Vec<(String, String)>, GitError> {
+        let bytes = self.read(["for-each-ref", "--format=%(refname)%00%(objectname)"])?;
+        Ok(text(&bytes)
+            .lines()
+            .filter_map(|line| {
+                let (name, oid) = line.split_once('\0')?;
+                (name != "refs/stash").then(|| (name.to_owned(), oid.to_owned()))
+            })
+            .collect())
     }
 
-    pub fn range_commits(
+    pub fn commit_stream(
         &self,
-        base: &str,
-        tip: &str,
-        limit: usize,
-    ) -> Result<Vec<Commit>, GitError> {
-        self.log(format!("{base}..{tip}"), limit)
-    }
-
-    pub fn recent_commits(&self, tip: &str, limit: usize) -> Result<Vec<Commit>, GitError> {
-        self.log(tip.into(), limit)
-    }
-
-    fn log(&self, revision: String, limit: usize) -> Result<Vec<Commit>, GitError> {
-        parse_commits(&self.read([
-            "log".into(),
-            "--no-show-signature".into(),
-            "-z".into(),
-            format!("--max-count={limit}"),
-            COMMIT_FORMAT.into(),
-            "--end-of-options".into(),
-            revision,
-            "--".into(),
-        ])?)
+        revisions: Vec<String>,
+        ordered: bool,
+        page_size: usize,
+        wake: Option<ui_terminal::InputWake>,
+    ) -> CommitStream {
+        CommitStream::start(self, revisions, ordered, page_size, wake)
     }
 
     pub fn find_commit(&self, oid: &str) -> Result<Option<Commit>, GitError> {
@@ -737,16 +725,7 @@ impl Repo {
                 } else {
                     self.root.join(path)
                 };
-                let mut public = String::new();
-                std::fs::File::open(path)
-                    .ok()?
-                    .take(16 * 1024 + 1)
-                    .read_to_string(&mut public)
-                    .ok()?;
-                if public.len() > 16 * 1024 {
-                    return None;
-                }
-                public
+                std::fs::read_to_string(path).ok()?
             };
             let mut fields = public.split_whitespace();
             let algorithm = fields.next()?;
@@ -1485,15 +1464,7 @@ fn validate_path(path: &Path) -> Result<(), GitError> {
 }
 
 fn capture(command: &mut Command, cancellation: Option<&AtomicBool>) -> Result<Vec<u8>, GitError> {
-    let output = hostkit::process::output_cancellable(
-        command,
-        hostkit::process::CaptureLimits {
-            stdout: 64 * 1024 * 1024,
-            stderr: 128 * 1024,
-        },
-        Duration::from_secs(60),
-        &|| cancellation.is_some_and(|token| token.load(Ordering::Acquire)),
-    )?;
+    let output = crate::process::capture(command, cancellation, None)?;
     if !output.status.success() {
         let message = text(&output.stderr).trim().to_owned();
         return Err(GitError {
@@ -1504,11 +1475,6 @@ fn capture(command: &mut Command, cancellation: Option<&AtomicBool>) -> Result<V
             },
             status: output.status.code(),
         });
-    }
-    if output.stdout_truncated {
-        return Err(GitError::new(
-            "Repository output exceeds the supported read limit",
-        ));
     }
     Ok(output.stdout)
 }

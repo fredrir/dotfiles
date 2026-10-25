@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,7 +8,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-const CACHE_LIMIT: usize = 4 * 1024 * 1024;
 const CACHE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -18,28 +17,19 @@ pub(crate) struct CommitMetadata {
     pub signature_verified: bool,
 }
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Default)]
 pub(crate) struct Batch {
     pub repository: String,
     pub commits: BTreeMap<String, CommitMetadata>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct CachedCommit {
+    metadata: CommitMetadata,
     fetched_at: u64,
 }
 
 impl Batch {
-    fn read(path: &Path) -> Option<Self> {
-        let mut bytes = Vec::new();
-        std::fs::File::open(path)
-            .ok()?
-            .take(CACHE_LIMIT as u64 + 1)
-            .read_to_end(&mut bytes)
-            .ok()?;
-        if bytes.len() > CACHE_LIMIT {
-            return None;
-        }
-        let batch: Self = serde_json::from_slice(&bytes).ok()?;
-        (now().saturating_sub(batch.fetched_at) < CACHE_AGE.as_secs()).then_some(batch)
-    }
-
     fn merge(&mut self, response: &[u8]) -> Option<()> {
         let values: Vec<serde_json::Value> = serde_json::from_slice(response).ok()?;
         let mut incoming = BTreeMap::new();
@@ -67,32 +57,26 @@ impl Batch {
                 },
             );
         }
-        while !self.commits.is_empty() && self.commits.len() + incoming.len() > 2048 {
-            self.commits.pop_first();
-        }
         self.commits.extend(incoming);
-        self.fetched_at = now();
         Some(())
     }
 }
 
-fn cache_path(repository: &str) -> Option<PathBuf> {
-    cache_directory()
-        .map(|base| base.join(format!("commits-{:x}.json", Sha256::digest(repository))))
+fn cache_path(repository: &str, oid: &str) -> Option<PathBuf> {
+    cache_directory().map(|base| {
+        base.join(format!("commits-{:x}", Sha256::digest(repository)))
+            .join(format!("{oid}.json"))
+    })
 }
 
 pub(crate) fn cached(repo: &crate::git::Repo) -> Batch {
     let Some(repository) = repo.github_repository() else {
         return Batch::default();
     };
-    cache_path(&repository)
-        .as_deref()
-        .and_then(Batch::read)
-        .filter(|batch| batch.repository == repository)
-        .unwrap_or_else(|| Batch {
-            repository: repository.clone(),
-            ..Default::default()
-        })
+    Batch {
+        repository,
+        ..Default::default()
+    }
 }
 
 pub(crate) fn load(repo: &crate::git::Repo, oid: &str, cancel: &AtomicBool) -> Batch {
@@ -100,7 +84,12 @@ pub(crate) fn load(repo: &crate::git::Repo, oid: &str, cancel: &AtomicBool) -> B
     if batch.repository.is_empty() || !valid_oid(oid) {
         return batch;
     }
-    if batch.commits.contains_key(oid) {
+    let cached = cache_path(&batch.repository, oid)
+        .and_then(|path| std::fs::File::open(path).ok())
+        .and_then(|file| serde_json::from_reader::<_, CachedCommit>(BufReader::new(file)).ok())
+        .filter(|entry| now().saturating_sub(entry.fetched_at) < CACHE_AGE.as_secs());
+    if let Some(entry) = cached {
+        batch.commits.insert(oid.into(), entry.metadata);
         return batch;
     }
     let endpoint = format!("repos/{}/commits?sha={oid}&per_page=100", batch.repository);
@@ -118,10 +107,18 @@ pub(crate) fn load(repo: &crate::git::Repo, oid: &str, cancel: &AtomicBool) -> B
     });
     if let Some(bytes) = bytes
         && batch.merge(&bytes).is_some()
-        && let Some(path) = cache_path(&batch.repository)
-        && let Ok(bytes) = serde_json::to_vec(&batch)
     {
-        persist(&path, &bytes);
+        let fetched_at = now();
+        for (oid, metadata) in &batch.commits {
+            if let Some(path) = cache_path(&batch.repository, oid)
+                && let Ok(bytes) = serde_json::to_vec(&CachedCommit {
+                    metadata: metadata.clone(),
+                    fetched_at,
+                })
+            {
+                persist(&path, &bytes);
+            }
+        }
     }
     batch
 }
@@ -131,16 +128,9 @@ fn page(endpoint: &str, cancel: &AtomicBool) -> Option<Vec<u8>> {
         Command::new("gh")
             .args(["api", "--hostname", "github.com", endpoint])
             .env("GH_PROMPT_DISABLED", "1"),
-        CACHE_LIMIT,
         cancel,
     )
-    .or_else(|| {
-        fetch(
-            &format!("https://api.github.com/{endpoint}"),
-            CACHE_LIMIT,
-            cancel,
-        )
-    })
+    .or_else(|| fetch(&format!("https://api.github.com/{endpoint}"), cancel))
 }
 
 pub(crate) fn valid_avatar_url(url: &str) -> bool {
@@ -178,24 +168,16 @@ fn now() -> u64 {
         .map_or(0, |duration| duration.as_secs())
 }
 
-fn capture(command: &mut Command, limit: usize, cancel: &AtomicBool) -> Option<Vec<u8>> {
+fn capture(command: &mut Command, cancel: &AtomicBool) -> Option<Vec<u8>> {
     if cancel.load(Ordering::Acquire) {
         return None;
     }
-    let output = hostkit::process::output_cancellable(
-        command,
-        hostkit::process::CaptureLimits {
-            stdout: limit,
-            stderr: 4096,
-        },
-        Duration::from_secs(5),
-        &|| cancel.load(Ordering::Acquire),
-    )
-    .ok()?;
-    (output.status.success() && !output.stdout_truncated).then_some(output.stdout)
+    let output =
+        crate::process::capture(command, Some(cancel), Some(Duration::from_secs(5))).ok()?;
+    output.status.success().then_some(output.stdout)
 }
 
-pub(crate) fn fetch(url: &str, limit: usize, cancel: &AtomicBool) -> Option<Vec<u8>> {
+pub(crate) fn fetch(url: &str, cancel: &AtomicBool) -> Option<Vec<u8>> {
     capture(
         Command::new("curl").args([
             "--disable",
@@ -210,7 +192,6 @@ pub(crate) fn fetch(url: &str, limit: usize, cancel: &AtomicBool) -> Option<Vec<
             "dogit",
             url,
         ]),
-        limit,
         cancel,
     )
 }

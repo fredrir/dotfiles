@@ -1,14 +1,7 @@
 use super::*;
-use std::collections::VecDeque;
 use std::sync::atomic::AtomicBool;
 
 use crate::git::{Branch, Commit, GitError};
-
-const COMMIT_LIMIT: usize = 200;
-const RECENT_LIMIT: usize = 20;
-const OVERVIEW_CACHE: usize = 32;
-const BLOB_LIMIT: u64 = 32 * 1024 * 1024;
-const TEXT_LIMIT: usize = 256 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct OverviewKey {
@@ -52,7 +45,8 @@ pub(super) struct Branches {
     files: Option<Arc<Files>>,
     files_key: Option<FilesKey>,
     files_worker: Worker<(FilesKey, Result<Files, String>)>,
-    overviews: VecDeque<(OverviewKey, Arc<view::BranchOverview>)>,
+    overview: Option<(OverviewKey, view::BranchOverview)>,
+    commits: Option<crate::git::CommitStream>,
     wanted: Option<OverviewKey>,
     pending: Option<OverviewKey>,
     overview_worker: Worker<(OverviewKey, Result<view::BranchOverview, String>)>,
@@ -72,10 +66,10 @@ impl Branches {
 
     pub(super) fn overview(&self) -> Option<&view::BranchOverview> {
         let wanted = self.wanted.as_ref()?;
-        self.overviews
-            .iter()
-            .find(|(key, _)| key == wanted)
-            .map(|(_, overview)| overview.as_ref())
+        self.overview
+            .as_ref()
+            .filter(|(key, _)| key == wanted)
+            .map(|(_, overview)| overview)
     }
 
     pub(super) fn files(&self) -> Option<&Arc<Files>> {
@@ -257,6 +251,10 @@ impl App {
     pub(super) fn sync_branch(&mut self) {
         let Some(branch) = self.focused_branch().cloned() else {
             self.branches.wanted = None;
+            self.branches.overview = None;
+            self.branches.commits = None;
+            self.branches.overview_worker.invalidate();
+            self.branches.pending = None;
             return;
         };
         let against = if branch.current {
@@ -295,6 +293,7 @@ impl App {
             self.view.branch_cursor = 0;
         }
         if self.branches.wanted.as_ref() != Some(&key) {
+            self.branches.commits = None;
             self.branches.wanted = Some(key.clone());
             self.dirty = true;
         }
@@ -329,14 +328,54 @@ impl App {
                 self.branches.pending = None;
             }
             match result {
-                Ok(overview) => {
-                    self.branches.overviews.retain(|(cached, _)| *cached != key);
-                    if self.branches.overviews.len() >= OVERVIEW_CACHE {
-                        self.branches.overviews.pop_front();
-                    }
-                    self.branches.overviews.push_back((key, Arc::new(overview)));
+                Ok(overview) if self.branches.wanted.as_ref() == Some(&key) => {
+                    let revision = if overview.total > 0 {
+                        key.against.as_ref().map_or_else(
+                            || key.tip.clone(),
+                            |(_, base)| format!("{base}..{}", key.tip),
+                        )
+                    } else {
+                        key.tip.clone()
+                    };
+                    self.branches.commits = Some(self.repo.commit_stream(
+                        vec![revision],
+                        false,
+                        self.history_page_size(),
+                        self.waker.clone(),
+                    ));
+                    self.branches.overview = Some((key, overview));
                 }
+                Ok(_) => {}
                 Err(error) => self.note(error),
+            }
+            self.dirty = true;
+        }
+        let page = self.branches.commits.as_ref().and_then(|stream| {
+            let overview = self.branches.overview()?;
+            let near_cursor =
+                self.view.branch_cursor.saturating_add(stream.page_size) >= overview.commits.len();
+            let near_scroll = self.geometry.as_ref().is_some_and(|geometry| {
+                let (region, offset) = if self.branches.open.is_some() {
+                    (view::ScrollRegion::CommitDetails, self.view.commit_offset)
+                } else {
+                    (view::ScrollRegion::Canvas, self.view.diff_offset)
+                };
+                geometry.scrollbar(region).is_some_and(|bar| {
+                    offset.saturating_add(self.history_page_size()) >= bar.maximum
+                })
+            });
+            (overview.commits.is_empty() || near_cursor || near_scroll)
+                .then(|| stream.try_next())
+                .flatten()
+        });
+        if let Some(page) = page {
+            match page {
+                Ok(commits) => {
+                    if let Some((_, overview)) = &mut self.branches.overview {
+                        overview.commits.extend(commits);
+                    }
+                }
+                Err(error) => self.note(error.to_string()),
             }
             self.dirty = true;
         }
@@ -481,17 +520,11 @@ impl App {
 fn load_overview(repo: &Repo, key: &OverviewKey) -> Result<view::BranchOverview, GitError> {
     let Some((label, against)) = &key.against else {
         return Ok(view::BranchOverview {
-            commits: repo.recent_commits(&key.tip, RECENT_LIMIT)?,
             ..view::BranchOverview::default()
         });
     };
     let base = repo.merge_base(against, &key.tip)?;
     let total = repo.count_range(against, &key.tip)?;
-    let commits = if total > 0 {
-        repo.range_commits(against, &key.tip, COMMIT_LIMIT)?
-    } else {
-        repo.recent_commits(&key.tip, RECENT_LIMIT)?
-    };
     let stat = match &base {
         Some(base) if *base != key.tip => Some(repo.line_stats(base, &key.tip)?.into_iter().fold(
             view::DiffStat::default(),
@@ -512,7 +545,7 @@ fn load_overview(repo: &Repo, key: &OverviewKey) -> Result<view::BranchOverview,
             Some(oid) => repo.find_commit(&oid)?,
             None => None,
         },
-        commits,
+        commits: Vec::new(),
         total,
         stat,
     })
@@ -588,8 +621,6 @@ pub(super) fn preview(
     };
     preview.text = if entry.kind == "commit" {
         vec!["Submodule".into()]
-    } else if entry.size.is_some_and(|size| size > BLOB_LIMIT) {
-        vec!["File exceeds the 32 MiB preview limit".into()]
     } else if entry.mode == "120000" {
         let destination = repo.blob(&files.tip, path).map_err(error)?;
         vec![format!(
@@ -602,7 +633,7 @@ pub(super) fn preview(
             preview.image = Some(Arc::new(image));
             return Ok(preview);
         }
-        text_preview(&bytes[..bytes.len().min(TEXT_LIMIT)])
+        text_preview_reader(std::io::Cursor::new(bytes), Some(cancel))?
     };
     Ok(preview)
 }

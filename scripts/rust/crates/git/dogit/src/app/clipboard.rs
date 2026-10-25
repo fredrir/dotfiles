@@ -10,7 +10,7 @@ impl App {
                 }
                 worker
             })
-            .submit(move |_| {
+            .submit(move |cancel| {
                 let mut input = tempfile::tempfile().map_err(|error| error.to_string())?;
                 input
                     .write_all(value.as_bytes())
@@ -19,10 +19,10 @@ impl App {
                 input.rewind().map_err(|error| error.to_string())?;
                 let mut command = Command::new("dclip");
                 command.stdin(Stdio::from(input));
-                let output = hostkit::process::output(
+                let output = crate::process::capture(
                     &mut command,
-                    hostkit::process::CaptureLimits::default(),
-                    Duration::from_secs(5),
+                    Some(&cancel),
+                    Some(Duration::from_secs(5)),
                 );
                 if output.is_ok_and(|output| output.status.success()) {
                     Ok(None)

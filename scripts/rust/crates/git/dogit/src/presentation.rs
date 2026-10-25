@@ -4,16 +4,12 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 
 use crate::diff::{ExactDiff, LineKind};
-
-const OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
-const TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiffPresentationConfig {
@@ -563,7 +559,6 @@ fn highlight_builtin(
         .and_then(|name| themes.themes.get(name))
         .unwrap_or(&themes.themes["base16-ocean.dark"]);
     let mut result = BTreeMap::new();
-    let mut highlighted_bytes = 0usize;
     for hunk in &diff.hunks {
         cancelled(cancel)?;
         let path = if diff.path.as_os_str().is_empty() {
@@ -579,6 +574,9 @@ fn highlight_builtin(
             .find_syntax_by_extension(extension)
             .or_else(|| syntaxes.find_syntax_by_extension(Path::new(path).file_name()?.to_str()?))
             .unwrap_or_else(|| syntaxes.find_syntax_plain_text());
+        if std::ptr::eq(syntax, syntaxes.find_syntax_plain_text()) {
+            continue;
+        }
         let mut old = HighlightLines::new(syntax, theme);
         let mut new = HighlightLines::new(syntax, theme);
         for line in &hunk.lines {
@@ -587,11 +585,6 @@ fn highlight_builtin(
                 .chars()
                 .filter(|character| !character.is_control() || matches!(character, '\t' | '\n'))
                 .collect::<String>();
-            highlighted_bytes = highlighted_bytes.saturating_add(text.len());
-            if text.len() > 16 * 1024 || highlighted_bytes > 4 * 1024 * 1024 {
-                result.insert(line.id, text.trim_end_matches(['\r', '\n']).to_owned());
-                continue;
-            }
             let spans = match line.kind {
                 LineKind::Deletion => old.highlight_line(&text, syntaxes),
                 LineKind::Addition => new.highlight_line(&text, syntaxes),
@@ -636,20 +629,9 @@ fn run(
     } else {
         command.stdin(Stdio::null());
     }
-    let output = hostkit::process::output_cancellable(
-        &mut command,
-        hostkit::process::CaptureLimits {
-            stdout: OUTPUT_LIMIT,
-            stderr: 128 * 1024,
-        },
-        TIMEOUT,
-        &|| cancel.is_some_and(|cancel| cancel.load(Ordering::Acquire)),
-    )
-    .map_err(|error| error.to_string())?;
+    let output =
+        crate::process::capture(&mut command, cancel, None).map_err(|error| error.to_string())?;
     cancelled(cancel)?;
-    if output.stdout_truncated {
-        return Err("Diff presentation exceeds the output limit".into());
-    }
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
     }

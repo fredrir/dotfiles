@@ -3,34 +3,18 @@ use std::io::{Read, Seek};
 
 fn captured_output(mut output: std::fs::File) -> Result<String, String> {
     output.rewind().map_err(|error| error.to_string())?;
-    let limit = 256 * 1024;
-    let length = output.metadata().map_err(|error| error.to_string())?.len();
-    if length > limit {
-        output
-            .seek(std::io::SeekFrom::End(-(limit as i64)))
-            .map_err(|error| error.to_string())?;
-    }
     let mut bytes = Vec::new();
     output
-        .take(limit)
         .read_to_end(&mut bytes)
         .map_err(|error| error.to_string())?;
     let text = String::from_utf8_lossy(&bytes).trim().to_owned();
-    Ok(if length > limit {
-        format!("[Earlier output omitted; showing the last 256 KiB]\n{text}")
-    } else {
-        text
-    })
+    Ok(text)
 }
 
 fn execute_commit(repo: &Repo, spec: &CommandSpec) -> Result<String, String> {
     let mut lookup = repo.command(&CommandSpec::new("Editor", ["var", "GIT_EDITOR"]));
-    let configured = hostkit::process::output(
-        &mut lookup,
-        hostkit::process::CaptureLimits::default(),
-        Duration::from_secs(5),
-    )
-    .map_err(|error| error.to_string())?;
+    let configured =
+        crate::process::capture(&mut lookup, None, None).map_err(|error| error.to_string())?;
     if !configured.status.success() {
         return Err(String::from_utf8_lossy(&configured.stderr).into_owned());
     }

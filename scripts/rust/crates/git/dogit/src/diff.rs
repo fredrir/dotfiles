@@ -1,14 +1,11 @@
+use bytes::Bytes;
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-
-const OUTPUT_LIMIT: u64 = 32 * 1024 * 1024;
-const PROCESS_TIMEOUT: Duration = Duration::from_secs(20);
+use std::sync::atomic::AtomicBool;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DiffSide {
@@ -27,7 +24,7 @@ pub enum LineKind {
 pub struct DiffLine {
     pub id: usize,
     pub kind: LineKind,
-    pub content: Vec<u8>,
+    pub content: Bytes,
     pub old_line: Option<usize>,
     pub new_line: Option<usize>,
     pub no_newline: bool,
@@ -85,7 +82,7 @@ pub struct ExactDiff {
     pub path: PathBuf,
     pub side: DiffSide,
     pub hunks: Vec<Hunk>,
-    pub raw: Vec<u8>,
+    pub raw: Bytes,
     pub partial_reason: Option<String>,
     pub binary: bool,
     root: PathBuf,
@@ -136,7 +133,7 @@ impl ExactDiff {
     }
 
     pub(crate) fn cache_bytes(&self) -> usize {
-        self.raw.capacity()
+        self.raw.len()
             + self.base.as_ref().map_or(0, Vec::capacity)
             + self.target.as_ref().map_or(0, Vec::capacity)
             + self.snapshot.as_ref().map_or(0, |snapshot| {
@@ -151,11 +148,6 @@ impl ExactDiff {
                     hunk.header.capacity()
                         + hunk.path.capacity()
                         + hunk.lines.capacity() * std::mem::size_of::<DiffLine>()
-                        + hunk
-                            .lines
-                            .iter()
-                            .map(|line| line.content.capacity())
-                            .sum::<usize>()
                 })
                 .sum::<usize>()
     }
@@ -183,7 +175,7 @@ impl ExactDiff {
         ])?;
         let tracked = !index_entry.is_empty();
         let worktree = if side == DiffSide::Worktree {
-            read_worktree(&root.join(path))?
+            read_worktree(&root.join(path), cancel)?
         } else {
             None
         };
@@ -198,7 +190,7 @@ impl ExactDiff {
         } else {
             reader.git(args)?
         };
-        let mut document = Self::parse(root, path, side, raw)?;
+        let mut document = Self::parse(root, path, side, raw, cancel)?;
         if index_entry.split(|byte| *byte == 0).any(|entry| {
             entry
                 .split(|byte| *byte == b' ')
@@ -215,11 +207,12 @@ impl ExactDiff {
             } else {
                 Vec::new()
             };
-            document.target = Some(reconstruct(&base, &document.hunks)?);
+            document.target = Some(reconstruct(&base, &document.hunks, cancel)?);
             document.base = Some(base);
         }
         if read_optional(&index_path)? != index
-            || (side == DiffSide::Worktree && read_worktree(&root.join(path))? != worktree)
+            || (side == DiffSide::Worktree
+                && !matches_worktree(&root.join(path), worktree.as_deref(), cancel)?)
         {
             return Err("Repository changed while reading the diff; refresh and try again".into());
         }
@@ -248,7 +241,13 @@ impl ExactDiff {
         let reader = Reader { root, cancel };
         let mut args = diff_args();
         args.extend([OsString::from("--cached"), OsString::from("--")]);
-        let document = Self::parse(root, Path::new(""), DiffSide::Index, reader.git(args)?)?;
+        let document = Self::parse(
+            root,
+            Path::new(""),
+            DiffSide::Index,
+            reader.git(args)?,
+            cancel,
+        )?;
         Ok(document)
     }
 
@@ -282,28 +281,20 @@ impl ExactDiff {
                 OsStr::new("--"),
                 pathspec,
             ])?;
-            let started = std::time::Instant::now();
             for bytes in untracked
                 .split(|byte| *byte == 0)
                 .filter(|path| !path.is_empty())
             {
-                if started.elapsed() > PROCESS_TIMEOUT {
-                    return Err("Directory preview took too long; select an individual file".into());
-                }
+                crate::process::check_cancel(cancel).map_err(|error| error.to_string())?;
                 let file = path_from_bytes(bytes)?;
                 validate_path(&file)?;
                 if file.starts_with(path) {
                     let patch = untracked_diff(reader, &file)?;
-                    if raw.len().saturating_add(patch.len()) > OUTPUT_LIMIT as usize {
-                        return Err(
-                            "Directory preview exceeds 32 MiB; select an individual file".into(),
-                        );
-                    }
                     raw.extend(patch);
                 }
             }
         }
-        let mut document = Self::parse(root, Path::new(""), side, raw)?;
+        let mut document = Self::parse(root, Path::new(""), side, raw, cancel)?;
         if !document.raw.is_empty() {
             document.partial_reason =
                 Some("Select an individual file to stage or unstage lines".into());
@@ -332,6 +323,7 @@ impl ExactDiff {
             path.unwrap_or(Path::new("")),
             DiffSide::Index,
             reader.git(args)?,
+            cancel,
         )?;
         document.comparison = Some(RevisionComparison {
             old: Some(old),
@@ -388,14 +380,22 @@ impl ExactDiff {
             path.unwrap_or(Path::new("")),
             DiffSide::Index,
             reader.git(args)?,
+            cancel,
         )?;
         document.partial_reason = Some("History comparisons are read-only".into());
         document.comparison = Some(RevisionComparison { old, new: oid });
         Ok(document)
     }
 
-    fn parse(root: &Path, path: &Path, side: DiffSide, raw: Vec<u8>) -> Result<Self, String> {
-        let hunks = parse_hunks(&raw)?;
+    fn parse(
+        root: &Path,
+        path: &Path,
+        side: DiffSide,
+        raw: Vec<u8>,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Self, String> {
+        let raw = Bytes::from(raw);
+        let hunks = parse_hunks(&raw, cancel)?;
         let headers = raw
             .split(|byte| *byte == b'\n')
             .filter(|line| !matches!(line.first(), Some(b'+' | b'-' | b' ')))
@@ -477,7 +477,11 @@ impl ExactDiff {
             .map_err(|error| format!("Cannot preserve index permissions: {error}"))?;
         }
         if self.side == DiffSide::Worktree
-            && read_worktree(&self.root.join(&self.path))? != snapshot.worktree
+            && !matches_worktree(
+                &self.root.join(&self.path),
+                snapshot.worktree.as_deref(),
+                None,
+            )?
         {
             return Err("The file changed; refresh the diff before staging".into());
         }
@@ -674,7 +678,6 @@ impl ExactDiff {
             } else {
                 vec![self.path.clone()]
             };
-            let mut captured = 0usize;
             for path in &paths {
                 validate_path(path)?;
                 let base = comparison
@@ -684,14 +687,6 @@ impl ExactDiff {
                     .transpose()?
                     .flatten();
                 let target = read_revision_file(reader, &comparison.new, path)?;
-                captured = captured
-                    .saturating_add(base.as_ref().map_or(0, Vec::len))
-                    .saturating_add(target.as_ref().map_or(0, Vec::len));
-                if captured > OUTPUT_LIMIT as usize {
-                    return Err(
-                        "Structural comparison exceeds 32 MiB; select an individual file".into(),
-                    );
-                }
                 if let Some(base) = base {
                     write_comparison_file(&before_dir, path, &base)?;
                 }
@@ -760,9 +755,6 @@ impl ExactDiff {
                 Ok(bytes) => result.extend_from_slice(&bytes),
                 Err(error) if error.starts_with("Executable unavailable:") => return Ok(None),
                 Err(error) => return Err(error),
-            }
-            if result.len() > OUTPUT_LIMIT as usize {
-                return Err("Structural output exceeds 32 MiB; select an individual file".into());
             }
         }
         Ok(Some(String::from_utf8_lossy(&result).into_owned()))
@@ -882,7 +874,7 @@ fn patch_file_path(raw: &[u8]) -> Option<PathBuf> {
     }
 }
 
-fn parse_hunks(raw: &[u8]) -> Result<Vec<Hunk>, String> {
+fn parse_hunks(raw: &Bytes, cancel: Option<&AtomicBool>) -> Result<Vec<Hunk>, String> {
     let mut hunks: Vec<Hunk> = Vec::new();
     let mut path = String::new();
     let mut file_path = PathBuf::new();
@@ -892,6 +884,7 @@ fn parse_hunks(raw: &[u8]) -> Result<Vec<Hunk>, String> {
     let mut remaining_old = 0;
     let mut remaining_new = 0;
     for line in raw.split_inclusive(|byte| *byte == b'\n') {
+        crate::process::check_cancel(cancel).map_err(|error| error.to_string())?;
         if line.starts_with(b"diff --git ") {
             path = String::from_utf8_lossy(line).trim_end().to_owned();
             file_path.clear();
@@ -925,7 +918,7 @@ fn parse_hunks(raw: &[u8]) -> Result<Vec<Hunk>, String> {
             if let Some(previous) = hunks.last_mut().and_then(|hunk| hunk.lines.last_mut()) {
                 previous.no_newline = true;
                 if previous.content.last() == Some(&b'\n') {
-                    previous.content.pop();
+                    previous.content.truncate(previous.content.len() - 1);
                 }
             }
         } else if remaining_old > 0 || remaining_new > 0 {
@@ -950,7 +943,7 @@ fn parse_hunks(raw: &[u8]) -> Result<Vec<Hunk>, String> {
                 .push(DiffLine {
                     id,
                     kind,
-                    content: line[1..].to_vec(),
+                    content: raw.slice_ref(&line[1..]),
                     old_line: has_old.then_some(old_line),
                     new_line: has_new.then_some(new_line),
                     no_newline: false,
@@ -981,28 +974,36 @@ fn parse_range(range: &str) -> Result<(usize, usize), String> {
     Ok((start, count))
 }
 
-fn reconstruct(base: &[u8], hunks: &[Hunk]) -> Result<Vec<u8>, String> {
-    let lines = base
-        .split_inclusive(|byte| *byte == b'\n')
-        .collect::<Vec<_>>();
+fn reconstruct(
+    base: &[u8],
+    hunks: &[Hunk],
+    cancel: Option<&AtomicBool>,
+) -> Result<Vec<u8>, String> {
+    let mut lines = base.split_inclusive(|byte| *byte == b'\n');
     let mut position = 0;
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(base.len());
     for hunk in hunks {
         let start = if hunk.lines.iter().any(|line| line.old_line.is_some()) {
             hunk.old_start.saturating_sub(1)
         } else {
             hunk.old_start
         };
-        if start < position || start > lines.len() {
+        if start < position {
             return Err("Patch does not match the captured source".into());
         }
-        for line in &lines[position..start] {
-            result.extend_from_slice(line);
+        while position < start {
+            crate::process::check_cancel(cancel).map_err(|error| error.to_string())?;
+            result.extend_from_slice(
+                lines
+                    .next()
+                    .ok_or("Patch does not match the captured source")?,
+            );
+            position += 1;
         }
-        position = start;
         for line in &hunk.lines {
+            crate::process::check_cancel(cancel).map_err(|error| error.to_string())?;
             if line.kind != LineKind::Addition {
-                if lines.get(position).copied() != Some(line.content.as_slice()) {
+                if lines.next() != Some(line.content.as_ref()) {
                     return Err("Patch source differs from captured source".into());
                 }
                 position += 1;
@@ -1012,7 +1013,8 @@ fn reconstruct(base: &[u8], hunks: &[Hunk]) -> Result<Vec<u8>, String> {
             }
         }
     }
-    for line in &lines[position..] {
+    for line in lines {
+        crate::process::check_cancel(cancel).map_err(|error| error.to_string())?;
         result.extend_from_slice(line);
     }
     Ok(result)
@@ -1181,7 +1183,7 @@ fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, String> {
     }
 }
 
-fn read_worktree(path: &Path) -> Result<Option<Vec<u8>>, String> {
+fn read_worktree(path: &Path, cancel: Option<&AtomicBool>) -> Result<Option<Vec<u8>>, String> {
     if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Ok(Some(
             fs::read_link(path)
@@ -1194,19 +1196,46 @@ fn read_worktree(path: &Path) -> Result<Option<Vec<u8>>, String> {
     if path.is_dir() {
         return Ok(None);
     }
-    let file = match fs::File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("Cannot read {}: {error}", path.display())),
-    };
-    let mut bytes = Vec::new();
-    file.take(OUTPUT_LIMIT + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
-    if bytes.len() as u64 > OUTPUT_LIMIT {
-        return Err("File exceeds the 32 MiB preview limit; use whole-file staging".into());
+    match crate::process::read_file(path, cancel) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("Cannot read {}: {error}", path.display())),
     }
-    Ok(Some(bytes))
+}
+
+fn matches_worktree(
+    path: &Path,
+    expected: Option<&[u8]>,
+    cancel: Option<&AtomicBool>,
+) -> Result<bool, String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(expected.is_none()),
+        Err(error) => return Err(error.to_string()),
+    };
+    if !metadata.is_file() {
+        return Ok(read_worktree(path, cancel)?.as_deref() == expected);
+    }
+    let Some(expected) = expected else {
+        return Ok(false);
+    };
+    if metadata.len() != expected.len() as u64 {
+        return Ok(false);
+    }
+    let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut offset = 0;
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        crate::process::check_cancel(cancel).map_err(|error| error.to_string())?;
+        let count = file.read(&mut buffer).map_err(|error| error.to_string())?;
+        if count == 0 {
+            return Ok(offset == expected.len());
+        }
+        if expected.get(offset..offset + count) != Some(&buffer[..count]) {
+            return Ok(false);
+        }
+        offset += count;
+    }
 }
 
 fn git_command(root: &Path) -> Command {
@@ -1234,25 +1263,13 @@ fn run(
     } else {
         command.stdin(Stdio::null());
     }
-    let output = hostkit::process::output_cancellable(
-        &mut command,
-        hostkit::process::CaptureLimits {
-            stdout: OUTPUT_LIMIT as usize,
-            stderr: 128 * 1024,
-        },
-        PROCESS_TIMEOUT,
-        &|| cancel.is_some_and(|cancel| cancel.load(Ordering::Acquire)),
-    )
-    .map_err(|error| match error.kind() {
-        std::io::ErrorKind::NotFound => format!("Executable unavailable: {error}"),
-        std::io::ErrorKind::TimedOut => {
-            "Git or structural diff took too long; try a smaller comparison".into()
-        }
-        _ => error.to_string(),
-    })?;
-    if output.stdout_truncated {
-        return Err("Diff output exceeds 32 MiB; select a smaller comparison".into());
-    }
+    let output =
+        crate::process::capture(&mut command, cancel, None).map_err(|error| {
+            match error.kind() {
+                std::io::ErrorKind::NotFound => format!("Executable unavailable: {error}"),
+                _ => error.to_string(),
+            }
+        })?;
     if output.status.success() || (allow_difference && output.status.code() == Some(1)) {
         Ok(output.stdout)
     } else {

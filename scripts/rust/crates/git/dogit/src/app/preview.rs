@@ -211,7 +211,13 @@ impl ImageState {
             .get_or_insert_with(crate::commit::avatar::picker)
             .clone();
         self.worker.submit(move |_| {
-            let image = source.image.as_ref().map_err(Clone::clone)?.clone();
+            let source = source.image.as_ref().map_err(Clone::clone)?;
+            let (cell_width, cell_height) = picker.font_size();
+            let image = source.resize(
+                u32::from(size.width) * u32::from(cell_width).max(1),
+                u32::from(size.height) * u32::from(cell_height).max(1),
+                image::imageops::FilterType::Triangle,
+            );
             picker
                 .new_protocol(
                     image,

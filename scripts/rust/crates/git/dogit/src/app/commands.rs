@@ -96,7 +96,7 @@ impl App {
                 let path = match target { Some(Target::Path(path, _)) => self.repo.root.join(path), _ => return Ok(()) };
                 self.prepare("Open editor", move |repo| {
                     let mut command = repo.command(&CommandSpec::new("Editor", ["var", "GIT_EDITOR"]));
-                    let output = hostkit::process::output(&mut command, hostkit::process::CaptureLimits::default(), Duration::from_secs(5)).map_err(|error| error.to_string())?;
+                    let output = crate::process::capture(&mut command, None, None).map_err(|error| error.to_string())?;
                     if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).into_owned()); }
                     let editor = String::from_utf8(output.stdout).map_err(|error| error.to_string())?.trim().to_owned();
                     if editor.is_empty() { return Err("No editor configured".into()); }
@@ -271,7 +271,14 @@ impl App {
             Action::FollowParent => if let Some(Target::Commit(oid)) = target
                 && let Some(parent) = self.snapshot.commits.iter().find(|commit| commit.oid == oid).and_then(|commit| commit.parents.first())
                 && let Some(index) = self.entries.iter().position(|entry| entry.target == Target::Commit(parent.clone())) { self.view.selected = index; self.load_content(true); },
-            Action::LoadMore => { self.history_limit = (self.history_limit + 500).min(20_000); self.refresh(); },
+            Action::LoadMore => {
+                if self.history_stream.as_ref().is_some_and(crate::git::CommitStream::is_finished) {
+                    self.note("All commits loaded");
+                } else {
+                    self.history_more = true;
+                    self.collect_history();
+                }
+            },
             _ => {},
         }
         let _ = (terminal, signals);

@@ -48,13 +48,6 @@ impl Preview {
         if let Ok(image) = &image {
             label.push_str(&format!(" {} × {}", image.width(), image.height()));
         }
-        let image = image.map(|image| {
-            if image.width() > 2048 || image.height() > 2048 {
-                image.resize(2048, 2048, image::imageops::FilterType::Triangle)
-            } else {
-                image
-            }
-        });
         Some(Self { image, label })
     }
 
@@ -68,11 +61,7 @@ impl Preview {
 
 fn decode(bytes: &[u8], format: ImageFormat) -> Result<DynamicImage, String> {
     let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(16384);
-    limits.max_image_height = Some(16384);
-    limits.max_alloc = Some(128 * 1024 * 1024);
-    reader.limits(limits);
+    reader.no_limits();
     reader
         .decode()
         .map_err(|error| format!("Cannot preview image: {error}"))

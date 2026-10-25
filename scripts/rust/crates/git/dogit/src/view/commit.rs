@@ -147,10 +147,10 @@ pub(super) fn height(
 ) -> usize {
     let github_rows = details.github.as_ref().map_or(0, |github| {
         let url_width = width.saturating_sub(INSET * 2 + LABEL_WIDTH);
-        1 + overlay::wrap_detail(&github.url, url_width).len().min(3) as u16
+        1 + overlay::wrap_detail(&github.url, url_width).len()
     });
     let header = Header::new(width, details, show_verification, reserved);
-    usize::from(ROWS + github_rows + 1) + header.message_lines(details).len()
+    usize::from(ROWS) + github_rows + 1 + header.message_lines(details).len()
 }
 
 #[derive(Default)]
@@ -213,12 +213,14 @@ pub(super) fn details(
         ),
     ];
     let aside_width = COLUMNS;
+    rows.resize_with(usize::from(ROWS), || {
+        (None, "", String::new(), Role::Plain, None)
+    });
     if let Some(github) = &details.github {
         rows.push((None, "", String::new(), Role::Plain, None));
         let url_width = area.width.saturating_sub(INSET * 2 + LABEL_WIDTH);
         for (index, part) in overlay::wrap_detail(&github.url, url_width)
             .into_iter()
-            .take(3)
             .enumerate()
         {
             rows.push((

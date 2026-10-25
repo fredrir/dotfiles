@@ -301,8 +301,10 @@ fn path_stamp(path: &Path, follow: bool) -> Result<Option<PathStamp>, String> {
     }))
 }
 
-fn preview_file(path: &Path) -> Result<Option<Vec<String>>, String> {
-    use std::io::Read;
+fn preview_file(
+    path: &Path,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<Option<Vec<String>>, String> {
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -333,25 +335,41 @@ fn preview_file(path: &Path) -> Result<Option<Vec<String>>, String> {
     {
         return Ok(Some(vec!["Special file".into()]));
     }
-    let mut bytes = Vec::new();
-    file.take(256 * 1024)
-        .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
-    Ok(Some(text_preview(&bytes)))
+    text_preview_reader(std::io::BufReader::new(file), Some(cancel)).map(Some)
 }
 
-fn text_preview(bytes: &[u8]) -> Vec<String> {
-    if bytes.contains(&0) {
-        return vec!["Binary file".into()];
+fn text_preview_reader(
+    mut reader: impl std::io::BufRead,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<Vec<String>, String> {
+    let mut lines = Vec::new();
+    let mut bytes = Vec::new();
+    loop {
+        crate::process::check_cancel(cancel).map_err(|error| error.to_string())?;
+        bytes.clear();
+        if reader
+            .read_until(b'\n', &mut bytes)
+            .map_err(|error| error.to_string())?
+            == 0
+        {
+            break;
+        }
+        if bytes.contains(&0) {
+            return Ok(vec!["Binary file".into()]);
+        }
+        let line = bytes.strip_suffix(b"\n").map_or(bytes.as_slice(), |line| {
+            line.strip_suffix(b"\r").unwrap_or(line)
+        });
+        lines.push(format!(
+            "{:>4}  {}",
+            lines.len() + 1,
+            String::from_utf8_lossy(line)
+        ));
     }
-    if bytes.is_empty() {
-        return vec!["Empty file".into()];
+    if lines.is_empty() {
+        lines.push("Empty file".into());
     }
-    String::from_utf8_lossy(bytes)
-        .lines()
-        .enumerate()
-        .map(|(index, line)| format!("{:>4}  {line}", index + 1))
-        .collect()
+    Ok(lines)
 }
 
 struct LineAnchor {
@@ -412,7 +430,9 @@ struct App {
     structure_enabled: bool,
     compare: Option<(String, String)>,
     compare_base: Option<String>,
-    history_limit: usize,
+    history_stream: Option<crate::git::CommitStream>,
+    history_incoming: Option<Vec<crate::git::Commit>>,
+    history_more: bool,
     history_commit: Option<String>,
     history: history::History,
     history_collapsed: BTreeSet<PathBuf>,
@@ -523,7 +543,9 @@ impl App {
             structure_enabled: false,
             compare,
             compare_base: None,
-            history_limit: 300,
+            history_stream: None,
+            history_incoming: None,
+            history_more: false,
             history_commit: None,
             history: history::History::default(),
             history_collapsed: BTreeSet::new(),
@@ -621,7 +643,6 @@ impl App {
             return;
         }
         let repo = self.repo.clone();
-        let limit = self.history_limit;
         let request = self.preview_request();
         let read_presentation_config = force || self.presentation_config.is_none();
         self.snapshot_worker.submit(move |cancel| {
@@ -629,7 +650,7 @@ impl App {
             let presentation_config = read_presentation_config.then(|| {
                 crate::presentation::load_config(&repo.root, Some(&cancel)).unwrap_or_default()
             });
-            let snapshot = repo.snapshot(limit).map_err(|error| error.to_string())?;
+            let snapshot = repo.snapshot().map_err(|error| error.to_string())?;
             let files = repo.files().map_err(|error| error.to_string())?;
             let preview = PreviewKey::capture(&repo, request, &snapshot, &files).ok();
             Ok(Data {
@@ -645,6 +666,7 @@ impl App {
     }
 
     fn collect(&mut self) {
+        self.collect_history();
         self.dirty |= self.image.collect();
         self.collect_branches();
         if self.history.collect(&self.repo) {
@@ -764,7 +786,7 @@ impl App {
             self.snapshot_pending = false;
             let force = std::mem::take(&mut self.refresh_forced);
             match result {
-                Ok(data) => {
+                Ok(mut data) => {
                     self.snapshot_loaded = true;
                     let reread_config = force && data.presentation_config.is_none();
                     if let Some(config) = data.presentation_config {
@@ -777,9 +799,27 @@ impl App {
                     }
                     let previous = self.selected().cloned();
                     let previous_side = self.side;
-                    let changed = self.snapshot.status != data.snapshot.status
+                    let history_changed = self.history_stream.is_none()
+                        || self.snapshot.history_refs != data.snapshot.history_refs;
+                    if history_changed {
+                        self.history_incoming = Some(Vec::new());
+                        self.history_stream = Some(
+                            self.repo.commit_stream(
+                                data.snapshot
+                                    .history_refs
+                                    .iter()
+                                    .map(|(_, oid)| oid.clone())
+                                    .collect(),
+                                true,
+                                self.history_page_size(),
+                                self.waker.clone(),
+                            ),
+                        );
+                    }
+                    data.snapshot.commits = std::mem::take(&mut self.snapshot.commits);
+                    let changed = history_changed
+                        || self.snapshot.status != data.snapshot.status
                         || self.snapshot.branches != data.snapshot.branches
-                        || self.snapshot.commits != data.snapshot.commits
                         || self.snapshot.stashes != data.snapshot.stashes
                         || self.snapshot.worktrees != data.snapshot.worktrees
                         || self.snapshot.operation != data.snapshot.operation
@@ -802,6 +842,8 @@ impl App {
                             .filter(|entry| entry.unmerged)
                             .count();
                         self.rebuild();
+                    } else {
+                        self.snapshot.commits = data.snapshot.commits;
                     }
                     self.sync_branch();
                     if let Some(commit) = self.snapshot.commits.first() {
@@ -1403,7 +1445,7 @@ impl App {
                         diff.partial_reason.as_deref()
                             == Some("Resolve the conflict before staging individual lines")
                     }))
-                && let Some(lines) = preview_file(&root.join(&path))?
+                && let Some(lines) = preview_file(&root.join(&path), &cancel)?
             {
                 text = lines;
                 diff = None;

@@ -1422,6 +1422,7 @@ dependencies = [
 name = "dogit"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "chrono",
  "clap 4.6.6",
  "crossbeam-channel",
