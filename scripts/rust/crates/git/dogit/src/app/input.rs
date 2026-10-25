@@ -125,10 +125,14 @@ impl App {
             && matches!(key.code, KeyCode::Up | KeyCode::Down)
         {
             let end = key.code == KeyCode::Down;
-            let edge = if end {
-                self.entries.len().saturating_sub(1)
-            } else {
+            // While older commits are still streaming in, the last loaded commit
+            // is not the bottom edge, so there is nothing to toggle away from.
+            let edge = if !end {
                 0
+            } else if self.history_incomplete() {
+                usize::MAX
+            } else {
+                self.entries.len().saturating_sub(1)
             };
             self.move_to_edge(if self.view.selected == edge {
                 !end
@@ -507,6 +511,10 @@ impl App {
             self.view.nav_manual_scroll = false;
             let old = self.view.selected;
             let last = self.entries.len().saturating_sub(1);
+            if amount == -1 && old == 0 && self.defer_history_end() {
+                return;
+            }
+            self.history_end = false;
             self.view.selected = match (amount, old) {
                 (-1, 0) => last,
                 (1, index) if index >= last => 0,
@@ -558,6 +566,10 @@ impl App {
         }
         if self.view.focus == Focus::Navigator {
             self.view.nav_manual_scroll = false;
+            if end && self.defer_history_end() {
+                return;
+            }
+            self.history_end = false;
             let old = self.view.selected;
             self.view.selected = if end {
                 self.entries.len().saturating_sub(1)
@@ -586,6 +598,16 @@ impl App {
             }
             self.follow_canvas_cursor();
         }
+    }
+
+    /// Defers a jump to the end of the commit list until the rest of the
+    /// history has streamed in, so it can land on the oldest commit.
+    fn defer_history_end(&mut self) -> bool {
+        self.history_end = self.history_incomplete();
+        if self.history_end {
+            self.note("Loading the rest of the history");
+        }
+        self.history_end
     }
 
     fn follow_canvas_cursor(&mut self) {
@@ -967,6 +989,7 @@ impl App {
                     }
                     self.view.focus = Focus::Navigator;
                     self.view.nav_manual_scroll = false;
+                    self.history_end = false;
                     if index < self.entries.len() {
                         let disclosure = geometry
                             .nav_disclosures

@@ -412,6 +412,7 @@ impl App {
             None if self.view.focus == Focus::Navigator => {}
             Some(Target::Commit(oid)) if self.view.focus == Focus::Navigator => {
                 self.history_commit = Some(oid.clone());
+                self.history_end = false;
                 self.revision_paths.clear();
                 self.history_collapsed.clear();
                 self.view.commit_field = 0;

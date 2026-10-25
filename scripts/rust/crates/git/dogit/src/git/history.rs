@@ -10,6 +10,27 @@ use crossbeam_channel::{Receiver, SendTimeoutError, Sender, bounded};
 
 use super::{COMMIT_FORMAT, Commit, GitError, Repo, parse_commits};
 
+impl Repo {
+    pub fn count_history(&self, refs: &[(String, String)]) -> Result<usize, GitError> {
+        if refs.is_empty() {
+            return Ok(0);
+        }
+        let mut input = tempfile::tempfile()?;
+        for (_, oid) in refs {
+            writeln!(input, "{oid}")?;
+        }
+        input.rewind()?;
+        let mut spec = super::CommandSpec::new("Count history", ["rev-list", "--count", "--stdin"]);
+        spec.mutates = false;
+        let mut command = self.command(&spec);
+        command.stdin(Stdio::from(input));
+        super::text(&super::capture(&mut command, self.cancellation.as_deref())?)
+            .trim()
+            .parse()
+            .map_err(|_| GitError::new("Malformed commit count"))
+    }
+}
+
 pub struct CommitStream {
     pages: Receiver<Result<Vec<Commit>, GitError>>,
     cancel: Arc<AtomicBool>,

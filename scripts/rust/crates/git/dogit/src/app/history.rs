@@ -13,6 +13,7 @@ impl App {
     }
 
     pub(super) fn collect_history(&mut self) {
+        self.finish_history_end();
         let Some(stream) = &self.history_stream else {
             return;
         };
@@ -21,6 +22,7 @@ impl App {
             || (self.view.workspace == Workspace::History
                 && self.history_commit.is_none()
                 && (self.history_more
+                    || self.history_end
                     || !self.query.is_empty()
                     || self
                         .view
@@ -52,7 +54,10 @@ impl App {
                 if let Some(commit) = self.snapshot.commits.first() {
                     self.history.prefetch(&self.repo, commit);
                 }
-                if self.view.workspace == Workspace::History && self.history_commit.is_none() {
+                if self.view.workspace == Workspace::History
+                    && self.history_commit.is_none()
+                    && !self.history_end
+                {
                     self.rebuild();
                     if previous != self.selected().cloned() {
                         self.load_content(true);
@@ -62,9 +67,46 @@ impl App {
             }
             Err(error) => {
                 self.history_incoming = None;
+                self.history_end = false;
                 self.note(error.to_string());
             }
         }
+    }
+
+    /// Whether older commits are still streaming in, so the commit list does
+    /// not yet reach the end of the history.
+    pub(super) fn history_incomplete(&self) -> bool {
+        self.view.workspace == Workspace::History
+            && self.history_commit.is_none()
+            && self
+                .history_stream
+                .as_ref()
+                .is_some_and(|stream| !stream.is_finished())
+    }
+
+    /// Selects the oldest commit once the remaining history has streamed in.
+    fn finish_history_end(&mut self) {
+        if !self.history_end {
+            return;
+        }
+        let Some(finished) = self
+            .history_stream
+            .as_ref()
+            .map(crate::git::CommitStream::is_finished)
+        else {
+            self.history_end = false;
+            return;
+        };
+        let visible = self.view.workspace == Workspace::History && self.history_commit.is_none();
+        if !finished || !visible || self.history_incoming.is_some() {
+            return;
+        }
+        self.history_end = false;
+        self.rebuild();
+        self.view.nav_manual_scroll = false;
+        self.view.selected = self.entries.len().saturating_sub(1);
+        self.load_content(true);
+        self.dirty = true;
     }
 }
 

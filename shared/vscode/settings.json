@@ -155,7 +155,7 @@
     "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[yaml]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "jkillian.custom-local-formatters",
   },
   "[sql]": {
     "editor.defaultFormatter": "jkillian.custom-local-formatters"
@@ -207,6 +207,14 @@
       }
     }
   ],
+  "yaml.schemas": {
+    "./schemas/openai.schema.json": [
+      "**/openai.yaml"
+    ]
+  },
+  "yaml.validate": true,
+  "yaml.completion": true,
+  "yaml.hover": true,
   "diffEditor.ignoreTrimWhitespace": true,
   "github.copilot.enable": {
     "lua": false,
@@ -397,5 +405,6 @@
   "redhat.telemetry.enabled": false,
   "explorer.confirmPasteNative": false,
   "editor.inlayHints.enabled": "off",
-  "go.toolsManagement.autoUpdate": true
+  "go.toolsManagement.autoUpdate": true,
+  "yaml.format.enable": false
 }

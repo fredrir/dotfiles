@@ -112,6 +112,7 @@
 | <code>ctrl+alt+cmd+tab</code> | [<code>runCommands {"commands":&#91;"workbench.files.action.showActiveFileInExplorer","list.focusDown","workbench.action.closeActiveEditor","explorer.openAndPassFocus"&#93;}</code>](../../shared/vscode/keybindings.json#L550) | Run Commands<br><code>editorTextFocus</code> |
 | <code>ctrl+alt+cmd+up</code> | [<code>-quickInput.previousSeparator</code>](../../shared/vscode/keybindings.json#L191) | Quick Input previous Separator<br><code>inQuickInput &amp;&amp; quickInputType == 'quickPick' &#124;&#124; inQuickInput &amp;&amp; quickInputType == 'quickTree'; remove binding</code> |
 | <code>ctrl+alt+cmd+up</code> | [<code>workbench.action.compareEditor.previousChange</code>](../../shared/vscode/keybindings.json#L181) | Compare Editor previous Change<br><code>textCompareEditorVisible</code> |
+| <code>ctrl+alt+cmd+y</code> | [<code>yaml.select.json.schema</code>](../../shared/vscode/keybindings.json#L606) | Yaml select json schema |
 | <code>ctrl+shift+alt+cmd+d</code> | [<code>editor.emmet.action.removeTag</code>](../../shared/vscode/keybindings.json#L598) | Editor emmet action remove Tag |
 | <code>ctrl+shift+alt+cmd+i</code> | [<code>bracketeer.removeBrackets</code>](../../shared/vscode/keybindings.json#L586) | Bracketeer remove Brackets |
 | <code>ctrl+shift+alt+cmd+k</code> | [<code>bracketeer.swapBrackets</code>](../../shared/vscode/keybindings.json#L502) | Bracketeer swap Brackets |

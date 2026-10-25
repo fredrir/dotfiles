@@ -115,6 +115,7 @@ enum Prepared {
 
 struct Data {
     snapshot: Snapshot,
+    history_total: usize,
     files: Vec<PathBuf>,
     preview: Option<PreviewKey>,
     force: bool,
@@ -431,8 +432,10 @@ struct App {
     compare: Option<(String, String)>,
     compare_base: Option<String>,
     history_stream: Option<crate::git::CommitStream>,
+    history_total: usize,
     history_incoming: Option<Vec<crate::git::Commit>>,
     history_more: bool,
+    history_end: bool,
     history_commit: Option<String>,
     history: history::History,
     history_collapsed: BTreeSet<PathBuf>,
@@ -544,8 +547,10 @@ impl App {
             compare,
             compare_base: None,
             history_stream: None,
+            history_total: 0,
             history_incoming: None,
             history_more: false,
+            history_end: false,
             history_commit: None,
             history: history::History::default(),
             history_collapsed: BTreeSet::new(),
@@ -645,16 +650,25 @@ impl App {
         let repo = self.repo.clone();
         let request = self.preview_request();
         let read_presentation_config = force || self.presentation_config.is_none();
+        let history_refs = self.snapshot.history_refs.clone();
+        let history_total = self.history_total;
         self.snapshot_worker.submit(move |cancel| {
             let repo = repo.with_cancel(Arc::clone(&cancel));
             let presentation_config = read_presentation_config.then(|| {
                 crate::presentation::load_config(&repo.root, Some(&cancel)).unwrap_or_default()
             });
             let snapshot = repo.snapshot().map_err(|error| error.to_string())?;
+            let history_total = if snapshot.history_refs == history_refs {
+                history_total
+            } else {
+                repo.count_history(&snapshot.history_refs)
+                    .map_err(|error| error.to_string())?
+            };
             let files = repo.files().map_err(|error| error.to_string())?;
             let preview = PreviewKey::capture(&repo, request, &snapshot, &files).ok();
             Ok(Data {
                 snapshot,
+                history_total,
                 files,
                 preview,
                 force,
@@ -788,6 +802,7 @@ impl App {
             match result {
                 Ok(mut data) => {
                     self.snapshot_loaded = true;
+                    self.history_total = data.history_total;
                     let reread_config = force && data.presentation_config.is_none();
                     if let Some(config) = data.presentation_config {
                         let previous_split = self.view.split;
@@ -1180,6 +1195,9 @@ impl App {
                 });
         if let Some(summary) = changes_summary {
             self.nav_summary = summary;
+        } else if self.view.workspace == Workspace::History {
+            self.nav_summary.items = self.history_total;
+            self.nav_summary.has_commits = true;
         }
         if let Some(index) = selected.as_ref().and_then(|target| {
             self.entries
@@ -1514,6 +1532,7 @@ impl App {
             .insert(format!("{:?}", self.view.workspace), self.view.nav_width);
         self.view.workspace = workspace;
         self.history_commit = None;
+        self.history_end = false;
         self.branches.open = None;
         self.branches.origin = None;
         self.revision_paths.clear();

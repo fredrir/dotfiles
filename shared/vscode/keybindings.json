@@ -602,5 +602,9 @@
   {
     "key": "cmd+e",
     "command": "-actions.findWithSelection"
+  },
+  {
+    "key": "ctrl+alt+cmd+y",
+    "command": "yaml.select.json.schema"
   }
 ]

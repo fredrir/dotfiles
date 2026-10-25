@@ -123,14 +123,14 @@ local bindings = {
 
   ------ Directory Navigation ------
   ----
+  keybind(go_to "LLUNDE", MOD.SUPER_REV, "l"),
+  ----
   keybind(go_to "HOME", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "h"),
-  keybind(go_to "HOME/.agents/skills", { MOD.UNIQUE }, "a"),
+  keybind(go_to "HOME/.agents", { MOD.UNIQUE }, "a"),
   keybind(go_to "HOME/.claude/skills", { MOD.UNIQUE }, "c"),
+  keybind(go_to "HOME/.pi/agent", { MOD.UNIQUE }, "p"),
   ----
   keybind(go_to "DOTFILES/shared/wezterm", { MOD.SHIFT_RIGHT, MOD.UNIQUE }, "w"),
-  ----
-  keybind(go_to "PYPARSER", { MOD.UNIQUE }, "p"),
-  keybind(go_to "LLUNDE", MOD.SUPER_REV, "l"),
   ----
   keybind(go_to "CONFIG", MOD.SHIFT_RIGHT, "c"),
   keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),
