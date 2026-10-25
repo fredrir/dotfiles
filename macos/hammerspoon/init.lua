@@ -27,12 +27,10 @@ end)
 
 -- Zen Browser --
 key.openApp({ "fn" }, "b", "Zen")
-key.openApp(right_shift, "b", "Zen")
 
 -- Wezterm --
 key.openApp({ "fn" }, ".", "Wezterm")
 key.openApp({ "fn" }, "padenter", "Wezterm")
-key.openApp(right_shift, "space", "Wezterm")
 key.openApp({ "fn" }, "t", "Wezterm")
 
 -- Vscode --

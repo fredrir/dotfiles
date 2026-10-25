@@ -134,13 +134,14 @@ local bindings = {
   ----
   keybind(go_to "CONFIG", MOD.SHIFT_RIGHT, "c"),
   keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),
+  keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
+  keybind(go_to "DOTFILES/scripts/rust/crates", MOD.SHIFT_RIGHT, "t"),
   keybind(go_to "DOTFILES/scripts/rust/crates/git/dogit", MOD.SHIFT_RIGHT, "x"),
   keybind(go_to "HOME/infra", MOD.SHIFT_RIGHT, "i"),
   keybind(cd_git_root, MOD.SHIFT_RIGHT, "g"),
   keybind(go_to "OLDPWD", MOD.SHIFT_RIGHT, "j"),
   keybind(go_to "PYPARSER", { MOD.SHIFT_RIGHT }, "q"),
   keybind(go_to "PYPARSER/review-ui", { MOD.SHIFT_RIGHT }, "e"),
-  keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
   keybind(go_to "HOME/rif", MOD.SHIFT_RIGHT, "r"),
   keybind(go_to "HOME/ArchTeX", { MOD.SHIFT_RIGHT }, "a"),
 

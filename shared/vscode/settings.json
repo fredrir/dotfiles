@@ -92,13 +92,13 @@
       ]
     },
     {
-      "command": "dotfmt -l json -q --dialect jsonc --stdin \"${file}\"",
+      "command": "dotfmt -l json -eq --dialect jsonc --stdin \"${file}\"",
       "languages": [
         "jsonc"
       ]
     },
     {
-      "command": "dotfmt -l json -q --dialect jsonl --stdin \"${file}\"",
+      "command": "dotfmt -l json -eq --dialect jsonl --stdin \"${file}\"",
       "languages": [
         "jsonl",
         "ndjson"
