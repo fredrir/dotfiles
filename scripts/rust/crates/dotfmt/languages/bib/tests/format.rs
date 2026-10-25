@@ -2,6 +2,7 @@
 
 use dotfmt_bib::config::{Config, IndentType, LineEndings, NameCase};
 use dotfmt_bib::format;
+use dotfmt_core::diagnostic::DiagnosticKind;
 
 fn formatted(input: &str, config: &Config) -> String {
     let output = format(input, config).unwrap();
@@ -58,6 +59,19 @@ fn paren_entries_and_braces_in_keys_are_preserved() {
 }
 
 #[test]
+fn paren_keys_may_contain_closing_parentheses() {
+    assert_eq!(
+        default("@misc(a)b, author={A. Author}, title={The Title}, year=2000)\n"),
+        "@misc(a)b,\n  author = {A. Author},\n  title  = {The Title},\n  year   = 2000\n)"
+    );
+    assert_eq!(
+        default("@misc(a))b), title={T})"),
+        "@misc(a))b),\n  title = {T}\n)"
+    );
+    assert_eq!(default("@misc(a)b)"), "@misc(a)b)");
+}
+
+#[test]
 fn string_preamble_and_comment_blocks_keep_their_text() {
     let input = "@string{ foo = {bar} }\n@preamble{ \"\\newcommand{\\noopsort}[1]{}\" }\n@comment{@article{x, title={y}}}\n";
     assert_eq!(
@@ -103,9 +117,35 @@ fn duplicate_fields_and_block_order_are_never_changed() {
 fn empty_entries_and_empty_files_are_safe() {
     assert_eq!(default("@misc{}"), "@misc{}");
     assert_eq!(default("@misc{k}"), "@misc{k}");
-    for input in ["", " ", "\n\n", "\t\n \n"] {
-        assert_eq!(default(input), "");
+    assert_eq!(default(""), "");
+}
+
+#[test]
+fn whitespace_only_input_is_preserved_instead_of_emptied() {
+    for input in [" ", "\n\n", "\t\n \n"] {
+        assert_eq!(default(input), input);
     }
+    let config = Config {
+        final_newline: true,
+        ..Config::default()
+    };
+    assert_eq!(formatted("\n \n", &config), "\n \n");
+}
+
+#[test]
+fn whitespace_only_entry_keys_are_formatted_without_panicking() {
+    assert_eq!(
+        default("@misc{ }\n@misc{ok, author={A}, title={T}, year=2000}\n"),
+        "@misc{}\n\n@misc{ok,\n  author = {A},\n  title  = {T},\n  year   = 2000\n}"
+    );
+    assert_eq!(
+        default("@misc{ , title={nokey}}"),
+        "@misc{,\n  title = {nokey}\n}"
+    );
+    let error = format("@misc{\n", &Config::default()).unwrap_err();
+    assert_eq!(error.kind, DiagnosticKind::Syntax);
+    assert!(error.message.contains("unterminated entry"), "{error}");
+    assert_eq!((error.line, error.column), (Some(2), Some(1)));
 }
 
 #[test]
@@ -119,7 +159,149 @@ fn malformed_bibliographies_are_rejected_without_writing() {
         ("@article{x, title={T} year={2024}}", "expected ','"),
     ] {
         let error = format(input, &Config::default()).unwrap_err();
+        assert_eq!(error.kind, DiagnosticKind::Syntax, "{input}");
         assert!(error.to_string().contains(message), "{input}: {error}");
+    }
+}
+
+#[test]
+fn block_types_without_an_opening_delimiter_are_diagnosed() {
+    for (input, message) in [
+        (
+            "@article foo, title={x}",
+            "expected '{' or '(' after the block type",
+        ),
+        ("@{k, title={x}}", "expected a block type after '@'"),
+        ("@ % comment\n@misc{k}", "expected a block type after '@'"),
+    ] {
+        let error = format(input, &Config::default()).unwrap_err();
+        assert_eq!(error.kind, DiagnosticKind::Syntax, "{input}");
+        assert!(error.message.contains(message), "{input}: {error}");
+        assert_eq!((error.line, error.column), (Some(1), Some(1)), "{input}");
+    }
+}
+
+#[test]
+fn unterminated_comment_blocks_are_diagnosed() {
+    for input in [
+        "@comment{ unbalanced\n@misc{k, title={T}}",
+        "@comment(unbalanced\n@misc{k, title={T}}",
+    ] {
+        let error = format(input, &Config::default()).unwrap_err();
+        assert_eq!(error.kind, DiagnosticKind::Syntax, "{input}");
+        assert!(error.message.contains("unterminated @comment"), "{error}");
+        assert_eq!((error.line, error.column), (Some(1), Some(1)), "{input}");
+    }
+}
+
+#[test]
+fn comments_between_concatenated_value_parts_are_diagnosed() {
+    for input in [
+        "@misc{k, title={a} # % c\n {b}}",
+        "@misc{k, title = \"a\" #\n % c\n \"b\"}",
+        "@string{foo = \"a\" # % c\n \"b\"}",
+    ] {
+        let error = format(input, &Config::default()).unwrap_err();
+        assert_eq!(error.kind, DiagnosticKind::Syntax, "{input}");
+        assert!(
+            error.message.contains("between concatenated value parts"),
+            "{input}: {error}"
+        );
+    }
+}
+
+#[test]
+fn comments_before_the_end_of_a_preamble_are_diagnosed() {
+    for input in [
+        "@preamble{\"a\" % c\n}",
+        "@preamble{ % c\n}",
+        "@preamble(\"a\" % c\n)",
+    ] {
+        let error = format(input, &Config::default()).unwrap_err();
+        assert_eq!(error.kind, DiagnosticKind::Syntax, "{input}");
+        assert!(
+            error.message.contains("before the end of @preamble"),
+            "{input}: {error}"
+        );
+        assert_eq!(error.line, Some(1), "{input}");
+    }
+    assert_eq!(default("@preamble{\"a % c\"}"), "@preamble{\"a % c\"}");
+    assert_eq!(default("@preamble{}"), "@preamble{}");
+}
+
+#[test]
+fn trailing_comma_follows_the_setting_for_fieldless_entries_only() {
+    let config = Config {
+        trailing_comma: true,
+        ..Config::default()
+    };
+    assert_eq!(formatted("@a{k}", &config), "@a{k,}");
+    assert_eq!(formatted("@a(k)", &config), "@a(k,)");
+    // BibTeX rejects a comma after an @string value, so it is never added.
+    assert_eq!(
+        formatted("@string{foo = \"x\"}", &config),
+        "@string{foo = \"x\"}"
+    );
+    assert_eq!(
+        formatted("@string{foo = \"x\"\n}\n", &config),
+        "@string{foo = \"x\"}"
+    );
+    let config = Config::default();
+    assert_eq!(formatted("@a{k,}", &config), "@a{k}");
+    assert_eq!(formatted("@a{k, % kept\n}", &config), "@a{k,\n  % kept\n}");
+}
+
+#[test]
+fn comments_in_a_string_block_are_placed_on_their_own_lines() {
+    let config = Config {
+        trailing_comma: true,
+        ..Config::default()
+    };
+    assert_eq!(
+        formatted("@string{foo = \"x\" % c\n}", &config),
+        "@string{\n  foo = \"x\"\n  % c\n}"
+    );
+}
+
+#[test]
+fn brace_less_comments_are_formatted_and_settle() {
+    assert_eq!(
+        default("@comment a note\n@misc{k, title={T}}\n"),
+        "@comment a note\n\n@misc{k,\n  title = {T}\n}"
+    );
+    assert_eq!(
+        default("@comment a note   \n@misc{k}\n"),
+        "@comment a note\n\n@misc{k}"
+    );
+    let config = Config {
+        final_newline: true,
+        ..Config::default()
+    };
+    assert_eq!(formatted("@comment a note", &config), "@comment a note\n");
+    assert_eq!(formatted("@comment a note\n", &config), "@comment a note\n");
+}
+
+#[test]
+fn wrapping_continues_after_an_over_long_token() {
+    let config = Config {
+        width: 30,
+        wrap: true,
+        ..Config::default()
+    };
+    let output = formatted(
+        "@a{k, t={Supercalifragilisticexpialidocious aaa bbb ccc ddd eee fff ggg hhh iii}}",
+        &config,
+    );
+    assert!(
+        output.contains("  t = {Supercalifragilisticexpialidocious\n"),
+        "{output}"
+    );
+    assert!(output.contains("eee fff"), "{output}");
+    for line in output
+        .lines()
+        .filter(|line| !line.contains("Supercalifragilistic"))
+    {
+        assert!(line.chars().count() <= 30, "{line:?} in {output}");
     }
 }
 

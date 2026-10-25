@@ -86,7 +86,9 @@ fn format_once(text: &str, config: &Config, dialect: Dialect) -> Result<String, 
         arguments: false,
         files: Vec::new(),
         recursive: false,
-        format_tables: config.format_tables,
+        // tex-fmt's table formatter slices bytes at the first character of a
+        // row, so a row that starts with a multi-byte character panics.
+        format_tables: config.format_tables && !breaks_table_alignment(&prepared.text),
     };
     let mut current = prepared.text.clone();
     let mut formatted = String::new();
@@ -99,7 +101,7 @@ fn format_once(text: &str, config: &Config, dialect: Dialect) -> Result<String, 
         .map_err(|_| internal("LaTeX formatter failed"))?;
         let pass = reindent(&pass, config);
         let pass = if config.wrap {
-            wrap::wrap_text(&pass, config)
+            wrap::wrap_text(&pass, config, &prepared.marker)
         } else {
             pass
         };
@@ -117,6 +119,9 @@ fn format_once(text: &str, config: &Config, dialect: Dialect) -> Result<String, 
     let formatted = blank_lines(&formatted, &prepared.marker, config);
     let mut output = prepared.restore(&formatted);
     output.truncate(output.trim_end_matches('\n').len());
+    if prepared.has_placeholder(&output) {
+        return Err(internal("protected content could not be restored"));
+    }
     Ok(output)
 }
 
@@ -126,6 +131,36 @@ fn merge(defaults: &[&str], extra: &[String]) -> Vec<String> {
         .map(|name| (*name).to_owned())
         .chain(extra.iter().cloned())
         .collect()
+}
+
+/// Whether a row that tex-fmt's table formatter would split can start with a
+/// non-ASCII character. `add_line_breaks` slices the first character of every
+/// row, so a multi-byte character panics; it runs again on the rows produced by
+/// a previous break, so every `\\ `-continued segment starts a line.
+fn breaks_table_alignment(text: &str) -> bool {
+    text.lines().any(|line| {
+        let mut segments: Vec<&str> = line.split("\\\\ ").collect();
+        if segments.len() < 2 {
+            return false;
+        }
+        // The rows produced by an earlier split start new lines, so every
+        // segment but the last can be re-split; a multi-byte first character
+        // panics in tex-fmt's byte slice.
+        segments.pop();
+        if segments.iter().any(|segment| {
+            segment
+                .trim_start()
+                .chars()
+                .next()
+                .is_some_and(|character| !character.is_ascii())
+        }) {
+            return true;
+        }
+        // tex-fmt drops the text between the first `\\` and a later `\\ `
+        // when the first one is not followed by a space (for example `\\[2pt]`).
+        line.find("\\\\")
+            .is_some_and(|first| !line[first + 2..].starts_with(' '))
+    })
 }
 
 /// tex-fmt is given a tab size of one, so leading spaces are indentation

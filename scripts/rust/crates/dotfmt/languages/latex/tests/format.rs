@@ -23,7 +23,7 @@ fn environments_indent_and_shared_delimiters_move_to_their_own_lines() {
     let input = "\\begin{document}\n\\begin{itemize}\n\\item one\n\\end{itemize}\n\\begin{a}\\end{a}\nafter\n\\end{document}";
     assert_eq!(
         default(input),
-        "\\begin{document}\n\\begin{itemize}\n  \\item one\n\\end{itemize}\n\\begin{a}\n\\end{a}\nafter\n\\end{document}"
+        "\\begin{document}\n\\begin{itemize}\n  \\item one\n\\end{itemize}\n\\begin{a}%\n\\end{a}\nafter\n\\end{document}"
     );
 }
 
@@ -41,10 +41,17 @@ fn verbatim_blocks_and_inline_verbatim_are_byte_preserved() {
 }
 
 #[test]
-fn directlua_blocks_are_preserved() {
-    let block = "\\directlua{\n  local x = { 1, 2 }\n  print('%', x[1])\n}";
-    let output = default(&format!("\\begin{{document}}\n{block}\n\\end{{document}}"));
-    assert!(output.contains(block), "{output:?}");
+fn lua_blocks_are_preserved() {
+    let directlua =
+        "\\directlua{\nlocal x = { 1, 2 }\nif x then\nprint('%', [[a   b\n  c]])\nend\n}";
+    let luaexec = "\\luaexec{\nfor i = 1, 3 do\ntex.print(i)\nend\n}";
+    let luadirect = "\\luadirect{\nlocal y = 1\n}";
+    let input =
+        format!("\\begin{{document}}\n{directlua}\n{luaexec}\n{luadirect}\n\\end{{document}}");
+    let output = default(&input);
+    for block in [directlua, luaexec, luadirect] {
+        assert!(output.contains(block), "{output:?}");
+    }
 }
 
 #[test]
@@ -245,10 +252,202 @@ fn plain_tex_and_bom_inputs_are_safe() {
 fn formatting_preserves_the_non_whitespace_token_stream() {
     let input = "\\documentclass{article}\n\\begin{document}\n\\begin{center}\\textbf{x}\\end{center}\n\\begin{itemize}\n\\item one with \\emph{two}\n\\end{itemize}\n\\[\n\\left\\{ a \\right.\n\\]\n\\begin{verbatim}\n  raw  text\n\\end{verbatim}\n\\end{document}";
     let output = default(input);
+    // The split guard writes a line-final `%` so the inserted newline is not a
+    // space token; it is part of the layout, not of the token stream.
     let strip = |text: &str| {
-        text.chars()
+        text.replace("%\n", "\n")
+            .chars()
             .filter(|character| !character.is_whitespace())
             .collect::<String>()
     };
     assert_eq!(strip(input), strip(&output));
+}
+
+#[test]
+fn display_math_is_translated_only_when_each_delimiter_starts_a_line() {
+    let input = "\\catcode`\\[12\\catcode`\\]12\n\\[\nx\n\\]";
+    let output = default(input);
+    assert!(
+        output.contains("\\catcode`\\[12\\catcode`\\]12"),
+        "{output:?}"
+    );
+    assert!(!output.contains("`\n"), "{output:?}");
+    assert!(output.contains("\\[\n  x\n\\]"), "{output:?}");
+    assert_eq!(default("a \\[ x \\] b"), "a \\[ x \\] b");
+    assert_eq!(default("\\[ x \\] b"), "\\[ x \\] b");
+}
+
+#[test]
+fn a_guarded_split_leaves_the_token_stream_unchanged() {
+    let output = default("\\def\\foo#1\\end{bar}");
+    assert_eq!(output, "\\def\\foo#1%\n\\end{bar}");
+    let output = default("[Hello\\begin{ital}world\\end{ital}]");
+    assert_eq!(output, "[Hello%\n\\begin{ital}world%\n\\end{ital}]");
+    assert_eq!(default("a \\begin{x}"), "a\n\\begin{x}");
+}
+
+#[test]
+fn mid_line_item_and_sectioning_commands_are_guarded() {
+    assert_eq!(default("a\\item b"), "a%\n\\item b");
+    assert_eq!(default("x\\section{y}"), "x%\n\\section{y}");
+    assert_eq!(default("x \\subsection*{y}"), "x\n\\subsection*{y}");
+    assert_eq!(default("x\\itemize"), "x\\itemize");
+    assert_eq!(default("x\\partial"), "x\\partial");
+}
+
+#[test]
+fn a_bare_path_does_not_protect_the_rest_of_the_line() {
+    let input = "{\\begin{tikzpicture}\n\\path; }{\\end{tikzpicture}}\nZ";
+    let output = default(input);
+    assert!(output.contains("\\path; }"), "{output:?}");
+    assert!(output.ends_with("\nZ"), "{output:?}");
+}
+
+#[test]
+fn non_ascii_whitespace_is_preserved() {
+    let input = "\\newcommand{\\f}[1]{\n\u{a0}\t\\renewcommand{\\a}{#1}\n\u{a0}\t\\renewcommand{\\b}{#1}\n}";
+    let output = default(input);
+    assert_eq!(output.matches('\u{a0}').count(), 2, "{output:?}");
+    assert_eq!(default("a\u{2003}b"), "a\u{2003}b");
+}
+
+#[test]
+fn escaped_splitter_text_stays_on_one_line() {
+    let output = default("\\begin{a}\nx\\\\item y\n\\end{a}");
+    assert!(output.contains("x\\\\item y"), "{output:?}");
+    assert!(!output.contains("x\\\n"), "{output:?}");
+    let output = default("x\\\\begin{a} y");
+    assert!(output.contains("x\\\\begin{a} y"), "{output:?}");
+}
+
+#[test]
+fn off_regions_are_preserved_byte_for_byte() {
+    let region = "% tex-fmt: off\n\\foo   \\begin{verbatim}\n\t raw\t x   \n\n\n\\end{verbatim}\n% tex-fmt: on";
+    let input = format!("\\def\\m{{a\\begin{{tabular}}{{c}}b\\end{{tabular}}c}}\n{region}\nafter");
+    let output = default(&input);
+    assert!(output.contains(region), "{output:?}");
+    assert!(output.contains("\\def\\m{a%\n"), "{output:?}");
+}
+
+#[test]
+fn nested_protection_tokens_are_restored() {
+    let input =
+        "\\begin{verbatim}\n% tex-fmt: off\nraw   text\n% tex-fmt: on\n\\end{verbatim}\nafter";
+    let output = default(input);
+    assert!(
+        output.contains(
+            "\\begin{verbatim}\n% tex-fmt: off\nraw   text\n% tex-fmt: on\n\\end{verbatim}"
+        ),
+        "{output:?}"
+    );
+
+    let input = "a\\\\item \\verb|x|";
+    let output = default(input);
+    assert!(output.contains("\\\\item \\verb|x|"), "{output:?}");
+}
+
+#[test]
+fn off_markers_inside_verbatim_text_are_not_directives() {
+    let input = "\\begin{verbatim}\n% tex-fmt: off\nraw   text\n\\end{verbatim}\n   after   text";
+    let output = default(input);
+    assert!(
+        output.contains("\\begin{verbatim}\n% tex-fmt: off\nraw   text\n\\end{verbatim}"),
+        "{output:?}"
+    );
+    assert!(!output.contains("   after"), "{output:?}");
+}
+
+#[test]
+fn a_frozen_split_line_keeps_the_following_environment_visible() {
+    let input = "\\begin{a}\nx\\\\item y\\end{a}\nafter";
+    let output = default(input);
+    assert!(output.contains("\\end{a}\nafter"), "{output:?}");
+}
+
+#[test]
+fn blank_line_markers_are_never_wrapped_into_the_output() {
+    let config = Config {
+        width: 10,
+        ..Config::default()
+    };
+    let input = "\\begin{document}\n\\begin{itemize}\n\\item a\n\n\\item b\n\\end{itemize}\n\\end{document}";
+    let output = formatted(input, &config);
+    assert!(!output.contains('\u{e000}'), "{output:?}");
+    assert!(output.contains("\\item a\n\n"), "{output:?}");
+}
+
+#[test]
+fn tooling_directives_are_never_rewrapped() {
+    let config = Config {
+        width: 30,
+        wrap: true,
+        ..Config::default()
+    };
+    let input = "%!TEX program = pdflatex, shell-escape, synctex=1, cjk-escapes\n%!TEX root = /home/user/a/very/long/path/to/the/main/document.tex\n% !BIB program = biber and some more options here\n% arara: pdflatex: { options: [ \"-shell-escape\", \"--interaction=nonstopmode\" ] }\n%&format=pdflatex";
+    assert_eq!(formatted(input, &config), input);
+    let wrapped = formatted(
+        "% an ordinary comment that is long enough to wrap at this width",
+        &config,
+    );
+    assert!(wrapped.contains('\n'), "{wrapped:?}");
+}
+
+#[test]
+fn private_use_characters_in_the_input_are_not_token_markers() {
+    let input =
+        "\u{e000}\u{e001}\u{e002}\u{e003}\u{e004}\u{e005}\u{e006}\u{e007}\u{f0000} \\verb|xyz|";
+    assert_eq!(default(input), input);
+}
+
+#[test]
+fn an_input_that_uses_the_whole_private_use_area_is_rejected() {
+    let input: String = (0xe000..=0xf8ff)
+        .map(|code| char::from_u32(code).expect("private-use scalar value"))
+        .collect();
+    let error = format(&input, &Config::default(), Dialect::Latex).unwrap_err();
+    assert!(error.to_string().contains("private-use"), "{error}");
+}
+
+#[test]
+fn table_alignment_does_not_panic_on_a_multibyte_row_start() {
+    let config = Config {
+        format_tables: true,
+        wrap: false,
+        ..Config::default()
+    };
+    // A leading `(` is protected as a private-use token, which is multi-byte
+    // for tex-fmt as well.
+    for input in [
+        "\\begin{tabular}{cc}\n\u{2603} & b\\\\ c\nx & y\\\\\n\\end{tabular}",
+        "\\begin{tabular}{cc}\n(a) & b\\\\ c\nx & y\\\\\n\\end{tabular}",
+        // The panic also fires on a row produced by an earlier `\\ ` split.
+        "\\begin{tabular}{cc}\na & b\\\\(c) & d\\\\ e\n\\end{tabular}",
+        "\\begin{tabular}{cc}\na & b\\\\ \u{2603} c\\\\ d\n\\end{tabular}",
+    ] {
+        let output = formatted(input, &config);
+        let strip = |text: &str| {
+            text.chars()
+                .filter(|character| !character.is_whitespace())
+                .collect::<String>()
+        };
+        assert_eq!(strip(input), strip(&output));
+    }
+}
+
+#[test]
+fn verbatim_like_environments_are_byte_preserved() {
+    let body = "   keep   me\n\ttab and  spaces\na line that is far longer than the configured width and must not be wrapped at all";
+    for name in [
+        "alltt",
+        "alltt*",
+        "semiverbatim",
+        "SaveVerbatim",
+        "BVerbatim*",
+        "LVerbatim*",
+        "verbatimtab",
+    ] {
+        let block = format!("\\begin{{{name}}}\n{body}\n\\end{{{name}}}");
+        let output = default(&block);
+        assert!(output.contains(&block), "{name}: {output:?}");
+    }
 }

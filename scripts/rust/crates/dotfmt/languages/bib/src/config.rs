@@ -99,8 +99,7 @@ impl Config {
             "trailing_comma" => self.trailing_comma = flag(key, value)?,
             "wrap" => self.wrap = flag(key, value)?,
             "wrap_min" => {
-                let minimum = number(key, value, 0, 10000)?;
-                self.wrap_min = (minimum > 0).then_some(minimum);
+                self.wrap_min = Some(number(key, value, 1, 10000)?);
             }
             "field_name_case" => self.field_name_case = name_case(key, value)?,
             "entry_type_case" => self.entry_type_case = name_case(key, value)?,

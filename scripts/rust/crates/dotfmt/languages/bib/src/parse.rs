@@ -126,7 +126,7 @@ impl Parser<'_> {
     fn document(mut self) -> Result<Document, Diagnostic> {
         let mut items = Vec::new();
         let mut leading_start = 0;
-        while let Some(start) = self.next_block() {
+        while let Some(start) = self.next_block()? {
             let leading = Trivia {
                 span: Span {
                     start: leading_start,
@@ -149,19 +149,30 @@ impl Parser<'_> {
         })
     }
 
-    fn next_block(&mut self) -> Option<usize> {
+    fn next_block(&mut self) -> Result<Option<usize>, Diagnostic> {
         let bytes = self.text.as_bytes();
         while self.pos < bytes.len() {
             match bytes[self.pos] {
                 b'%' => self.pos = line_end(bytes, self.pos),
-                b'@' if self.looks_like_block(self.pos) => return Some(self.pos),
+                b'@' if self.looks_like_block(self.pos) => return Ok(Some(self.pos)),
+                b'@' => {
+                    // BibTeX reports both forms, so a stray `@` outside a block is
+                    // not prose that can be silently skipped.
+                    let message = if self.block_ident(self.pos).is_some() {
+                        "expected '{' or '(' after the block type"
+                    } else {
+                        "expected a block type after '@'"
+                    };
+                    return Err(self.error(self.pos, message));
+                }
                 _ => self.pos += 1,
             }
         }
-        None
+        Ok(None)
     }
 
-    fn looks_like_block(&self, at: usize) -> bool {
+    /// The block type after the `@` at `at`, with the offset just past it.
+    fn block_ident(&self, at: usize) -> Option<(usize, &str)> {
         let bytes = self.text.as_bytes();
         let mut i = at + 1;
         while bytes.get(i).is_some_and(|byte| byte.is_ascii_whitespace()) {
@@ -171,17 +182,21 @@ impl Parser<'_> {
         while bytes.get(i).is_some_and(|byte| is_ident_byte(*byte)) {
             i += 1;
         }
-        if start == i {
+        (start < i).then(|| (i, &self.text[start..i]))
+    }
+
+    fn looks_like_block(&self, at: usize) -> bool {
+        let Some((mut i, kind)) = self.block_ident(at) else {
             return false;
-        }
-        let kind = &self.text[start..i].to_ascii_lowercase();
+        };
+        let bytes = self.text.as_bytes();
         while bytes.get(i).is_some_and(|byte| byte.is_ascii_whitespace()) {
             i += 1;
         }
         bytes
             .get(i)
             .is_some_and(|byte| *byte == b'{' || *byte == b'(')
-            || kind == "comment"
+            || kind.eq_ignore_ascii_case("comment")
     }
 
     fn block(&mut self) -> Result<Block, Diagnostic> {
@@ -198,23 +213,29 @@ impl Parser<'_> {
         let open = self.peek().filter(|byte| *byte == b'{' || *byte == b'(');
         if kind == "comment" {
             let Some(open) = open else {
+                // A brace-less @comment runs to the next `@`. The whitespace that
+                // separates it from the next block (or ends the file) is trivia, not
+                // comment text, so the printed separator cannot grow on every pass.
                 let end = self.text[self.pos..]
                     .find('@')
                     .map_or(self.text.len(), |offset| self.pos + offset);
+                let end = trim_end(self.text, start, end);
                 self.pos = end;
                 return Ok(Block::Comment(CommentBlock {
                     span: Span { start, end },
                 }));
             };
             self.pos += 1;
-            let close = matching(open);
             let end = if open == b'{' {
                 self.balanced(self.pos, b'{', b'}')
-                    .unwrap_or(self.text.len())
+                    .ok_or_else(|| self.error(start, "unterminated @comment"))?
             } else {
-                let close_end = self.text[self.pos..]
-                    .find(')')
-                    .map_or(self.text.len(), |offset| self.pos + offset + 1);
+                let close_end = self
+                    .text
+                    .get(self.pos..)
+                    .and_then(|rest| rest.find(')'))
+                    .map(|offset| self.pos + offset + 1)
+                    .ok_or_else(|| self.error(start, "unterminated @comment"))?;
                 let line = line_end(self.text.as_bytes(), close_end);
                 if self.text[close_end..line].contains('@') {
                     close_end
@@ -223,7 +244,6 @@ impl Parser<'_> {
                 }
             };
             self.pos = end;
-            let _ = close;
             return Ok(Block::Comment(CommentBlock {
                 span: Span { start, end },
             }));
@@ -245,6 +265,7 @@ impl Parser<'_> {
         let mut comments = Vec::new();
         self.skip_trivia(&mut comments);
         if self.peek() == Some(close) {
+            self.reject_preamble_comments(&comments)?;
             let inner_end = self.pos;
             self.pos += 1;
             return Ok(Block::Preamble(Preamble {
@@ -258,7 +279,9 @@ impl Parser<'_> {
         }
         let value = self.value(&mut comments)?;
         let _ = value;
+        let before_end = comments.len();
         self.skip_trivia(&mut comments);
+        self.reject_preamble_comments(&comments[before_end..])?;
         if self.peek() != Some(close) {
             return Err(self.error(self.pos, "expected the end of @preamble"));
         }
@@ -320,20 +343,16 @@ impl Parser<'_> {
         open: u8,
         close: u8,
     ) -> Result<Block, Diagnostic> {
-        let key_start = self.pos;
-        while self
-            .peek()
-            .is_some_and(|byte| byte != b',' && byte != close)
-        {
-            self.pos += 1;
-        }
+        let key_region = self.pos;
+        self.scan_key(open, close);
+        let start_of_key = trim_start(self.text, key_region, self.pos);
         let key = Span {
-            start: trim_start(self.text, key_start, self.pos),
-            end: trim_end(self.text, key_start, self.pos),
+            start: start_of_key,
+            end: trim_end(self.text, start_of_key, self.pos),
         };
         let key_text = key.slice(self.text);
         if key_text.chars().any(char::is_whitespace) || (open == b'{' && key_text.contains('}')) {
-            return Err(self.error(key_start, "invalid entry key"));
+            return Err(self.error(key_region, "invalid entry key"));
         }
         if self.peek() == Some(close) {
             self.pos += 1;
@@ -350,7 +369,12 @@ impl Parser<'_> {
             }));
         }
         if self.peek() != Some(b',') {
-            return Err(self.error(self.pos, "expected ',' after the entry key"));
+            let message = if self.peek().is_none() {
+                "unterminated entry"
+            } else {
+                "expected ',' after the entry key"
+            };
+            return Err(self.error(self.pos, message));
         }
         self.pos += 1;
         let mut fields = Vec::new();
@@ -425,6 +449,45 @@ impl Parser<'_> {
         }))
     }
 
+    /// Scan the entry key body; the caller trims the span.
+    ///
+    /// Braced entries stop at `,` or `}`, as BibTeX does. A parenthesised key may
+    /// contain `)`, so it ends at the first comma and only a comma-less entry ends at
+    /// its final `)`.
+    fn scan_key(&mut self, open: u8, close: u8) {
+        if open == b'{' {
+            while self
+                .peek()
+                .is_some_and(|byte| byte != b',' && byte != close)
+            {
+                self.pos += 1;
+            }
+            return;
+        }
+        let bytes = self.text.as_bytes();
+        let mut comma = None;
+        let mut last_close = None;
+        while self.pos < bytes.len() {
+            match bytes[self.pos] {
+                b',' => {
+                    comma = Some(self.pos);
+                    break;
+                }
+                b')' => {
+                    last_close = Some(self.pos);
+                    self.pos += 1;
+                }
+                b'@' if self.looks_like_block(self.pos) => break,
+                _ => self.pos += 1,
+            }
+        }
+        if let Some(comma) = comma {
+            self.pos = comma;
+        } else if let Some(last_close) = last_close {
+            self.pos = last_close;
+        }
+    }
+
     fn value(&mut self, comments: &mut Vec<Comment>) -> Result<Value, Diagnostic> {
         let mut parts = Vec::new();
         self.skip_trivia(comments);
@@ -447,11 +510,12 @@ impl Parser<'_> {
                 Some(byte) if is_value_byte(byte) => {
                     self.bare();
                     let token = &self.text[part_start..self.pos];
-                    let invalid = token
-                        .bytes()
-                        .any(|byte| matches!(byte, b'{' | b'}' | b'"' | b'\'' | b'(' | b')' | b'='));
-                    if invalid || (token.starts_with(|c: char| c.is_ascii_digit())
-                        && !token.bytes().all(|byte| byte.is_ascii_digit()))
+                    let invalid = token.bytes().any(|byte| {
+                        matches!(byte, b'{' | b'}' | b'"' | b'\'' | b'(' | b')' | b'=')
+                    });
+                    if invalid
+                        || (token.starts_with(|c: char| c.is_ascii_digit())
+                            && !token.bytes().all(|byte| byte.is_ascii_digit()))
                     {
                         return Err(self.error(part_start, "invalid bare value"));
                     }
@@ -475,15 +539,42 @@ impl Parser<'_> {
                 self.pos = after_part;
                 break;
             }
-            comments.extend(between);
+            // BibTeX rejects a comment between concatenated parts; printing it once as
+            // a leading comment would move it, and keeping it in the value span would
+            // emit it twice.
+            self.reject_concat_comments(&between)?;
             self.pos += 1;
-            self.skip_trivia(comments);
+            let mut after_hash = Vec::new();
+            self.skip_trivia(&mut after_hash);
+            self.reject_concat_comments(&after_hash)?;
         }
         let end = parts.last().map_or(start, |part| part.span.end);
         Ok(Value {
             span: Span { start, end },
             parts,
         })
+    }
+
+    fn reject_concat_comments(&self, comments: &[Comment]) -> Result<(), Diagnostic> {
+        if let Some(comment) = comments.first() {
+            return Err(self.error(
+                comment.span.start,
+                "comments are not allowed between concatenated value parts",
+            ));
+        }
+        Ok(())
+    }
+
+    /// A comment between an `@preamble` value and its closing delimiter would swallow
+    /// that delimiter once printed without the newline that ended the comment.
+    fn reject_preamble_comments(&self, comments: &[Comment]) -> Result<(), Diagnostic> {
+        if let Some(comment) = comments.first() {
+            return Err(self.error(
+                comment.span.start,
+                "comments are not allowed before the end of @preamble",
+            ));
+        }
+        Ok(())
     }
 
     fn after_value(&mut self, trailing: &mut Vec<Comment>) -> Result<(), Diagnostic> {

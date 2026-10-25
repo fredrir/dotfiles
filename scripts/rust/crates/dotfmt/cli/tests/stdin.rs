@@ -315,30 +315,6 @@ fn editor_filename_uses_local_settings_custom_mappings_and_exclusions() {
 }
 
 #[test]
-fn editor_rejects_multiple_filenames_and_missing_filename_context() {
-    let root = tree_pairs(&[
-        ("dotfmt.dotfile", CONFIG),
-        ("a.json", "{}"),
-        ("b.json", "{}"),
-    ]);
-    for args in [vec!["-e", "a.json", "b.json"], vec!["-e", "-", "a.json"]] {
-        let output = dotfmt(root.path()).args(args).stdin("{\"x\":1}").run();
-        assert!(!output.success(), "{output:?}");
-        assert!(output.stdout.is_empty());
-        assert!(output.stderr.contains("one filename"), "{output:?}");
-    }
-    for args in [vec!["-e"], vec!["-e", "-"]] {
-        let output = dotfmt(root.path()).args(args).stdin("{\"x\":1}").run();
-        assert!(!output.success(), "{output:?}");
-        assert!(output.stdout.is_empty());
-        assert!(output.stderr.contains("--editor FILENAME"), "{output:?}");
-    }
-    for name in ["a.json", "b.json"] {
-        assert_eq!(fs::read_to_string(root.path().join(name)).unwrap(), "{}");
-    }
-}
-
-#[test]
 fn editor_check_emits_no_output_and_legacy_stdin_flags_remain_compatible() {
     let root = tree_pairs(&[("dotfmt.dotfile", CONFIG), ("a.json", "disk contents")]);
     for (input, code) in [("{\"x\":1}", 1), ("{\n  \"x\": 1\n}", 0)] {

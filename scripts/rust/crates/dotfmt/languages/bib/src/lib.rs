@@ -16,11 +16,14 @@ pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {
     };
     let text = input.replace("\r\n", "\n").replace('\r', "\n");
     let mut output = if text.trim().is_empty() {
-        String::new()
+        // Whitespace-only input has no blocks to format; keeping it avoids emptying a
+        // non-empty file. A configured final newline is not appended, so the result is
+        // a fixed point.
+        text
     } else {
         format_once(&text, config)?
     };
-    if config.final_newline && !output.is_empty() {
+    if config.final_newline && !output.trim().is_empty() {
         output.push('\n');
     }
     if config.line_endings == LineEndings::Windows {

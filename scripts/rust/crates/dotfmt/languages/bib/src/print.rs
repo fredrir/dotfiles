@@ -31,7 +31,13 @@ fn print_entry(entry: &Entry, text: &str, config: &Config) -> String {
     let kind = case(entry.kind.slice(text), config.entry_type_case);
     let key = entry.key.slice(text).trim();
     if entry.fields.is_empty() && entry.trailing.is_empty() {
-        return format!("@{kind}{}{key}{}", entry.open as char, entry.close as char);
+        // A fieldless entry has no last field, so `trailing_comma` decides whether the
+        // key keeps its comma.
+        let comma = if config.trailing_comma { "," } else { "" };
+        return format!(
+            "@{kind}{}{key}{comma}{}",
+            entry.open as char, entry.close as char
+        );
     }
     let names: Vec<String> = entry
         .fields
@@ -49,6 +55,9 @@ fn print_entry(entry: &Entry, text: &str, config: &Config) -> String {
         0
     };
     let mut output = format!("@{kind}{}{key},\n", entry.open as char);
+    // The comma after the key is required as soon as the entry has a body: it is the
+    // separator the parser needs before fields and preserved comments, not a trailing
+    // comma after a last field.
     for (index, field) in entry.fields.iter().enumerate() {
         for comment in &field.leading {
             output.push_str(&indent);
@@ -112,7 +121,8 @@ fn print_assign(assign: &Assign, text: &str, config: &Config) -> String {
     output.push_str(&name);
     output.push_str(" = ");
     output.push_str(value);
-    output.push_str(",\n");
+    // BibTeX rejects a comma after an @string value, so `trailing_comma` never adds one.
+    output.push('\n');
     for comment in &assign.trailing {
         output.push_str(&indent);
         output.push_str(comment.text(text));
@@ -163,7 +173,11 @@ fn wrap_value(raw: &str, start: usize, config: &Config, continuation: &str) -> S
             break;
         }
         let limit = config.width.saturating_sub(column).max(1);
-        let Some((prefix, suffix)) = break_point(rest, limit, config.wrap_min()) else {
+        // When no space fits before the limit, end the line after the first over-long
+        // token rather than leaving the rest of the value unwrapped.
+        let Some((prefix, suffix)) =
+            break_point(rest, limit, config.wrap_min()).or_else(|| first_break_point(rest))
+        else {
             output.push_str(rest);
             break;
         };
@@ -189,7 +203,7 @@ fn break_point(text: &str, limit: usize, minimum: usize) -> Option<(&str, &str)>
         if index >= limit {
             break;
         }
-        if character == ' ' && index > 0 && previous != Some('\\') && previous != Some('%') {
+        if is_break(character, index, previous) {
             candidate = Some(byte);
             if index >= minimum {
                 preferred = Some(byte);
@@ -199,4 +213,19 @@ fn break_point(text: &str, limit: usize, minimum: usize) -> Option<(&str, &str)>
     }
     let index = preferred.or(candidate)?;
     Some((&text[..index], &text[index + 1..]))
+}
+
+fn first_break_point(text: &str) -> Option<(&str, &str)> {
+    let mut previous = None;
+    for (index, (byte, character)) in text.char_indices().enumerate() {
+        if is_break(character, index, previous) {
+            return Some((&text[..byte], &text[byte + 1..]));
+        }
+        previous = Some(character);
+    }
+    None
+}
+
+fn is_break(character: char, index: usize, previous: Option<char>) -> bool {
+    character == ' ' && index > 0 && previous != Some('\\') && previous != Some('%')
 }

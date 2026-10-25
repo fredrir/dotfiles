@@ -28,7 +28,7 @@ const TABLES: &[&str] = &[
     "multline*",
 ];
 
-pub fn wrap_text(text: &str, config: &Config) -> String {
+pub fn wrap_text(text: &str, config: &Config, marker: &str) -> String {
     let mut output: Vec<String> = Vec::new();
     let mut ignore = false;
     let mut table_depth = 0usize;
@@ -37,7 +37,7 @@ pub fn wrap_text(text: &str, config: &Config) -> String {
         let off = tail.ends_with("% tex-fmt: off");
         let on = tail.ends_with("% tex-fmt: on");
         let skip = tail.ends_with("% tex-fmt: skip");
-        if ignore || off || on || skip {
+        if ignore || off || on || skip || line.trim() == marker {
             output.push(line.to_owned());
         } else {
             let code = &line[..comment_index(line.as_bytes())];
@@ -72,7 +72,7 @@ fn wrap_line(line: &str, config: &Config) -> Vec<String> {
     let comment = comment_index(body.as_bytes());
     let code = &body[..comment];
     let comment = &body[comment..];
-    if !comment.is_empty() && !code.trim().is_empty() {
+    if !comment.is_empty() && (!code.trim().is_empty() || is_tooling_directive(comment)) {
         return vec![line.to_owned()];
     }
     let code_width = indent_width + code.chars().count();
@@ -96,6 +96,20 @@ fn wrap_line(line: &str, config: &Config) -> Vec<String> {
         lines.push(line.to_owned());
     }
     lines
+}
+
+/// Whether a comment line is a tooling directive that only works unbroken:
+/// a `%!TEX`/`% !BIB` magic comment, an `% arara:` recipe, or a `%&` format
+/// line.
+fn is_tooling_directive(comment: &str) -> bool {
+    let trimmed = comment.trim_start();
+    if trimmed.starts_with("%&") {
+        return true;
+    }
+    let content = trimmed
+        .trim_start_matches('%')
+        .trim_start_matches([' ', '\t']);
+    content.starts_with('!') || content.starts_with("arara:")
 }
 
 fn wrap_remaining(indent: &str, body: &str, config: &Config) -> Vec<String> {
