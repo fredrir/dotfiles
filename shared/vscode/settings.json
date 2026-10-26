@@ -183,7 +183,8 @@
     "*.lbx": "latex",
     "Cargo.lock": "properties",
     "uv.lock": "properties",
-    "*.just": "just"
+    "*.just": "just",
+    "*.toml": "toml"
   },
   "js/ts.updateImportsOnFileMove.enabled": "always",
   "json.schemaDownload.trustedDomains": {
@@ -214,6 +215,9 @@
     "./schemas/openai.schema.json": [
       "**/openai.yaml"
     ]
+  },
+  "evenBetterToml.schema.associations": {
+    "(^|/)\\prettierrc\\.toml$": "https://www.schemastore.org/prettierrc.json",
   },
   "yaml.validate": true,
   "yaml.completion": true,
@@ -440,5 +444,6 @@
       "icon": "terminal-powershell"
     }
   },
-  "terminal.integrated.defaultProfile.osx": "zsh"
+  "terminal.integrated.defaultProfile.osx": "zsh",
+  "evenBetterToml.schema.links": true
 }

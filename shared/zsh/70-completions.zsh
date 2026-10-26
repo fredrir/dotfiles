@@ -9,6 +9,30 @@ cached_eval llunde-completion llunde completion zsh
 compdef _gdd git-discard
 compdef _mux-route attach_mux s
 
+_copy_move_destination() {
+  local -a line expl
+  local -A opt_args
+  local ret=1
+  "_${service}" "$@" && ret=0
+
+  comparguments -W line opt_args 0 || return $ret
+  (($#line == 2 && CURRENT == $#words)) || return $ret
+  [[ $PREFIX == */* && -z $SUFFIX && -z ${opt_args[(I)(-t|--target-directory|--parents)]} ]] || return $ret
+
+  local source=${(Q)line[1]} filename destination="${PREFIX%/*}/"
+  filename=${source:t}
+  [[ -n $filename && $filename != (.|..) ]] || return $ret
+  if [[ ! -e $source && ! -L $source ]]; then
+    [[ $source != *[\*\?\[\]\{\}\(\)\`]* && $filename != *'$'* ]] || return $ret
+  fi
+
+  compquote filename
+  _wanted source-filenames expl 'source filename' \
+    compadd -Qf -M 'r:|/=* r:|=*' -p "$destination" -W "${(Q)destination}" -- "$filename" && ret=0
+  return $ret
+}
+compdef _copy_move_destination cp mv
+
 if (($+functions[_wezterm])); then
   _wezterm_cli() {
     words=(wezterm cli "${(@)words[2,-1]}")

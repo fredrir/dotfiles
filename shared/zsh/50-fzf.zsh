@@ -1,4 +1,5 @@
 if has_cmd fzf; then
+  fzf_default_completion=complete-word # shucked: ignore=C001
   export FZF_DEFAULT_OPTS="--height=40% --layout=reverse --border"
 
   has_cmd bat &&
@@ -8,6 +9,7 @@ if has_cmd fzf; then
 
   if has_cmd eza; then
     _fzf_dir_preview="eza --color=always --icons=auto \"\$realpath\""
+
     zstyle ":completion:*" list-colors "${(@)${(@s.:.)EZA_COLORS}:#reset}"
   fi
 

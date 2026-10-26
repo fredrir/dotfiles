@@ -14,8 +14,8 @@
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code>&lt;</code> | [<code>Previous completion group</code>](../../shared/zsh/50-fzf.zsh#L22) | Previous completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |
-| <code>&gt;</code> | [<code>Next completion group</code>](../../shared/zsh/50-fzf.zsh#L22) | Next completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |
+| <code>&lt;</code> | [<code>Previous completion group</code>](../../shared/zsh/50-fzf.zsh#L24) | Previous completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |
+| <code>&gt;</code> | [<code>Next completion group</code>](../../shared/zsh/50-fzf.zsh#L24) | Next completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |
 | <code>^R</code> | [<code>Unbind</code>](../../shared/zsh/80-keybinds.zsh#L5) | Unbind<br><code>emacs</code> |
 | <code>^R</code> | [<code>Unbind</code>](../../shared/zsh/80-keybinds.zsh#L7) | Unbind<br><code>vicmd</code> |
 | <code>^R</code> | [<code>Unbind</code>](../../shared/zsh/80-keybinds.zsh#L6) | Unbind<br><code>viins</code> |

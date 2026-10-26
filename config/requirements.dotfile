@@ -52,6 +52,9 @@ shared {
   ?taplo
   ?yamllint
   ?sqlfluff
+  ?prettier
+  ?prettier-plugin-organize-imports
+  ?prettier-plugin-tailwindcss
 }
 
 macos {

@@ -2,3 +2,5 @@
 
 .codegraph/
 .direnv/
+
+node_modules
