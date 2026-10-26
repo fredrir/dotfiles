@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 pub const SOCKET_NAME: &str = "op-bridge.sock";
+pub const TUNNEL_NAME: &str = "op-bridge-tunnel.sock";
 
 pub fn state() -> Result<PathBuf, String> {
     let base = match env_path("XDG_STATE_HOME") {
@@ -16,6 +17,11 @@ pub fn broker() -> Result<PathBuf, String> {
     Ok(state()?.join("broker.sock"))
 }
 
+// Macie's end of the forward to archie's daemon
+pub fn peer() -> Result<PathBuf, String> {
+    Ok(state()?.join("archie.sock"))
+}
+
 // Silent references to refill after a sleep; never values
 pub fn known() -> Result<PathBuf, String> {
     Ok(state()?.join("known.json"))
@@ -28,9 +34,17 @@ pub fn client() -> Result<PathBuf, String> {
     if cfg!(target_os = "macos") {
         return broker();
     }
-    Ok(env_path("XDG_RUNTIME_DIR")
+    Ok(runtime().join(SOCKET_NAME))
+}
+
+// Archie's end of the tunnel to macie's broker
+pub fn tunnel() -> PathBuf {
+    runtime().join(TUNNEL_NAME)
+}
+
+fn runtime() -> PathBuf {
+    env_path("XDG_RUNTIME_DIR")
         .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", nix::unistd::getuid())))
-        .join(SOCKET_NAME))
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {

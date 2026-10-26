@@ -3,17 +3,14 @@ use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, ExitCode};
-use std::time::Duration;
 
 use crate::paths;
-use crate::protocol::{self, Request, Response};
+use crate::protocol::{self, ANSWER_TIMEOUT, Request, Response};
 
 #[cfg(target_os = "macos")]
 const REAL_OP: &str = "/opt/homebrew/bin/op";
 #[cfg(not(target_os = "macos"))]
 const REAL_OP: &str = "/usr/bin/op";
-// Long enough for a Touch ID prompt; pi gives up after 10 s on its own
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(60);
 // Nothing is cached without a daemon, so callers may treat this as nothing to clear
 pub const UNREACHABLE: u8 = 3;
 
@@ -63,7 +60,9 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode, String> {
             }
             Response::Denied(reason) => return Err(reason),
             Response::Refused(reason) => eprintln!("op-bridge: {reason}; using local op"),
-            Response::Reloaded { .. } => return Err("unexpected answer to a read".to_string()),
+            Response::Reloaded { .. } | Response::Forgotten => {
+                return Err("unexpected answer to a read".to_string());
+            }
         }
     }
     let real = real_op();
@@ -92,16 +91,15 @@ pub fn reload() -> Result<ExitCode, String> {
             "reloaded {refilled}/{known}; see ~/Library/Logs/op-bridge.log on macie"
         )),
         Response::Refused(reason) | Response::Denied(reason) => Err(reason),
-        Response::Value(_) => Err("unexpected answer to a reload".to_string()),
+        Response::Value(_) | Response::Forgotten => {
+            Err("unexpected answer to a reload".to_string())
+        }
     }
 }
 
 fn ask(stream: &UnixStream, request: &Request) -> Result<Response, String> {
-    stream
-        .set_read_timeout(Some(ANSWER_TIMEOUT))
-        .map_err(|error| error.to_string())?;
-    protocol::send(stream, request)?;
-    protocol::receive(stream).map_err(|error| format!("macie did not answer: {error}"))
+    protocol::ask(stream, request, ANSWER_TIMEOUT)
+        .map_err(|error| format!("macie did not answer: {error}"))
 }
 
 fn real_op() -> OsString {

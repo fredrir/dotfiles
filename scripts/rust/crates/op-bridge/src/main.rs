@@ -7,6 +7,7 @@ mod onepassword;
 mod paths;
 mod presence;
 mod protocol;
+mod relay;
 mod setup;
 mod tunnel;
 
@@ -33,13 +34,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    #[command(about = "Answer the peer's reads until stopped; run by launchd on macie")]
+    #[command(about = "Serve reads until stopped; run by launchd on macie and systemd on archie")]
     Daemon {
         #[arg(
             long = "vault",
             value_name = "VAULT",
             default_value = "Dev",
-            help = "Vault served without Touch ID until macie sleeps; repeat for more"
+            help = "Vault served without Touch ID once fetched; repeat for more"
         )]
         silent: Vec<String>,
 
@@ -52,7 +53,7 @@ enum Command {
     },
 
     #[command(
-        about = "Clear the daemon's memory and refetch its references, e.g. after a rotation"
+        about = "Clear both daemons' memory and refetch macie's references, e.g. after a rotation"
     )]
     Reload,
 
@@ -75,7 +76,7 @@ enum Command {
     },
 
     #[command(
-        about = "Run as op: reads go to macie, everything else to the real op",
+        about = "Run as op: reads go to the daemon, everything else to the real op",
         disable_help_flag = true
     )]
     Op {

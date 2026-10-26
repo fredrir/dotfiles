@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
+use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,8 @@ use zeroize::Zeroizing;
 
 const MAX_LINE: u64 = 64 * 1024;
 const MAX_REFERENCE: usize = 512;
+// Long enough for a Touch ID prompt; pi gives up after 10 s on its own
+pub const ANSWER_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -14,6 +17,8 @@ pub enum Request {
     Read(String),
     // Drop everything in memory and refetch the silent references
     Reload,
+    // Drop everything in memory; sent by the other host's reload
+    Forget,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,9 +27,10 @@ pub enum Response {
     Value(Zeroizing<String>),
     // A prompted vault was declined or failed; the caller must not retry elsewhere
     Denied(String),
-    // Outside the allowlist or op failed on macie; the caller falls back to the real op
+    // Outside the allowlist, macie unreachable, or op failed on macie; the caller falls back
     Refused(String),
     Reloaded { refilled: usize, known: usize },
+    Forgotten,
 }
 
 pub fn vault(reference: &str) -> Option<&str> {
@@ -45,6 +51,14 @@ pub fn send<T: Serialize>(mut stream: &UnixStream, message: &T) -> Result<(), St
     stream
         .write_all(&line)
         .map_err(|error| format!("send: {error}"))
+}
+
+pub fn ask(stream: &UnixStream, request: &Request, timeout: Duration) -> Result<Response, String> {
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|error| error.to_string())?;
+    send(stream, request)?;
+    receive(stream)
 }
 
 pub fn receive<T: DeserializeOwned>(stream: &UnixStream) -> Result<T, String> {

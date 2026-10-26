@@ -288,8 +288,8 @@
     "hport setup": "Maps the peer name to 127.0.0.2, adds the macOS loopback alias, and starts the daemon.",
     "mux-route": "Prints the WezTerm mux domain for the best route to the peer.",
     "op-bridge": "Serves 1Password reads to archie and macie from macie, by vault tier.",
-    "op-bridge daemon": "Holds the tunnel to archie and serves reads until stopped; run by launchd.",
-    "op-bridge reload": "Clears the daemon's memory and refetches every `Dev` reference; run after rotating a key.",
+    "op-bridge daemon": "Serves reads until stopped; launchd runs it on macie, systemd on archie.",
+    "op-bridge reload": "Clears both daemons' memory and refetches every `Dev` reference on macie; run after rotating a key.",
     "op-bridge setup": "Installs the signed `~/Applications/op-bridge.app` on macie and restarts its launchd agent.",
     "op-bridge op": "Runs as `op`: reads go to the daemon, everything else to the real `op`.",
     "path": "Prints the home-relative or repository-relative path of a target.",
@@ -573,7 +573,7 @@
       "--iterations": "Sets the per-core workload iterations for the throughput sample."
     },
     "op-bridge": {
-      "--vault": "Selects a vault served without Touch ID until macie sleeps; repeat for more. Defaults to `Dev`.",
+      "--vault": "Selects a vault served without Touch ID once fetched; repeat for more. Defaults to `Dev`.",
       "--prompt-vault": "Selects a vault that needs Touch ID per reference; repeat for more.",
       "--identity": "Selects the code signing identity by any unique part of its name. Defaults to `Developer ID Application`.",
       "--dry-run": "Shows the missing setup steps without applying them."

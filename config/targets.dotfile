@@ -65,6 +65,7 @@ linux/arch/kernel/etc = /etc
 linux/arch/lact/etc = /etc
 linux/arch/macie-usb/etc = /etc
 linux/arch/macie-usb/usr/lib = /usr/lib
+linux/arch/op-bridge = ~/.config/systemd/user
 linux/arch/nvidia/etc = /etc
 linux/arch/rapl/etc = /etc
 linux/arch/ssh = ~/.ssh

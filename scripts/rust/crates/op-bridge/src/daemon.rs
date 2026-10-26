@@ -16,19 +16,22 @@ use signal_hook::iterator::Signals;
 
 use crate::broker::{Broker, GRANT, Origin, Policy};
 use crate::protocol::{self, Request, Response};
-use crate::{onepassword, paths, presence, tunnel};
+use crate::{onepassword, paths, presence, relay, tunnel};
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
-const POISONED: &str = "broker state poisoned";
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+pub const POISONED: &str = "daemon state poisoned";
 
 pub fn run(silent: Vec<String>, prompt: Vec<String>) -> Result<(), String> {
-    let this = Host::this()?;
-    if this != Host::Macie {
-        return Err("the daemon runs on macie; archie reaches it through op".to_string());
-    }
-    let peer = this.peer();
     let policy = Policy::new(silent, prompt)?;
+    match Host::this()? {
+        Host::Macie => broker(policy),
+        Host::Archie => relay::run(policy),
+    }
+}
+
+fn broker(policy: Policy) -> Result<(), String> {
     let socket = paths::broker()?;
+    let reverse = paths::peer()?;
     let known_path = paths::known()?;
     let listener = bind(&socket)?;
     eprintln!(
@@ -40,8 +43,8 @@ pub fn run(silent: Vec<String>, prompt: Vec<String>) -> Result<(), String> {
     let tunnel = Arc::new(AtomicU32::new(0));
     stop_on_signal(Arc::clone(&tunnel), socket.clone())?;
     {
-        let tunnel = Arc::clone(&tunnel);
-        thread::spawn(move || tunnel::supervise(peer, &socket, &tunnel));
+        let (tunnel, reverse) = (Arc::clone(&tunnel), reverse.clone());
+        thread::spawn(move || tunnel::supervise(Host::Archie, &socket, &reverse, &tunnel));
     }
 
     let broker = Arc::new(Mutex::new(Broker::new(
@@ -62,10 +65,14 @@ pub fn run(silent: Vec<String>, prompt: Vec<String>) -> Result<(), String> {
                 continue;
             }
         };
-        let (broker, tunnel, known_path) =
-            (Arc::clone(&broker), Arc::clone(&tunnel), known_path.clone());
+        let (broker, tunnel, known_path, reverse) = (
+            Arc::clone(&broker),
+            Arc::clone(&tunnel),
+            known_path.clone(),
+            reverse.clone(),
+        );
         thread::spawn(move || {
-            if let Err(error) = serve(&stream, &broker, &tunnel, &known_path) {
+            if let Err(error) = serve(&stream, &broker, &tunnel, &known_path, &reverse) {
                 eprintln!("op-bridge: {error}");
             }
         });
@@ -73,7 +80,7 @@ pub fn run(silent: Vec<String>, prompt: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-fn bind(socket: &Path) -> Result<UnixListener, String> {
+pub fn bind(socket: &Path) -> Result<UnixListener, String> {
     let display = |error: std::io::Error| format!("{}: {error}", socket.display());
     let directory = socket.parent().ok_or("broker socket has no parent")?;
     fs::create_dir_all(directory).map_err(display)?;
@@ -149,6 +156,7 @@ fn serve(
     broker: &Mutex<Broker>,
     tunnel: &AtomicU32,
     known_path: &Path,
+    reverse: &Path,
 ) -> Result<(), String> {
     let pid = peer_pid(stream)?;
     let origin = if pid != 0 && pid == tunnel.load(Ordering::SeqCst) {
@@ -161,7 +169,12 @@ fn serve(
         .map_err(|error| error.to_string())?;
     let (response, refill_due) = match protocol::receive(stream)? {
         Request::Read(reference) => read(&reference, origin, broker, known_path)?,
-        Request::Reload => (reload(origin, broker), false),
+        Request::Reload => (reload(origin, broker, reverse), false),
+        Request::Forget => {
+            forget(broker);
+            eprintln!("op-bridge: {} forget: cache cleared", origin.name());
+            (Response::Forgotten, false)
+        }
     };
     protocol::send(stream, &response)?;
     // Rides the 1Password session the fetch just unlocked, so it costs no prompt
@@ -195,27 +208,55 @@ fn read(
     Ok((response, refill_due))
 }
 
-fn reload(origin: Origin, broker: &Mutex<Broker>) -> Response {
+// Archie's own reload clears archie before it reaches here
+fn reload(origin: Origin, broker: &Mutex<Broker>, reverse: &Path) -> Response {
+    forget(broker);
+    eprintln!("op-bridge: {} reload: cache cleared", origin.name());
+    let peer = match origin {
+        Origin::Local => forget_peer(reverse),
+        Origin::Peer => Ok(()),
+    };
+    let response = reloaded(refill(broker), peer);
+    if let Response::Refused(reason) = &response {
+        eprintln!("op-bridge: {reason}");
+    }
+    response
+}
+
+fn forget(broker: &Mutex<Broker>) {
     if let Ok(mut broker) = broker.lock() {
         broker.forget();
     }
-    eprintln!("op-bridge: {} reload: cache cleared", origin.name());
-    match refill(broker) {
-        Ok((refilled, known)) => Response::Reloaded { refilled, known },
-        Err(reason) => {
-            eprintln!("op-bridge: {reason}");
-            Response::Refused(reason)
-        }
+}
+
+fn forget_peer(reverse: &Path) -> Result<(), String> {
+    let unreachable = |error: String| format!("archie kept its memory: {error}");
+    let stream = UnixStream::connect(reverse).map_err(|error| unreachable(error.to_string()))?;
+    match protocol::ask(&stream, &Request::Forget, REQUEST_TIMEOUT).map_err(unreachable)? {
+        Response::Forgotten => Ok(()),
+        _ => Err(unreachable("unexpected answer".to_string())),
     }
 }
 
-fn outcome(response: &Response, cached: bool) -> String {
+fn reloaded(refill: Result<(usize, usize), String>, peer: Result<(), String>) -> Response {
+    match (refill, peer) {
+        (Ok((refilled, known)), Ok(())) => Response::Reloaded { refilled, known },
+        (Ok((refilled, known)), Err(reason)) => {
+            Response::Refused(format!("reloaded {refilled}/{known}; {reason}"))
+        }
+        (Err(reason), Ok(())) => Response::Refused(reason),
+        (Err(reason), Err(peer)) => Response::Refused(format!("{reason}; {peer}")),
+    }
+}
+
+pub fn outcome(response: &Response, cached: bool) -> String {
     match response {
         Response::Value(_) if cached => "sent from memory".to_string(),
         Response::Value(_) => "fetched".to_string(),
         Response::Denied(reason) => format!("denied: {reason}"),
         Response::Refused(reason) => format!("refused: {reason}"),
         Response::Reloaded { .. } => "reloaded".to_string(),
+        Response::Forgotten => "forgotten".to_string(),
     }
 }
 

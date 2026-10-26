@@ -456,20 +456,6 @@ impl Widget for DiffView<'_> {
                 }
             }
         }
-        if area.height > 1 {
-            let footer = if self.document.truncated {
-                "Preview truncated · choices apply to the full value"
-            } else {
-                "j/k scroll · PgUp/PgDn page · [/] change · v layout"
-            };
-            Paragraph::new(footer)
-                .style(style(if self.document.truncated {
-                    Role::Warning
-                } else {
-                    Role::Muted
-                }))
-                .render(Rect::new(area.x, area.bottom() - 1, area.width, 1), buffer);
-        }
     }
 }
 

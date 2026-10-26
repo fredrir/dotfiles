@@ -1,0 +1,12 @@
+[Unit]
+Description=op-bridge: keeps macie's Dev reads in memory until archie reboots
+
+[Service]
+Type=simple
+Environment=USER=%u
+ExecStart=%h/dotfiles/.bin/op-bridge daemon --vault Dev
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

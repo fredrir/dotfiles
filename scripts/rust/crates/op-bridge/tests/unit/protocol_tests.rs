@@ -59,3 +59,15 @@ fn a_read_keeps_the_wire_format_older_clients_send() {
         r#""reload""#
     );
 }
+
+#[test]
+fn a_forget_is_answered_on_a_socket_pair() {
+    let (left, right) = UnixStream::pair().unwrap();
+    let answering = std::thread::spawn(move || {
+        assert!(matches!(receive::<Request>(&right).unwrap(), Request::Forget));
+        send(&right, &Response::Forgotten).unwrap();
+    });
+    let response = ask(&left, &Request::Forget, Duration::from_secs(5)).unwrap();
+    assert!(matches!(response, Response::Forgotten));
+    answering.join().unwrap();
+}

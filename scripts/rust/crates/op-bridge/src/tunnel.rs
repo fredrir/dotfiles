@@ -9,7 +9,7 @@ use hostkit::Host;
 use hostkit::process::CaptureLimits;
 use hostkit::ssh::Session;
 
-use crate::paths::SOCKET_NAME;
+use crate::paths::{SOCKET_NAME, TUNNEL_NAME};
 
 const RETRY: Duration = Duration::from_secs(10);
 const PREPARE_TIMEOUT: Duration = Duration::from_secs(15);
@@ -17,23 +17,23 @@ const PREPARE_TIMEOUT: Duration = Duration::from_secs(15);
 // sshd will not replace a socket left by a dropped connection, so clear it first
 fn prepare_script() -> String {
     format!(
-        "socket=\"${{XDG_RUNTIME_DIR:?}}/{SOCKET_NAME}\"; rm -f -- \"$socket\"; printf '%s\\n' \"$socket\""
+        "socket=\"${{XDG_RUNTIME_DIR:?}}/{TUNNEL_NAME}\"; rm -f -- \"$socket\"; printf '%s\\n' \"$socket\""
     )
 }
 
-pub fn supervise(peer: Host, local: &Path, pid: &AtomicU32) {
+pub fn supervise(peer: Host, local: &Path, reverse: &Path, pid: &AtomicU32) {
     loop {
-        if let Err(error) = connect(peer, local, pid) {
+        if let Err(error) = connect(peer, local, reverse, pid) {
             eprintln!("op-bridge: {}: {error}", peer.name());
         }
         thread::sleep(RETRY);
     }
 }
 
-fn connect(peer: Host, local: &Path, pid: &AtomicU32) -> Result<(), String> {
+fn connect(peer: Host, local: &Path, reverse: &Path, pid: &AtomicU32) -> Result<(), String> {
     let remote = prepare(peer)?;
     let mut child = Command::new("ssh")
-        .args(tunnel_args(peer, &remote, local))
+        .args(tunnel_args(peer, &remote, local, reverse))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -73,7 +73,7 @@ pub fn remote_socket(stdout: &[u8]) -> Result<PathBuf, String> {
         .map_err(|_| "remote socket path is not UTF-8")?
         .trim();
     let valid = path.starts_with('/')
-        && Path::new(path).file_name() == Some(SOCKET_NAME.as_ref())
+        && Path::new(path).file_name() == Some(TUNNEL_NAME.as_ref())
         && !path.contains(':');
     if valid {
         Ok(PathBuf::from(path))
@@ -82,13 +82,15 @@ pub fn remote_socket(stdout: &[u8]) -> Result<PathBuf, String> {
     }
 }
 
-pub fn tunnel_args(peer: Host, remote: &Path, local: &Path) -> Vec<OsString> {
+// `-R` carries archie's reads to the broker; `-L` carries macie's reloads to archie's daemon
+pub fn tunnel_args(peer: Host, remote: &Path, local: &Path, reverse: &Path) -> Vec<OsString> {
     let mut args = ["-N", "-T"].map(OsString::from).to_vec();
     // Our own connection, so the broker can tell tunnel traffic by its pid
     for option in [
         "ExitOnForwardFailure=yes",
         "ControlMaster=no",
         "ControlPath=none",
+        "StreamLocalBindUnlink=yes",
     ]
     .into_iter()
     .chain(hostkit::ssh::BATCH_OPTIONS)
@@ -96,12 +98,20 @@ pub fn tunnel_args(peer: Host, remote: &Path, local: &Path) -> Vec<OsString> {
     {
         args.extend([OsString::from("-o"), OsString::from(option)]);
     }
-    let mut forward = OsString::from(remote);
-    forward.push(":");
-    forward.push(local);
-    args.extend([OsString::from("-R"), forward]);
+    args.extend([OsString::from("-R"), forward(remote, local)]);
+    args.extend([
+        OsString::from("-L"),
+        forward(reverse, &remote.with_file_name(SOCKET_NAME)),
+    ]);
     args.extend([OsString::from("--"), OsString::from(peer.name())]);
     args
+}
+
+fn forward(listen: &Path, target: &Path) -> OsString {
+    let mut forward = OsString::from(listen);
+    forward.push(":");
+    forward.push(target);
+    forward
 }
 
 #[cfg(test)]

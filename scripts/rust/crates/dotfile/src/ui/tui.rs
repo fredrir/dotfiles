@@ -1287,10 +1287,7 @@ fn choice_spans(palette: &Palette, decision: &DecisionState, color: bool) -> Vec
             Choice::Cancel => "cancel".to_string(),
             _ => choice_name(choice).to_string(),
         };
-        let position = match choice {
-            Choice::Target(index) => format!("{}/{}", index + 1, targets.len()),
-            _ => "safe cancel".to_string(),
-        };
+
         return vec![
             Span::raw("  ‹  "),
             Span::styled(
@@ -1302,10 +1299,6 @@ fn choice_spans(palette: &Palette, decision: &DecisionState, color: bool) -> Vec
                 ),
             ),
             Span::raw("  ›  "),
-            Span::styled(
-                format!("{position}   ↩ to confirm"),
-                ui_style(color, theme_color(palette, Role::Muted), Modifier::empty()),
-            ),
         ];
     }
     let mut spans = vec![Span::raw("  ")];
@@ -1385,7 +1378,7 @@ fn choice_name(choice: Choice) -> &'static str {
         Choice::Cancel => "cancel",
         Choice::Overwrite => "yes",
         Choice::Keep => "no",
-        Choice::OverwriteAll => "all",
+        Choice::OverwriteAll => "yes all",
         Choice::KeepAll => "skip",
     }
 }

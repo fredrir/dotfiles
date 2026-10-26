@@ -224,11 +224,11 @@
   "yaml.hover": true,
   "diffEditor.ignoreTrimWhitespace": true,
   "github.copilot.enable": {
-    "lua": false,
     "*": false,
     "plaintext": false,
     "markdown": false,
-    "scminput": false
+    "scminput": false,
+    "lua": false
   },
   "workbench.browser.showInTitleBar": false,
   "biome.enabled": true,
@@ -445,5 +445,15 @@
     }
   },
   "terminal.integrated.defaultProfile.osx": "zsh",
-  "evenBetterToml.schema.links": true
+  "evenBetterToml.schema.links": true,
+  "chat.editor.preferCopilotHarness": false,
+  "inlineChat.defaultModel": "DeepSeek V4.1 Flash 1017 Instant (customendpoint)",
+  "terminal.integrated.commandsToSkipShell": [
+    "kilo-code.new.agentManagerOpen",
+    "kilo-code.new.agentManager.showTerminal",
+    "kilo-code.new.agentManager.previousTerminal",
+    "kilo-code.new.agentManager.nextTerminal"
+  ],
+  "kilo-code.new.agentWorkStyle": "unset",
+  "github.copilot.completions.chat.enabled": true
 }
