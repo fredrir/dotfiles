@@ -25,6 +25,9 @@ key.createKeybind({ "fn" }, "-", function()
   hs.urlevent.openURL "obsidian://unique?vault=main"
 end)
 
+-- Calculator --
+key.openApp({ "fn" }, "c", "Calculator")
+
 -- Zen Browser --
 key.openApp({ "fn" }, "b", "Zen")
 

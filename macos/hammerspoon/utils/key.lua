@@ -22,13 +22,21 @@ function M.createKeybind(mods, key, action)
   return tap
 end
 
+local appDirs = { "/Applications/", "/System/Applications/", "/System/Applications/Utilities/" }
+
 ---@param mods string[]
 ---@param key string
 ---@param application string
 ---@return hs.eventtap
 function M.openApp(mods, key, application)
   return M.createKeybind(mods, key, function()
-    hs.application.launchOrFocus("/Applications/" .. application .. ".app")
+    for _, dir in ipairs(appDirs) do
+      local path = dir .. application .. ".app"
+      if hs.fs.attributes(path) then
+        hs.application.launchOrFocus(path)
+        return
+      end
+    end
   end)
 end
 

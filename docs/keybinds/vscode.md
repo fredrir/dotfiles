@@ -129,6 +129,8 @@
 | <code>shift+cmd+&#91;Quote&#93;</code> | [<code>workbench.files.action.collapseExplorerFolders</code>](../../shared/vscode/keybindings.json#L271) | Workbench files action collapse Explorer Folders |
 | <code>shift+cmd+b</code> | [<code>-workbench.action.tasks.build</code>](../../shared/vscode/keybindings.json#L296) | Tasks build<br><code>taskCommandsRegistered; remove binding</code> |
 | <code>shift+cmd+b</code> | [<code>workbench.action.toggleAuxiliaryBar</code>](../../shared/vscode/keybindings.json#L309) | Toggle Auxiliary Bar |
+| <code>shift+cmd+c</code> | [<code>-workbench.action.browser.addElementToChat</code>](../../shared/vscode/keybindings.json#L615) | Browser add Element To Chat<br><code>browserHasUrl &amp;&amp; chatIsEnabled &amp;&amp; !browserHasError &amp;&amp; activeEditor == 'workbench.editor.browser'; remove binding</code> |
+| <code>shift+cmd+c</code> | [<code>-workbench.action.terminal.openNativeConsole</code>](../../shared/vscode/keybindings.json#L610) | Terminal open Native Console<br><code>!isSessionsWindow &amp;&amp; !terminalFocus; remove binding</code> |
 | <code>shift+cmd+g</code> | [<code>workbench.view.scm</code>](../../shared/vscode/keybindings.json#L151) | Workbench view scm<br><code>workbench.scm.active</code> |
 | <code>shift+cmd+i</code> | [<code>workbench.action.toggleAuxiliaryBar</code>](../../shared/vscode/keybindings.json#L313) | Toggle Auxiliary Bar |
 | <code>shift+cmd+o</code> | [<code>-editor.action.accessibleViewGoToSymbol</code>](../../shared/vscode/keybindings.json#L266) | Editor action accessible View Go To Symbol<br><code>accessibilityHelpIsShown &amp;&amp; accessibleViewGoToSymbolSupported &#124;&#124; accessibleViewGoToSymbolSupported &amp;&amp; accessibleViewIsShown; remove binding</code> |
