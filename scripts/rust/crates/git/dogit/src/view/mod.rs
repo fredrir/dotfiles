@@ -623,7 +623,10 @@ pub fn render(frame: &mut Frame, state: &mut ViewState, data: &RenderData<'_>) -
     } else {
         Vec::new()
     };
-    if show_canvas && let Some(details) = data.commit {
+    if show_canvas
+        && data.inspecting_commit
+        && let Some(details) = data.commit
+    {
         let mut badges = commit::verification_badges(details);
         badges.extend(counts);
         counts = badges;
