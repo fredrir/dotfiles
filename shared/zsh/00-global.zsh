@@ -15,5 +15,15 @@ export YAZI_CONFIG_HOME="$DOTFILES/shared/yazi"
 
 [[ -d "$HOME/llama.cpp" ]] && export LLAMA="$HOME/llama.cpp"
 
+if [[ $OSTYPE == linux* ]]; then
+  [[ -z $XDG_RUNTIME_DIR && -d /run/user/$UID ]] && export XDG_RUNTIME_DIR="/run/user/$UID"
+  [[ -z $DBUS_SESSION_BUS_ADDRESS && -S $XDG_RUNTIME_DIR/bus ]] && export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+  export USER="${USER:-$USERNAME}" LOGNAME="${LOGNAME:-$USERNAME}" SHELL="${SHELL:-${commands[zsh]}}"
+  [[ -z $LANG && -r /etc/locale.conf ]] && () {
+    setopt local_options all_export
+    source /etc/locale.conf
+  }
+fi
+
 # zsh-build: omit
 [[ -o interactive && -o global_rcs && -z $ZSH_BUILD_SKIP && -r $DOTFILES_ZSH_CACHE/build/zshrc.rcs.zsh ]] && source "$DOTFILES_ZSH_CACHE/build/zshrc.rcs.zsh"
