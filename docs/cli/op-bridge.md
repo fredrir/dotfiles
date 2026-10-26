@@ -3,13 +3,13 @@
 ## Commands
 
 <!-- cli:commands:start -->
-| Command            | Description                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------------------- |
-| `op-bridge`        | Serves 1Password reads to archie and macie from macie, by vault tier.                       |
-| `op-bridge daemon` | Holds the tunnel to archie and serves reads until stopped; run by launchd.                  |
-| `op-bridge reload` | Clears the daemon's memory and refetches every `Dev` reference; run after rotating a key.   |
-| `op-bridge setup`  | Installs the signed `~/Applications/op-bridge.app` on macie and restarts its launchd agent. |
-| `op-bridge op`     | Runs as `op`: reads go to the daemon, everything else to the real `op`.                     |
+| Command            | Description                                                                                         |
+| ------------------ | --------------------------------------------------------------------------------------------------- |
+| `op-bridge`        | Serves 1Password reads to archie and macie from macie, by vault tier.                               |
+| `op-bridge daemon` | Serves reads until stopped; launchd runs it on macie, systemd on archie.                            |
+| `op-bridge reload` | Clears both daemons' memory and refetches every `Dev` reference on macie; run after rotating a key. |
+| `op-bridge setup`  | Installs the signed `~/Applications/op-bridge.app` on macie and restarts its launchd agent.         |
+| `op-bridge op`     | Runs as `op`: reads go to the daemon, everything else to the real `op`.                             |
 <!-- cli:commands:end -->
 
 ## Flags
@@ -17,7 +17,7 @@
 <!-- cli:flags:start -->
 | Flag                     | Description                                                                                               |
 | ------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `--vault <VAULT>`        | Selects a vault served without Touch ID until macie sleeps; repeat for more. Defaults to `Dev`.           |
+| `--vault <VAULT>`        | Selects a vault served without Touch ID once fetched; repeat for more. Defaults to `Dev`.                 |
 | `--prompt-vault <VAULT>` | Selects a vault that needs Touch ID per reference; repeat for more.                                       |
 | `--identity <NAME>`      | Selects the code signing identity by any unique part of its name. Defaults to `Developer ID Application`. |
 | `-n`, `--dry-run`        | Shows the missing setup steps without applying them.                                                      |
@@ -29,13 +29,15 @@
 ## Path
 
 ```
-archie                                      macie
-op read op://Dev/…                          ~/Applications/op-bridge.app (launchd)
-  └─ ~/.local/bin/op                          ├─ tier by vault
-      └─ $XDG_RUNTIME_DIR/op-bridge.sock ═ssh -R═ ~/.local/state/op-bridge/broker.sock
-                                              ├─ Secure: op signout, then 1Password's Touch ID
-op read op://Dev/… (macie) ───────────────────┤
-                                              └─ op read (1Password app)
+archie                                          macie
+op read op://Dev/…                              op-bridge.app (launchd)
+  └─ ~/.local/bin/op                            ├─ tier by vault
+      └─ op-bridge.sock (systemd)               │
+          ├─ Dev, kept: from memory             │
+          └─ op-bridge-tunnel.sock ═ssh -R═════ broker.sock
+                                                ├─ Secure: op signout, then 1Password's Touch ID
+op read op://Dev/… (macie) ─────────────────────┤
+                                                └─ op read (1Password app)
 ```
 
 ## Tiers
@@ -43,20 +45,25 @@ op read op://Dev/… (macie) ─────────────────
 | Name | `Dev` (`--vault`) | `Secure` (`--prompt-vault`) |
 | --- | --- | --- |
 | 1Password Touch ID | first fetch after startup or wake | per reference |
-| Held in memory | until macie sleeps | 4 h after last use, or until macie sleeps |
+| Held on macie | until macie sleeps | 4 h after last use, or until macie sleeps |
+| Held on archie | until its daemon stops, e.g. a reboot | never |
 | Callers | archie and macie | archie and macie |
-| Refill | with the first fetch after startup or wake | never |
+| Refill | macie, with the first fetch after startup or wake | never |
 
 | Name | Value |
 | --- | --- |
-| Configured | `macos/launchd/com.fredrir.op-bridge.plist` |
+| Configured | macie: `macos/launchd/com.fredrir.op-bridge.plist`; archie: `linux/arch/op-bridge/op-bridge.service` |
 | Sleep | wall clock more than 30 s ahead of the monotonic clock |
 | Refill list | `~/.local/state/op-bridge/known.json`; references only, never values |
 | Refill prompt | none; rides the session the first fetch unlocked |
 | `Secure` prompt | `op signout --all` before each fetch; signout failed, nothing fetched |
-| Rotated key | `op-bridge reload` on either host |
+| Kept on archie | answered without asking macie; no Touch ID after a wake |
+| Rotated key | `op-bridge reload` on either host; clears both |
+| Reload, other host unreachable | this host reloaded; exit 1 |
 | Reload, daemon unreachable | exit 3; nothing cached |
 | Tunnel | `ssh archie`, its own connection; retried every 10 s |
+| `-R` | archie `$XDG_RUNTIME_DIR/op-bridge-tunnel.sock` → macie `~/.local/state/op-bridge/broker.sock` |
+| `-L` | macie `~/.local/state/op-bridge/archie.sock` → archie `$XDG_RUNTIME_DIR/op-bridge.sock`; reloads only |
 | Log | reference and outcome, never the value |
 
 ## `op`
@@ -65,10 +72,10 @@ op read op://Dev/… (macie) ─────────────────
 
 | Call | Goes to |
 | --- | --- |
-| `op read [-n] op://Dev/…`, bridge up | the daemon |
+| `op read [-n] op://Dev/…`, daemon up | the daemon |
 | `Secure` declined or failed | error, exit 1 |
-| `op` failed on macie, vault not served | the real `op`, reason on stderr |
-| bridge down, any other command | the real `op` |
+| `op` failed on macie, vault not served, macie unreachable and nothing kept | the real `op`, reason on stderr |
+| daemon down, any other command | the real `op` |
 
 | Env | Default |
 | --- | --- |
@@ -76,7 +83,7 @@ op read op://Dev/… (macie) ─────────────────
 | `OP_BRIDGE_OP` | macie: `/opt/homebrew/bin/op`; archie: `/usr/bin/op` |
 | `XDG_STATE_HOME` | `~/.local/state` |
 
-Bridge down, e.g. macie asleep; sign in on archie before starting pi, which cannot prompt:
+Macie unreachable and nothing kept on archie, e.g. after an archie reboot; sign in on archie before starting pi, which cannot prompt:
 
 ```console
 $ op account add          # once
@@ -98,7 +105,7 @@ $ eval $(op signin)
 | File | `~/.pi/agent/auth.json` on both hosts |
 | Custom providers | move `apiKey` from `models.json` to an `auth.json` entry |
 | Timeout | 10 s; a missed prompt leaves the key unset until pi restarts |
-| `pi -p` from agents | silent for `Dev` while macie is awake |
+| `pi -p` from agents | silent for `Dev` while macie is awake, or once archie keeps it |
 | `openai-codex` | OAuth; pi rewrites it, stays in `auth.json` |
 
 ## Setup
@@ -117,10 +124,16 @@ $ op-bridge setup
 | Permission | Privacy & Security → Files & Folders → op-bridge → Data shared by 1Password |
 | Why signed | the permission follows the signing team and bundle ID; an ad-hoc build loses it on rebuild |
 
+Once on archie after `dotfile sync`; `restart` after a rebuild:
+
+```console
+$ systemctl --user enable --now op-bridge
+```
+
 ## Operations
 
 | Name | Value |
 | --- | --- |
-| Restart | `launchctl kickstart -k gui/$(id -u)/com.fredrir.op-bridge` |
-| Log | `~/Library/Logs/op-bridge.log` |
-| Bridge up | `test -S "$XDG_RUNTIME_DIR/op-bridge.sock"` on archie |
+| Restart | macie: `launchctl kickstart -k gui/$(id -u)/com.fredrir.op-bridge`; archie: `systemctl --user restart op-bridge`, clears its memory |
+| Log | macie: `~/Library/Logs/op-bridge.log`; archie: `journalctl --user -u op-bridge` |
+| Tunnel up | `test -S "$XDG_RUNTIME_DIR/op-bridge-tunnel.sock"` on archie |

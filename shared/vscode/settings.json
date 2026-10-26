@@ -400,7 +400,7 @@
   "litellm-vscode-chat.inlineCompletions.enabled": false,
   "litellm-vscode-chat.inlineCompletions.model": {
     "server": "fredrir",
-    "model": "ntnu/zai-org/GLM-5.3-Flash"
+    "model": "ntnu/deepseek-ai/DeepSeek-V4.1-Flash-1017"
   },
   "litellm-vscode-chat.inlineCompletions.languageFilter": {
     "mode": "block",
