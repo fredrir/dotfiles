@@ -1,0 +1,55 @@
+{
+  "name": "dot-code",
+  "publisher": "fredrir",
+  "description": "Vscode Extension",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fredrir/dotfiles"
+  },
+  "engines": {
+    "vscode": "^1.143.1"
+  },
+  "contributes": {
+    "keybindings": [],
+    "commands": []
+  },
+  "configuration": {
+    "title": "Dot-Code",
+    "properties": {}
+  },
+  "scripts": {
+    "vscode:prepublish": "bun run package",
+    "compile": "bun run check-types && bun run lint && bun run build",
+    "build": "node esbuild.mjs",
+    "watch": "bun run --parallel watch:esbuild watch:tsc",
+    "watch:esbuild": "node esbuild.mjs --watch",
+    "watch:tsc": "tsc --noEmit --watch",
+    "package": "node bundle-bins.mjs && bun run check-types && bun run lint && node esbuild.mjs --production",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "vsix": "node vsix.mjs package",
+    "publish": "node vsix.mjs publish"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.6.5",
+    "oxlint": "^1.90.0",
+    "oxlint-tsgolint": "^7.0.2005",
+    "prettier": "^3.9.10",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters"
+  ],
+  "keywords": [
+    "Configurable"
+  ]
+}
