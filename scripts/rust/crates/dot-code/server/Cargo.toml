@@ -1,0 +1,17 @@
+[package]
+name              = "dot-code-server"
+version.workspace = true
+description       = "Language server behind the dot-code VS Code extension"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dot-code-core.workspace       = true
+dot-code-typescript.workspace = true
+line-index                    = "0.1.2"
+lsp-server                    = "0.10.0"
+lsp-types                     = "0.97.0"
+serde_json.workspace          = true

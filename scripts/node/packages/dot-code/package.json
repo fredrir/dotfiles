@@ -1,55 +1,94 @@
 {
   "name": "dot-code",
+  "displayName": "Dot Code",
+  "description": "Native refactors backed by a Rust language server",
+  "version": "0.1.0",
   "publisher": "fredrir",
-  "description": "Vscode Extension",
-  "module": "index.ts",
-  "type": "module",
+  "license": "MIT",
   "private": true,
   "repository": {
     "type": "git",
     "url": "https://github.com/fredrir/dotfiles"
   },
   "engines": {
-    "vscode": "^1.143.1"
-  },
-  "contributes": {
-    "keybindings": [],
-    "commands": []
-  },
-  "configuration": {
-    "title": "Dot-Code",
-    "properties": {}
-  },
-  "scripts": {
-    "vscode:prepublish": "bun run package",
-    "compile": "bun run check-types && bun run lint && bun run build",
-    "build": "node esbuild.mjs",
-    "watch": "bun run --parallel watch:esbuild watch:tsc",
-    "watch:esbuild": "node esbuild.mjs --watch",
-    "watch:tsc": "tsc --noEmit --watch",
-    "package": "node bundle-bins.mjs && bun run check-types && bun run lint && node esbuild.mjs --production",
-    "check-types": "tsc --noEmit",
-    "lint": "eslint",
-    "lint:fix": "eslint --fix",
-    "vsix": "node vsix.mjs package",
-    "publish": "node vsix.mjs publish"
-  },
-  "dependencies": {},
-  "peerDependencies": {
-    "@types/bun": "latest",
-    "@types/node": "^26.6.5",
-    "oxlint": "^1.90.0",
-    "oxlint-tsgolint": "^7.0.2005",
-    "prettier": "^3.9.10",
-    "typescript": "^7.0.2",
-    "zod": "^4.6.7"
+    "vscode": "^1.143.0"
   },
   "categories": [
-    "Programming Languages",
-    "Linters",
-    "Formatters"
+    "Programming Languages"
   ],
-  "keywords": [
-    "Configurable"
-  ]
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "dotCode.restart",
+        "title": "Restart Server",
+        "category": "Dot Code"
+      }
+    ],
+    "configuration": {
+      "title": "Dot Code",
+      "properties": {
+        "dotCode.server.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Server binary; empty uses the bundled one"
+        },
+        "dotCode.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces server communication"
+        },
+        "dotCode.typescript.extract.name": {
+          "type": "string",
+          "default": "Props",
+          "markdownDescription": "Name for extracted types; `${name}` expands to the enclosing function, class or variable"
+        },
+        "dotCode.typescript.extract.export": {
+          "type": "string",
+          "enum": [
+            "never",
+            "always",
+            "inherit"
+          ],
+          "enumDescriptions": [
+            "Never export",
+            "Export at module level",
+            "Export when the source statement is exported"
+          ],
+          "default": "never",
+          "description": "Export extracted types"
+        },
+        "dotCode.typescript.extract.rename": {
+          "type": "boolean",
+          "default": true,
+          "description": "Rename extracted types right away"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "bun build.ts",
+    "deploy": "bun deploy.ts",
+    "check-types": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "vscode-languageclient": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.140.0",
+    "@vscode/vsce": "^4.0.0"
+  }
 }

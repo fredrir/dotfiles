@@ -23,14 +23,13 @@
     },
     "packages/dot-code": {
       "name": "dot-code",
-      "peerDependencies": {
-        "@types/bun": "latest",
-        "@types/node": "^26.6.5",
-        "oxlint": "^1.90.0",
-        "oxlint-tsgolint": "^7.0.2005",
-        "prettier": "^3.9.10",
-        "typescript": "^7.0.2",
-        "zod": "^4.6.7",
+      "version": "0.1.0",
+      "dependencies": {
+        "vscode-languageclient": "^11.0.0",
+      },
+      "devDependencies": {
+        "@types/vscode": "^1.140.0",
+        "@vscode/vsce": "^4.0.0",
       },
     },
   },

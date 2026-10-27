@@ -1,0 +1,19 @@
+[package]
+name              = "dot-code-typescript"
+version.workspace = true
+description       = "TypeScript refactors for dot-code"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dot-code-core.workspace = true
+oxc_allocator           = "0.156.0"
+oxc_ast                 = "0.156.0"
+oxc_ast_visit           = "0.156.0"
+oxc_parser              = "0.156.0"
+oxc_span                = "0.156.0"
+serde.workspace         = true
+serde_json.workspace    = true

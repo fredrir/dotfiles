@@ -1,7 +1,7 @@
 import { type OxlintConfig, defineConfig } from "oxlint";
 
 const config: OxlintConfig = {
-  ignorePatterns: ["/*", "!/scripts", "!/apps"],
+  ignorePatterns: ["/*", "!/packages", "!*.ts"],
   plugins: ["typescript", "react"],
   options: {
     typeAware: true,

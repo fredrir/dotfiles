@@ -1,0 +1,12 @@
+[package]
+name              = "dot-code-core"
+version.workspace = true
+description       = "Editor-agnostic actions and the feature contract for dot-code"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json.workspace = true
