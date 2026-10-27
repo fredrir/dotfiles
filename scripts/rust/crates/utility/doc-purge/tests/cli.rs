@@ -133,6 +133,7 @@ fn an_unknown_type_names_the_known_ones() {
     assert_eq!(output.status.code(), Some(1));
     assert!(stderr(&output).contains("unknown type: nope"));
     assert!(stderr(&output).contains("py"));
+    assert!(stderr(&output).contains("css"));
 }
 
 #[test]
@@ -192,4 +193,124 @@ fn file_permissions_survive_a_purge() {
         let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640);
     }
+}
+
+#[test]
+fn a_css_type_filter_covers_css_variations_but_not_preprocessors() {
+    let root = tree(&[
+        "a.css=/* note */\n.a { color: red; }\n",
+        "b.module.css=/* note */\n.b { color: red; }\n",
+        "c.pcss=/* note */\n.c { color: red; }\n",
+        "i.postcss=/* note */\n.i { color: red; }\n",
+        "d.scss=// note\n.d { color: red; }\n",
+        "e.sass=// note\n.e\n  color: red\n",
+        "f.less=// note\n.f { color: red; }\n",
+        "g.styl=// note\n.g\n  color red\n",
+        "h.sss=// note\n.h\n  color: red\n",
+    ]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_doc-purge"))
+        .arg(root.path())
+        .args(["-y", "-t", "css"])
+        .env("NO_COLOR", "1")
+        .stdin("")
+        .output();
+    assert!(output.status.success());
+    assert_eq!(read(root.path(), "a.css"), ".a { color: red; }\n");
+    assert_eq!(read(root.path(), "b.module.css"), ".b { color: red; }\n");
+    assert_eq!(read(root.path(), "c.pcss"), ".c { color: red; }\n");
+    assert_eq!(read(root.path(), "i.postcss"), ".i { color: red; }\n");
+    assert_eq!(read(root.path(), "d.scss"), "// note\n.d { color: red; }\n");
+    assert_eq!(read(root.path(), "e.sass"), "// note\n.e\n  color: red\n");
+    assert_eq!(read(root.path(), "f.less"), "// note\n.f { color: red; }\n");
+    assert_eq!(read(root.path(), "g.styl"), "// note\n.g\n  color red\n");
+    assert_eq!(read(root.path(), "h.sss"), "// note\n.h\n  color: red\n");
+}
+
+#[test]
+fn css_module_file_names_and_tailwind_names_select_css() {
+    for (wanted, name) in [
+        ("module.css", "a.module.css"),
+        ("style.module.scss", "a.module.scss"),
+        ("tailwindcss", "a.module.css"),
+        ("css-modules", "a.module.css"),
+    ] {
+        let entry = format!("{name}=/* note */\n.a {{ color: red; }}\n");
+        let root = tree(&[&entry]);
+        let output = Bin::new(env!("CARGO_BIN_EXE_doc-purge"))
+            .arg(root.path())
+            .args(["-y", "-t", wanted])
+            .env("NO_COLOR", "1")
+            .stdin("")
+            .output();
+        assert!(output.status.success(), "type {wanted} failed");
+        assert_eq!(
+            read(root.path(), name),
+            ".a { color: red; }\n",
+            "type {wanted} did not read {name}"
+        );
+    }
+}
+
+#[test]
+fn a_tailwind_stylesheet_keeps_its_directives() {
+    let source = r#"/* note */
+@import "tailwindcss";
+@reference "../app.css";
+@theme {
+  --color-*: initial;
+  --color-mint-500: oklch(0.72 0.11 178);
+}
+@custom-variant dark (&:where(.dark, .dark *));
+@utility tab-4 { tab-size: 4; }
+.button { @apply text-sm font-medium; }
+"#;
+    let root = tree(&[&format!("app.css={source}")]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_doc-purge"))
+        .arg(root.path())
+        .arg("-y")
+        .env("NO_COLOR", "1")
+        .stdin("")
+        .output();
+    assert!(output.status.success());
+    assert_eq!(
+        read(root.path(), "app.css"),
+        r#"@import "tailwindcss";
+@reference "../app.css";
+@theme {
+  --color-*: initial;
+  --color-mint-500: oklch(0.72 0.11 178);
+}
+@custom-variant dark (&:where(.dark, .dark *));
+@utility tab-4 { tab-size: 4; }
+.button { @apply text-sm font-medium; }
+"#
+    );
+}
+
+#[test]
+fn an_important_css_comment_is_reported_and_kept() {
+    let root = tree(&["a.css=/*! keep */\n/* gone */\n.a { color: red; }\n"]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_doc-purge"))
+        .arg(root.path())
+        .arg("--dry")
+        .env("NO_COLOR", "1")
+        .stdin("")
+        .output();
+    assert!(output.status.success());
+    assert!(stdout(&output).contains("important comment"));
+    assert_eq!(
+        read(root.path(), "a.css"),
+        "/*! keep */\n/* gone */\n.a { color: red; }\n"
+    );
+    let output = Bin::new(env!("CARGO_BIN_EXE_doc-purge"))
+        .arg(root.path())
+        .arg("-y")
+        .env("NO_COLOR", "1")
+        .stdin("")
+        .output();
+    assert!(output.status.success());
+    assert_eq!(
+        read(root.path(), "a.css"),
+        "/*! keep */\n.a { color: red; }\n"
+    );
 }

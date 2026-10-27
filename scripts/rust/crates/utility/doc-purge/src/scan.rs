@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::lang::{Dialect, Family};
-use crate::{curly, dash, hash};
+use crate::{css, curly, dash, hash};
 
 #[derive(Clone, Debug)]
 pub struct Comment {
@@ -57,6 +57,7 @@ pub fn scan(source: &[u8], dialect: Dialect) -> Result<Out, Bail> {
         Family::Curly => curly::scan(source, dialect),
         Family::Hash => hash::scan(source, dialect),
         Family::Dash => dash::scan(source, dialect),
+        Family::Css => css::scan(source, dialect),
     }
 }
 

@@ -34,6 +34,13 @@ pub fn sweep(source: &[u8], text: &Text) -> Vec<Swap> {
     let mut index = 0usize;
     while index < letters.len() {
         let (offset, letter) = letters[index];
+        if text.escapes && letter == '\\' {
+            index += 1;
+            if index < letters.len() {
+                index += 1;
+            }
+            continue;
+        }
         if let Some(target) = folded(letter) {
             index += 1;
             if target == '"' || target == '\'' {

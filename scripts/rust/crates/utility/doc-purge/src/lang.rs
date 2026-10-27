@@ -22,6 +22,12 @@ pub enum Dialect {
     Lua,
     Sql,
     Haskell,
+    Css,
+    Scss,
+    Sass,
+    Less,
+    Stylus,
+    Sugarss,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -29,6 +35,7 @@ pub enum Family {
     Curly,
     Hash,
     Dash,
+    Css,
 }
 
 pub struct Language {
@@ -44,6 +51,12 @@ impl Dialect {
                 Family::Hash
             }
             Dialect::Lua | Dialect::Sql | Dialect::Haskell => Family::Dash,
+            Dialect::Css
+            | Dialect::Scss
+            | Dialect::Sass
+            | Dialect::Less
+            | Dialect::Stylus
+            | Dialect::Sugarss => Family::Css,
             _ => Family::Curly,
         }
     }
@@ -150,6 +163,36 @@ pub const LANGUAGES: &[Language] = &[
         dialect: Dialect::Haskell,
         extensions: &["hs"],
     },
+    Language {
+        name: "css",
+        dialect: Dialect::Css,
+        extensions: &["css", "pcss", "postcss"],
+    },
+    Language {
+        name: "scss",
+        dialect: Dialect::Scss,
+        extensions: &["scss"],
+    },
+    Language {
+        name: "sass",
+        dialect: Dialect::Sass,
+        extensions: &["sass"],
+    },
+    Language {
+        name: "less",
+        dialect: Dialect::Less,
+        extensions: &["less"],
+    },
+    Language {
+        name: "stylus",
+        dialect: Dialect::Stylus,
+        extensions: &["styl"],
+    },
+    Language {
+        name: "sugarss",
+        dialect: Dialect::Sugarss,
+        extensions: &["sss"],
+    },
 ];
 
 pub fn for_path(path: &Path) -> Option<&'static Language> {
@@ -159,14 +202,40 @@ pub fn for_path(path: &Path) -> Option<&'static Language> {
         .find(|language| language.extensions.contains(&extension.as_str()))
 }
 
+const ALIASES: &[(&str, &str)] = &[
+    ("css-module", "css"),
+    ("css-modules", "css"),
+    ("cssmodules", "css"),
+    ("module", "css"),
+    ("tailwind", "css"),
+    ("tailwindcss", "css"),
+    ("sass-indented", "sass"),
+    ("indented", "sass"),
+    ("sugar", "sugarss"),
+];
+
 pub fn for_token(token: &str) -> Option<&'static Language> {
     let wanted = token.trim().trim_start_matches('.').to_ascii_lowercase();
     if wanted.is_empty() {
         return None;
     }
+    let wanted = ALIASES
+        .iter()
+        .find_map(|(alias, name)| (*alias == wanted.as_str()).then_some(*name))
+        .unwrap_or(wanted.as_str());
+    if let Some(language) = LANGUAGES
+        .iter()
+        .find(|language| language.name == wanted || language.extensions.contains(&wanted))
+    {
+        return Some(language);
+    }
+    let extension = wanted.rsplit('.').next()?;
+    if extension == wanted {
+        return None;
+    }
     LANGUAGES
         .iter()
-        .find(|language| language.name == wanted || language.extensions.contains(&wanted.as_str()))
+        .find(|language| language.extensions.contains(&extension))
 }
 
 pub fn known() -> String {

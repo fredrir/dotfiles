@@ -11,6 +11,14 @@
   "git.autofetch": true,
   "git.confirmSync": false,
   "git.openRepositoryInParentFolders": "always",
+  "editor.codeActionsOnSave": {
+    "source.removeUnusedImports": "always",
+    "source.fixAll.oxc": "always"
+  },
+  "js/ts.experimental.useTsgo": true,
+  "editor.linkedEditing": true,
+  "files.autoSave": "onFocusChange",
+  "oxc.fixKind": "all",
   "python.terminal.useEnvFile": true,
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff"
@@ -193,13 +201,14 @@
     "https://json-schema.org/": true,
     "https://json.schemastore.org/": true,
     "https://pi.dev": true,
+    "https://pi.dev/schemas/settings.schema.json": true,
     "https://raw.githubusercontent.com": true,
     "https://raw.githubusercontent.com/devcontainers/spec/": true,
     "https://raw.githubusercontent.com/microsoft/vscode/": true,
+    "https://schema.tauri.app": true,
     "https://schemastore.azurewebsites.net/": true,
     "https://spec.openapis.org/": true,
-    "https://www.schemastore.org/": true,
-    "https://pi.dev/schemas/settings.schema.json": true
+    "https://www.schemastore.org/": true
   },
   "json.schemas": [
     {
@@ -455,5 +464,5 @@
     "kilo-code.new.agentManager.nextTerminal"
   ],
   "kilo-code.new.agentWorkStyle": "unset",
-  "github.copilot.completions.chat.enabled": true
+  "github.copilot.completions.chat.enabled": true,
 }

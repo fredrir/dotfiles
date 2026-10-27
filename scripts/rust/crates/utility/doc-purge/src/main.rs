@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod css;
 mod curly;
 mod dash;
 mod docstring;
@@ -37,6 +38,8 @@ const PROGRAM: &str = "doc-purge";
   doc-purge .                Purge everything below here, after asking
   doc-purge src --dry        Show what would go, and change nothing
   doc-purge . -t py -t rs    Look at python and rust files only
+  doc-purge . -t css         Look at css, module css and postcss files
+  doc-purge . -t scss        Look at scss files only
   doc-purge . -y             Purge without being asked"
 )]
 struct Cli {
@@ -293,6 +296,13 @@ fn sentence(saved: &Saved) -> String {
     let mut parts = Vec::new();
     if saved.shebangs > 0 {
         parts.push(text::counted(saved.shebangs, "shebang", "shebangs"));
+    }
+    if saved.important > 0 {
+        parts.push(text::counted(
+            saved.important,
+            "important comment",
+            "important comments",
+        ));
     }
     if saved.directives > 0 {
         parts.push(text::counted(saved.directives, "directive", "directives"));

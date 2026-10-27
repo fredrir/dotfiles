@@ -449,3 +449,521 @@ fn a_comment_between_blank_lines_does_not_leave_a_hole() {
         "let a = 1;\n\nlet b = 2;\n"
     );
 }
+
+#[test]
+fn css_comments_go() {
+    assert_eq!(
+        purged("/* note */\n.a { color: red; }\n", Dialect::Css),
+        ".a { color: red; }\n"
+    );
+    assert_eq!(
+        counts("/* note */\n.a { color: red; }\n", Dialect::Css),
+        (1, 0)
+    );
+    assert_eq!(
+        purged("a { color: /* note */ red; }\n", Dialect::Css),
+        "a { color: red; }\n"
+    );
+    survives(".a { color: red; }\n", Dialect::Css);
+}
+
+#[test]
+fn plain_css_has_no_line_comments() {
+    survives(
+        "a { background: url(//cdn.example/x.png); }\n",
+        Dialect::Css,
+    );
+    survives("a { --x: //not-a-comment; }\n", Dialect::Css);
+    survives("a { color: red; // not a comment\n}\n", Dialect::Css);
+}
+
+#[test]
+fn css_strings_keep_comment_markers() {
+    survives("a { content: \"/* not a comment */\"; }\n", Dialect::Css);
+    survives("a { content: '*/'; }\n", Dialect::Css);
+    survives("a { content: \"a\\\\b\"; }\n", Dialect::Css);
+    survives(
+        "a { content: \"one\\\ntwo // not a comment\"; }\n",
+        Dialect::Css,
+    );
+    assert_eq!(
+        left_alone("a { content: \"one\ntwo\"; }\n", Dialect::Css),
+        Some("unterminated string")
+    );
+}
+
+#[test]
+fn css_urls_keep_comment_markers() {
+    survives(
+        "a { background: url(//cdn.example/x.png); }\n",
+        Dialect::Css,
+    );
+    survives(
+        "a { background: url(/*not-a-comment*/bg.png); }\n",
+        Dialect::Css,
+    );
+    survives("a { background: url(/**/\"bg.jpg\"); }\n", Dialect::Css);
+    survives(
+        "a { background: url(\"https://example.com/a.png\"); }\n",
+        Dialect::Css,
+    );
+    survives("a { background: url(foo\\)bar.png); }\n", Dialect::Css);
+    assert_eq!(
+        purged("a { background: url(\"x\u{2014}y.png\"); }\n", Dialect::Css),
+        "a { background: url(\"xy.png\"); }\n"
+    );
+}
+
+#[test]
+fn css_inline_comments_keep_token_boundaries() {
+    assert_eq!(
+        purged(
+            "@media screen/* note */and (min-width: 1px) {}\n",
+            Dialect::Css
+        ),
+        "@media screen and (min-width: 1px) {}\n"
+    );
+    assert_eq!(
+        purged(".a/* note */.b { color: red; }\n", Dialect::Css),
+        ".a.b { color: red; }\n"
+    );
+    assert_eq!(
+        purged(".a /* note */ .b { color: red; }\n", Dialect::Css),
+        ".a .b { color: red; }\n"
+    );
+    assert_eq!(
+        purged("a { --x: 1/* note */2; }\n", Dialect::Css),
+        "a { --x: 1 2; }\n"
+    );
+    assert_eq!(
+        purged("a { color: red/* note */; }\n", Dialect::Css),
+        "a { color: red; }\n"
+    );
+    survives("@media screen and (min-width: 1px) {}\n", Dialect::Css);
+}
+
+#[test]
+fn css_comments_do_not_nest() {
+    assert_eq!(
+        purged("/* one /* two */ .a { color: red; }\n", Dialect::Css),
+        ".a { color: red; }\n"
+    );
+}
+
+#[test]
+fn css_glyphs_go_from_strings() {
+    assert_eq!(
+        purged(
+            "a { content: \"the plan \u{2014} as written\"; }\n",
+            Dialect::Css
+        ),
+        "a { content: \"the plan as written\"; }\n"
+    );
+    assert_eq!(
+        purged("a { content: \"\u{201c}quoted\u{201d}\"; }\n", Dialect::Css),
+        "a { content: \"\\\"quoted\\\"\"; }\n"
+    );
+    survives("a { content: \"a\u{b7}b\u{2026}\"; }\n", Dialect::Css);
+    survives("a { content: \"\\\u{2014}\"; }\n", Dialect::Css);
+    assert_eq!(
+        purged("a { content: \"\\\\\u{2014}\"; }\n", Dialect::Css),
+        "a { content: \"\\\\\"; }\n"
+    );
+}
+
+#[test]
+fn css_important_and_directive_comments_stay() {
+    survives("/*! keep */\n.a { color: red; }\n", Dialect::Css);
+    survives("/* @license MIT */\n.a { color: red; }\n", Dialect::Css);
+    survives("/* @preserve keep */\n.a { color: red; }\n", Dialect::Css);
+    survives(
+        ".a { color: red; }\n/* stylelint-disable */\n.b { color: blue; }\n",
+        Dialect::Css,
+    );
+    survives(".a { color: red; /* autoprefixer: off */ }\n", Dialect::Css);
+    survives(
+        ".a { color: red; }\n/* purgecss start ignore */\n.b { color: blue; }\n/* purgecss end ignore */\n",
+        Dialect::Css,
+    );
+    survives(
+        ".a { color: red; }\n/*# sourceMappingURL=a.css.map */\n",
+        Dialect::Css,
+    );
+    survives(".a { color: red; }\n/*# sourceURL=a.css */\n", Dialect::Css);
+    match purge::purge(
+        b"/*! keep */\n/* gone */\n.a { color: red; }\n",
+        Dialect::Css,
+    ) {
+        Outcome::Changed(_, saved) => assert_eq!(saved.important, 1),
+        _ => panic!("expected the plain comment to go and the important one to stay"),
+    }
+}
+
+#[test]
+fn css_modules_and_tailwind_constructs_stay() {
+    let source = r#":global(.foo) { color: red; }
+.bar {
+  composes: baz from "./x.module.css";
+}
+:export { primary: #fff; }
+
+@theme {
+  --color-*: initial;
+  --color-mint-500: oklch(0.72 0.11 178);
+  --spacing: 0.25rem;
+}
+@custom-variant dark (&:where(.dark, .dark *));
+@utility tab-4 { tab-size: 4; }
+@source inline("underline");
+@reference "../app.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+.button { @apply text-sm font-medium; }
+"#;
+    survives(source, Dialect::Css);
+    let commented = source.replace(".button", "/* note */\n.button");
+    assert_eq!(purged(&commented, Dialect::Css), source);
+}
+
+#[test]
+fn scss_comments_go() {
+    assert_eq!(
+        purged("// note\n.a { color: red; }\n", Dialect::Scss),
+        ".a { color: red; }\n"
+    );
+    assert_eq!(
+        purged(".a { color: red; // note\n}\n", Dialect::Scss),
+        ".a { color: red;\n}\n"
+    );
+    assert_eq!(
+        purged("/* note */ .a { color: red; }\n", Dialect::Scss),
+        ".a { color: red; }\n"
+    );
+    assert_eq!(counts("// note\n.a {}\n", Dialect::Scss), (1, 0));
+}
+
+#[test]
+fn scss_custom_properties_keep_double_slashes() {
+    survives(".a { --x: //literal; }\n", Dialect::Scss);
+    survives(".a { --x: https://example.com; }\n", Dialect::Scss);
+    assert_eq!(
+        purged(".a { --x: /* note */ red; }\n", Dialect::Scss),
+        ".a { --x: red; }\n"
+    );
+    assert_eq!(
+        purged(".a { --x: //literal; // gone\n}\n", Dialect::Scss),
+        ".a { --x: //literal;\n}\n"
+    );
+}
+
+#[test]
+fn scss_urls_and_interpolation_keep_literal_comment_markers() {
+    survives(
+        ".a { background: url(http://example.com/x.png); }\n",
+        Dialect::Scss,
+    );
+    survives(
+        ".a { background: url(//cdn.example/x.png); }\n",
+        Dialect::Scss,
+    );
+    survives(".a { background: url(/*x*/pic.png); }\n", Dialect::Scss);
+    survives(".a { background: url(#{$path}/x.png); }\n", Dialect::Scss);
+    survives(".a { background: url(#{fn($x)}/x.png); }\n", Dialect::Scss);
+    survives(".a { background: url($p + \"//x\"); }\n", Dialect::Scss);
+    survives(
+        ".a { content: \"#{map-get((a: \"x\"), a)}\"; }\n",
+        Dialect::Scss,
+    );
+    survives(
+        ".a { content: \"#{if(true, \"//\", \"x\")}\"; }\n",
+        Dialect::Scss,
+    );
+    assert_eq!(
+        purged(".a { background: url(/*c*/\"x\"); }\n", Dialect::Scss),
+        ".a { background: url(\"x\"); }\n"
+    );
+    assert_eq!(
+        purged(
+            ".a { background: url($p /* gone */ + \"/x\"); }\n",
+            Dialect::Scss
+        ),
+        ".a { background: url($p + \"/x\"); }\n"
+    );
+}
+
+#[test]
+fn scss_important_and_lint_comments_stay() {
+    survives("/*! keep */\n.a { color: red; }\n", Dialect::Scss);
+    survives("// stylelint-disable\n.a { color: red; }\n", Dialect::Scss);
+    survives(
+        "/* stylelint-disable-next-line */\n.a { color: red; }\n",
+        Dialect::Scss,
+    );
+}
+
+#[test]
+fn sass_silent_comments_take_their_indented_block() {
+    assert_eq!(
+        purged("// note\n  still note\n.a\n  color: red\n", Dialect::Sass),
+        ".a\n  color: red\n"
+    );
+    assert_eq!(
+        purged("// note\n.a\n  color: red\n", Dialect::Sass),
+        ".a\n  color: red\n"
+    );
+    assert_eq!(
+        purged(".a\n  // note\n  color: red\n", Dialect::Sass),
+        ".a\n  color: red\n"
+    );
+    assert_eq!(
+        purged(".a\n  color: red // note\n", Dialect::Sass),
+        ".a\n  color: red\n"
+    );
+}
+
+#[test]
+fn sass_loud_comments_take_their_indented_block() {
+    assert_eq!(
+        purged("/* note\n   still note\n.a\n  color: red\n", Dialect::Sass),
+        ".a\n  color: red\n"
+    );
+    assert_eq!(
+        purged(".a\n  /* note */\n  color: red\n", Dialect::Sass),
+        ".a\n  color: red\n"
+    );
+    assert_eq!(
+        purged(
+            ".a\n  /* note\n     still note\n  color: red\n",
+            Dialect::Sass
+        ),
+        ".a\n  color: red\n"
+    );
+    assert_eq!(
+        purged(
+            ".a\n  /* note\n     still note\n  */\n  color: red\n",
+            Dialect::Sass
+        ),
+        ".a\n  color: red\n"
+    );
+}
+
+#[test]
+fn sass_custom_properties_keep_double_slashes() {
+    survives(".a\n  --x: //literal\n  color: var(--x)\n", Dialect::Sass);
+}
+
+#[test]
+fn sass_urls_and_interpolation_keep_literal_comment_markers() {
+    survives(
+        ".a\n  background: url(http://example.com/x.png)\n",
+        Dialect::Sass,
+    );
+    survives(".a\n  background: url(/*x*/pic.png)\n", Dialect::Sass);
+    survives(".a\n  background: url(#{$path}/x.png)\n", Dialect::Sass);
+    survives(
+        ".a\n  content: \"#{map-get((a: \"x\"), a)}\"\n",
+        Dialect::Sass,
+    );
+}
+
+#[test]
+fn sass_important_comment_stays() {
+    survives("/*! keep\n  still keep\n.a\n  color: red\n", Dialect::Sass);
+}
+
+#[test]
+fn less_comments_go_and_urls_stay() {
+    assert_eq!(
+        purged("// note\n.a { color: red; }\n", Dialect::Less),
+        ".a { color: red; }\n"
+    );
+    assert_eq!(
+        purged(".a { color: red; // note\n}\n", Dialect::Less),
+        ".a { color: red;\n}\n"
+    );
+    survives(
+        ".a { background: url(http://example.com/x.png); }\n",
+        Dialect::Less,
+    );
+    survives(
+        ".a { background: url(//cdn.example/x.png); }\n",
+        Dialect::Less,
+    );
+    survives(".a { width: ~`x // y /* z */`; }\n", Dialect::Less);
+    survives(
+        "@s: ~\"http://example/x\";\n.a { background: url(@s); }\n",
+        Dialect::Less,
+    );
+    survives("/*! keep */\n.a { color: red; }\n", Dialect::Less);
+}
+
+#[test]
+fn stylus_comments_go_and_literals_stay() {
+    assert_eq!(
+        purged("// note\nbody\n  color red\n", Dialect::Stylus),
+        "body\n  color red\n"
+    );
+    assert_eq!(
+        purged("body\n  color red // note\n", Dialect::Stylus),
+        "body\n  color red\n"
+    );
+    assert_eq!(
+        purged("/* note */\nbody\n  color red\n", Dialect::Stylus),
+        "body\n  color red\n"
+    );
+    survives(
+        "body\n  background url(//cdn.example/x.png)\n",
+        Dialect::Stylus,
+    );
+    survives(
+        "@css {\n  .a { x: //raw; }\n}\nbody\n  color red\n",
+        Dialect::Stylus,
+    );
+    survives(
+        "@css {\n  .a { background: url(/*literal*/bg.png); }\n}\nbody\n  color red\n",
+        Dialect::Stylus,
+    );
+    assert_eq!(
+        purged(
+            "@css {\n  .a { color: red; /* note */ }\n}\nbody\n  color red\n",
+            Dialect::Stylus
+        ),
+        "@css {\n  .a { color: red; }\n}\nbody\n  color red\n"
+    );
+    survives("/*! keep */\nbody\n  color red\n", Dialect::Stylus);
+}
+
+#[test]
+fn sugarss_comments_go_and_urls_stay() {
+    assert_eq!(
+        purged("// note\n.a\n  color: red\n", Dialect::Sugarss),
+        ".a\n  color: red\n"
+    );
+    assert_eq!(
+        purged(".a\n  color: red // note\n", Dialect::Sugarss),
+        ".a\n  color: red\n"
+    );
+    survives(
+        ".a\n  background: url(//cdn.example/x.png)\n",
+        Dialect::Sugarss,
+    );
+}
+
+#[test]
+fn css_family_types_and_variations_resolve() {
+    use crate::lang::{for_path, for_token};
+    use std::path::Path;
+
+    for (token, dialect) in [
+        ("css", Dialect::Css),
+        ("pcss", Dialect::Css),
+        ("postcss", Dialect::Css),
+        ("scss", Dialect::Scss),
+        ("sass", Dialect::Sass),
+        ("less", Dialect::Less),
+        ("styl", Dialect::Stylus),
+        ("sss", Dialect::Sugarss),
+    ] {
+        assert_eq!(
+            for_token(token).map(|language| language.dialect),
+            Some(dialect)
+        );
+    }
+    for token in [
+        "module.css",
+        "style.module.scss",
+        "tailwindcss",
+        "css-modules",
+    ] {
+        assert!(for_token(token).is_some(), "unresolved type: {token}");
+    }
+    assert_eq!(
+        for_path(Path::new("button.module.css")).map(|language| language.dialect),
+        Some(Dialect::Css)
+    );
+    assert_eq!(
+        for_path(Path::new("button.module.scss")).map(|language| language.dialect),
+        Some(Dialect::Scss)
+    );
+}
+
+#[test]
+fn css_an_unterminated_comment_skips_the_file() {
+    for dialect in [
+        Dialect::Css,
+        Dialect::Scss,
+        Dialect::Sass,
+        Dialect::Less,
+        Dialect::Sugarss,
+    ] {
+        assert_eq!(
+            left_alone("a { /* note\n", dialect),
+            Some("unterminated block comment"),
+            "{dialect:?}"
+        );
+    }
+}
+
+#[test]
+fn stylus_an_unterminated_comment_runs_to_eof() {
+    assert_eq!(
+        purged("a\n  color red\n/*\nb\n  color blue\n", Dialect::Stylus),
+        "a\n  color red\n"
+    );
+}
+
+#[test]
+fn css_crlf_lines_survive_a_purge() {
+    assert_eq!(
+        purged("// note\r\n.a { color: red; }\r\n", Dialect::Scss),
+        ".a { color: red; }\r\n"
+    );
+    assert_eq!(
+        purged(".a\r\n  // note\r\n  color: red\r\n", Dialect::Sass),
+        ".a\r\n  color: red\r\n"
+    );
+    assert_eq!(
+        purged("/* note */\r\n.a { color: red; }\r\n", Dialect::Css),
+        ".a { color: red; }\r\n"
+    );
+}
+
+#[test]
+fn scss_custom_property_braces_keep_their_double_slashes() {
+    survives(".a { --x: { a: //literal; b: c }; }\n", Dialect::Scss);
+    assert_eq!(
+        purged(
+            ".a { --x: { a: b /* note */ }; --y: red; }\n",
+            Dialect::Scss
+        ),
+        ".a { --x: { a: b }; --y: red; }\n"
+    );
+}
+
+#[test]
+fn css_important_after_other_comments_stays() {
+    assert_eq!(
+        purged(
+            "/* first */\n/*! keep */\n.a { color: red; }\n",
+            Dialect::Css
+        ),
+        "/*! keep */\n.a { color: red; }\n"
+    );
+}
+
+#[test]
+fn css_license_after_charset_stays() {
+    survives(
+        "@charset \"UTF-8\";\n/* Copyright someone */\n.a { color: red; }\n",
+        Dialect::Css,
+    );
+}
+
+#[test]
+fn css_tool_directives_include_rtl_and_noinspection() {
+    survives(
+        ".a { color: red; }\n/*rtl:ignore*/\n.b { color: blue; }\n/* noinspection CssInvalidPropertyValue */\n.c { color: green; }\n",
+        Dialect::Css,
+    );
+}
