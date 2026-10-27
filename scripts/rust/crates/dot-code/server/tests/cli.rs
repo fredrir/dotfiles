@@ -50,6 +50,27 @@ fn the_command_dump_describes_the_parser() {
     );
 }
 
+fn frame(message: Value) -> String {
+    let body = message.to_string();
+    format!("Content-Length: {}\r\n\r\n{body}", body.len())
+}
+
+#[test]
+fn the_stdio_flag_lsp_clients_pass_serves_a_session() {
+    let session: String = [
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "capabilities": {} } }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
+        json!({ "jsonrpc": "2.0", "method": "exit" }),
+    ]
+    .into_iter()
+    .map(frame)
+    .collect();
+    let output = server(&["--stdio"]).stdin(&session).output();
+    assert!(output.status.success(), "{output:?}");
+    assert!(stdout(&output).contains("\"serverInfo\""), "{output:?}");
+}
+
 #[test]
 fn an_unknown_flag_is_a_usage_error() {
     assert_eq!(server(&["--nowhere"]).output().status.code(), Some(2));

@@ -17,7 +17,6 @@
   },
   "js/ts.experimental.useTsgo": true,
   "editor.linkedEditing": true,
-  "files.autoSave": "onFocusChange",
   "oxc.fixKind": "all",
   "python.terminal.useEnvFile": true,
   "[python]": {
@@ -208,6 +207,7 @@
     "https://schema.tauri.app": true,
     "https://schemastore.azurewebsites.net/": true,
     "https://spec.openapis.org/": true,
+    "https://ui.shadcn.com": true,
     "https://www.schemastore.org/": true
   },
   "json.schemas": [

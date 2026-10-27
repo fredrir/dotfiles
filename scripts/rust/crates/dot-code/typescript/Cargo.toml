@@ -1,7 +1,7 @@
 [package]
 name              = "dot-code-typescript"
 version.workspace = true
-description       = "TypeScript refactors for dot-code"
+description       = "TypeScript Snippets and Editor refactor-utilities for dot-code (../../../node/packages/dot-code)"
 edition.workspace = true
 license.workspace = true
 

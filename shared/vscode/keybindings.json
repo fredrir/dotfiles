@@ -681,30 +681,33 @@
     "command": "filebunny.moveActiveFile"
   },
   {
-    "key": "shift+alt+x",
-    "command": "editor.action.codeAction",
-    "args": {
-      "kind": "refactor.extract.interface",
-      "apply": "first"
-    },
-    "when": "editorTextFocus && !editorReadonly && editorLangId =~ /^typescript(react)?$/"
-  },
-  {
-    "key": "shift+alt+cmd+x",
-    "command": "editor.action.codeAction",
-    "args": {
-      "kind": "refactor.extract.type",
-      "apply": "first"
-    },
+    "key": "ctrl+alt+cmd+t",
+    "command": "dotCode.convertType",
     "when": "editorTextFocus && !editorReadonly && editorLangId =~ /^typescript(react)?$/"
   },
   {
     "key": "shift+alt+cmd+t",
-    "command": "editor.action.codeAction",
-    "args": {
-      "kind": "refactor.rewrite.typeDefinition",
-      "apply": "first"
-    },
+    "command": "-dotCode.convertType",
+    "when": "editorTextFocus && !editorReadonly && editorLangId =~ /^typescript(react)?$/"
+  },
+  {
+    "key": "ctrl+alt+cmd+w",
+    "command": "dotCode.extractInterface",
+    "when": "editorTextFocus && !editorReadonly && editorLangId =~ /^typescript(react)?$/"
+  },
+  {
+    "key": "shift+alt+x",
+    "command": "-dotCode.extractInterface",
+    "when": "editorTextFocus && !editorReadonly && editorLangId =~ /^typescript(react)?$/"
+  },
+  {
+    "key": "ctrl+alt+cmd+x",
+    "command": "dotCode.extractType",
+    "when": "editorTextFocus && !editorReadonly && editorLangId =~ /^typescript(react)?$/"
+  },
+  {
+    "key": "shift+alt+cmd+x",
+    "command": "-dotCode.extractType",
     "when": "editorTextFocus && !editorReadonly && editorLangId =~ /^typescript(react)?$/"
   }
 ]

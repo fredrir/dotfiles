@@ -1,13 +1,12 @@
-import { $ } from "bun";
 import { cp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { $ } from "bun";
 
 const root = import.meta.dir;
 const cargo = path.resolve(root, "../../../rust");
 const server = "dot-code-server";
 
-/** VS Code `<platform>-<arch>` mapped to the Rust target its server is built for. */
 export const TARGETS = {
   "darwin-arm64": "aarch64-apple-darwin",
   "linux-x64": "x86_64-unknown-linux-musl",
@@ -20,11 +19,17 @@ const isPlatform = (name: string): name is Platform => name in TARGETS;
 export async function build(
   platforms: Platform[] = Object.keys(TARGETS).filter(isPlatform),
 ): Promise<void> {
-  const targets = platforms.flatMap((platform) => ["--target", TARGETS[platform]]);
-  // rust-lld links static musl binaries without a cross toolchain.
+  const targets = platforms.flatMap((platform) => [
+    "--target",
+    TARGETS[platform],
+  ]);
+
   await $`cargo build --locked --release --package ${server} ${targets}`
     .cwd(cargo)
-    .env({ ...process.env, CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: "rust-lld" });
+    .env({
+      ...process.env,
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: "rust-lld",
+    });
 
   await rm(path.join(root, "bin"), { recursive: true, force: true });
   for (const platform of platforms) {

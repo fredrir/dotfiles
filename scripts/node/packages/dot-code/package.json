@@ -10,6 +10,18 @@
     "type": "git",
     "url": "https://github.com/fredrir/dotfiles"
   },
+  "scripts": {
+    "build": "bun build.ts",
+    "deploy": "bun deploy.ts",
+    "check-types": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "vscode-languageclient": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.140.0",
+    "@vscode/vsce": "^4.0.0"
+  },
   "engines": {
     "vscode": "^1.143.0"
   },
@@ -27,11 +39,81 @@
   "contributes": {
     "commands": [
       {
+        "command": "dotCode.extractInterface",
+        "title": "Extract Interface",
+        "category": "Dot Code"
+      },
+      {
+        "command": "dotCode.extractType",
+        "title": "Extract Type Alias",
+        "category": "Dot Code"
+      },
+      {
+        "command": "dotCode.convertType",
+        "title": "Convert Type / Interface",
+        "category": "Dot Code"
+      },
+      {
         "command": "dotCode.restart",
         "title": "Restart Server",
         "category": "Dot Code"
+      },
+      {
+        "command": "dotCode.showVersion",
+        "title": "Show Version",
+        "category": "Dot Code"
       }
     ],
+    "keybindings": [
+      {
+        "command": "dotCode.extractInterface",
+        "key": "shift+alt+x",
+        "when": "editorTextFocus && !editorReadonly && editorLangId =~ /^typescript(react)?$/"
+      },
+      {
+        "command": "dotCode.extractType",
+        "key": "shift+alt+cmd+x",
+        "when": "editorTextFocus && !editorReadonly && editorLangId =~ /^typescript(react)?$/"
+      },
+      {
+        "command": "dotCode.convertType",
+        "key": "shift+alt+cmd+t",
+        "when": "editorTextFocus && !editorReadonly && editorLangId =~ /^typescript(react)?$/"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "dotCode.extractInterface",
+          "group": "1_modification@3",
+          "when": "!editorReadonly && editorLangId =~ /^typescript(react)?$/"
+        },
+        {
+          "command": "dotCode.extractType",
+          "group": "1_modification@3.1",
+          "when": "!editorReadonly && editorLangId =~ /^typescript(react)?$/"
+        },
+        {
+          "command": "dotCode.convertType",
+          "group": "1_modification@3.2",
+          "when": "!editorReadonly && editorLangId =~ /^typescript(react)?$/"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "dotCode.extractInterface",
+          "when": "editorLangId =~ /^typescript(react)?$/"
+        },
+        {
+          "command": "dotCode.extractType",
+          "when": "editorLangId =~ /^typescript(react)?$/"
+        },
+        {
+          "command": "dotCode.convertType",
+          "when": "editorLangId =~ /^typescript(react)?$/"
+        }
+      ]
+    },
     "configuration": {
       "title": "Dot Code",
       "properties": {
@@ -54,7 +136,7 @@
         "dotCode.typescript.extract.name": {
           "type": "string",
           "default": "Props",
-          "markdownDescription": "Name for extracted types; `${name}` expands to the enclosing function, class or variable"
+          "markdownDescription": "Name of selected extracted type: `${name}`"
         },
         "dotCode.typescript.extract.export": {
           "type": "string",
@@ -78,17 +160,5 @@
         }
       }
     }
-  },
-  "scripts": {
-    "build": "bun build.ts",
-    "deploy": "bun deploy.ts",
-    "check-types": "tsc --noEmit -p ."
-  },
-  "dependencies": {
-    "vscode-languageclient": "^11.0.0"
-  },
-  "devDependencies": {
-    "@types/vscode": "^1.140.0",
-    "@vscode/vsce": "^4.0.0"
   }
 }

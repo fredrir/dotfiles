@@ -74,7 +74,7 @@
 | <code>shift+alt+t</code> | [<code>editor.action.transformToTitlecase</code>](../../shared/vscode/keybindings.json#L652) | Editor action transform To Titlecase |
 | <code>shift+alt+u</code> | [<code>editor.action.transformToUppercase</code>](../../shared/vscode/keybindings.json#L656) | Editor action transform To Uppercase |
 | <code>shift+alt+w</code> | [<code>bracketeer.selectQuotesContent</code>](../../shared/vscode/keybindings.json#L549) | Bracketeer select Quotes Content |
-| <code>shift+alt+x</code> | [<code>editor.action.codeAction {"kind":"refactor.extract.interface","apply":"first"}</code>](../../shared/vscode/keybindings.json#L683) | Editor action code Action<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^typescript(react)?$/</code> |
+| <code>shift+alt+x</code> | [<code>-dotCode.extractInterface</code>](../../shared/vscode/keybindings.json#L698) | Dot Code extract Interface<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^typescript(react)?$/; remove binding</code> |
 
 ## Mac Keybinds
 
@@ -120,9 +120,12 @@
 | <code>ctrl+alt+cmd+r</code> | [<code>editor.action.changeAll</code>](../../shared/vscode/keybindings.json#L588) | Editor action change All<br><code>editorTextFocus &amp;&amp; !editorReadonly</code> |
 | <code>ctrl+alt+cmd+right</code> | [<code>-quickInput.acceptInBackground</code>](../../shared/vscode/keybindings.json#L166) | Quick Input accept In Background<br><code>cursorAtEndOfQuickInputBox &amp;&amp; inQuickInput &amp;&amp; quickInputType == 'quickPick' &#124;&#124; inQuickInput &amp;&amp; !inputFocus &amp;&amp; quickInputType == 'quickPick'; remove binding</code> |
 | <code>ctrl+alt+cmd+shift+tab</code> | [<code>runCommands {"commands":&#91;"workbench.files.action.showActiveFileInExplorer","list.focusUp","workbench.action.closeActiveEditor","explorer.openAndPassFocus"&#93;}</code>](../../shared/vscode/keybindings.json#L575) | Run Commands<br><code>editorTextFocus</code> |
+| <code>ctrl+alt+cmd+t</code> | [<code>dotCode.convertType</code>](../../shared/vscode/keybindings.json#L683) | Dot Code convert Type<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^typescript(react)?$/</code> |
 | <code>ctrl+alt+cmd+tab</code> | [<code>runCommands {"commands":&#91;"workbench.files.action.showActiveFileInExplorer","list.focusDown","workbench.action.closeActiveEditor","explorer.openAndPassFocus"&#93;}</code>](../../shared/vscode/keybindings.json#L562) | Run Commands<br><code>editorTextFocus</code> |
 | <code>ctrl+alt+cmd+up</code> | [<code>-quickInput.previousSeparator</code>](../../shared/vscode/keybindings.json#L191) | Quick Input previous Separator<br><code>inQuickInput &amp;&amp; quickInputType == 'quickPick' &#124;&#124; inQuickInput &amp;&amp; quickInputType == 'quickTree'; remove binding</code> |
 | <code>ctrl+alt+cmd+up</code> | [<code>workbench.action.compareEditor.previousChange</code>](../../shared/vscode/keybindings.json#L181) | Compare Editor previous Change<br><code>textCompareEditorVisible</code> |
+| <code>ctrl+alt+cmd+w</code> | [<code>dotCode.extractInterface</code>](../../shared/vscode/keybindings.json#L693) | Dot Code extract Interface<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^typescript(react)?$/</code> |
+| <code>ctrl+alt+cmd+x</code> | [<code>dotCode.extractType</code>](../../shared/vscode/keybindings.json#L703) | Dot Code extract Type<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^typescript(react)?$/</code> |
 | <code>ctrl+alt+cmd+y</code> | [<code>yaml.select.json.schema</code>](../../shared/vscode/keybindings.json#L618) | Yaml select json schema |
 | <code>ctrl+shift+alt+cmd+d</code> | [<code>editor.emmet.action.removeTag</code>](../../shared/vscode/keybindings.json#L610) | Editor emmet action remove Tag |
 | <code>ctrl+shift+alt+cmd+i</code> | [<code>bracketeer.removeBrackets</code>](../../shared/vscode/keybindings.json#L598) | Bracketeer remove Brackets |
@@ -132,8 +135,8 @@
 | <code>shift+alt+cmd+h</code> | [<code>-bracketeer.selectBracketContent</code>](../../shared/vscode/keybindings.json#L535) | Bracketeer select Bracket Content<br><code>global; remove binding</code> |
 | <code>shift+alt+cmd+i</code> | [<code>-bracketeer.removeBrackets</code>](../../shared/vscode/keybindings.json#L602) | Bracketeer remove Brackets<br><code>global; remove binding</code> |
 | <code>shift+alt+cmd+k</code> | [<code>-bracketeer.swapBrackets</code>](../../shared/vscode/keybindings.json#L518) | Bracketeer swap Brackets<br><code>global; remove binding</code> |
-| <code>shift+alt+cmd+t</code> | [<code>editor.action.codeAction {"kind":"refactor.rewrite.typeDefinition","apply":"first"}</code>](../../shared/vscode/keybindings.json#L701) | Editor action code Action<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^typescript(react)?$/</code> |
-| <code>shift+alt+cmd+x</code> | [<code>editor.action.codeAction {"kind":"refactor.extract.type","apply":"first"}</code>](../../shared/vscode/keybindings.json#L692) | Editor action code Action<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^typescript(react)?$/</code> |
+| <code>shift+alt+cmd+t</code> | [<code>-dotCode.convertType</code>](../../shared/vscode/keybindings.json#L688) | Dot Code convert Type<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^typescript(react)?$/; remove binding</code> |
+| <code>shift+alt+cmd+x</code> | [<code>-dotCode.extractType</code>](../../shared/vscode/keybindings.json#L708) | Dot Code extract Type<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^typescript(react)?$/; remove binding</code> |
 | <code>shift+cmd+&#91;Backslash&#93;</code> | [<code>explorer.newFolder</code>](../../shared/vscode/keybindings.json#L283) | Explorer new Folder |
 | <code>shift+cmd+&#91;Comma&#93;</code> | [<code>workbench.action.openApplicationSettingsJson</code>](../../shared/vscode/keybindings.json#L238) | Open Application Settings Json |
 | <code>shift+cmd+&#91;Period&#93;</code> | [<code>-breadcrumbs.focus</code>](../../shared/vscode/keybindings.json#L118) | Breadcrumbs focus<br><code>breadcrumbsPossible &amp;&amp; breadcrumbsVisible; remove binding</code> |

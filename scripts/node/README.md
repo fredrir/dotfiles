@@ -10,6 +10,7 @@ Behaviour
 - Convert: type X = A & {…} ↔ interface X extends A {…}.
 - When convert is refused: for unions, merged interfaces, declare global blocks or default exports it doesn't convert, and pressing the key shows the reason instead.
 - Menus: both refactors also appear in the lightbulb and the Refactor menu, like the built-in TypeScript refactors.
+- Keys: shift+alt+x extracts an interface, shift+alt+cmd+x a type alias, shift+alt+cmd+t converts. All three are in the editor right-click menu and under Dot Code in Keyboard Shortcuts.
 - Settings: dotCode.typescript.extract.name (supports ${name}, e.g. ${name}Props gives TestProps), .export (never / always / inherit), .rename, and dotCode.server.path.
 
 Architecture
@@ -17,8 +18,8 @@ Architecture
   - core: the Feature trait plus the Action and Edit types. It knows nothing about LSP.
   - typescript: the refactors, built on oxc. The file is parsed once per request.
   - server: the LSP binary. It handles incremental document sync, UTF-16 positions and settings.
-- scripts/node/packages/dot-code: about 80 lines of TS that start the server, pass settings through, and trigger the rename.
-- Adding a feature: implement Feature, add it to features() in server/src/lib.rs, and add its language to LANGUAGES in extension.ts if it's a new one.
+- scripts/node/packages/dot-code: thin TS client that starts the server, restarts it after crashes, passes settings through, and triggers the rename.
+- Adding a feature: implement Feature, add it to features() in server/src/lib.rs, and add its language to LANGUAGES in src/lib/constants.ts if it's a new one.
 
 Build and install
 

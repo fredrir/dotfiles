@@ -1,9 +1,6 @@
 use clap::{ArgAction, Parser};
 use workstation::{Completable, Completions};
 
-/// The language server is normally started by the VS Code client with no
-/// arguments; the flags here are for the terminal. `-v` is short for
-/// `--version` rather than clap's default `-V`.
 #[derive(Parser)]
 #[command(
     name = "dot-code-server",
@@ -12,8 +9,7 @@ use workstation::{Completable, Completions};
     about = "Language server behind the dot-code VS Code extension"
 )]
 pub struct Cli {
-    // `ArgAction::Version` prints the version and exits while parsing, so the
-    // field stays empty. `()` keeps the derived parser from reading a value back.
+    // `ArgAction::Version` exits while parsing, so the unit field never holds a value.
     #[arg(
         short = 'v',
         long = "version",
@@ -21,6 +17,10 @@ pub struct Cli {
         help = "Print the version and exit"
     )]
     version: (),
+
+    // LSP clients pass `--stdio`; it is the only transport, so the flag changes nothing.
+    #[arg(long, hide = true)]
+    stdio: bool,
 
     #[command(flatten)]
     completions: Completions,

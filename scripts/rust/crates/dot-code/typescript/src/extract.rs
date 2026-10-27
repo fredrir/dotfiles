@@ -10,8 +10,9 @@ use crate::names;
 use crate::path::statements;
 use crate::settings::{Export, Extract};
 
-pub const INTERFACE: &str = "refactor.extract.interface";
-pub const TYPE: &str = "refactor.extract.type";
+// Sub-kinds keep these apart from the built-in TypeScript extract refactors.
+pub const INTERFACE: &str = "refactor.extract.interface.dotCode";
+pub const TYPE: &str = "refactor.extract.type.dotCode";
 
 pub fn actions<'a>(
     program: &Program<'a>,
