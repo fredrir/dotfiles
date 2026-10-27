@@ -26,13 +26,10 @@ export function registerCommands(
         }),
       ),
     ),
-
     vscode.commands.registerCommand("dotCode.rename", rename),
-
     vscode.commands.registerCommand("dotCode.restart", () =>
       clientManager.restart(),
     ),
-
     vscode.commands.registerCommand("dotCode.showVersion", async () => {
       const server = clientManager.serverPath();
       try {

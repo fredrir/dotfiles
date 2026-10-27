@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { SECTION } from "./lib/constants";
 import type { ClientManager } from "./client";
+import { SECTION } from "./lib/constants";
 
 export function registerConfigWatcher(
   context: vscode.ExtensionContext,

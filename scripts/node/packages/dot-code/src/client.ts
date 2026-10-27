@@ -5,13 +5,10 @@ import {
   TransportKind,
   type LanguageClientOptions,
 } from "vscode-languageclient/node";
-import { CrashTracker } from "./crash";
-import { DotCodeErrorHandler } from "./error";
 import { LANGUAGES, SECTION } from "./lib/constants";
 
 export class ClientManager {
   private client: LanguageClient | undefined;
-  private readonly crashTracker = new CrashTracker();
   private restartPromise: Promise<void> = Promise.resolve();
   private isRestarting = false;
   private manualShutdown = false;
@@ -46,12 +43,6 @@ export class ClientManager {
       ]),
       synchronize: { configurationSection: SECTION },
       outputChannel: this.outputChannel,
-      errorHandler: new DotCodeErrorHandler(
-        this.crashTracker,
-        this.outputChannel,
-        () => this.restart(),
-        () => this.manualShutdown,
-      ),
     };
     this.client = new LanguageClient(
       SECTION,
@@ -87,7 +78,6 @@ export class ClientManager {
     this.isRestarting = true;
     this.restartPromise = (async () => {
       try {
-        this.crashTracker.reset();
         await this.stop();
         await this.start();
       } finally {
