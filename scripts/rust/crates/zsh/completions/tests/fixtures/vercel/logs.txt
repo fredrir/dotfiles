@@ -1,0 +1,105 @@
+
+  ▲ vercel logs [command] [options]
+
+  Display logs.                                                                 
+  Defaults: linked project, all environments, latest 100 records, last 30m.     
+  Display the selected records from newest to oldest.                           
+  Use --since 1h for the last hour; --until 1h ends one hour ago.               
+  Without --since, the window is the 30m before --until (or now). Start must be 
+  before end.                                                                   
+  requestId filters use the same window; set --since and --until as needed.     
+  Query context and Next page commands are printed on stderr.                   
+  --json prints typed lines and ends with a summary; --non-interactive implies  
+  --json.                                                                       
+  --next keeps the original target, filter, and window, and uses the team in    
+  the cursor.                                                                   
+  Paging is best-effort: records sharing a timestamp at a page boundary can     
+  repeat or be skipped.                                                         
+  Team-owned projects only.                                                     
+
+  Data sources:
+
+  runtime     Display runtime log entries (default)                     
+  requests    Display CDN request records                               
+
+
+  Options:
+
+       --deployment <DEPLOYMENT>    Filter to a deployment ID or URL            
+  -e,  --environment <ENVIRONMENT>  Filter by environment, including custom     
+                                    environments                                
+       --json                       Output JSON Lines ending with a summary line
+  -n,  --limit <NUMBER>             Limit returned records (default: 100, max:  
+                                    10000)                                      
+       --next <CURSOR>              Continue a previous query from its summary's
+                                    next value                                  
+  -p,  --project <NAME_OR_ID>       Select a project (default: linked project)  
+  -q,  --query <EXPRESSION>         Filter the selected source with KQL-inspired
+                                    syntax                                      
+  -s,  --since <TIME>               Start time: ISO 8601, relative, or now      
+                                    (default: 30m before the end)               
+  -u,  --until <TIME>               End time: ISO 8601, relative, or now        
+                                    (default: now)                              
+
+
+  Common --query fields:
+
+  runtime (default)                                                             
+    level, source, environment, deploymentId, requestId, domain,                
+    requestPath, requestMethod, region, service, traceId, spanId,               
+    runtime, stream, isSystemLog, truncated                                     
+    Unquoted bare words search log messages.                                    
+    Common values:                                                              
+      source: function, middleware, ci, edge, daemon                            
+      level:  error, warning, info, fatal                                       
+      stream: stdout, stderr                                                    
+
+  requests                                                                      
+    environment, deploymentId, requestId, requestHostname,                      
+    requestPath, requestMethod, httpStatus, route, cacheResult,                 
+    edgeNetworkRegion, service                                                  
+    Use field expressions to filter request records.                            
+    Background function executions are excluded.                                
+
+  Additional public fields supported by the API are accepted.                   
+  Use vercel logs runtime --help or vercel logs requests --help for types and   
+  examples.                                                                     
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Display recent runtime logs
+
+    $ vercel logs
+
+  - Find runtime errors in production
+
+    $ vercel logs --query 'level:error AND environment:production'
+
+  - Display CDN requests with server errors
+
+    $ vercel logs requests --query 'httpStatus >= 500'
+
+  - Output logs for a deployment as JSON Lines
+
+    $ vercel logs --deployment dpl_xxxxx --json
+
+  - Continue from the summary's next value
+
+    $ vercel logs --next <CURSOR> --json
+

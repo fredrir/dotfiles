@@ -77,7 +77,7 @@ impl Flag {
 }
 
 impl Value {
-    fn new(placeholder: &str, optional: bool) -> Value {
+    pub(crate) fn new(placeholder: &str, optional: bool) -> Value {
         let placeholder = placeholder.trim_end_matches("...").to_string();
         let choices = placeholder_choices(&placeholder);
         Value {
@@ -187,8 +187,14 @@ impl<'a> Parser<'a> {
     }
 
     fn run(mut self, text: &str) -> Help {
-        for raw in text.lines() {
-            self.line(raw.trim_end());
+        let lines: Vec<&str> = text.lines().collect();
+        for (index, raw) in lines.iter().enumerate() {
+            let line = raw.trim_end();
+            if self.section == Section::Commands && group_heading(line, &lines[index + 1..]) {
+                self.commands_indent = None;
+                continue;
+            }
+            self.line(line);
         }
         for flag in std::mem::take(&mut self.usage_flags) {
             if flag.names.iter().any(|name| self.help.flag(name).is_some()) {
@@ -456,6 +462,14 @@ fn flag_line(trimmed: &str) -> Option<Flag> {
                 placeholder.starts_with('['),
             ));
             rest = remaining;
+        } else if let Some(after) = rest.strip_prefix(' ') {
+            let after = after.trim_start();
+            let end = after.find([',', ' ']).unwrap_or(after.len());
+            let token = &after[..end];
+            if is_metavar(token) && after[end..].starts_with(',') {
+                value = Some(Value::new(token, false));
+                rest = &after[end..];
+            }
         }
         if let Some(after) = rest.strip_prefix(',') {
             let after = after.trim_start();
@@ -480,6 +494,27 @@ fn flag_line(trimmed: &str) -> Option<Flag> {
         value,
         description: collapse(rest),
     })
+}
+
+// A lone word above more indented command rows is a group heading such as "Basic".
+fn group_heading(line: &str, rest: &[&str]) -> bool {
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() || trimmed.contains(char::is_whitespace) || !is_word(trimmed) {
+        return false;
+    }
+    let indent = line.len() - trimmed.len();
+    let Some(next) = rest.iter().find(|line| !line.trim().is_empty()) else {
+        return false;
+    };
+    let next = next.trim_end();
+    next.len() - next.trim_start().len() > indent
+}
+
+fn is_metavar(token: &str) -> bool {
+    token.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+        && token
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
 fn usage_flag(alternative: &str) -> Option<Flag> {

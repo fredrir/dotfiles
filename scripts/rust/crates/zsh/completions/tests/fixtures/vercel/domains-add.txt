@@ -1,0 +1,35 @@
+
+  ▲ vercel domains add domain [project] [options]
+
+  Add a domain name that you already own to a Vercel Team                       
+
+  Options:
+
+   --force  Remove the current assignment, then add the domain to the requested  
+            project (a failed add can leave it unassigned)                       
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Add a domain that you already own
+
+    $ vercel domains add domain-name.com
+    $ Make sure the domain's DNS nameservers are at least 2 of the ones listed on https://vercel.com/edge-network
+    $ NOTE: Running vercel alias will automatically register your domain if it's configured with these nameservers (no need to 'domains add')
+

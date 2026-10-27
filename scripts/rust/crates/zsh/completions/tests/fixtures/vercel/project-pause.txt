@@ -1,0 +1,40 @@
+
+  ▲ vercel project pause [project] [options]
+
+  Pause production traffic for a project (visitors will see an error page)      
+
+  Options:
+
+   --json  Output as JSON                                                        
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Pause the linked project
+
+    $ vercel project pause
+
+  - Pause the project named "my-project"
+
+    $ vercel project pause my-project
+
+  - Pause a project and print the result as JSON
+
+    $ vercel project pause my-project --json
+

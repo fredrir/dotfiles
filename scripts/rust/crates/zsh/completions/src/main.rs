@@ -12,6 +12,7 @@ mod process;
 mod reply;
 mod shadcn;
 mod shared;
+mod vercel;
 
 use std::process::ExitCode;
 
@@ -30,7 +31,7 @@ const SHIM: &str = include_str!("../assets/zcomp.zsh");
 #[derive(Parser)]
 #[command(
     version,
-    about = "Completion candidates for node package managers, pi, shadcn and jq, answered for zsh"
+    about = "Completion candidates for node package managers, pi, shadcn, jq and Vercel, answered for zsh"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -95,7 +96,7 @@ enum Action {
         #[arg(value_name = "SOURCE")]
         source: String,
 
-        #[arg(value_name = "ARGS")]
+        #[arg(value_name = "ARGS", allow_hyphen_values = true)]
         args: Vec<String>,
     },
 
@@ -170,6 +171,9 @@ fn complete(ctx: &Context, command: &str, line: &Line) -> Reply {
     if command == "jq" {
         return jq::complete(ctx, line);
     }
+    if command == "vercel" || command == "vc" {
+        return vercel::complete(ctx, line);
+    }
     match Manager::from_command(command) {
         Some((manager, runner)) => node::complete(ctx, line, manager, runner),
         None => Reply::new(),
@@ -205,6 +209,7 @@ fn refresh(ctx: &Context, source: &str, args: &[String]) -> bool {
         "jq-builtins" => ctx
             .which("jq")
             .is_some_and(|binary| cache::refresh(ctx, &jq::builtins::BuiltinsSource { binary })),
+        "vercel-spec" | "vercel-teams" => vercel::refresh(ctx, source, args),
         _ => false,
     }
 }
@@ -238,13 +243,14 @@ fn warm(ctx: &Context) {
         cache::warm(ctx, &pi::models::ModelsSource { pi: &pi, binary });
         cache::warm(ctx, &pi::gallery::Gallery);
     }
+    vercel::warm(ctx);
 }
 
 fn shim() -> String {
     let commands: Vec<&str> = Manager::ALL
         .iter()
         .flat_map(|manager| manager.commands().iter().map(|(name, _)| *name))
-        .chain(["pi", "shadcn", "jq"])
+        .chain(["pi", "shadcn", "jq", "vercel", "vc"])
         .collect();
     SHIM.replace("{{COMMANDS}}", &commands.join(" "))
 }

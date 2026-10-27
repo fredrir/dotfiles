@@ -1,0 +1,65 @@
+
+  ▲ vercel flags [command]
+
+  Manage feature flags for a Vercel project                                     
+
+  Commands:
+
+  list                       List all feature flags for the current project
+                             (default)                                     
+  inspect      flag          Display information about a feature flag      
+  versions                   List and compare version history for a feature
+                             flag                                          
+  evaluations  [flag]        Display evaluation metrics for a feature flag,
+                             or for every flag in the project when no flag 
+                             is given                                      
+  create       slug          Create a new feature flag                     
+  open         [flag]        Open feature flags in the Vercel dashboard    
+  update       flag          Update an existing feature flag               
+  set          flag          Set the served variant for a feature flag in  
+                             an environment                                
+  targeting                  Manage targeting for a feature flag           
+                             environment                                   
+  split        flag          Configure a weighted split for a feature flag 
+                             in an environment                             
+  rollout      flag          Configure a progressive rollout for a feature 
+                             flag in an environment                        
+  delete       flag          Delete a feature flag                         
+  archive      flag          Archive a feature flag                        
+  unarchive    flag          Unarchive a feature flag                      
+  disable      flag          Shortcut to serve the false variant of a      
+                             boolean feature flag in an environment        
+  enable       flag          Shortcut to serve the true variant of a       
+                             boolean feature flag in an environment        
+  rules                      Manage conditional rules for feature flags    
+  targets                    Manage direct targets: entity values that     
+                             always receive a fixed variant                
+  segments                   Manage feature flag segments                  
+  entities                   Manage the entity schema used for flag        
+                             targeting                                     
+  labels                     Discover label lists and manage labels for    
+                             string or stringArray attributes              
+  sdk-keys                   Manage SDK keys for feature flags             
+  prepare                    Prepare flag definition fallbacks for the     
+                             build                                         
+  datafile                   Display the datafile of the project           
+  override     [flag=value]  Encrypt flag overrides into a secure token for
+                             the vercel-flag-overrides cookie              
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+

@@ -1,0 +1,35 @@
+
+  ▲ vercel promote status [project] [options]
+
+  Show the status of any current pending promotions                             
+
+  Options:
+
+       --timeout <TIME>  Time to wait for promotion completion (default: 3m)         
+  -y,  --yes             Skip the confirmation prompt when linking a Project         
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Show the status of any current pending promotions
+
+    $ vercel promote status
+    $ vercel promote status <project>
+    $ vercel promote status --timeout 30s
+

@@ -1,0 +1,43 @@
+
+  ▲ vercel redeploy [deployment] [options]
+
+  Rebuild and deploy a previous deployment.                                     
+
+  Options:
+
+  -e,  --environment <ENVIRONMENT>  Environment to redeploy to: production,     
+                                    preview, or a custom environment (default:  
+                                    the original deployment's environment)      
+       --no-wait                    Don't wait for the redeploy to finish       
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Rebuild and deploy an existing deployment using id or url
+
+    $ vercel redeploy my-deployment.vercel.app
+
+  - Write Deployment URL to a file
+
+    $ vercel redeploy my-deployment.vercel.app > deployment-url.txt
+
+  - Rebuild and deploy an existing deployment to a specific environment
+
+    $ vercel redeploy my-deployment.vercel.app --environment preview
+

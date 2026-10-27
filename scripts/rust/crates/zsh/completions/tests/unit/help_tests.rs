@@ -285,3 +285,67 @@ fn path_placeholders_are_recognised() {
     assert!(Value::new("path", false).names_a_path());
     assert!(!Value::new("name", false).names_a_path());
 }
+
+#[test]
+fn vercel_grouped_commands_are_parsed_without_their_headings() {
+    let help = Help::parse(&fixture("vercel/main"), &["vercel"]);
+    for expected in ["deploy", "project", "whoami", "domains"] {
+        assert!(help.command(expected).is_some(), "{expected} missing");
+    }
+    assert!(help.command("Basic").is_none(), "{:?}", help.commands);
+    assert!(help.command("Advanced").is_none(), "{:?}", help.commands);
+}
+
+#[test]
+fn grouped_command_rows_use_the_indent_below_each_heading() {
+    let text = "\n  Commands:\n\n    Basic\n\n      run    Do the thing\n      build  Build it\n\n    Advanced\n\n      debug  Debug it\n";
+    let help = Help::parse(text, &["tool"]);
+    let names: Vec<&str> = help
+        .commands
+        .iter()
+        .map(|command| command.name.as_str())
+        .collect();
+    assert_eq!(names, ["run", "build", "debug"]);
+}
+
+#[test]
+fn gnu_style_metavars_before_a_long_flag_keep_both_names() {
+    let help = Help::parse(&fixture("vercel/main"), &["vercel"]);
+    for (short, long, placeholder, description) in [
+        (
+            "-A",
+            "--local-config",
+            "FILE",
+            "Path to the local `vercel.json` file",
+        ),
+        (
+            "-Q",
+            "--global-config",
+            "DIR",
+            "Path to the global `.vercel` directory",
+        ),
+        ("-t", "--token", "TOKEN", "Login token"),
+    ] {
+        let flag = help.flag(short).expect(short);
+        assert!(flag.has(long), "{short}: {flag:?}");
+        assert_eq!(
+            flag.value.as_ref().map(|value| value.placeholder.as_str()),
+            Some(placeholder),
+            "{short}: {flag:?}"
+        );
+        assert_eq!(flag.description, description, "{short}: {flag:?}");
+    }
+}
+
+#[test]
+fn a_description_that_starts_with_a_word_is_not_a_metavar() {
+    let text = "  -y,  --yes  Use default options\n  -d,  --dry-run  Do not deploy\n";
+    let help = Help::parse(text, &["tool"]);
+    let yes = help.flag("--yes").expect("--yes");
+    assert!(yes.value.is_none(), "{yes:?}");
+    assert_eq!(yes.description, "Use default options");
+    assert!(
+        help.flag("--dry-run")
+            .is_some_and(|flag| flag.value.is_none())
+    );
+}

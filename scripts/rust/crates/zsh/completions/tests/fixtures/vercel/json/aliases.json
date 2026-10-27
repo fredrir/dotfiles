@@ -1,0 +1,27 @@
+{
+  "aliases": [
+    {
+      "alias": "rif-ki-git-main-fredrik-hansteens-projects.vercel.app",
+      "deploymentId": "dpl_4hGhG14Wzqtofhv4ZtyTarbGSv84",
+      "url": "rif-qszai1yyq-fredrik-hansteens-projects.vercel.app",
+      "createdAt": 1792754239786
+    },
+    {
+      "alias": "rif-ki-fredrik-hansteens-projects.vercel.app",
+      "deploymentId": "dpl_HSDMt7zwyRzdY7mF5YeSXt3b5SJr",
+      "url": "rif-f0onxyylg-fredrik-hansteens-projects.vercel.app",
+      "createdAt": 1792141462223
+    },
+    {
+      "alias": "rif-ki.vercel.app",
+      "deploymentId": "dpl_HSDMt7zwyRzdY7mF5YeSXt3b5SJr",
+      "url": "rif-f0onxyylg-fredrik-hansteens-projects.vercel.app",
+      "createdAt": 1792141462223
+    }
+  ],
+  "pagination": {
+    "count": 3,
+    "next": 1792141462223,
+    "prev": 1792754239786
+  }
+}

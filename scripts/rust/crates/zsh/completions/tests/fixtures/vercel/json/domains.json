@@ -1,0 +1,30 @@
+{
+  "domains": [
+    {
+      "name": "hansteen.dev",
+      "registrar": "Third Party",
+      "nameservers": "external",
+      "expiresAt": null,
+      "createdAt": 1783436627548
+    },
+    {
+      "name": "thot.no",
+      "registrar": "Third Party",
+      "nameservers": "external",
+      "expiresAt": null,
+      "createdAt": 1744666551597
+    },
+    {
+      "name": "norgestilstand.no",
+      "registrar": "Third Party",
+      "nameservers": "vercel",
+      "expiresAt": null,
+      "createdAt": 1743623473008
+    }
+  ],
+  "pagination": {
+    "count": 3,
+    "next": 1743623473008,
+    "prev": 1783436627548
+  }
+}

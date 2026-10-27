@@ -1,0 +1,51 @@
+
+  ▲ vercel project list [options]
+
+  Show all projects in the selected scope                                       
+
+  Options:
+
+   --filter <NAME>    Filter projects by name (substring match)                  
+   --json             Output as JSON                                             
+   --limit <NUMBER>   Number of results to return per page (default: 20, max:    
+                      100)                                                       
+   --next <CURSOR>    Show the next page using the cursor from the previous      
+                      output                                                     
+   --paused           Show only projects whose production traffic is paused      
+   --update-required  A list of projects affected by an upcoming deprecation     
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Paginate projects, where `1584722256178` is the time in milliseconds since the UNIX epoch
+
+    $ vercel project list --next <CURSOR>
+
+  - List projects using a deprecated Node.js version in JSON format
+
+    $ vercel project list --update-required --json
+
+  - Filter projects by name
+
+    $ vercel project list --filter my-app
+
+  - List paused projects
+
+    $ vercel project list --paused
+

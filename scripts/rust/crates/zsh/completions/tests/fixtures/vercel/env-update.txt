@@ -1,0 +1,62 @@
+
+  ▲ vercel env update name [options]
+
+  Update the value of an existing Environment Variable (see examples below)     
+
+  Options:
+
+  -e,  --environment <ENVIRONMENT>  Pick the variable to update by an           
+                                    environment it covers. The new value applies
+                                    to all of its environments                  
+       --git-branch <BRANCH>        Pick the variable to update by its Git      
+                                    branch                                      
+       --project <NAME_OR_ID>       Project name or ID (default: linked project)
+       --sensitive                  Store the updated value as a Secret         
+       --type <TYPE>                Set the Environment Variable type (`config` 
+                                    or `secret`)                                
+       --value <VALUE>              New value for the variable                  
+                                    (non-interactive). Otherwise use stdin or   
+                                    you will be prompted.                       
+  -y,  --yes                        Skip the confirmation prompt when updating  
+                                    an Environment Variable                     
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Update a variable in all Environments
+
+    $ vercel env update <name>
+    $ vercel env update API_TOKEN
+
+  - Update the variable that covers a specific Environment
+
+    $ vercel env update <name> --environment <production | preview | development>
+    $ vercel env update DB_PASS --environment production
+
+  - Update the variable for a specific Environment and Git Branch
+
+    $ vercel env update <name> --environment <production | preview | development> --git-branch <BRANCH>
+    $ vercel env update NPM_RC --environment preview --git-branch feat1
+
+  - Update a variable from stdin
+
+    $ cat <file> | vercel env update <name> --environment <production | preview | development>
+    $ cat ~/.npmrc | vercel env update NPM_RC --environment preview
+    $ vercel env update API_URL --environment production < url.txt
+

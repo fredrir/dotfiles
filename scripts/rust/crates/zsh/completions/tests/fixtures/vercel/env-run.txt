@@ -1,0 +1,40 @@
+
+  ▲ vercel env run command ... [options]
+
+  Run a command with environment variables from the linked Vercel project       
+
+  Options:
+
+  -e,  --environment <ENVIRONMENT>  Specify the environment to pull variables   
+                                    from (default: development)                 
+       --git-branch <BRANCH>        Specify the Git branch to pull specific     
+                                    Environment Variables for                   
+       --project <NAME_OR_ID>       Project name or ID (default: linked project)
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Run Next.js dev server with development environment variables
+
+    $ vercel env run -- next dev
+
+  - Run tests with preview environment variables for a specific branch
+
+    $ vercel env run -e preview --git-branch feature-x -- npm test
+

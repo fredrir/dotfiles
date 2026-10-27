@@ -1,0 +1,16 @@
+{
+  "teams": [
+    {
+      "id": "team_rRcWWLjpGUEsMhLCPKSm54Fh",
+      "slug": "fredrik-hansteens-projects",
+      "name": "Fredrik Hansteen's projects",
+      "plan": "pro",
+      "current": false
+    }
+  ],
+  "pagination": {
+    "count": 1,
+    "next": null,
+    "prev": 1704160316691
+  }
+}

@@ -1,0 +1,41 @@
+
+  ▲ vercel remove name|deploymentId ... [options]
+
+  Delete deployment(s) by project name or deployment ID.                        
+
+  Options:
+
+       --safe  Skip deployments with an active alias                             
+  -y,  --yes   Skip confirmation                                                 
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Remove a deployment identified by Deployment ID
+
+    $ vercel remove dpl_abcdef123456890
+
+  - Remove all deployments with Project name `my-app`
+
+    $ vercel remove my-app
+
+  - Remove two deployments with Deployment IDs
+
+    $ vercel remove dpl_eyWt6zuSdeus dpl_uWHoA9RQ1d1o
+

@@ -1,0 +1,93 @@
+
+  ▲ vercel project update [name] [options]
+
+  Update one or more project settings; omitted settings remain unchanged        
+
+  Options:
+
+       --auto-detect <SETTING>               Reset a setting to automatic detection; 
+                                             repeat for build-command, dev-command,  
+                                             install-command, output-directory, or   
+                                             root-directory                          
+       --build-command <COMMAND>             Set the build command                   
+       --build-machine <TYPE>                Set the build machine type: basic,      
+                                             standard, enhanced, turbo, or elastic   
+       --dev-command <COMMAND>               Set the development command             
+       --elastic-concurrency                 Turn on elastic concurrency for builds  
+       --fluid-compute                       Turn on Fluid compute                   
+       --framework <SLUG>                    Set the framework preset by slug; use   
+                                             "other" to clear the preset             
+       --function-cpu <TIER>                 Set the default function CPU/memory     
+                                             tier: standard_legacy, standard,        
+                                             performance, or performance_xl          
+       --install-command <COMMAND>           Set the install command                 
+       --json                                Output as JSON                          
+       --no-elastic-concurrency              Turn off elastic concurrency for builds 
+       --no-fluid-compute                    Turn off Fluid compute                  
+       --node-version <VERSION>              Set the Node.js version: 24.x, 22.x,    
+                                             20.x, 18.x, 16.x, 14.x, 12.x, or 10.x   
+       --output-directory <DIR>              Set the output directory                
+       --root-directory <DIR>                Set the project root directory          
+       --sandbox-failover-regions <REGIONS>  Set the ordered, comma-separated        
+                                             failover regions for sandboxes created  
+                                             in the project. Requires a primary      
+                                             region and must not include it. Use ""  
+                                             to clear                                
+       --sandbox-region <REGION>             Set the default region for sandboxes    
+                                             created in the project. See the Vercel  
+                                             docs for available regions. Use "" to   
+                                             clear                                   
+  -y,  --yes                                 Apply settings that do not affect       
+                                             charges without prompting               
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Set the linked project framework preset to Next.js
+
+    $ vercel project update --framework nextjs
+
+  - Set a named project framework preset to Vite
+
+    $ vercel project update my-project --framework vite
+
+  - Update multiple settings in one command
+
+    $ vercel project update my-project --build-command "pnpm build" --output-directory dist
+
+  - Reset individual settings to automatic detection
+
+    $ vercel project update my-project --auto-detect build-command --auto-detect output-directory
+
+  - Enable Fluid compute and set the function CPU tier
+
+    $ vercel project update my-project --fluid-compute --function-cpu performance
+
+  - Clear the framework preset and return JSON
+
+    $ vercel project update my-project --framework other --json
+
+  - Update a setting without an interactive prompt
+
+    $ vercel project update my-project --framework vite --yes
+
+  - Set the sandbox default and failover regions
+
+    $ vercel project update my-project --sandbox-region sfo1 --sandbox-failover-regions cle1,iad1
+

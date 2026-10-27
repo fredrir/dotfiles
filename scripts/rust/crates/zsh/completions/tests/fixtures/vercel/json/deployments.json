@@ -1,0 +1,31 @@
+{
+  "contextName": "fredrik-hansteens-projects",
+  "deployments": [
+    {
+      "url": "rif-mp57ti013-fredrik-hansteens-projects.vercel.app",
+      "name": "rif",
+      "state": "READY",
+      "target": "production",
+      "createdAt": 1793011069692
+    },
+    {
+      "url": "rif-forms-82t1d8l5f-fredrik-hansteens-projects.vercel.app",
+      "name": "rif-forms",
+      "state": "READY",
+      "target": "production",
+      "createdAt": 1793011069385
+    },
+    {
+      "url": "admin-2aa5hnvv9-fredrik-hansteens-projects.vercel.app",
+      "name": "admin-rif",
+      "state": "READY",
+      "target": "production",
+      "createdAt": 1793011069250
+    }
+  ],
+  "pagination": {
+    "count": 3,
+    "next": 1793011069250,
+    "prev": 1793011069692
+  }
+}

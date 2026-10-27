@@ -1,0 +1,54 @@
+
+  ▲ vercel pull [project-path] [options]
+
+  Pull Environment Variables and project settings into .vercel                  
+
+  Options:
+
+  -e,  --environment <ENVIRONMENT>  Deployment environment (default:            
+                                    development)                                
+       --git-branch <BRANCH>        Specify the Git branch to pull specific     
+                                    Environment Variables for                   
+       --project <NAME_OR_ID>       Project name or ID (default: linked project)
+  -y,  --yes                        Skip questions when setting up new project  
+                                    using default scope and settings            
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Pull the latest Environment Variables and Project Settings from the cloud
+
+    $ vercel pull
+
+  - Pull the latest Environment Variables and Project Settings from the cloud targeting a directory
+
+    $ vercel pull ./path-to-project
+
+  - Pull for a specific environment
+
+    $ vercel pull --environment=<production | preview | development>
+
+  - Pull for a preview feature branch
+
+    $ vercel pull --environment=preview --git-branch=feature-branch
+
+  - Pull Environment Variables into an application env file with `vercel env pull`
+
+    $ vercel env pull
+

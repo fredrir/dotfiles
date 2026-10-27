@@ -39,7 +39,7 @@ fn complete_with(root: &spec::Spec, line: &Line) -> Reply {
             continue;
         }
         if !after_separator && word.starts_with('-') {
-            if inline_value(&spec.help, word).is_none() {
+            if shared::inline_value(&spec.help, word).is_none() {
                 pending = spec.help.flag(word).filter(|flag| flag.value.is_some());
             }
             continue;
@@ -65,7 +65,7 @@ fn complete_with(root: &spec::Spec, line: &Line) -> Reply {
     {
         value(flag, prefix, "", &mut reply);
     } else if !after_separator && !help_mode && prefix.starts_with('-') {
-        if let Some((flag, text, leader)) = inline_value(&spec.help, prefix) {
+        if let Some((flag, text, leader)) = shared::inline_value(&spec.help, prefix) {
             value(flag, text, leader, &mut reply);
         } else if !prefix.contains('=') {
             shared::flags(&spec.help, &mut reply);
@@ -102,21 +102,6 @@ fn commands(help: &Help, reply: &mut Reply) {
                 .map(|name| Item::new(name, &command.description))
         })),
     );
-}
-
-// Commander accepts --flag=value and attached short values such as -c/path.
-fn inline_value<'a, 'w>(help: &'a Help, word: &'w str) -> Option<(&'a Flag, &'w str, &'w str)> {
-    if let Some((name, text)) = word.split_once('=') {
-        let flag = help.flag(name).filter(|flag| flag.value.is_some())?;
-        return Some((flag, text, &word[..name.len() + 1]));
-    }
-    help.flags.iter().find_map(|flag| {
-        flag.value.as_ref()?;
-        flag.names.iter().find_map(|name| {
-            (name.len() == 2 && word.starts_with(name) && word.len() > 2)
-                .then(|| (flag, &word[2..], &word[..2]))
-        })
-    })
 }
 
 fn components(reply: &mut Reply) {

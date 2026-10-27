@@ -1,0 +1,49 @@
+
+  ▲ vercel env remove name [options]
+
+  Remove an Environment Variable (see examples below)                           
+
+  Options:
+
+  -e,  --environment <ENVIRONMENT>  Remove the variable from this environment   
+                                    only. Without it, the variable is removed   
+                                    from all of its environments                
+       --git-branch <BRANCH>        Remove the variable for this Git branch only
+       --project <NAME_OR_ID>       Project name or ID (default: linked project)
+  -y,  --yes                        Skip the confirmation prompt when removing  
+                                    an Environment Variable                     
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Remove a variable from multiple Environments
+
+    $ vercel env remove <name>
+    $ vercel env remove API_TOKEN
+
+  - Remove a variable from a specific Environment
+
+    $ vercel env remove <name> --environment <production | preview | development>
+    $ vercel env remove NPM_RC --environment preview
+
+  - Remove a variable from a specific Environment and Git Branch
+
+    $ vercel env remove <name> --environment <production | preview | development> --git-branch <BRANCH>
+    $ vercel env remove NPM_RC --environment preview --git-branch feat1
+

@@ -1,0 +1,56 @@
+
+  ▲ vercel storage command
+
+  Create, connect, and manage storage resources (Blob, Global Config,           
+  Marketplace, and 1P) for your Projects                                        
+
+  Commands:
+
+  list                 List storage resources in the current scope        
+  create      name     Create a storage resource (blob, global-config)    
+  inspect     store    Show the details of one storage resource           
+  delete      store    Delete a storage resource. This cannot be undone   
+                       and removes its project connections, so it always  
+                       requires interactive confirmation.                 
+  connect     store    Connect a storage resource (Blob, Marketplace, or  
+                       1P) to a project                                   
+  status      [store]  Show storage connections, their environments,      
+                       credential mode, and environment variables         
+  update      store    Update an existing storage connection              
+                       (environments, prefix, or credential mode)         
+  disconnect  store    Disconnect a storage resource from a project.      
+                       Removes its environment variables, so it always    
+                       requires interactive confirmation.                 
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - List the stores in the current scope
+
+    $ vercel storage list
+
+  - Create a store and connect it to the linked project
+
+    $ vercel storage create my-uploads --type blob --access private
+    $ vercel storage connect my-uploads --yes
+
+  - Inspect what is connected today
+
+    $ vercel storage status
+

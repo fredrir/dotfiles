@@ -1,0 +1,45 @@
+
+  ▲ vercel env pull [filename] [options]
+
+  Pull Environment Variables into a local file (default: .env.local)            
+
+  Options:
+
+       --deployment <DEPLOYMENT>    Pull Environment Variables for a specific   
+                                    deployment (e.g. dpl_xxx)                   
+  -e,  --environment <ENVIRONMENT>  Select the environment to pull (default:    
+                                    development)                                
+       --git-branch <BRANCH>        Specify the Git branch to pull specific     
+                                    Environment Variables for                   
+       --project <NAME_OR_ID>       Project name or ID (default: linked project)
+  -y,  --yes                        Skip the confirmation prompt when           
+                                    overwriting an existing file                
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Pull Development Environment Variables into a custom file (check .gitignore)
+
+    $ vercel env pull <file>
+    $ vercel env pull .env.development.local
+
+  - Pull Environment Variables for a specific deployment
+
+    $ vercel env pull --deployment dpl_xxx
+

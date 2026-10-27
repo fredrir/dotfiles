@@ -1,0 +1,35 @@
+{
+  "projects": [
+    {
+      "name": "rif",
+      "id": "prj_ASH0Js9giwf84huRped3cJvVIJYe",
+      "latestProductionUrl": "https://rif.no",
+      "updatedAt": 1793011119518,
+      "deprecated": false,
+      "paused": false
+    },
+    {
+      "name": "tek",
+      "id": "prj_DIGHtXKfKqnZvO0E4KgouVSrzfpn",
+      "latestProductionUrl": "https://tek.rif.no",
+      "updatedAt": 1793011096798,
+      "deprecated": false,
+      "paused": false
+    },
+    {
+      "name": "admin-rif",
+      "id": "prj_0x7OMIJ83wS9y4ATYrLYCnkx1XWV",
+      "latestProductionUrl": "https://admin.rif.no",
+      "updatedAt": 1793011089691,
+      "deprecated": false,
+      "paused": false
+    }
+  ],
+  "pagination": {
+    "count": 3,
+    "next": 1793011089691,
+    "prev": 1793011119518
+  },
+  "contextName": "fredrik-hansteens-projects",
+  "elapsed": "1s"
+}

@@ -1,0 +1,113 @@
+
+  ▲ vercel integration add integration [options]
+
+  Installs a marketplace integration                                            
+
+  Options:
+
+       --claim                      If the new resource is a sandbox (e.g.      
+                                    Stripe, Shopify), claim it immediately      
+                                    without prompting                           
+  -e,  --environment <ENVIRONMENT>  Environment to connect. Accepts production, 
+                                    preview, development, or a Custom           
+                                    Environment slug or ID from the linked      
+                                    project. Can be repeated (default: all      
+                                    built-in environments).                     
+       --installation-id <ID>       Installation ID to use when multiple        
+                                    installations exist for the integration     
+       --json                       Output as JSON                              
+       --metadata <KEY=VALUE>       Metadata for the resource as KEY=VALUE (can 
+                                    be repeated). Run `vercel integration add   
+                                    <name> --help` to see available keys.       
+       --name <NAME>                Custom name for the resource (auto-generated
+                                    if not provided)                            
+       --no-claim                   If the new resource is a sandbox, skip the  
+                                    offer to claim it (only print a hint)       
+       --no-connect                 Skip connecting the resource to the current 
+                                    project (also skips env pull)               
+       --no-env-pull                Skip running env pull after provisioning    
+       --plan <PLAN_ID>             Billing plan ID to use for the resource     
+       --prefix <PREFIX>            Prefix for environment variable names (e.g.,
+                                    --prefix NEON2_ creates NEON2_DATABASE_URL  
+                                    instead of DATABASE_URL)                    
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Install a marketplace integration (auto-generates resource name)
+
+    $ vercel integration add <integration-name>
+    $ vercel integration add acme
+
+  - Install a specific product from an integration
+
+    $ vercel integration add <integration>/<product>
+    $ vercel integration add acme/acme-redis
+
+  - Search by keyword (prompts to select a matching integration)
+
+    $ vercel integration add postgres
+    $ vercel integration add redis
+
+  - Install with a custom resource name
+
+    $ vercel integration add acme --name my-database
+    $ vercel integration add acme --name my-database
+
+  - Install with metadata options
+
+    $ vercel integration add acme --metadata region=us-east-1
+    $ vercel integration add acme --metadata region=us-east-1 --metadata version=16
+    $ vercel integration add acme --metadata auth=true
+    $ vercel integration add acme --metadata "readRegions=sfo1,iad1"
+
+  - Install with a specific billing plan
+
+    $ vercel integration add acme --plan pro
+    $ vercel integration add acme --plan pro
+
+  - Install and connect to specific environments only
+
+    $ vercel integration add acme --environment production
+    $ vercel integration add acme -e production -e preview
+
+  - Install without connecting to the current project
+
+    $ vercel integration add acme --no-connect
+
+  - Install without pulling environment variables
+
+    $ vercel integration add acme --no-env-pull
+
+  - Install with a prefix for environment variable names
+
+    $ vercel integration add acme --prefix NEON2_
+
+  - Output as JSON
+
+    $ vercel integration add acme --json
+
+  - Show available products for an integration
+
+    $ vercel integration add acme --help
+
+  - Discover available marketplace products and their slugs
+
+    $ vercel integration discover
+

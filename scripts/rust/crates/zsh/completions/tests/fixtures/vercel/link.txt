@@ -1,0 +1,66 @@
+
+  ▲ vercel link command [options]
+
+  Link a local directory to a Vercel project                                    
+
+  Commands:
+
+  add    Add projects to an existing repository link created by link    
+         --repo                                                         
+
+
+  Options:
+
+  -p,  --project <NAME_OR_ID>    Set the project name or ID to link; required for 
+                                 non-interactive existing-project links           
+       --repo                    Link multiple projects from the Git repository   
+                                 (alpha; per-directory project links take         
+                                 precedence)                                      
+       --team <TEAM_ID_OR_SLUG>  Set the team ID or slug; use with --project for  
+                                 non-interactive links                            
+  -y,  --yes                     Skip questions when setting up with default team 
+                                 and settings                                     
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Link current directory to a Vercel project
+
+    $ vercel link
+
+  - Link current directory with default options and skip questions
+
+    $ vercel link --yes
+
+  - Link to an existing project in CI or agent mode
+
+    $ vercel link --yes --team <team-id> --project <project-name-or-id>
+
+  - Link a specific directory to a Vercel project
+
+    $ vercel link --cwd /path/to/project
+
+  - Link multiple projects from the current Git repository
+
+    $ vercel link --repo
+
+  - Add additional projects to an existing repository link
+
+    $ vercel link add
+

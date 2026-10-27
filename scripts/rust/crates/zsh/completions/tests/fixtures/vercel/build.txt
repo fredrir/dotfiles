@@ -1,0 +1,54 @@
+
+  ▲ vercel build [options]
+
+  Build the project.                                                            
+
+  Options:
+
+       --deployment <DEPLOYMENT>    Deployment ID to pull environment variables 
+                                    from (e.g. dpl_xxx)                         
+  -e,  --environment <ENVIRONMENT>  Environment to build for: production,       
+                                    preview, or a custom environment (default:  
+                                    preview)                                    
+       --output <DIR>               Directory where built assets will be written
+                                    to                                          
+       --prod                       Build a production deployment               
+       --project <NAME_OR_ID>       Project name or ID (default: linked project)
+       --standalone                 Create a standalone build with all          
+                                    dependencies inlined into function output   
+                                    folders                                     
+  -y,  --yes                        Skip the confirmation prompt about pulling  
+                                    environment variables and project settings  
+                                    when not found locally                      
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Build the project
+
+    $ vercel build
+
+  - Build the project in a specific directory
+
+    $ vercel build --cwd ./path-to-project
+
+  - Build with deployment-scoped environment variables
+
+    $ vercel build --deployment dpl_xxx
+

@@ -1,0 +1,71 @@
+
+  ▲ vercel list [app] [options]
+
+  List deployments.                                                             
+
+  Options:
+
+  -a,  --all                        List resources across all projects          
+  -e,  --environment <ENVIRONMENT>  Filter deployments by environment           
+       --json                       Output as JSON                              
+       --limit <NUMBER>             Number of results to return per page        
+                                    (default: 20, max: 100)                     
+       --meta <KEY=VALUE>           Filter deployments by metadata (e.g.: `-m   
+                                    KEY=value`). Can appear many times.         
+       --next <CURSOR>              Show the next page using the cursor from the
+                                    previous output                             
+       --policy <KEY=VALUE>         See deployments with provided Deployment    
+                                    Retention policies (e.g.: `-p KEY=value`).  
+                                    Can appear many times.                      
+       --status <STATUS>            Filter deployments by their status. Can be  
+                                    comma-separated for multiple statuses (e.g.:
+                                    `--status BUILDING,READY`)                  
+  -y,  --yes                        Accept default value for all prompts        
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - List all deployments for the currently linked project
+
+    $ vercel list
+
+  - List all deployments across all projects
+
+    $ vercel list --all
+
+  - List all deployments for the project `my-app`
+
+    $ vercel list my-app
+
+  - Filter deployments by metadata
+
+    $ vercel list --meta key1=value1 --meta key2=value2
+
+  - Paginate deployments for a project, where `1584722256178` is the time in milliseconds since the UNIX epoch
+
+    $ vercel list my-app --next <CURSOR>
+
+  - Filter deployments by status
+
+    $ vercel list --status READY
+
+  - Filter deployments by multiple statuses
+
+    $ vercel list --status BUILDING,ERROR
+

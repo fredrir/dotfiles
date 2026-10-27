@@ -1,0 +1,36 @@
+vercel sandbox <subcommand>
+> Interfacing with Vercel Sandbox
+
+where <subcommand> can be one of:
+
+- list - List all sandboxes for the specified account and project. [alias: ls]
+- create - Create a sandbox in the specified account and project.
+- sh - Create a sandbox and start an interactive shell
+- fork - Fork an existing sandbox into a new one. Copies config (cpu, timeout, network policy, tags, env vars, etc.) from the source sandbox; any flag passed here overrides the copied value.
+- config - View and update sandbox configuration
+- copy - Copy files between your local filesystem and a remote sandbox [alias: cp]
+- exec - Execute a command in an existing sandbox
+- connect - Start an interactive shell in an existing sandbox [aliases: ssh, shell]
+- stop - Stop the current session of one or more sandboxes
+- remove - Permanently remove one or more sandboxes [alias: rm]
+- run - Create and run a command in a sandbox
+- snapshot - Take a snapshot of the filesystem of a sandbox
+- snapshots - Manage sandbox snapshots
+- sessions - Manage sandbox sessions
+- drives - Manage sandbox drives
+- telemetry - Manage telemetry collection status
+- login - Log in to the Sandbox CLI
+- logout - Log out of the Sandbox CLI
+
+For more help, try running `vercel sandbox <subcommand> --help`
+
+EXAMPLES:
+
+  Create a sandbox and start a shell
+  $ vercel sandbox sh
+
+  Run a command in a new sandbox
+  $ vercel sandbox run -- node -e "console.log('hello')"
+
+  Execute command in an existing sandbox
+  $ vercel sandbox exec <name> -- npm test

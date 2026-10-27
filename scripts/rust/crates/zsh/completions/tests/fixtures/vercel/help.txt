@@ -1,0 +1,161 @@
+
+  ▲ vercel [options] <command | path>
+
+  For deploy command help, run `vercel deploy --help`
+
+  Commands:
+
+    Basic
+
+      deploy           Deploy your project to Vercel (default)
+      build            Build the project
+      cache            Manage cache for a Project
+      dev              Starts the `vercel dev` server
+      env              Interact with Environment Variables for a Project
+      git              Manage your Git repository connection to the current
+                       Project
+      help             Show help for a command
+      init             Initialize example Vercel Projects
+      inspect          Show information about a deployment
+      install          Install an integration from the marketplace (alias for
+                       `integration add`)
+      integration      Manage marketplace integrations
+      link             Link a local directory to a Vercel project
+      list             List deployments
+      login            Sign in to your Vercel account
+      logout           Sign out the currently authenticated user
+      open             Opens the current project in the Vercel Dashboard
+      promote          Promote an existing Deployment to current
+      pull             Pull Environment Variables and project settings into
+                       .vercel
+      redeploy         Rebuild and deploy a previous deployment
+      rollback         Quickly revert back to a previous deployment
+      signup           Create a Vercel account and sign in
+      switch           Switch to a different team
+
+    Advanced
+
+      activity         List user activity events
+      agent            Generate an AGENTS.md file with Vercel deployment best
+                       practices
+      agent-runs       Inspect Agent Runs observability data
+      ai-gateway       Manage AI Gateway resources
+      alerts           List alert groups or inspect a group
+      alias            Interact with deployment aliases
+      api              Make authenticated HTTP requests to the Vercel API
+      bisect           Bisect the current project interactively or via an
+                       automated test script
+      blob             Interact with Vercel Blob
+      budgets          Show and manage Spend Management for on-demand charges
+                       after included credit [beta]
+      buy              Purchase Vercel products for your team
+      certs            Interact with SSL certificates
+      changelog        Show the latest Vercel product updates
+      ci               Inspect Vercel CI and rerun runs
+      comments         Review and act on Vercel Toolbar comments from the
+                       command line
+      connect          Manage connectors
+      contract         Show contract information for all billing periods
+      crons            Manage cron jobs for a project [beta]
+      curl             Make curl requests to Vercel deployments with automatic
+                       protection bypass
+      daemons          Manage daemons for a project [beta]
+      deploy-hooks     Manage deploy hooks for Git-triggered builds
+      dns              Interact with DNS entries for a project
+      domains          Manage domains
+      environments     Manage custom environments for a Project
+      feedback         Send bugs, friction, and feature requests to the Vercel
+                       team
+      firewall         Manage your project's firewall rules, IP blocks, and
+                       system bypass configuration
+      flags            Manage feature flags for a Vercel project
+      global-config    Manage Global Config stores (dashboard API parity)
+      health           Show the current Vercel platform status and recent
+                       incidents
+      httpstat         Execute httpstat with automatic deployment URL and
+                       protection bypass to visualize HTTP timing statistics
+      kms              Manage KMS issuers, signing keys, and project grants
+                       [beta]
+      logs             Display logs
+      mcp              Set up MCP agents and configuration for Vercel
+                       integration
+      metrics          Query observability metrics for your Vercel project or
+                       team
+      microfrontends   Manage microfrontends groups that compose multiple
+                       projects into one cohesive application
+      monitors         Create, inspect, list, update, and delete monitors and
+                       manage their notification destinations
+      organizations    Manage Vercel organizations
+      pricing          Show Hobby, Pro, and Enterprise features from the public
+                       Vercel pricing table
+      project          Manage your Vercel projects
+      redirects        Manage redirects for a project
+      remove           Delete deployment(s) by project name or deployment ID
+      rolling-release  Rolling releases gradually shift traffic to a new
+                       deployment in stages, allowing you to monitor for errors
+                       before serving all traffic
+      routes           Manage routing rules for a project
+      sandbox          Interact with Vercel Sandbox
+      schedules        Manage schedules for the current project [beta]
+      security         Inspect the security posture of the current team
+      setup            Set up your machine for Vercel: install the Vercel plugin
+                       for Claude Code, Codex, and OpenCode and connect local
+                       coding agents to the AI Gateway
+      skills           Discover agent skills relevant to your project
+      storage          Create, connect, and manage storage resources (Blob,
+                       Global Config, Marketplace, and 1P) for your Projects
+      teams            Manage Teams under your Vercel account
+      telemetry        Allows you to enable or disable telemetry collection
+      token-pass       Set up a coding agent with Vercel Token Pass
+      tokens           Manage your personal Vercel authentication tokens
+      traces           Fetch project traces and search spans across a Vercel
+                       team
+      upgrade          Upgrade the current global or native Vercel CLI
+                       installation
+      usage            Show billing usage and costs for the current billing
+                       cycle or a custom date range
+      vcr              Manage Vercel Container Registry repositories and images
+                       (see `vcr image`)
+      version          Manages the installed Vercel CLI version
+      webhooks         Manage webhooks
+      whoami           Shows the username of the currently logged in user
+
+  Global Options:
+
+    -h, --help                     Output usage information
+    -v, --version                  Output the version number
+    --changelog                    Show the 5 latest Vercel product updates
+    --cwd                          Current working directory
+    -A FILE, --local-config=FILE   Path to the local `vercel.json` file
+    -Q DIR, --global-config=DIR    Path to the global `.vercel` directory
+    -d, --debug                    Debug mode (default: off)
+    --no-color                     No color mode (default: off)
+    --non-interactive              Run without interactive prompts (default: on when an agent is detected)
+    -S, --scope                    Set a custom scope
+    -t TOKEN, --token=TOKEN        Login token
+
+  Examples:
+
+  – Deploy the current directory
+
+    $ vercel
+
+  – Deploy a custom path
+
+    $ vercel /usr/src/project
+
+  – Deploy with Environment Variables
+
+    $ vercel --env NODE_ENV=production
+
+  – Show the usage information for the sub command `list`
+
+    $ vercel help list
+
+  – Show the 5 latest Vercel product updates
+
+    $ vercel --changelog
+
+  – Search Vercel product updates
+
+    $ vercel changelog search "AI SDK"

@@ -138,6 +138,7 @@ fn spawn_refresh(ctx: &Context, key: &str, job: &[String]) {
         .arg("refresh")
         .args(job)
         .current_dir(&ctx.cwd)
+        .env("PWD", &ctx.cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

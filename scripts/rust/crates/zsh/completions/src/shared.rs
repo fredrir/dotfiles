@@ -49,6 +49,21 @@ pub fn generic_value(flag: &Flag, reply: &mut Reply) {
     }
 }
 
+// Inline long values after `=` and attached short values such as -c/path.
+pub fn inline_value<'a, 'w>(help: &'a Help, word: &'w str) -> Option<(&'a Flag, &'w str, &'w str)> {
+    if let Some((name, text)) = word.split_once('=') {
+        let flag = help.flag(name).filter(|flag| flag.value.is_some())?;
+        return Some((flag, text, &word[..name.len() + 1]));
+    }
+    help.flags.iter().find_map(|flag| {
+        flag.value.as_ref()?;
+        flag.names.iter().find_map(|name| {
+            (name.len() == 2 && word.starts_with(name) && word.len() > 2)
+                .then(|| (flag, &word[2..], &word[..2]))
+        })
+    })
+}
+
 // The element being typed in a comma-separated list, and the elements before it.
 pub fn list_element<'a>(prefix: &'a str, reply: &mut Reply) -> (&'a str, Vec<&'a str>) {
     match prefix.rfind(',') {

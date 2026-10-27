@@ -1,0 +1,33 @@
+
+  ▲ vercel flags targeting command
+
+  Manage targeting for a feature flag environment                               
+
+  Commands:
+
+  enable  flag  Enable targeting for a feature flag environment; keeps  
+                the current fallthrough unless --default-variant is set 
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - Enable targeting and keep the current fallthrough
+
+    $ vercel flags targeting enable my-feature --environment production
+

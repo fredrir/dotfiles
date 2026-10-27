@@ -167,7 +167,7 @@ _zcomp_register() {
   [[ $fn == _zcomp_complete ]] || _zcomp_orig[$command]=$fn
   compdef _zcomp_complete "$command"
   # Ranked candidates keep the order zcomp gives them, fzf-tab included.
-  zstyle ":completion:*:*:$command:*:(registry|popular|dist-tags|versions|sessions|gallery|thinking|values|scripts|schemes|keys|variables|keywords|formats)" sort false
+  zstyle ":completion:*:*:$command:*:(registry|popular|dist-tags|versions|sessions|gallery|thinking|values|scripts|schemes|keys|variables|keywords|formats|teams|projects|deployments|domains|aliases)" sort false
   zstyle ":fzf-tab:complete:$command:*" prefix ''
   # The query is the typed word; a shared prefix of the colored display lines is only escape codes.
   zstyle ":fzf-tab:complete:$command:*" query-string input

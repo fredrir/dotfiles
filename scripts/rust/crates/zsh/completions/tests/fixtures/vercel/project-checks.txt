@@ -1,0 +1,62 @@
+
+  ▲ vercel project checks [name] [options]
+
+  List, add, or remove deployment checks for a project (GET/POST/DELETE         
+  /v2/projects/.../checks)                                                      
+
+  Options:
+
+   --blocks      When listing: filter by blocking stage. When adding: blocking   
+                 stage for the new check. Values: build-start, deployment-start, 
+                 deployment-alias, deployment-promotion, none                    
+   --check-name  Name of the deployment check (required with --requires unless   
+                 --file is set)                                                  
+   --file        Path to JSON file for the POST body (see REST: Create a check). 
+                 Overrides --check-name / related flags.                         
+   --json        Output as JSON                                                  
+   --requires    When the check runs: build-ready, deployment-url, or none       
+                 (required with --check-name unless --file)                      
+   --source      JSON string for the `source` object (integration, webhook, or   
+                 git-provider)                                                   
+   --targets     Comma-separated deployment targets (e.g. production,preview)    
+   --timeout     Timeout in seconds for the new check (default: 300)             
+
+
+  Global Options:
+
+       --cwd <DIR>            Sets the current working directory for a single   
+                              run of a command                                  
+  -d,  --debug                Debug mode (default: off)                         
+  -Q,  --global-config <DIR>  Path to the global `.vercel` directory            
+  -h,  --help                 Output usage information                          
+  -A,  --local-config <FILE>  Path to the local `vercel.json` file              
+       --no-color             No color mode (default: off)                      
+       --non-interactive      Run without interactive prompts (default: on when 
+                              an agent is detected)                             
+  -S,  --scope                Set a custom scope                                
+  -t,  --token <TOKEN>        Login token                                       
+  -v,  --version              Output the version number                         
+
+
+  Examples:
+
+  - List checks for the linked project
+
+    $ vercel project checks
+
+  - Checks that block production alias assignment
+
+    $ vercel project checks --blocks deployment-alias
+
+  - Add a check from a JSON file
+
+    $ vercel project checks add my-app --file ./check.json
+
+  - Add a check with flags (requires integration/webhook setup in the body via --file or --source)
+
+    $ vercel project checks add --check-name "CI" --requires deployment-url --blocks deployment-alias
+
+  - Remove a check by id
+
+    $ vercel project checks remove chk_abc123 my-app
+
