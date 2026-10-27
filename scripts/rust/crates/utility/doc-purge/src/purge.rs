@@ -33,12 +33,17 @@ pub enum Outcome {
     Skipped(&'static str),
 }
 
+const BOM: &[u8] = b"\xef\xbb\xbf";
+
 fn leading(source: &[u8], comments: &[Comment], dialect: Dialect) -> usize {
-    let mut cursor = if dialect.family() == Family::Css {
-        after_charset(source)
+    let mut cursor = if source.starts_with(BOM) {
+        BOM.len()
     } else {
         0
     };
+    if dialect.family() == Family::Css {
+        cursor = cursor.max(after_charset(source));
+    }
     let mut count = 0usize;
     for comment in comments {
         if source[cursor..comment.span.start]
@@ -54,7 +59,11 @@ fn leading(source: &[u8], comments: &[Comment], dialect: Dialect) -> usize {
 }
 
 fn after_charset(source: &[u8]) -> usize {
-    let mut at = 0usize;
+    let mut at = if source.starts_with(BOM) {
+        BOM.len()
+    } else {
+        0
+    };
     while at < source.len() && source[at].is_ascii_whitespace() {
         at += 1;
     }
@@ -97,6 +106,38 @@ fn after_charset(source: &[u8]) -> usize {
     }
 }
 
+fn scripty(dialect: Dialect) -> bool {
+    matches!(
+        dialect,
+        Dialect::JavaScript | Dialect::Mjs | Dialect::TypeScript | Dialect::Jsx | Dialect::Tsx
+    )
+}
+
+fn line_break(source: &[u8], span: &std::ops::Range<usize>) -> Option<&'static str> {
+    let mut at = span.start;
+    while at < span.end {
+        match source[at] {
+            b'\r' if source.get(at + 1) == Some(&b'\n') => return Some("\r\n"),
+            b'\r' => return Some("\r"),
+            b'\n' => return Some("\n"),
+            _ if source[at..].starts_with("\u{2028}".as_bytes()) => return Some("\u{2028}"),
+            _ if source[at..].starts_with("\u{2029}".as_bytes()) => return Some("\u{2029}"),
+            _ => at += 1,
+        }
+    }
+    None
+}
+
+fn ends_line(source: &[u8], mut at: usize) -> bool {
+    while at < source.len() && matches!(source[at], b' ' | b'\t') {
+        at += 1;
+    }
+    at < source.len()
+        && (matches!(source[at], b'\n' | b'\r')
+            || source[at..].starts_with("\u{2028}".as_bytes())
+            || source[at..].starts_with("\u{2029}".as_bytes()))
+}
+
 fn wordy(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-') || byte >= 0x80
 }
@@ -117,7 +158,21 @@ fn merging(left: u8, right: u8) -> bool {
     if left.is_ascii_digit() && matches!(right, b'.' | b'%') {
         return true;
     }
-    false
+    matches!(
+        (left, right),
+        (b'+', b'+')
+            | (b'-', b'-')
+            | (b'/', b'/')
+            | (b'/', b'*')
+            | (b'*', b'*')
+            | (b'<', b'!')
+            | (b'?', b'?')
+            | (b'&', b'&')
+            | (b'|', b'|')
+            | (b'=', b'=')
+            | (b'=', b'>')
+            | (b'.', b'.')
+    )
 }
 
 fn needs_style_space(source: &[u8], start: usize, end: usize, padded: bool) -> bool {
@@ -168,20 +223,47 @@ pub fn purge(source: &[u8], dialect: Dialect) -> Outcome {
         let (span, with) = match edit::whole_lines(source, &comment.span) {
             Some(widened) => (widened, None),
             None => {
+                let line_begin = edit::line_start(source, comment.span.start);
+                let content_begin = if line_begin == 0 && source.starts_with(BOM) {
+                    BOM.len()
+                } else {
+                    line_begin
+                };
+                let at_line_start = source[content_begin..comment.span.start]
+                    .iter()
+                    .all(|byte| matches!(byte, b' ' | b'\t'));
                 let mut start = comment.span.start;
-                while start > 0 && matches!(source[start - 1], b' ' | b'\t') {
-                    start -= 1;
+                if !at_line_start {
+                    while start > 0 && matches!(source[start - 1], b' ' | b'\t') {
+                        start -= 1;
+                    }
                 }
                 let mut end = comment.span.end;
                 while end < source.len() && matches!(source[end], b' ' | b'\t') {
                     end += 1;
                 }
                 let padded = start < comment.span.start && end > comment.span.end;
+                if scripty(dialect)
+                    && let Some(break_line) = line_break(source, &comment.span)
+                {
+                    let with = if ends_line(source, end) {
+                        None
+                    } else {
+                        Some(break_line.to_string())
+                    };
+                    cuts.push(Cut {
+                        span: start..end,
+                        with,
+                        kind: Kind::Comment,
+                        lines: false,
+                    });
+                    continue;
+                }
                 let space = if dialect.family() == Family::Css {
                     let style_padded = start < comment.span.start || end > comment.span.end;
                     needs_style_space(source, start, end, style_padded)
                 } else {
-                    padded
+                    needs_style_space(source, start, end, padded)
                 };
                 (start..end, space.then(|| " ".to_string()))
             }

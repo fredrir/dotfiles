@@ -1,37 +1,11 @@
 use crate::lang::Dialect;
 use crate::scan::{Bail, Out, char_width, identifier_byte, line_end, starts_with};
 
-const DEPTH: usize = 64;
-
-const OPERATOR_WORDS: &[&[u8]] = &[
-    b"return",
-    b"typeof",
-    b"instanceof",
-    b"in",
-    b"of",
-    b"new",
-    b"delete",
-    b"void",
-    b"case",
-    b"do",
-    b"else",
-    b"yield",
-    b"await",
-    b"throw",
-];
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Prev {
-    Value,
-    Operator,
-}
-
 struct Curly<'a> {
     source: &'a [u8],
     at: usize,
     dialect: Dialect,
     out: Out,
-    prev: Prev,
 }
 
 pub fn scan(source: &[u8], dialect: Dialect) -> Result<Out, Bail> {
@@ -40,9 +14,8 @@ pub fn scan(source: &[u8], dialect: Dialect) -> Result<Out, Bail> {
         at: 0,
         dialect,
         out: Out::default(),
-        prev: Prev::Operator,
     };
-    scanner.code(0, false)?;
+    scanner.code()?;
     Ok(scanner.out)
 }
 
@@ -74,22 +47,7 @@ impl<'a> Curly<'a> {
         matches!(self.dialect, Dialect::C | Dialect::Cpp)
     }
 
-    fn scripty(&self) -> bool {
-        matches!(
-            self.dialect,
-            Dialect::JavaScript | Dialect::TypeScript | Dialect::Jsx
-        )
-    }
-
-    fn markup(&self) -> bool {
-        matches!(self.dialect, Dialect::JavaScript | Dialect::Jsx)
-    }
-
-    fn code(&mut self, depth: usize, stop_at_brace: bool) -> Result<(), Bail> {
-        if depth > DEPTH {
-            return Err(Bail("nested too deeply to read"));
-        }
-        let mut braces = 0usize;
+    fn code(&mut self) -> Result<(), Bail> {
         while self.at < self.len() {
             let byte = self.byte(self.at);
             match byte {
@@ -97,54 +55,23 @@ impl<'a> Curly<'a> {
                 b'/' if self.byte(self.at + 1) == b'*' && self.has_block_comments() => {
                     self.block_comment()?
                 }
-                b'/' if self.scripty() && self.prev == Prev::Operator && self.regex() => {}
                 b'"' => self.double_quoted()?,
                 b'\'' => self.single_quoted()?,
-                b'`' => self.backtick(depth)?,
+                b'`' => self.backtick()?,
                 b'\\' if self.dialect == Dialect::Zig && self.byte(self.at + 1) == b'\\' => {
                     self.zig_line_string()
                 }
                 b'@' | b'$' if self.dialect == Dialect::CSharp && self.sharp_prefix()? => {}
                 b'#' if self.dialect == Dialect::Swift && self.swift_raw()? => {}
-                b'<' if self.markup() && self.prev == Prev::Operator && self.opens_element() => {
-                    self.element(depth + 1)?
-                }
-                b'{' => {
-                    braces += 1;
-                    self.at += 1;
-                    self.prev = Prev::Operator;
-                }
-                b'}' => {
-                    if braces == 0 && stop_at_brace {
-                        self.at += 1;
-                        self.prev = Prev::Value;
-                        return Ok(());
-                    }
-                    braces = braces.saturating_sub(1);
-                    self.at += 1;
-                    self.prev = Prev::Value;
-                }
-                b')' | b']' => {
-                    self.at += 1;
-                    self.prev = Prev::Value;
-                }
+                b'{' | b'}' | b')' | b']' => self.at += 1,
                 _ if identifier_byte(byte) => self.word()?,
-                _ => {
-                    self.at += char_width(self.source, self.at);
-                    if !byte.is_ascii_whitespace() {
-                        self.prev = Prev::Operator;
-                    }
-                }
+                _ => self.at += char_width(self.source, self.at),
             }
-        }
-        if stop_at_brace {
-            return Err(Bail("unclosed brace"));
         }
         Ok(())
     }
 
     fn word(&mut self) -> Result<(), Bail> {
-        let start = self.at;
         if self.dialect == Dialect::Rust && self.raw_or_byte()? {
             return Ok(());
         }
@@ -154,12 +81,6 @@ impl<'a> Curly<'a> {
         while self.at < self.len() && identifier_byte(self.byte(self.at)) {
             self.at += char_width(self.source, self.at);
         }
-        let word = &self.source[start..self.at];
-        self.prev = if OPERATOR_WORDS.contains(&word) {
-            Prev::Operator
-        } else {
-            Prev::Value
-        };
         Ok(())
     }
 
@@ -226,12 +147,8 @@ impl<'a> Curly<'a> {
 
     fn single_quoted(&mut self) -> Result<(), Bail> {
         match self.dialect {
-            Dialect::JavaScript | Dialect::TypeScript | Dialect::Jsx => {
-                self.quoted(b'\'', true, true, false)
-            }
             Dialect::Swift => {
                 self.at += 1;
-                self.prev = Prev::Operator;
                 Ok(())
             }
             Dialect::Rust => self.rust_quote(),
@@ -251,7 +168,6 @@ impl<'a> Curly<'a> {
             }
         }
         self.at += 1;
-        self.prev = Prev::Operator;
         Ok(())
     }
 
@@ -262,7 +178,6 @@ impl<'a> Curly<'a> {
                 b'\\' => at += 1 + char_width(self.source, (at + 1).min(self.len() - 1)),
                 b'\'' => {
                     self.at = at + 1;
-                    self.prev = Prev::Value;
                     return Ok(());
                 }
                 b'\n' => return Err(Bail("unterminated character literal")),
@@ -293,7 +208,6 @@ impl<'a> Curly<'a> {
             if byte == quote {
                 self.out.text(start..self.at, escapes, folds, quote);
                 self.at += 1;
-                self.prev = Prev::Value;
                 return Ok(());
             }
             if byte == b'\n' && !multiline {
@@ -319,7 +233,6 @@ impl<'a> Curly<'a> {
                 self.out
                     .text(start..self.at, self.dialect != Dialect::Kotlin, true, 0);
                 self.at += 3;
-                self.prev = Prev::Value;
                 return Ok(());
             }
             self.at += char_width(self.source, self.at);
@@ -327,7 +240,7 @@ impl<'a> Curly<'a> {
         Err(Bail("unterminated text block"))
     }
 
-    fn backtick(&mut self, depth: usize) -> Result<(), Bail> {
+    fn backtick(&mut self) -> Result<(), Bail> {
         match self.dialect {
             Dialect::Go => self.quoted(b'`', false, true, true),
             Dialect::Kotlin => {
@@ -339,46 +252,13 @@ impl<'a> Curly<'a> {
                     return Err(Bail("unterminated quoted name"));
                 }
                 self.at += 1;
-                self.prev = Prev::Value;
                 Ok(())
             }
-            Dialect::JavaScript | Dialect::TypeScript | Dialect::Jsx => self.template(depth),
             _ => {
                 self.at += 1;
-                self.prev = Prev::Operator;
                 Ok(())
             }
         }
-    }
-
-    fn template(&mut self, depth: usize) -> Result<(), Bail> {
-        self.at += 1;
-        let mut start = self.at;
-        while self.at < self.len() {
-            let byte = self.byte(self.at);
-            if byte == b'\\' {
-                self.at += 1;
-                if self.at < self.len() {
-                    self.at += char_width(self.source, self.at);
-                }
-                continue;
-            }
-            if byte == b'`' {
-                self.out.text(start..self.at, true, true, b'`');
-                self.at += 1;
-                self.prev = Prev::Value;
-                return Ok(());
-            }
-            if byte == b'$' && self.byte(self.at + 1) == b'{' {
-                self.out.text(start..self.at, true, true, b'`');
-                self.at += 2;
-                self.code(depth + 1, true)?;
-                start = self.at;
-                continue;
-            }
-            self.at += char_width(self.source, self.at);
-        }
-        Err(Bail("unterminated template literal"))
     }
 
     fn raw_or_byte(&mut self) -> Result<bool, Bail> {
@@ -419,7 +299,6 @@ impl<'a> Curly<'a> {
                     if hashes == 0 { b'"' } else { 0 },
                 );
                 self.at += 1 + hashes;
-                self.prev = Prev::Value;
                 return Ok(true);
             }
             self.at += char_width(self.source, self.at);
@@ -453,7 +332,6 @@ impl<'a> Curly<'a> {
             if starts_with(self.source, cursor, &closing) {
                 self.out.text(start..cursor, false, true, 0);
                 self.at = cursor + closing.len();
-                self.prev = Prev::Value;
                 return Ok(true);
             }
             cursor += 1;
@@ -486,7 +364,6 @@ impl<'a> Curly<'a> {
                 }
                 self.out.text(start..self.at, false, false, b'"');
                 self.at += 1;
-                self.prev = Prev::Value;
                 return Ok(true);
             }
             self.at += char_width(self.source, self.at);
@@ -510,7 +387,6 @@ impl<'a> Curly<'a> {
             if self.byte(self.at) == b'"' && self.closing_hashes(self.at + 1, hashes) {
                 self.out.text(start..self.at, false, true, 0);
                 self.at += 1 + hashes;
-                self.prev = Prev::Value;
                 return Ok(true);
             }
             self.at += char_width(self.source, self.at);
@@ -523,104 +399,5 @@ impl<'a> Curly<'a> {
         let end = line_end(self.source, start);
         self.out.text(start..end, false, true, 0);
         self.at = end;
-        self.prev = Prev::Value;
-    }
-
-    fn regex(&mut self) -> bool {
-        let mut at = self.at + 1;
-        let mut class = false;
-        while at < self.len() {
-            match self.byte(at) {
-                b'\\' => at += 2,
-                b'[' => {
-                    class = true;
-                    at += 1;
-                }
-                b']' if class => {
-                    class = false;
-                    at += 1;
-                }
-                b'/' if !class => {
-                    at += 1;
-                    while at < self.len() && identifier_byte(self.byte(at)) {
-                        at += 1;
-                    }
-                    self.at = at;
-                    self.prev = Prev::Value;
-                    return true;
-                }
-                b'\n' => return false,
-                _ => at += char_width(self.source, at),
-            }
-        }
-        false
-    }
-
-    fn opens_element(&self) -> bool {
-        let next = self.byte(self.at + 1);
-        next == b'>' || next == b'_' || next == b'$' || next.is_ascii_alphabetic()
-    }
-
-    fn element(&mut self, depth: usize) -> Result<(), Bail> {
-        if depth > DEPTH {
-            return Err(Bail("nested too deeply to read"));
-        }
-        self.at += 1;
-        while self.at < self.len()
-            && (identifier_byte(self.byte(self.at))
-                || matches!(self.byte(self.at), b'.' | b'-' | b':'))
-        {
-            self.at += 1;
-        }
-        loop {
-            if self.at >= self.len() {
-                return Err(Bail("unterminated element"));
-            }
-            match self.byte(self.at) {
-                b'/' if self.byte(self.at + 1) == b'>' => {
-                    self.at += 2;
-                    self.prev = Prev::Value;
-                    return Ok(());
-                }
-                b'>' => {
-                    self.at += 1;
-                    break;
-                }
-                b'{' => {
-                    self.at += 1;
-                    self.prev = Prev::Operator;
-                    self.code(depth + 1, true)?;
-                }
-                b'"' => self.quoted(b'"', false, true, false)?,
-                b'\'' => self.quoted(b'\'', false, true, false)?,
-                _ => self.at += char_width(self.source, self.at),
-            }
-        }
-        loop {
-            if self.at >= self.len() {
-                return Err(Bail("unterminated element"));
-            }
-            match self.byte(self.at) {
-                b'{' => {
-                    self.at += 1;
-                    self.prev = Prev::Operator;
-                    self.code(depth + 1, true)?;
-                }
-                b'<' if self.byte(self.at + 1) == b'/' => {
-                    self.at += 2;
-                    while self.at < self.len() && self.byte(self.at) != b'>' {
-                        self.at += 1;
-                    }
-                    if self.at >= self.len() {
-                        return Err(Bail("unterminated element"));
-                    }
-                    self.at += 1;
-                    self.prev = Prev::Value;
-                    return Ok(());
-                }
-                b'<' => self.element(depth + 1)?,
-                _ => self.at += char_width(self.source, self.at),
-            }
-        }
     }
 }

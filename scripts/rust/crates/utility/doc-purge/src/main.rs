@@ -7,6 +7,7 @@ mod docstring;
 mod edit;
 mod glyphs;
 mod hash;
+mod js;
 mod keep;
 mod lang;
 mod luadoc;
@@ -277,13 +278,13 @@ fn wanted(types: &[String]) -> Result<Wanted, String> {
     }
     let mut extensions = Vec::new();
     for token in types {
-        let Some(language) = lang::for_token(token) else {
+        let Some(found) = lang::extensions_for_token(token) else {
             return Err(format!(
                 "unknown type: {token}\n{PROGRAM}: the types it reads are {}",
                 lang::known()
             ));
         };
-        extensions.extend(language.extensions.iter().map(|found| found.to_string()));
+        extensions.extend(found.iter().map(|extension| extension.to_string()));
     }
     extensions.sort();
     extensions.dedup();
@@ -363,3 +364,7 @@ fn commit(path: &Path, content: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 #[path = "../tests/unit/main_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/js_tests.rs"]
+mod js_tests;

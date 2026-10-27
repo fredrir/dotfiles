@@ -314,3 +314,87 @@ fn an_important_css_comment_is_reported_and_kept() {
         "/*! keep */\n.a { color: red; }\n"
     );
 }
+
+fn javascript_tree() -> TempDir {
+    tree(&[
+        "a.js=// note\nconst a = 1;\n",
+        "b.mjs=// note\nconst b = 1;\n",
+        "c.cjs=// note\nconst c = 1;\n",
+        "d.ts=// note\nconst d: number = 1;\n",
+        "e.mts=// note\nconst e: number = 1;\n",
+        "f.cts=// note\nconst f: number = 1;\n",
+        "g.jsx=// note\nconst g = <div />;\n",
+        "h.tsx=// note\nconst h = <div />;\n",
+    ])
+}
+
+#[test]
+fn every_javascript_extension_is_read_without_a_type_filter() {
+    let root = javascript_tree();
+    let output = Bin::new(env!("CARGO_BIN_EXE_doc-purge"))
+        .arg(root.path())
+        .arg("-y")
+        .env("NO_COLOR", "1")
+        .stdin("")
+        .output();
+    assert!(output.status.success());
+    for (name, expected) in [
+        ("a.js", "const a = 1;\n"),
+        ("b.mjs", "const b = 1;\n"),
+        ("c.cjs", "const c = 1;\n"),
+        ("d.ts", "const d: number = 1;\n"),
+        ("e.mts", "const e: number = 1;\n"),
+        ("f.cts", "const f: number = 1;\n"),
+        ("g.jsx", "const g = <div />;\n"),
+        ("h.tsx", "const h = <div />;\n"),
+    ] {
+        assert_eq!(read(root.path(), name), expected, "{name}");
+    }
+}
+
+#[test]
+fn javascript_type_filters_cover_the_expected_variations() {
+    for (wanted, purged, kept) in [
+        (
+            "js",
+            &["a.js", "b.mjs", "c.cjs"][..],
+            &["d.ts", "e.mts", "f.cts", "g.jsx", "h.tsx"][..],
+        ),
+        (
+            "ts",
+            &["d.ts", "e.mts", "f.cts"][..],
+            &["a.js", "b.mjs", "c.cjs", "g.jsx", "h.tsx"][..],
+        ),
+        (
+            "tsx",
+            &["h.tsx"][..],
+            &["a.js", "b.mjs", "c.cjs", "d.ts", "e.mts", "f.cts", "g.jsx"][..],
+        ),
+        (
+            "jsx",
+            &["g.jsx", "h.tsx"][..],
+            &["a.js", "b.mjs", "c.cjs", "d.ts", "e.mts", "f.cts"][..],
+        ),
+    ] {
+        let root = javascript_tree();
+        let output = Bin::new(env!("CARGO_BIN_EXE_doc-purge"))
+            .arg(root.path())
+            .args(["-y", "-t", wanted])
+            .env("NO_COLOR", "1")
+            .stdin("")
+            .output();
+        assert!(output.status.success(), "type {wanted} failed");
+        for name in purged {
+            assert!(
+                !read(root.path(), name).starts_with("// note"),
+                "type {wanted} did not read {name}"
+            );
+        }
+        for name in kept {
+            assert!(
+                read(root.path(), name).starts_with("// note"),
+                "type {wanted} read {name}"
+            );
+        }
+    }
+}

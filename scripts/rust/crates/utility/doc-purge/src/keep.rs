@@ -1,6 +1,8 @@
 use crate::lang::{Dialect, Family};
 use crate::scan::Comment;
 
+const BOM: &[u8] = b"\xef\xbb\xbf";
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kept {
     Shebang,
@@ -37,6 +39,7 @@ const OPENINGS: &[&str] = &[
     "istanbul ignore",
     "c8 ignore",
     "v8 ignore",
+    "node:coverage",
     "swiftlint:",
     "ktlint-disable",
     "checkstyle:",
@@ -47,8 +50,35 @@ const OPENINGS: &[&str] = &[
     "-@",
     "$non-nls-",
     "webpackchunkname",
+    "webpackmode",
+    "webpackprefetch",
+    "webpackpreload",
+    "webpackinclude",
+    "webpackexclude",
     "#__pure__",
     "rustfmt::skip",
+    "<reference",
+    "<amd-",
+    "@__pure__",
+    "#__no_side_effects__",
+    "@__no_side_effects__",
+    "@__inline__",
+    "@__noinline__",
+    "@__key__",
+    "@__mangle_prop__",
+    "rome-ignore",
+    "webpackignore",
+    "turbopackignore",
+    "jshint",
+    "jslint",
+    "oxlint-",
+    "@noflow",
+    "@jest-",
+    "@vitest-",
+    "@cc_on",
+    "#region",
+    "#endregion",
+    "@generated",
 ];
 
 const ANYWHERE: &[&str] = &[
@@ -87,10 +117,22 @@ const LICENCES: &[&str] = &[
 ];
 
 pub fn kept(source: &[u8], comment: &Comment, dialect: Dialect, leading: bool) -> Option<Kept> {
-    if comment.span.start == 0 && source.starts_with(b"#!") {
+    if starts_hashbang(source, comment) {
         return Some(Kept::Shebang);
     }
+    if source
+        .get(comment.span.start..)
+        .is_some_and(|rest| rest.starts_with(b"/*!"))
+    {
+        return Some(Kept::Important);
+    }
     let body = String::from_utf8_lossy(&source[comment.body.clone()]).to_lowercase();
+    if body.contains("@license") {
+        return Some(Kept::License);
+    }
+    if body.contains("@preserve") {
+        return Some(Kept::Directive);
+    }
     let opening = body
         .trim_start()
         .trim_start_matches(['*', '/'])
@@ -117,6 +159,15 @@ pub fn kept(source: &[u8], comment: &Comment, dialect: Dialect, leading: bool) -
     if dialect == Dialect::Haskell && opening.starts_with('#') {
         return Some(Kept::Directive);
     }
+    if matches!(
+        dialect,
+        Dialect::JavaScript | Dialect::Mjs | Dialect::TypeScript | Dialect::Jsx | Dialect::Tsx
+    ) && ["global ", "globals ", "exported "]
+        .iter()
+        .any(|marker| opening.starts_with(marker))
+    {
+        return Some(Kept::Directive);
+    }
     if OPENINGS.iter().any(|marker| opening.starts_with(marker)) {
         return Some(Kept::Directive);
     }
@@ -127,4 +178,10 @@ pub fn kept(source: &[u8], comment: &Comment, dialect: Dialect, leading: bool) -
         return Some(Kept::License);
     }
     None
+}
+
+fn starts_hashbang(source: &[u8], comment: &Comment) -> bool {
+    let start = comment.span.start;
+    let at_start = start == 0 || (start == BOM.len() && source.starts_with(BOM));
+    at_start && source[start..].starts_with(b"#!")
 }

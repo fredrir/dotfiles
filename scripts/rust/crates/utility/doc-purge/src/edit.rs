@@ -30,38 +30,118 @@ impl Edited {
     }
 }
 
+const BOM: &[u8] = b"\xef\xbb\xbf";
+const LS: &[u8] = "\u{2028}".as_bytes();
+const PS: &[u8] = "\u{2029}".as_bytes();
+
+fn line_break(source: &[u8], at: usize) -> Option<usize> {
+    match source.get(at).copied()? {
+        b'\n' => Some(1),
+        b'\r' => Some(if source.get(at + 1) == Some(&b'\n') {
+            2
+        } else {
+            1
+        }),
+        _ if source[at..].starts_with(LS) => Some(LS.len()),
+        _ if source[at..].starts_with(PS) => Some(PS.len()),
+        _ => None,
+    }
+}
+
+fn blank_bytes(bytes: &[u8]) -> bool {
+    let mut at = 0usize;
+    while at < bytes.len() {
+        let byte = bytes[at];
+        if byte.is_ascii_whitespace() {
+            at += 1;
+            continue;
+        }
+        if byte < 0x80 {
+            return false;
+        }
+        let width = crate::scan::char_width(bytes, at);
+        let Ok(text) = std::str::from_utf8(&bytes[at..at + width]) else {
+            return false;
+        };
+        let Some(letter) = text.chars().next() else {
+            return false;
+        };
+        if !(letter.is_whitespace() || letter == '\u{feff}') {
+            return false;
+        }
+        at += width;
+    }
+    true
+}
+
+pub fn line_start(source: &[u8], at: usize) -> usize {
+    let mut cursor = at.min(source.len());
+    while cursor > 0 {
+        if source[cursor - 1] == b'\n' || source[cursor - 1] == b'\r' {
+            return cursor;
+        }
+        if cursor >= 3 && (source[cursor - 3..cursor] == *LS || source[cursor - 3..cursor] == *PS) {
+            return cursor;
+        }
+        cursor -= 1;
+    }
+    0
+}
+
 pub fn whole_lines(source: &[u8], span: &Range<usize>) -> Option<Range<usize>> {
-    let mut begin = span.start;
-    while begin > 0 && source[begin - 1] != b'\n' {
-        begin -= 1;
-    }
-    if source[begin..span.start]
-        .iter()
-        .any(|byte| !byte.is_ascii_whitespace())
-    {
+    let begin = line_start(source, span.start);
+    let cut_begin = if begin == 0 && source.starts_with(BOM) {
+        BOM.len()
+    } else {
+        begin
+    };
+    if !blank_bytes(&source[cut_begin..span.start]) {
         return None;
     }
-    let mut stop = span.end;
-    while stop < source.len() && source[stop] != b'\n' {
-        stop += 1;
+    let mut content_end = span.end;
+    while content_end < source.len() && line_break(source, content_end).is_none() {
+        content_end += 1;
     }
-    if source[span.end..stop]
-        .iter()
-        .any(|byte| !byte.is_ascii_whitespace())
-    {
+    if !blank_bytes(&source[span.end..content_end]) {
         return None;
     }
-    Some(begin..(stop + 1).min(source.len()))
+    let stop = content_end + line_break(source, content_end).unwrap_or_default();
+    Some(cut_begin..stop.min(source.len()))
 }
 
 fn line_starts(source: &[u8]) -> Vec<usize> {
-    let mut starts = vec![0usize];
-    for (at, byte) in source.iter().enumerate() {
-        if *byte == b'\n' && at + 1 < source.len() {
-            starts.push(at + 1);
+    let mut starts = vec![if source.starts_with(BOM) {
+        BOM.len()
+    } else {
+        0
+    }];
+    let mut at = 0usize;
+    while at < source.len() {
+        if let Some(width) = line_break(source, at) {
+            at += width;
+            if at < source.len() {
+                starts.push(at);
+            }
+            continue;
         }
+        at += crate::scan::char_width(source, at);
     }
     starts
+}
+
+fn added_lines(with: &str) -> usize {
+    let bytes = with.as_bytes();
+    let mut count = 0usize;
+    let mut at = 0usize;
+    while at < bytes.len() {
+        if let Some(width) = line_break(bytes, at) {
+            count += 1;
+            at += width;
+        } else {
+            at += crate::scan::char_width(bytes, at);
+        }
+    }
+    count
 }
 
 pub fn apply(source: &[u8], mut cuts: Vec<Cut>) -> Edited {
@@ -123,7 +203,7 @@ pub fn apply(source: &[u8], mut cuts: Vec<Cut>) -> Edited {
     for index in 0..starts.len() {
         let range = bounds(index);
         erased[index] = !range.is_empty() && range.clone().all(|byte| gone[byte]);
-        blank[index] = source[range].iter().all(|byte| byte.is_ascii_whitespace());
+        blank[index] = blank_bytes(&source[range]);
     }
 
     let mut index = 0usize;
@@ -167,7 +247,7 @@ pub fn apply(source: &[u8], mut cuts: Vec<Cut>) -> Edited {
         }
     }
     for (_, with) in &inserts {
-        edited.plus += with.bytes().filter(|byte| *byte == b'\n').count();
+        edited.plus += added_lines(with);
     }
 
     inserts.sort_by_key(|(at, _)| *at);

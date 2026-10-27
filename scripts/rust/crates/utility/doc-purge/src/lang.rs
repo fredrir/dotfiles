@@ -10,8 +10,10 @@ pub enum Dialect {
     Kotlin,
     Swift,
     JavaScript,
+    Mjs,
     TypeScript,
     Jsx,
+    Tsx,
     CSharp,
     Zig,
     Python,
@@ -101,7 +103,12 @@ pub const LANGUAGES: &[Language] = &[
     Language {
         name: "javascript",
         dialect: Dialect::JavaScript,
-        extensions: &["js", "mjs", "cjs"],
+        extensions: &["js", "cjs"],
+    },
+    Language {
+        name: "javascript",
+        dialect: Dialect::Mjs,
+        extensions: &["mjs"],
     },
     Language {
         name: "typescript",
@@ -111,7 +118,12 @@ pub const LANGUAGES: &[Language] = &[
     Language {
         name: "jsx",
         dialect: Dialect::Jsx,
-        extensions: &["jsx", "tsx"],
+        extensions: &["jsx"],
+    },
+    Language {
+        name: "tsx",
+        dialect: Dialect::Tsx,
+        extensions: &["tsx"],
     },
     Language {
         name: "csharp",
@@ -209,6 +221,10 @@ const ALIASES: &[(&str, &str)] = &[
     ("module", "css"),
     ("tailwind", "css"),
     ("tailwindcss", "css"),
+    ("node", "javascript"),
+    ("nodejs", "javascript"),
+    ("ecmascript", "javascript"),
+    ("es", "javascript"),
     ("sass-indented", "sass"),
     ("indented", "sass"),
     ("sugar", "sugarss"),
@@ -236,6 +252,27 @@ pub fn for_token(token: &str) -> Option<&'static Language> {
     LANGUAGES
         .iter()
         .find(|language| language.extensions.contains(&extension))
+}
+
+pub fn extensions_for_token(token: &str) -> Option<Vec<&'static str>> {
+    let language = for_token(token)?;
+    if language.name == "jsx" {
+        return Some(
+            LANGUAGES
+                .iter()
+                .filter(|found| found.name == "jsx" || found.name == "tsx")
+                .flat_map(|found| found.extensions.iter().copied())
+                .collect(),
+        );
+    }
+    let mut extensions: Vec<&'static str> = LANGUAGES
+        .iter()
+        .filter(|found| found.name == language.name)
+        .flat_map(|found| found.extensions.iter().copied())
+        .collect();
+    extensions.sort_unstable();
+    extensions.dedup();
+    Some(extensions)
 }
 
 pub fn known() -> String {
