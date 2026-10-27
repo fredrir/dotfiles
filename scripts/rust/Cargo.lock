@@ -1491,12 +1491,15 @@ dependencies = [
 name = "dot-code-server"
 version = "0.1.0"
 dependencies = [
+ "clap 4.6.7",
  "dot-code-core",
  "dot-code-typescript",
  "line-index",
  "lsp-server",
  "lsp-types",
  "serde_json",
+ "testkit",
+ "workstation",
 ]
 
 [[package]]
