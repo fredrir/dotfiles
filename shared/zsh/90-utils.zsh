@@ -1,27 +1,3 @@
-_git_status() {
-  if [[ ! -t 1 ]]; then
-    command git status "$@"
-    return
-  fi
-
-  local e=$'\e' t=$'\t'
-  command git -c color.ui=always status "$@" | sed -E \
-    -e "s/^$t($e\[[0-9;]*m)(modified:)/$t${e}[33m\2\1/" \
-    -e "s/^$t($e\[[0-9;]*m)(deleted:)/$t${e}[31m\2\1/" \
-    -e "s/^$t($e\[[0-9;]*m)(new file:)/$t${e}[32m\2\1/" \
-    -e "s/^$t($e\[[0-9;]*m)(renamed:)/$t${e}[34m\2\1/"
-  return ${pipestatus[1]}
-}
-
-git() {
-  case "$1:$#" in
-  diff:1) command dogit ;;
-  log:1) command dogit log ;;
-  status:*) _git_status "${@:2}" ;;
-  *) command git "$@" ;;
-  esac
-}
-
 lls() {
   local -a links=(*(ND@))
 
@@ -33,23 +9,6 @@ lls() {
     --no-user \
     --no-time \
     -- "${links[@]}"
-}
-
-y() {
-  local cwd cwd_file yazi_status
-  cwd_file="$(mktemp -t 'yazi-cwd.XXXXXX')" || return
-
-  command yazi "$@" --cwd-file="$cwd_file"
-  yazi_status=$?
-
-  IFS= read -r -d '' cwd <"$cwd_file"
-  command rm -f -- "$cwd_file"
-
-  if [[ -n "$cwd" && "$cwd" != "$PWD" && -d "$cwd" ]]; then
-    builtin cd -- "$cwd"
-  fi
-
-  return "$yazi_status"
 }
 
 ycd() {
@@ -240,7 +199,7 @@ fi
 
 has_cmd print-file-pretty && has_cmd dclip && copy-file-pretty() {
   local -a args=("$@")
-  (( ${args[(I)-[fn]]} )) || args=(-f "${args[@]}")
+  ((${args[(I)-[fn]]})) || args=(-f "${args[@]}")
   setopt localoptions pipefail
   print-file-pretty "${args[@]}" | dclip
 }
