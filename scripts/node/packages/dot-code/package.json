@@ -15,6 +15,7 @@
     "deploy": "bun deploy.ts"
   },
   "dependencies": {
+    "package-manager-detector": "^1.9.0",
     "picomatch": "^4.0.7",
     "vscode-languageclient": "^11.0.0"
   },
@@ -62,6 +63,11 @@
       {
         "command": "dotCode.previousFile",
         "title": "Previous File in Directory",
+        "category": "Dot Code"
+      },
+      {
+        "command": "dotCode.install",
+        "title": "Install Dependencies",
         "category": "Dot Code"
       },
       {
@@ -133,6 +139,22 @@
           "default": "",
           "scope": "machine-overridable",
           "description": "Server binary; empty uses the bundled one"
+        },
+        "dotCode.install.restart": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "typescript.restartTsServer",
+            "typescript.native-preview.restart",
+            "eslint.restart",
+            "biome.restart",
+            "oxc.restartServer",
+            "dotCode.restart",
+            "workbench.files.action.refreshFilesExplorer"
+          ],
+          "description": "Commands run after a successful install"
         },
         "dotCode.trace.server": {
           "type": "string",

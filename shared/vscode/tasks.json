@@ -67,23 +67,5 @@
         "close": true
       }
     },
-    {
-      "label": "Bun Install",
-      "type": "shell",
-      "command": "bun install",
-      "options": {
-        "shell": {
-          "executable": "/bin/zsh",
-          "args": [
-            "-ic"
-          ]
-        }
-      },
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "silent",
-        "close": true
-      }
-    },
   ]
 }

@@ -1,6 +1,7 @@
 import path from "node:path";
 import picomatch from "picomatch";
 import * as vscode from "vscode";
+import { activeFile } from "./lib/editor";
 
 type Compare = (a: string, b: string) => number;
 type Lexicographic = "default" | "upper" | "lower" | "unicode";
@@ -106,18 +107,6 @@ function exclusion(
           siblings.has(when.replace("$(basename)", () => stem))),
     );
   };
-}
-
-function activeFile(): vscode.Uri | undefined {
-  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
-  if (
-    input instanceof vscode.TabInputText ||
-    input instanceof vscode.TabInputCustom ||
-    input instanceof vscode.TabInputNotebook
-  ) {
-    return input.uri;
-  }
-  return undefined;
 }
 
 export async function navigate(offset: 1 | -1): Promise<void> {

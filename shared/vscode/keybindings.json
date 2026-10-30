@@ -329,15 +329,7 @@
   },
   {
     "key": "ctrl+alt+cmd+i",
-    "command": "runCommands",
-    "args": {
-      "commands": [
-        {
-          "command": "workbench.action.tasks.runTask",
-          "args": "Bun Install"
-        }
-      ]
-    },
+    "command": "dotCode.install"
   },
   {
     "key": "alt+f8",

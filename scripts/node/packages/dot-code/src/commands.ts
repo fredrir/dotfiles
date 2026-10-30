@@ -2,6 +2,7 @@ import * as cp from "node:child_process";
 import * as util from "node:util";
 import * as vscode from "vscode";
 import type { ClientManager } from "./client";
+import { install } from "./install";
 import { navigate } from "./navigate";
 import { rename } from "./rename";
 
@@ -30,6 +31,9 @@ export function registerCommands(
     vscode.commands.registerCommand("dotCode.rename", rename),
     vscode.commands.registerCommand("dotCode.nextFile", () => navigate(1)),
     vscode.commands.registerCommand("dotCode.previousFile", () => navigate(-1)),
+    vscode.commands.registerCommand("dotCode.install", () =>
+      install(outputChannel),
+    ),
     vscode.commands.registerCommand("dotCode.restart", () =>
       clientManager.restart(),
     ),

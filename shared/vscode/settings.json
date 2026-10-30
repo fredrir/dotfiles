@@ -456,7 +456,7 @@
   "terminal.integrated.defaultProfile.osx": "zsh",
   "evenBetterToml.schema.links": true,
   "chat.editor.preferCopilotHarness": false,
-  "inlineChat.defaultModel": "DeepSeek V4.1 Flash 1017 Instant (customendpoint)",
+  "inlineChat.defaultModel": "DeepSeek V4.1 Flash 1017 (customendpoint)",
   "terminal.integrated.commandsToSkipShell": [
     "kilo-code.new.agentManagerOpen",
     "kilo-code.new.agentManager.showTerminal",
@@ -470,4 +470,12 @@
   "files.autoSave": "onFocusChange",
   "workbench.startupEditor": "none",
   "workbench.layoutControl.enabled": false,
+  "dotCode.install.restart": [
+    "typescript.restartTsServer",
+    "typescript.native-preview.restart",
+    "eslint.restart",
+    "oxc.restartServer",
+    "dotCode.restart",
+    "workbench.files.action.refreshFilesExplorer"
+  ],
 }
