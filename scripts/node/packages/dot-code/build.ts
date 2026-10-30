@@ -42,12 +42,27 @@ export async function build(
   }
 
   const bundle = await Bun.build({
-    entrypoints: [path.join(root, "src/extension.ts")],
+    entrypoints: [
+      path.join(root, "src/extension.ts"),
+      path.join(root, "src/client.ts"),
+    ],
     outdir: path.join(root, "dist"),
     target: "node",
     format: "cjs",
     external: ["vscode"],
     minify: true,
+    plugins: [
+      {
+        name: "lazy-client",
+        setup(build) {
+          build.onResolve({ filter: /^\.\/client$/ }, ({ importer }) =>
+            path.dirname(importer) === path.join(root, "src")
+              ? { path: "./client", external: true }
+              : undefined,
+          );
+        },
+      },
+    ],
   });
   if (!bundle.success) {
     throw new AggregateError(bundle.logs, "bundle failed");

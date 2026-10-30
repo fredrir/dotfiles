@@ -2,6 +2,7 @@
 
 use std::thread::{self, JoinHandle};
 
+use dot_code_server::{PACKAGE_MANAGER, SIBLING_FILE};
 use dot_code_typescript::{EXTRACT_INTERFACE, EXTRACT_TYPE};
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use serde_json::{Value, json};
@@ -187,5 +188,24 @@ fn unrelated_kinds_and_languages_get_nothing() {
         }),
     );
     assert_eq!(actions, json!([]));
+    client.stop();
+}
+
+#[test]
+fn workspace_requests_resolve_siblings_and_package_managers() {
+    let root = testkit::tree(&["bun.lock", "package.json={}", "src/a.ts", "src/b.ts"]);
+    let at = |path: &str| root.path().join(path).display().to_string();
+    let project = root.path().display().to_string();
+    let (mut client, _) = Client::start();
+    let next = client.request(
+        SIBLING_FILE,
+        json!({ "path": at("src/b.ts"), "offset": 1, "root": project, "locale": "en" }),
+    );
+    assert_eq!(next, json!(at("src/a.ts")));
+    let plan = client.request(PACKAGE_MANAGER, json!({ "path": at("src") }));
+    assert_eq!(
+        plan,
+        json!({ "cwd": project, "command": ["bun", "install"] })
+    );
     client.stop();
 }

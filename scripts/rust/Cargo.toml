@@ -8,6 +8,7 @@ members = [
   "crates/dot-code/core",
   "crates/dot-code/server",
   "crates/dot-code/typescript",
+  "crates/dot-code/workspace",
   "crates/dotfile",
   "crates/dotfmt/cli",
   "crates/dotfmt/core",
@@ -93,6 +94,7 @@ workstation          = { path = "crates/workstation" }
 dotfmt-core          = { path = "crates/dotfmt/core" }
 dot-code-core        = { path = "crates/dot-code/core" }
 dot-code-typescript  = { path = "crates/dot-code/typescript" }
+dot-code-workspace   = { path = "crates/dot-code/workspace" }
 gitkit               = { path = "crates/git/gitkit" }
 hostkit              = { path = "crates/hostkit" }
 testkit              = { path = "crates/testkit" }

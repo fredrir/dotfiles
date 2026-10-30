@@ -15,12 +15,9 @@
     "deploy": "bun deploy.ts"
   },
   "dependencies": {
-    "package-manager-detector": "^1.9.0",
-    "picomatch": "^4.0.7",
     "vscode-languageclient": "^11.0.0"
   },
   "devDependencies": {
-    "@types/picomatch": "^4.0.3",
     "@types/vscode": "^1.140.0",
     "@vscode/vsce": "^4.0.0"
   },

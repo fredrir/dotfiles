@@ -1,26 +1,16 @@
-import fs from "node:fs/promises";
 import path from "node:path";
-import type { Agent } from "package-manager-detector";
-import { resolveCommand } from "package-manager-detector/commands";
-import { detect } from "package-manager-detector/detect";
 import * as vscode from "vscode";
-import { SECTION } from "./lib/constants";
+import { PACKAGE_MANAGER, SECTION } from "./lib/constants";
 import { activeFile } from "./lib/editor";
+import type { Server } from "./server";
 
-const AGENTS: Agent[] = ["npm", "pnpm", "yarn", "bun", "deno"];
-
-interface Project {
+interface Plan {
   cwd: string;
-  agent?: Agent;
+  command?: [string, ...string[]];
+  choices?: string[];
 }
 
 let installing = false;
-
-const exists = (file: string) =>
-  fs.access(file).then(
-    () => true,
-    () => false,
-  );
 
 function startDir(): string | undefined {
   const file = activeFile();
@@ -29,20 +19,17 @@ function startDir(): string | undefined {
     : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
-async function findProject(start: string): Promise<Project | undefined> {
-  let nearest: string | undefined;
-  for (let dir = start; ; dir = path.dirname(dir)) {
-    const detected = await detect({ cwd: dir, stopDir: dir });
-    if (detected) {
-      return { cwd: dir, agent: detected.agent };
-    }
-    if (!nearest && (await exists(path.join(dir, "package.json")))) {
-      nearest = dir;
-    }
-    if (path.dirname(dir) === dir) {
-      return nearest ? { cwd: nearest } : undefined;
-    }
-  }
+async function choose(
+  server: Server,
+  dir: string,
+  choices: string[],
+): Promise<Plan | null> {
+  const agent = await vscode.window.showQuickPick(choices, {
+    placeHolder: "package manager",
+  });
+  return agent
+    ? server.request<Plan | null>(PACKAGE_MANAGER, { path: dir, agent })
+    : null;
 }
 
 async function run(
@@ -121,6 +108,7 @@ async function refresh(outputChannel: vscode.LogOutputChannel): Promise<void> {
 }
 
 export async function install(
+  server: Server,
   outputChannel: vscode.LogOutputChannel,
 ): Promise<void> {
   if (installing) {
@@ -128,24 +116,24 @@ export async function install(
   }
   installing = true;
   try {
-    const start = startDir();
-    const project = start === undefined ? undefined : await findProject(start);
-    if (!project) {
+    const dir = startDir();
+    const detected =
+      dir === undefined
+        ? null
+        : await server.request<Plan | null>(PACKAGE_MANAGER, { path: dir });
+    if (!detected || dir === undefined) {
       void vscode.window.showErrorMessage("package.json not found");
       return;
     }
 
-    const agent =
-      project.agent ??
-      ((await vscode.window.showQuickPick(AGENTS, {
-        placeHolder: "package manager",
-      })) as Agent | undefined);
-    const resolved = agent && resolveCommand(agent, "install", []);
-    if (!resolved) {
+    const chosen = detected.command
+      ? detected
+      : await choose(server, dir, detected.choices ?? []);
+    if (!chosen?.command) {
       return;
     }
-
-    if (await run(resolved.command, resolved.args, project.cwd)) {
+    const [command, ...args] = chosen.command;
+    if (await run(command, args, chosen.cwd)) {
       await refresh(outputChannel);
     }
   } finally {

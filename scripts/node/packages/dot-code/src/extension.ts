@@ -1,24 +1,21 @@
 import * as vscode from "vscode";
-import { ClientManager } from "./client";
 import { registerCommands } from "./commands";
 import { registerConfigWatcher } from "./config";
+import { Server } from "./server";
 
-let clientManager: ClientManager | undefined;
+let server: Server | undefined;
 
-export async function activate(
-  context: vscode.ExtensionContext,
-): Promise<void> {
+export function activate(context: vscode.ExtensionContext): void {
   const outputChannel = vscode.window.createOutputChannel("Dot Code", {
     log: true,
   });
   context.subscriptions.push(outputChannel);
-  clientManager = new ClientManager(context, outputChannel);
+  server = new Server(context, outputChannel);
 
-  registerCommands(context, clientManager, outputChannel);
-  registerConfigWatcher(context, clientManager);
-  await clientManager.start();
+  registerCommands(context, server, outputChannel);
+  registerConfigWatcher(context, server);
 }
 
 export async function deactivate(): Promise<void> {
-  await clientManager?.stop();
+  await server?.stop();
 }

@@ -4,9 +4,11 @@ mod documents;
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::io;
 
 use documents::{Document, Documents, position_in};
 use dot_code_core::{Action, Feature, Request as Query, Trigger, apply};
+use dot_code_workspace::{packages, siblings};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
@@ -22,12 +24,20 @@ use lsp_types::{
     ShowMessageParams, TextDocumentEdit, TextDocumentSyncCapability, TextDocumentSyncKind,
     TextEdit, Uri, WorkspaceEdit,
 };
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Client-side command that starts an inline rename at a position.
 pub const RENAME_COMMAND: &str = "dotCode.rename";
+
+/// Resolves the next or previous file in Explorer order.
+pub const SIBLING_FILE: &str = "dotCode/siblingFile";
+
+/// Detects the package manager and directory to install from.
+pub const PACKAGE_MANAGER: &str = "dotCode/packageManager";
 
 pub fn features() -> Vec<Box<dyn Feature>> {
     vec![Box::new(dot_code_typescript::TypeScript::default())]
@@ -131,16 +141,11 @@ impl Server {
 
     fn respond(&mut self, request: Request) -> Response {
         match request.method.as_str() {
-            CodeActionRequest::METHOD => {
-                match serde_json::from_value::<CodeActionParams>(request.params) {
-                    Ok(params) => Response::new_ok(request.id, self.code_actions(params)),
-                    Err(error) => Response::new_err(
-                        request.id,
-                        ErrorCode::InvalidParams as i32,
-                        error.to_string(),
-                    ),
-                }
-            }
+            CodeActionRequest::METHOD => reply(request, |params: CodeActionParams| {
+                Ok(self.code_actions(params))
+            }),
+            SIBLING_FILE => reply(request, |params| siblings::sibling(&params)),
+            PACKAGE_MANAGER => reply(request, |params| Ok(packages::plan(&params))),
             method => Response::new_err(
                 request.id,
                 ErrorCode::MethodNotFound as i32,
@@ -218,6 +223,30 @@ impl Server {
             .flat_map(|feature| feature.code_actions(&query))
             .map(|action| code_action(action, &uri, document, self.versioned))
             .collect()
+    }
+}
+
+fn reply<P: DeserializeOwned, R: Serialize>(
+    request: Request,
+    handle: impl FnOnce(P) -> io::Result<R>,
+) -> Response {
+    let params = match serde_json::from_value(request.params) {
+        Ok(params) => params,
+        Err(error) => {
+            return Response::new_err(
+                request.id,
+                ErrorCode::InvalidParams as i32,
+                error.to_string(),
+            );
+        }
+    };
+    match handle(params) {
+        Ok(result) => Response::new_ok(request.id, result),
+        Err(error) => Response::new_err(
+            request.id,
+            ErrorCode::RequestFailed as i32,
+            error.to_string(),
+        ),
     }
 }
 

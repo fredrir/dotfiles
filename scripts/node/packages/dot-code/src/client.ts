@@ -10,6 +10,7 @@ import { LANGUAGES, SECTION } from "./lib/constants";
 export class ClientManager {
   private client: LanguageClient | undefined;
   private restartPromise: Promise<void> = Promise.resolve();
+  private ready: Promise<void> = Promise.resolve();
   private isRestarting = false;
   private manualShutdown = false;
 
@@ -34,7 +35,7 @@ export class ClientManager {
     );
   }
 
-  public async start(): Promise<void> {
+  public start(): Promise<void> {
     this.manualShutdown = false;
     const options: LanguageClientOptions = {
       documentSelector: LANGUAGES.flatMap((language) => [
@@ -50,7 +51,17 @@ export class ClientManager {
       { command: this.serverPath(), transport: TransportKind.stdio },
       options,
     );
-    await this.client.start();
+    this.ready = this.client.start();
+    return this.ready;
+  }
+
+  public async request<R>(method: string, params: unknown): Promise<R> {
+    await this.restartPromise;
+    await this.ready;
+    if (!this.client) {
+      throw new Error("server not running");
+    }
+    return this.client.sendRequest<R>(method, params);
   }
 
   public async stop(): Promise<void> {

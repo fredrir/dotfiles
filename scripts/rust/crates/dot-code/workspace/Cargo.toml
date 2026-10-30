@@ -1,0 +1,19 @@
+[package]
+name              = "dot-code-workspace"
+version.workspace = true
+description       = "Sibling file navigation and package manager detection for dot-code"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+globset              = "0.4.21"
+icu_collator         = "2.4.0"
+icu_locale_core      = "2.4.0"
+serde.workspace      = true
+serde_json.workspace = true
+
+[dev-dependencies]
+testkit.workspace = true
