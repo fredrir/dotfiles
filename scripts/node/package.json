@@ -7,7 +7,23 @@
     "packages/*"
   ],
   "scripts": {
-    "lint": "oxlint",
-    "build": "bun run --cwd packages/dot-code build"
+    "lint": "oxlint && bun check",
+    "build": "bun run --cwd packages/dot-code build",
+    "deploy": "bun run --cwd packages/dot-code deploy",
+    "format": "prettier -w . && dotfmt -l md -l json ."
+  },
+  "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
+    "@types/bun": "latest",
+    "@types/node": "^26.6.5",
+    "@types/vscode": "^1.140.0",
+    "@vscode/vsce": "^4.0.0",
+    "globals": "^17.13.0",
+    "jiti": "^2.7.0",
+    "oxlint": "^1.90.0",
+    "oxlint-tsgolint": "^7.0.2005",
+    "prettier": "^3.9.10",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
   }
 }

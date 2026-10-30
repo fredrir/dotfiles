@@ -5,6 +5,7 @@ Thin Node to Rust bridge Workspace. Current packages:
 ## dot-code
 
 Behaviour
+
 - Extract: put the cursor anywhere in {a:string,b:string}, or on the destructured {a,b}, and it becomes interface Props {…} above the function, placed before any JSDoc on it. Inline rename starts on Props right away.
 - What extract carries over: type parameters the type uses come along (Props<T>), and a type that uses a local declaration stays inside that scope. If Props is taken it becomes Props2. Comments and multi-line formatting are kept, and indentation, semicolons and line endings follow the file.
 - Convert: type X = A & {…} ↔ interface X extends A {…}.
@@ -14,6 +15,7 @@ Behaviour
 - Settings: dotCode.typescript.extract.name (supports ${name}, e.g. ${name}Props gives TestProps), .export (never / always / inherit), .rename, and dotCode.server.path.
 
 Architecture
+
 - scripts/rust/crates/dot-code/ (Rust workspace members):
   - core: the Feature trait plus the Action and Edit types. It knows nothing about LSP.
   - typescript: the refactors, built on oxc. The file is parsed once per request.

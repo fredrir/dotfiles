@@ -469,4 +469,5 @@
   "prettier.prettierPath": "./node_modules/prettier",
   "files.autoSave": "onFocusChange",
   "workbench.startupEditor": "none",
+  "workbench.layoutControl.enabled": false,
 }

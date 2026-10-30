@@ -12,8 +12,7 @@
   },
   "scripts": {
     "build": "bun build.ts",
-    "deploy": "bun deploy.ts",
-    "check-types": "tsc --noEmit -p ."
+    "deploy": "bun deploy.ts"
   },
   "dependencies": {
     "picomatch": "^4.0.7",
