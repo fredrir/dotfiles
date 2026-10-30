@@ -11,10 +11,10 @@
   "git.autofetch": true,
   "git.confirmSync": false,
   "git.openRepositoryInParentFolders": "always",
-  "editor.codeActionsOnSave": {
-    "source.removeUnusedImports": "always",
-    "source.fixAll.oxc": "always"
-  },
+  // "editor.codeActionsOnSave": {
+  //   "source.removeUnusedImports": "always",
+  //   "source.fixAll.oxc": "always"
+  // },
   "js/ts.experimental.useTsgo": true,
   "editor.linkedEditing": true,
   "oxc.fixKind": "all",
@@ -465,4 +465,8 @@
   ],
   "kilo-code.new.agentWorkStyle": "unset",
   "github.copilot.completions.chat.enabled": true,
+  "json.format.enable": false,
+  "prettier.prettierPath": "./node_modules/prettier",
+  "files.autoSave": "onFocusChange",
+  "workbench.startupEditor": "none",
 }

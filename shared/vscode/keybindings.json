@@ -132,7 +132,6 @@
         }
       ]
     },
-    "when": "editorFocus"
   },
   {
     "key": "shift+alt+[Period]",
@@ -709,5 +708,32 @@
     "key": "shift+alt+cmd+x",
     "command": "-dotCode.extractType",
     "when": "editorTextFocus && !editorReadonly && editorLangId =~ /^typescript(react)?$/"
+  },
+  {
+    "key": "shift+cmd+s",
+    "command": "-workbench.action.files.saveAs"
+  },
+  {
+    "key": "shift+cmd+s",
+    "command": "-workbench.action.files.saveLocalFile",
+    "when": "remoteFileDialogVisible"
+  },
+  {
+    "key": "shift+cmd+s",
+    "command": "-workbench.action.issueReporter.captureScreenshot",
+    "when": "issueReporterOpen"
+  },
+  {
+    "key": "shift+cmd+s",
+    "command": "editor.action.format",
+    "when": "editorFocus"
+  },
+  {
+    "key": "ctrl+alt+cmd+tab",
+    "command": "dotCode.nextFile"
+  },
+  {
+    "key": "ctrl+shift+alt+cmd+tab",
+    "command": "dotCode.previousFile"
   }
 ]

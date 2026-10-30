@@ -1,51 +1,60 @@
 [
-  {
-    "name": "fredrir",
-    "vendor": "litellm",
-    "baseUrl": "https://llm.fredrir.com",
-    "label": "fredrir"
-  },
-  {
-    "name": "Copilot",
-    "vendor": "agent-host-copilotcli",
-    "settings": {
-      "litellm/fredrir/ntnu/deepseek-ai/DeepSeek-V4-Flash-Vision-Exp": {
-        "thinkingLevel": "high"
-      }
-    }
-  },
-  {
-    "name": "Infra LiteLLM",
-    "vendor": "customendpoint",
-    "apiKey": "${input:chat.lm.secret.7577b8a6}",
-    "apiType": "responses",
-    "models": [
-      {
-        "id": "ntnu/deepseek-ai/DeepSeek-V4.1-Flash-1017-instant",
-        "name": "DeepSeek V4.1 Flash 1017 Instant",
-        "url": "https://llm.fredrir.com",
-        "reasoningEffortFormat": "responses",
-        "toolCalling": true,
-        "vision": true,
-        "zeroDataRetentionEnabled": true,
-        "maxInputTokens": 699050,
-        "maxOutputTokens": 349525,
-        "supportsReasoningEffort": [
-          "low",
-          "high",
-          "xhigh",
-          "max"
-        ],
-        "modelOptions": {
-          "temperature": 1,
-          "top_p": 0.95
-        }
-      }
-    ],
-    "settings": {
-      "ntnu/deepseek-ai/DeepSeek-V4.1-Flash-1017-instant": {
-        "reasoningEffort": "high"
-      }
-    }
-  }
+	{
+		"name": "fredrir",
+		"vendor": "litellm",
+		"baseUrl": "https://llm.fredrir.com",
+		"label": "fredrir"
+	},
+	{
+		"name": "Copilot",
+		"vendor": "agent-host-copilotcli",
+		"settings": {
+			"litellm/fredrir/ntnu/deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+				"thinkingLevel": "max"
+			}
+		}
+	},
+	{
+		"name": "Infra LiteLLM",
+		"vendor": "customendpoint",
+		"apiKey": "${input:chat.lm.secret.7577b8a6}",
+		"apiType": "responses",
+		"models": [
+			{
+				"id": "ntnu/deepseek-ai/DeepSeek-V4.1-Flash-1017",
+				"name": "DeepSeek V4.1 Flash 1017",
+				"url": "https://llm.fredrir.com",
+				"reasoningEffortFormat": "responses",
+				"toolCalling": true,
+				"vision": true,
+				"zeroDataRetentionEnabled": true,
+				"maxInputTokens": 699050,
+				"maxOutputTokens": 349525,
+				"supportsReasoningEffort": [
+					"low",
+					"high",
+					"xhigh",
+					"max"
+				],
+				"modelOptions": {
+					"temperature": 1,
+					"top_p": 0.95
+				}
+			}
+		],
+		"settings": {
+			"ntnu/deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+				"reasoningEffort": "max"
+			}
+		}
+	},
+	{
+		"name": "Copilot",
+		"vendor": "copilot",
+		"settings": {
+			"auto": {
+				"tier": "intelligence"
+			}
+		}
+	}
 ]
