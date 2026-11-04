@@ -25,7 +25,6 @@ fn buffer(path: &str, input: &[u8]) -> Buffer {
     Buffer {
         path: path.into(),
         input: input.to_vec(),
-        editor: false,
     }
 }
 
@@ -97,7 +96,7 @@ fn syntax_failures_are_structured_and_valid_files_continue() {
     let outcome = session
         .run(format(
             &["a.lua", "b.json"],
-            Some(buffer("input.json", b"{")),
+            Some(buffer("input.json", b"{\"a\":}")),
         ))
         .unwrap();
     assert!(outcome.failed());
@@ -146,7 +145,10 @@ fn toml_syntax_failures_keep_the_original_file_and_report_syntax() {
 
 #[test]
 fn repeated_session_requests_keep_dialect_overrides_separate() {
-    let root = tree_pairs(&[("dotfmt.dotfile", "json { dialect = jsonc }\n")]);
+    let root = tree_pairs(&[(
+        "dotfmt.dotfile",
+        "json {\n dialect = jsonc\n repair = false\n}\n",
+    )]);
     let mut session = Session::with_paths(root.path().into(), None);
     for (dialect, failed) in [
         (Some("json"), true),
@@ -207,7 +209,7 @@ fn prepared_requests_can_move_between_sessions_without_losing_their_configuratio
 }
 
 #[test]
-fn excluded_buffers_preserve_arbitrary_bytes_and_editor_repairs_stay_structured() {
+fn excluded_buffers_preserve_arbitrary_bytes_and_repairs_stay_structured() {
     let root = tree_pairs(&[("dotfmt.dotfile", "json {}\nexcluded_files { skip.json }\n")]);
     let mut session = Session::with_paths(root.path().into(), None);
     let outcome = session
@@ -221,12 +223,10 @@ fn excluded_buffers_preserve_arbitrary_bytes_and_editor_repairs_stay_structured(
         panic!("expected buffer")
     };
     assert_eq!(buffer.result.unwrap().output, [255, 0]);
-    let mut input = Buffer {
+    let input = Buffer {
         path: "input.json".into(),
         input: b"{key:'value',}".to_vec(),
-        editor: false,
     };
-    input.editor = true;
     let outcome = session.run(format(&[], Some(input))).unwrap();
     let Outcome::Formatted {
         buffer: Some(buffer),

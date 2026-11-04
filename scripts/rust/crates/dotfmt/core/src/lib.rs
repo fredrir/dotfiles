@@ -4,4 +4,5 @@ pub mod config;
 pub mod diagnostic;
 pub mod file;
 pub mod language;
+pub mod repair;
 pub mod syntax;

@@ -75,7 +75,7 @@ fn comments_are_allowed_everywhere_whitespace_is_allowed() {
 }
 
 #[test]
-fn malformed_dialects_are_refused_instead_of_repaired() {
+fn malformed_dialects_are_refused_without_repairs() {
     for body in [
         "[,]",
         "{,}",
@@ -162,7 +162,7 @@ fn inline_block_comments_after_commas_keep_the_next_member_on_a_new_line() {
 }
 
 #[test]
-fn editor_preserves_comment_dialects_without_json_repairs() {
+fn repairs_leave_a_valid_commented_body_alone() {
     let input = b"// heading\n{\"a\":1, /* note */}\n// footer";
     for dialect in [Dialect::Jsonc, Dialect::Hujson] {
         let config = Config::default();
@@ -174,4 +174,38 @@ fn editor_preserves_comment_dialects_without_json_repairs() {
         }
         assert!(formatted.repairs.is_empty());
     }
+}
+
+#[test]
+fn repairs_in_a_commented_dialect_keep_its_comments() {
+    let input = "// heading\n{'a': 1 // why\n b: [.5 0x10,],}\n# footer";
+    let formatted = engine::format(
+        Path::new("test"),
+        input.as_bytes(),
+        &Config::default(),
+        true,
+        Dialect::Jsonc,
+    )
+    .unwrap();
+
+    assert_eq!(
+        formatted.text,
+        "// heading\n{\n  \"a\": 1, // why\n  \"b\": [\n    0.5,\n    16,\n  ],\n}\n// footer\n"
+    );
+    assert_eq!(formatted.repairs.total(), 7);
+}
+
+#[test]
+fn a_commented_body_no_repair_can_take_keeps_its_diagnostic() {
+    let error = engine::format(
+        Path::new("test"),
+        b"{/* x */ \"a\":}",
+        &Config::default(),
+        true,
+        Dialect::Jsonc,
+    )
+    .err()
+    .unwrap();
+    assert_eq!((error.line, error.column), (Some(1), Some(14)));
+    assert_eq!(error.message, "unexpected }");
 }

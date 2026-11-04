@@ -1,13 +1,19 @@
+use dotfmt_core::repair::{Fix, Repair, Repairs, apply};
+
 use crate::parse::{Options, Parsed, Problem, parse};
-use crate::repair::{Repair, Repairs};
 use crate::value::Value;
+
+const REPAIR: Options = Options {
+    repair: true,
+    commented: false,
+};
 
 fn strict(json: &str) -> Result<Parsed, Problem> {
     parse(json.as_bytes(), Options::default())
 }
 
-fn editor(json: &str) -> Result<Parsed, Problem> {
-    parse(json.as_bytes(), Options { editor: true })
+fn repairing(json: &str) -> Result<Parsed, Problem> {
+    parse(json.as_bytes(), REPAIR)
 }
 
 fn value(json: &str) -> Value {
@@ -22,7 +28,7 @@ fn repaired(json: &str) -> (Value, Repairs) {
 }
 
 fn repaired_bytes(json: &[u8]) -> (Value, Repairs) {
-    let parsed = parse(json, Options { editor: true })
+    let parsed = parse(json, REPAIR)
         .unwrap_or_else(|problem| panic!("{}: {}", problem.line, problem.message));
     (
         parsed.value.expect("the body holds a value"),
@@ -129,31 +135,22 @@ fn a_mistake_is_reported_where_it_is() {
 // ------------------------------------------------------------- refusing JSON
 
 #[test]
-fn what_json_refuses_is_refused_with_the_flag_that_would_take_it() {
-    // The message names `--editor` only where `--editor` is the answer.
+fn what_json_refuses_is_refused_where_it_is() {
     let cases = [
-        ("{\"a\":1,}", "1:8: stray comma; --editor fixes this"),
-        ("[1,]", "1:4: stray comma; --editor fixes this"),
+        ("{\"a\":1,}", "1:8: stray comma"),
+        ("[1,]", "1:4: stray comma"),
+        ("// a note\n1", "1:1: comments are not JSON"),
+        ("/* a note */ 1", "1:1: comments are not JSON"),
+        ("'a'", "1:1: single-quoted strings are not JSON"),
+        ("{a:1}", "1:2: expected a key"),
+        ("True", "1:1: not a JSON literal: True"),
+        ("NaN", "1:1: not a JSON literal: NaN"),
+        ("{\"a\":\"b\tc\"}", "1:8: control character in a string"),
+        ("\"\\ud800\"", "1:8: lone surrogate"),
         (
-            "// a note\n1",
-            "1:1: comments are not JSON; --editor fixes this",
+            "{\"a\":1;\"b\":2}",
+            "1:7: expected , or } between key-value pairs",
         ),
-        (
-            "/* a note */ 1",
-            "1:1: comments are not JSON; --editor fixes this",
-        ),
-        (
-            "'a'",
-            "1:1: single-quoted strings are not JSON; --editor fixes this",
-        ),
-        ("{a:1}", "1:2: expected a key; --editor fixes this"),
-        ("True", "1:1: not a JSON literal: True; --editor fixes this"),
-        ("NaN", "1:1: not a JSON literal: NaN; --editor fixes this"),
-        (
-            "{\"a\":\"b\tc\"}",
-            "1:8: control character in a string; --editor fixes this",
-        ),
-        ("\"\\ud800\"", "1:8: lone surrogate; --editor fixes this"),
     ];
     for (body, expected) in cases {
         assert_eq!(refused(body), expected, "{body:?}");
@@ -161,14 +158,10 @@ fn what_json_refuses_is_refused_with_the_flag_that_would_take_it() {
 }
 
 #[test]
-fn a_mistake_no_flag_can_take_is_reported_without_advice() {
-    for body in ["{", "[", "\"\\x41\"", "1 2 3", "@"] {
-        let said = refused(body);
-        assert!(
-            !said.contains("--editor"),
-            "{body:?} promised a repair: {said}"
-        );
-    }
+fn an_unexpected_character_is_named_whole() {
+    assert_eq!(refused("[\u{201c}a\u{201d}]"), "1:2: unexpected \u{201c}");
+    assert_eq!(refused("{\"a\": é}"), "1:7: unexpected é");
+    assert_eq!(refused("{é: 1}"), "1:2: expected a key, found é");
 }
 
 #[test]
@@ -186,7 +179,7 @@ fn nesting_past_the_limit_is_a_message_rather_than_a_crash() {
     assert_eq!(refused(&deep), "1:513: too deeply nested");
 }
 
-// -------------------------------------------------------------- --editor
+// -------------------------------------------------------------- repairing
 
 #[test]
 fn a_trailing_comma_is_counted_and_dropped() {
@@ -255,7 +248,7 @@ fn an_unquoted_key_is_counted_and_quoted() {
 
 #[test]
 fn the_names_python_and_javascript_give_are_counted_and_translated() {
-    let (read, repairs) = repaired("[True,False,None,NaN,Infinity,-Infinity]");
+    let (read, repairs) = repaired("[True,False,None,NaN,Infinity,-Infinity,undefined]");
 
     assert_eq!(
         read,
@@ -266,9 +259,10 @@ fn the_names_python_and_javascript_give_are_counted_and_translated() {
             Value::Null,
             Value::Null,
             Value::Null,
+            Value::Null,
         ])
     );
-    assert_eq!(repairs.of(Repair::Literal), 6);
+    assert_eq!(repairs.of(Repair::Literal), 7);
 }
 
 #[test]
@@ -300,18 +294,201 @@ fn a_byte_a_string_cannot_hold_becomes_a_replacement_character() {
 }
 
 #[test]
-fn a_repair_that_would_have_to_guess_is_still_a_refusal() {
-    // Missing structural pieces an editor cannot invent: guessing here would
-    // write a file nobody wrote.
+fn a_repair_that_would_have_to_invent_a_value_is_still_a_refusal() {
     for body in [
-        "{\"a\" 1}",
         "{\"a\":}",
-        "[\"a\",\"b\"",
-        "{\"a\":1",
+        "{\"a\":",
+        "{\"a\"",
+        "{\"a\",\"b\":1}",
+        "\"unterminated",
         "/* unterminated",
+        "[`a${b}`]",
+        "[1abc]",
+        "[0x]",
     ] {
-        assert!(editor(body).is_err(), "{body:?} should be refused");
+        assert!(repairing(body).is_err(), "{body:?} should be refused");
     }
+}
+
+#[test]
+fn curly_quotes_and_backticks_are_read_as_strings() {
+    let (read, repairs) = repaired("{\u{201c}a\u{201d}: \u{2018}b\u{2019}, c: `d\ne`}");
+
+    assert_eq!(read, object(&[("a", string("b")), ("c", string("d\ne"))]));
+    assert_eq!(repairs.of(Repair::Quote), 3);
+    assert_eq!(repairs.of(Repair::Control), 0);
+}
+
+#[test]
+fn hash_comments_and_code_fences_are_dropped() {
+    let (read, repairs) = repaired("```json\n{\"a\": 1 # why\n}\n```\n");
+
+    assert_eq!(read, object(&[("a", number("1"))]));
+    assert_eq!(repairs.of(Repair::Fence), 2);
+    assert_eq!(repairs.of(Repair::Comment), 1);
+}
+
+#[test]
+fn keys_with_dashes_and_dots_are_quoted() {
+    let (read, repairs) = repaired("{a-b: 1, c.d: 2}");
+
+    assert_eq!(read, object(&[("a-b", number("1")), ("c.d", number("2"))]));
+    assert_eq!(repairs.of(Repair::Key), 2);
+}
+
+#[test]
+fn hex_numbers_become_decimal() {
+    let (read, repairs) = repaired("[0x1F, -0X10, +0xff, -0x0]");
+
+    assert_eq!(
+        read,
+        Value::Array(vec![
+            number("31"),
+            number("-16"),
+            number("255"),
+            number("0")
+        ])
+    );
+    assert_eq!(repairs.of(Repair::Number), 4);
+}
+
+#[test]
+fn semicolons_and_equals_signs_become_separators() {
+    let (read, repairs) = repaired("{\"a\" = 1; \"b\": [1; 2]}");
+
+    assert_eq!(
+        read,
+        object(&[
+            ("a", number("1")),
+            ("b", Value::Array(vec![number("1"), number("2")]))
+        ])
+    );
+    assert_eq!(repairs.of(Repair::Separator), 3);
+}
+
+#[test]
+fn a_missing_colon_is_added_before_a_value() {
+    let (read, repairs) = repaired("{\"a\" 1, b \"c\"}");
+
+    assert_eq!(read, object(&[("a", number("1")), ("b", string("c"))]));
+    assert_eq!(repairs.of(Repair::Colon), 2);
+}
+
+#[test]
+fn brackets_left_open_at_the_end_are_closed() {
+    for (body, expected) in [
+        ("{\"a\":1", object(&[("a", number("1"))])),
+        ("[1,2,", Value::Array(vec![number("1"), number("2")])),
+        (
+            "{\"a\":[1,{\"b\":2",
+            object(&[(
+                "a",
+                Value::Array(vec![number("1"), object(&[("b", number("2"))])]),
+            )]),
+        ),
+        ("[", Value::Array(vec![])),
+    ] {
+        assert_eq!(repaired(body).0, expected, "{body:?}");
+    }
+}
+
+#[test]
+fn a_wrong_closing_bracket_closes_the_container_it_ends() {
+    let array = Value::Array(vec![number("1"), number("2")]);
+    for body in [
+        "{\"a\":[1,2}",
+        "{\"a\":[1,2}}",
+        "{\"a\":[1,2]]",
+        "{\"a\":[1,2]}}",
+    ] {
+        assert_eq!(
+            repaired(body).0,
+            object(&[("a", array.clone())]),
+            "{body:?}"
+        );
+    }
+    assert_eq!(
+        repaired("{\"a\": [1, 2}, \"b\": 3}").0,
+        object(&[("a", array.clone()), ("b", number("3"))])
+    );
+    assert_eq!(
+        repaired("[{\"a\":1]").0,
+        Value::Array(vec![object(&[("a", number("1"))])])
+    );
+}
+
+#[test]
+fn each_repair_is_located_where_it_was_made() {
+    let parsed = repairing("{\n  'a': 1\n  \"b\": True,\n}").unwrap();
+    let fixes: Vec<Fix> = parsed.repairs.fixes().to_vec();
+
+    assert_eq!(
+        fixes,
+        [
+            Fix {
+                repair: Repair::Quote,
+                line: 2,
+                column: 3
+            },
+            Fix {
+                repair: Repair::MissingComma,
+                line: 2,
+                column: 9
+            },
+            Fix {
+                repair: Repair::Literal,
+                line: 3,
+                column: 8
+            },
+            Fix {
+                repair: Repair::Comma,
+                line: 3,
+                column: 12
+            },
+        ]
+    );
+}
+
+#[test]
+fn the_edits_of_a_repair_spell_out_the_same_value_in_strict_json() {
+    for body in [
+        "{\"a\":1 \"b\":2,}",
+        "// why\n{a: 'b', /* c */ \"d\": [1,,2,]}",
+        "\u{feff}{\u{00a0}\"a\"\u{2009}:1}",
+        "[True,None,NaN,-Infinity,undefined]",
+        "[\"a\\'b\", \"c\td\", \"\\ud800\"]",
+        "```\n{\u{201c}a\u{201d}: `b`} # tail\n```",
+        "{a-b: 0x1F; \"c\" = [1 2}",
+        "{\"a\" 1, \"b\": [1, {\"c\": 2",
+        "[1]]",
+    ] {
+        let parsed = repairing(body).unwrap_or_else(|problem| panic!("{body:?}: {problem:?}"));
+        let edited = apply(body.as_bytes(), &parsed.edits);
+        let strict = parse(&edited, Options::default()).unwrap_or_else(|problem| {
+            panic!(
+                "{body:?} edited to {:?}: {problem:?}",
+                String::from_utf8_lossy(&edited)
+            )
+        });
+        assert_eq!(strict.value, parsed.value, "{body:?}");
+    }
+}
+
+#[test]
+fn a_commented_dialect_keeps_comments_and_trailing_commas() {
+    let commented = Options {
+        repair: true,
+        commented: true,
+    };
+    let body = "// why\n{\"a\": 1 /* c */ \"b\": [.5,],}";
+    let parsed = parse(body.as_bytes(), commented).unwrap();
+    let edited = String::from_utf8(apply(body.as_bytes(), &parsed.edits)).unwrap();
+
+    assert_eq!(edited, "// why\n{\"a\": 1, /* c */ \"b\": [0.5,],}");
+    assert_eq!(parsed.repairs.of(Repair::MissingComma), 1);
+    assert_eq!(parsed.repairs.of(Repair::Number), 1);
+    assert_eq!(parsed.repairs.of(Repair::Comment), 0);
+    assert_eq!(parsed.repairs.of(Repair::Comma), 0);
 }
 
 #[test]

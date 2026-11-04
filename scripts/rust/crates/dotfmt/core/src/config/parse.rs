@@ -190,9 +190,9 @@ impl Parser<'_> {
                             );
                         }
                     }
-                    "final_newline" => {
+                    "final_newline" | "repair" => {
                         if value != "true" && value != "false" {
-                            return Err(self.error(line, "final_newline must be true or false"));
+                            return Err(self.error(line, format!("{name} must be true or false")));
                         }
                     }
                     "quote_style" => {

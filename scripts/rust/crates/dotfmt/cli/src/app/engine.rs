@@ -4,12 +4,21 @@ use super::{Repairs, configuration};
 use dotfmt_core::config::{Effective, Settings};
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use dotfmt_core::language::Language;
+use dotfmt_core::repair::Repaired;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+const REPAIR: &str = "repair";
+
 #[derive(Clone)]
-pub enum Engine {
+pub struct Engine {
+    kind: Kind,
+    repair: bool,
+}
+
+#[derive(Clone)]
+enum Kind {
     Bib(dotfmt_bib::config::Config),
     Conf(dotfmt_conf::config::Config),
     Json(dotfmt_json::config::Config, dotfmt_json::dialect::Dialect),
@@ -34,67 +43,83 @@ impl Engine {
         settings: &Settings,
         dialect: Option<&str>,
     ) -> Result<Self, Diagnostic> {
-        let engine = match language {
-            Language::Bib => Self::Bib(dotfmt_bib::config::Config::from_settings(settings)?),
-            Language::Conf => Self::Conf(dotfmt_conf::config::Config::from_settings(settings)?),
-            Language::Json => Self::Json(
+        let repair = match settings.get(REPAIR) {
+            None => true,
+            Some(setting) => match setting.value.as_str() {
+                "true" => true,
+                "false" => false,
+                other => {
+                    return Err(setting.error(format!("repair must be true or false, not {other}")));
+                }
+            },
+        };
+        let settings: Settings = settings
+            .iter()
+            .filter(|(key, _)| *key != REPAIR)
+            .map(|(key, setting)| (key.clone(), setting.clone()))
+            .collect();
+        let settings = &settings;
+        let kind = match language {
+            Language::Bib => Kind::Bib(dotfmt_bib::config::Config::from_settings(settings)?),
+            Language::Conf => Kind::Conf(dotfmt_conf::config::Config::from_settings(settings)?),
+            Language::Json => Kind::Json(
                 dotfmt_json::config::Config::from_settings(settings)?,
                 dotfmt_json::dialect::Dialect::Auto,
             ),
-            Language::Latex => Self::Latex(
+            Language::Latex => Kind::Latex(
                 dotfmt_latex::config::Config::from_settings(settings)?,
                 dotfmt_latex::dialect::Dialect::Auto,
             ),
-            Language::Lua => Self::Lua(
+            Language::Lua => Kind::Lua(
                 dotfmt_lua::config::Config::from_settings(settings)?,
                 dotfmt_lua::dialect::Dialect::Auto,
             ),
-            Language::Markdown => Self::Markdown(
+            Language::Markdown => Kind::Markdown(
                 dotfmt_markdown::config::Config::from_settings(settings)?,
                 dotfmt_markdown::dialect::Dialect::Auto,
             ),
-            Language::Toml => Self::Toml(dotfmt_toml::config::Config::from_settings(settings)?),
-            Language::Yaml => Self::Yaml(dotfmt_yaml::config::Config::from_settings(settings)?),
+            Language::Toml => Kind::Toml(dotfmt_toml::config::Config::from_settings(settings)?),
+            Language::Yaml => Kind::Yaml(dotfmt_yaml::config::Config::from_settings(settings)?),
         };
-        engine.with_dialect(dialect)
+        Self { kind, repair }.with_dialect(dialect)
     }
 
     pub fn with_dialect(mut self, dialect: Option<&str>) -> Result<Self, Diagnostic> {
         let value = dialect.unwrap_or("auto");
-        match &mut self {
-            Self::Bib(_) => {
+        match &mut self.kind {
+            Kind::Bib(_) => {
                 if !value.eq_ignore_ascii_case("auto") {
                     return Err(configuration(format!("bib has no {value:?} dialect")));
                 }
             }
-            Self::Conf(_) => {
+            Kind::Conf(_) => {
                 if !value.eq_ignore_ascii_case("auto") {
                     return Err(configuration(format!("conf has no {value:?} dialect")));
                 }
             }
-            Self::Toml(_) => {
+            Kind::Toml(_) => {
                 if !value.eq_ignore_ascii_case("auto") {
                     return Err(configuration(format!("toml has no {value:?} dialect")));
                 }
             }
-            Self::Yaml(_) => {
+            Kind::Yaml(_) => {
                 if !value.eq_ignore_ascii_case("auto") {
                     return Err(configuration(format!("yaml has no {value:?} dialect")));
                 }
             }
-            Self::Json(_, dialect) => {
+            Kind::Json(_, dialect) => {
                 *dialect =
                     dotfmt_json::dialect::Dialect::parse(value, true).map_err(configuration)?
             }
-            Self::Latex(_, dialect) => {
+            Kind::Latex(_, dialect) => {
                 *dialect =
                     dotfmt_latex::dialect::Dialect::parse(value, true).map_err(configuration)?
             }
-            Self::Lua(_, dialect) => {
+            Kind::Lua(_, dialect) => {
                 *dialect =
                     dotfmt_lua::dialect::Dialect::parse(value, true).map_err(configuration)?
             }
-            Self::Markdown(_, dialect) => {
+            Kind::Markdown(_, dialect) => {
                 *dialect =
                     dotfmt_markdown::dialect::Dialect::parse(value, true).map_err(configuration)?
             }
@@ -106,52 +131,94 @@ impl Engine {
         &self,
         path: &Path,
         input: &[u8],
-        editor: bool,
         detected: dotfmt_markdown::dialect::Dialect,
         clean: bool,
     ) -> Result<Formatted, Diagnostic> {
-        let mut repairs = Repairs::default();
-        let text = match self {
-            Self::Bib(config) => dotfmt_bib::format(utf8(input)?, config)?,
-            Self::Conf(config) => dotfmt_conf::format(path, input, config)?,
-            Self::Json(config, dialect) => {
+        let unrepaired = |text| {
+            Ok(Formatted {
+                text,
+                repairs: Repairs::default(),
+            })
+        };
+        match &self.kind {
+            Kind::Bib(config) => unrepaired(dotfmt_bib::format(utf8(input)?, config)?),
+            Kind::Conf(config) => unrepaired(dotfmt_conf::format(path, input, config)?),
+            Kind::Json(config, dialect) => {
                 let output = dotfmt_json::format(
                     path,
                     input,
                     config,
-                    editor,
+                    self.repair,
                     if *dialect == dotfmt_json::dialect::Dialect::Auto {
                         config.dialect
                     } else {
                         *dialect
-                    }
-                    .resolve(path),
+                    },
                 )?;
-                repairs = output.repairs;
-                output.text
+                Ok(Formatted {
+                    text: output.text,
+                    repairs: output.repairs,
+                })
             }
-            Self::Latex(config, dialect) => {
-                dotfmt_latex::format(utf8(input)?, config, dialect.resolve(config.dialect, path))?
-            }
-            Self::Lua(config, dialect) => dotfmt_lua::format_with_dialect(
+            Kind::Latex(config, dialect) => unrepaired(dotfmt_latex::format(
                 utf8(input)?,
                 config,
                 dialect.resolve(config.dialect, path),
-            )?,
-            Self::Markdown(config, dialect) => {
+            )?),
+            Kind::Lua(config, dialect) => {
+                let dialect = dialect.resolve(config.dialect, path);
+                self.settled(
+                    utf8(input)?,
+                    |text| dotfmt_lua::format_with_dialect(text, config, dialect),
+                    |text| dotfmt_lua::repair(text, dialect),
+                )
+            }
+            Kind::Markdown(config, dialect) => {
                 let mut config = config.clone();
                 config.dialect = dialect.resolve(config.dialect, detected);
                 let formatted = dotfmt_markdown::format(utf8(input)?, &config)?;
-                if clean {
+                unrepaired(if clean {
                     dotfmt_markdown::clean(&formatted, &config)
                 } else {
                     formatted
-                }
+                })
             }
-            Self::Toml(config) => dotfmt_toml::format(utf8(input)?, config)?,
-            Self::Yaml(config) => dotfmt_yaml::format(utf8(input)?, config)?,
-        };
-        Ok(Formatted { text, repairs })
+            Kind::Toml(config) => self.settled(
+                utf8(input)?,
+                |text| dotfmt_toml::format(text, config),
+                dotfmt_toml::repair,
+            ),
+            Kind::Yaml(config) => self.settled(
+                utf8(input)?,
+                |text| dotfmt_yaml::format(text, config),
+                dotfmt_yaml::repair,
+            ),
+        }
+    }
+
+    /// Repairs only once a syntax error refuses the input, so valid input parses once.
+    fn settled(
+        &self,
+        input: &str,
+        format: impl Fn(&str) -> Result<String, Diagnostic>,
+        repair: impl Fn(&str) -> Repaired,
+    ) -> Result<Formatted, Diagnostic> {
+        match format(input) {
+            Err(error) if self.repair && error.kind == DiagnosticKind::Syntax => {
+                let repaired = repair(input);
+                if repaired.repairs.is_empty() {
+                    return Err(error);
+                }
+                Ok(Formatted {
+                    text: format(&repaired.text)?,
+                    repairs: repaired.repairs,
+                })
+            }
+            result => result.map(|text| Formatted {
+                text,
+                repairs: Repairs::default(),
+            }),
+        }
     }
 }
 

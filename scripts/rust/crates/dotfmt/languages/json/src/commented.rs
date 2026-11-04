@@ -1,5 +1,8 @@
 //! Lossless tokens for JSON with comments and trailing commas.
 
+use dotfmt_core::repair::{Repairs, apply};
+
+use crate::number;
 use crate::parse::{self, Options, Problem};
 use crate::render::{Indent, Layout};
 
@@ -27,7 +30,28 @@ struct Token<'a> {
     new_line: bool,
 }
 
-pub fn format(input: &[u8], layout: Layout) -> Result<String, Problem> {
+/// Repairs run only once the input is refused, applied as edits to its text.
+pub fn format(input: &[u8], layout: Layout, repair: bool) -> Result<(String, Repairs), Problem> {
+    match lossless(input, layout) {
+        Err(refused) if repair => {
+            let parsed = parse::parse(
+                input,
+                Options {
+                    repair: true,
+                    commented: true,
+                },
+            )?;
+            if parsed.edits.is_empty() {
+                return Err(refused);
+            }
+            let repaired = apply(input, &parsed.edits);
+            Ok((lossless(&repaired, layout)?, parsed.repairs))
+        }
+        formatted => formatted.map(|text| (text, Repairs::default())),
+    }
+}
+
+fn lossless(input: &[u8], layout: Layout) -> Result<String, Problem> {
     let text = std::str::from_utf8(input)
         .map_err(|error| problem(input, error.valid_up_to(), "invalid UTF-8"))?;
     let tokens = tokenize(text)?;
@@ -174,7 +198,7 @@ fn validate(input: &[u8], tokens: &[Token<'_>]) -> Result<(), Problem> {
                 .as_bytes()
                 .first()
                 .is_some_and(|byte| matches!(byte, b'-' | b'+' | b'.' | b'0'..=b'9'))
-            && !json_number(token.text.as_bytes())
+            && !number::strict(token.text.as_bytes())
         {
             return Err(problem(input, start, "invalid JSON number"));
         }
@@ -185,48 +209,6 @@ fn validate(input: &[u8], tokens: &[Token<'_>]) -> Result<(), Problem> {
         return Err(problem(input, 0, "expected a value"));
     }
     Ok(())
-}
-
-fn json_number(mut bytes: &[u8]) -> bool {
-    if bytes.first() == Some(&b'-') {
-        bytes = &bytes[1..];
-    }
-    match bytes.first() {
-        Some(b'0') => bytes = &bytes[1..],
-        Some(b'1'..=b'9') => {
-            bytes = &bytes[bytes
-                .iter()
-                .take_while(|byte| byte.is_ascii_digit())
-                .count()..];
-        }
-        _ => return false,
-    }
-    if bytes.first() == Some(&b'.') {
-        bytes = &bytes[1..];
-        let count = bytes
-            .iter()
-            .take_while(|byte| byte.is_ascii_digit())
-            .count();
-        if count == 0 {
-            return false;
-        }
-        bytes = &bytes[count..];
-    }
-    if matches!(bytes.first(), Some(b'e' | b'E')) {
-        bytes = &bytes[1..];
-        if matches!(bytes.first(), Some(b'+' | b'-')) {
-            bytes = &bytes[1..];
-        }
-        let count = bytes
-            .iter()
-            .take_while(|byte| byte.is_ascii_digit())
-            .count();
-        if count == 0 {
-            return false;
-        }
-        bytes = &bytes[count..];
-    }
-    bytes.is_empty()
 }
 
 fn write(tokens: &[Token<'_>], layout: Layout) -> String {

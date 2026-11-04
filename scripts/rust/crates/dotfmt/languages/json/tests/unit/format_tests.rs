@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::config::Config;
 use crate::dialect::Dialect;
 use crate::format::format;
-use crate::repair::Repair;
+use dotfmt_core::repair::Repair;
 
 fn written(body: &str) -> String {
     format(
@@ -30,7 +30,7 @@ fn refused(body: &str) -> String {
     }
 }
 
-fn refused_even_for_an_editor(body: &str) -> String {
+fn refused_with_repairs(body: &str) -> String {
     match format(
         Path::new("stdin"),
         body.as_bytes(),
@@ -67,36 +67,27 @@ fn a_body_that_holds_no_value_is_refused_rather_than_emptied() {
     assert_eq!(refused("   \n\n"), "stdin:1:1: expected a value");
     assert_eq!(
         refused("// just a note\n"),
-        "stdin:1:1: comments are not JSON; --editor fixes this"
+        "stdin:1:1: comments are not JSON"
     );
-    // With the flag the comment goes, and what is left is the same nothing.
+    // Repaired, the comment goes, and what is left is the same nothing.
     assert_eq!(
-        refused_even_for_an_editor("// just a note\n"),
+        refused_with_repairs("// just a note\n"),
         "stdin:1:1: expected a value"
     );
 }
 
 #[test]
 fn what_jq_refuses_is_refused_with_the_position_it_is_at() {
-    assert_eq!(
-        refused("{\n  \"a\": 1,\n}"),
-        "stdin:3:1: stray comma; --editor fixes this"
-    );
-    assert_eq!(
-        refused("[1,]"),
-        "stdin:1:4: stray comma; --editor fixes this"
-    );
+    assert_eq!(refused("{\n  \"a\": 1,\n}"), "stdin:3:1: stray comma");
+    assert_eq!(refused("[1,]"), "stdin:1:4: stray comma");
 }
 
 #[test]
-fn what_no_flag_can_take_is_a_failure_with_nothing_on_stdout() {
+fn what_no_repair_can_take_is_a_failure_with_nothing_on_stdout() {
     // The other half of the editor contract: a body that cannot be read has to
     // fail, so the buffer keeps what it had.
-    assert_eq!(refused("{\"a\" 1}"), "stdin:1:6: expected : after a key");
-    assert_eq!(
-        refused_even_for_an_editor("{\"a\" 1}"),
-        "stdin:1:6: expected : after a key"
-    );
+    assert_eq!(refused("{\"a\":}"), "stdin:1:6: unexpected }");
+    assert_eq!(refused_with_repairs("{\"a\":}"), "stdin:1:6: unexpected }");
 }
 
 #[test]
@@ -115,12 +106,12 @@ fn the_repairs_are_counted_for_the_caller_to_report() {
     assert_eq!(formatted.repairs.of(Repair::Comment), 1);
 }
 
-fn jsonl(body: &str, config: &Config, editor: bool) -> Result<String, String> {
+fn jsonl(body: &str, config: &Config, repair: bool) -> Result<String, String> {
     format(
         Path::new("stdin"),
         body.as_bytes(),
         config,
-        editor,
+        repair,
         Dialect::Jsonl,
     )
     .map(|formatted| formatted.text)
@@ -167,7 +158,7 @@ fn jsonl_without_records_is_empty_unless_something_was_written() {
 }
 
 #[test]
-fn jsonl_errors_point_at_the_record_and_editor_repairs_each_one() {
+fn jsonl_errors_point_at_the_record_and_repairs_reach_each_one() {
     let config = Config::default();
     assert_eq!(
         jsonl("{\"a\":1}\n{\"b\":}\n", &config, false),
@@ -177,4 +168,38 @@ fn jsonl_errors_point_at_the_record_and_editor_repairs_each_one() {
         jsonl("{a: 1,}\n{'b': True}\n", &config, true),
         Ok("{\"a\":1}\n{\"b\":true}\n".to_owned())
     );
+}
+
+#[test]
+fn jsonl_drops_a_closing_bracket_between_records() {
+    assert_eq!(
+        jsonl("{\"a\":1}}\n[2]]\n", &Config::default(), true),
+        Ok("{\"a\":1}\n[2]\n".to_owned())
+    );
+}
+
+#[test]
+fn a_json_file_with_comments_keeps_them_unless_its_dialect_was_chosen() {
+    let body = b"{// note\n\"a\": 1 \"b\": 2,}";
+    let detected = format(
+        Path::new("settings.json"),
+        body,
+        &Config::default(),
+        true,
+        Dialect::Auto,
+    )
+    .unwrap();
+    assert_eq!(detected.text, "{\n  // note\n  \"a\": 1,\n  \"b\": 2,\n}\n");
+    assert_eq!(detected.repairs.of(Repair::MissingComma), 1);
+    assert_eq!(detected.repairs.of(Repair::Comment), 0);
+    let chosen = format(
+        Path::new("settings.json"),
+        body,
+        &Config::default(),
+        true,
+        Dialect::Json,
+    )
+    .unwrap();
+    assert_eq!(chosen.text, "{\n  \"a\": 1,\n  \"b\": 2\n}\n");
+    assert_eq!(chosen.repairs.of(Repair::Comment), 1);
 }

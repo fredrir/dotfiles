@@ -193,6 +193,12 @@
     "*.just": "just",
     "*.toml": "toml"
   },
+  "tailwindCSS.classFunctions": [
+    "cn",
+    "cva",
+    "clsx",
+    "twMerge"
+  ],
   "js/ts.updateImportsOnFileMove.enabled": "always",
   "json.schemaDownload.trustedDomains": {
     "https://biomejs.dev": true,
@@ -478,4 +484,5 @@
     "dotCode.restart",
     "workbench.files.action.refreshFilesExplorer"
   ],
+  "oxc.enable.oxfmt": true,
 }

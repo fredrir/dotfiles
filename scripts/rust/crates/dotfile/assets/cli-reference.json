@@ -425,10 +425,10 @@
       "--add": "Offer dotfmt.dotfile to the target, asking before writing.",
       "--sync": "Replace an existing target dotfmt.dotfile with the shared configuration.",
       "--dialect": "Override the dialect for one selected language.",
-      "--editor": "Read standard input for an editor; JSON mode enables repairs.",
+      "--editor": "Read standard input for an editor.",
       "--stdin": "Read standard input as the named file, using its configuration and dialect.",
       "--owns": "Read NUL-separated filenames and emit those selected by the effective configuration.",
-      "--verbose": "Show detailed formatting results.",
+      "--verbose": "Show detailed formatting results and each repair.",
       "--quiet": "Report only failures."
     },
     "flatten": {

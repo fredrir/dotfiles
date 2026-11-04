@@ -10,7 +10,7 @@ mod engine;
 mod execute;
 mod plan;
 
-pub use dotfmt_json::repair::{Repair, Repairs};
+pub use dotfmt_core::repair::{Fix, Repair, Repairs};
 pub use plan::{Plan, Prepared};
 
 const WORKER_STACK: usize = 32 * 1024 * 1024;
@@ -19,7 +19,6 @@ const WORKER_STACK: usize = 32 * 1024 * 1024;
 pub struct Buffer {
     pub path: PathBuf,
     pub input: Vec<u8>,
-    pub editor: bool,
 }
 
 #[derive(Clone, Debug)]

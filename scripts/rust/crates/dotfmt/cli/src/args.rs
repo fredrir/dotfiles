@@ -36,7 +36,7 @@ pub struct Cli {
     #[arg(long, value_name = "DIALECT")]
     pub dialect: Option<String>,
 
-    /// Quietly format stdin as TARGET; infer language and dialect, allow JSON repairs.
+    /// Quietly format stdin as TARGET; infer language and dialect.
     /// On formatting or configuration errors, pass input through and succeed unless --verbose or --check.
     #[arg(short, long)]
     pub editor: bool,
@@ -49,7 +49,7 @@ pub struct Cli {
     #[arg(long, conflicts_with_all = ["targets", "check", "stdin", "editor", "add", "sync", "dialect", "verbose"])]
     pub owns: bool,
 
-    /// Show detailed output, including editor repair diagnostics.
+    /// Show detailed output, including each repair.
     #[arg(short, long, conflicts_with = "quiet")]
     pub verbose: bool,
 
