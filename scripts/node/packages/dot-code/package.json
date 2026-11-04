@@ -2,7 +2,7 @@
   "name": "dot-code",
   "displayName": "Dot Code",
   "description": "Native refactors backed by a Rust language server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "fredrir",
   "license": "MIT",
   "private": true,

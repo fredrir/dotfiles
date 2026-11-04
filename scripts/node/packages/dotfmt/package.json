@@ -2,7 +2,7 @@
   "name": "dotfmt",
   "displayName": "dotfmt",
   "description": "Quiet formatting for config, data and markup files",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "fredrir",
   "license": "MIT",
   "private": true,
