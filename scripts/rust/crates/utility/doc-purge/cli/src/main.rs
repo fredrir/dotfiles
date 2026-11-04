@@ -1,18 +1,5 @@
 #![forbid(unsafe_code)]
 
-mod css;
-mod curly;
-mod dash;
-mod docstring;
-mod edit;
-mod glyphs;
-mod hash;
-mod js;
-mod keep;
-mod lang;
-mod luadoc;
-mod purge;
-mod scan;
 mod walk;
 
 use std::fs;
@@ -24,7 +11,8 @@ use clap::{Parser, ValueHint};
 use rayon::prelude::*;
 use workstation::{Completable, Completions, Style, path, text};
 
-use purge::{Outcome, Saved};
+use doc_purge_core::lang;
+use doc_purge_core::purge::{self, LIMIT, Outcome, Saved, TOO_LARGE};
 use ui_batch::{Decision, Options, Row, Run};
 use walk::{Found, Wanted};
 
@@ -244,18 +232,14 @@ fn inspect(found: &Found) -> Done {
         done.skip = Some("could not be read");
         return done;
     };
-    if metadata.len() > walk::LIMIT {
-        done.skip = Some("larger than doc-purge reads");
+    if metadata.len() > LIMIT {
+        done.skip = Some(TOO_LARGE);
         return done;
     }
     let Ok(bytes) = fs::read(&found.path) else {
         done.skip = Some("could not be read");
         return done;
     };
-    if bytes.contains(&0) || std::str::from_utf8(&bytes).is_err() {
-        done.skip = Some("not utf-8 text");
-        return done;
-    }
     match purge::purge(&bytes, found.dialect) {
         Outcome::Skipped(reason) => done.skip = Some(reason),
         Outcome::Untouched(saved) => done.saved = saved,
@@ -360,11 +344,3 @@ fn commit(path: &Path, content: &[u8]) -> io::Result<()> {
     fs::set_permissions(&temporary, permissions)?;
     fs::rename(&temporary, path)
 }
-
-#[cfg(test)]
-#[path = "../tests/unit/main_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "../tests/unit/js_tests.rs"]
-mod js_tests;

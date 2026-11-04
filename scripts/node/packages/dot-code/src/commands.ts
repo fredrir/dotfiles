@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { copyFileAsMarkdown } from "./copy";
 import { install } from "./install";
 import { navigate } from "./navigate";
+import { purgeComments } from "./purge";
 import { rename } from "./rename";
 import type { Server } from "./server";
 import { transformCase, type Case, type Target } from "./transform";
@@ -56,6 +57,9 @@ export function registerCommands(
     ),
     vscode.commands.registerCommand("dotCode.copyFileAsMarkdown", () =>
       copyFileAsMarkdown(server),
+    ),
+    vscode.commands.registerCommand("dotCode.purgeComments", () =>
+      purgeComments(server),
     ),
     vscode.commands.registerCommand("dotCode.install", () =>
       install(server, outputChannel),

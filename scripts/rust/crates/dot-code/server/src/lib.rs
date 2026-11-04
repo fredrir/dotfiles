@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod documents;
+mod purge;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -45,6 +46,9 @@ pub const TRANSFORM_CASE: &str = "dotCode/transformCase";
 
 /// Renders a file as a fenced Markdown block under its workspace-relative path.
 pub const FILE_MARKDOWN: &str = "dotCode/fileMarkdown";
+
+/// Purges comments, doc strings and typographic glyphs from a buffer with doc-purge.
+pub const PURGE_COMMENTS: &str = "dotCode/purgeComments";
 
 pub fn features() -> Vec<Box<dyn Feature>> {
     vec![Box::new(dot_code_typescript::TypeScript::default())]
@@ -157,6 +161,7 @@ impl Server {
             PACKAGE_MANAGER => reply(request, |params| Ok(packages::plan(&params))),
             TRANSFORM_CASE => reply(request, |params| Ok(self.memory.transform(&params))),
             FILE_MARKDOWN => reply(request, |params| Ok(snippet::markdown(&params))),
+            PURGE_COMMENTS => reply(request, |params| Ok(purge::purge(params))),
             method => Response::new_err(
                 request.id,
                 ErrorCode::MethodNotFound as i32,

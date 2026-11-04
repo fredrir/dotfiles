@@ -2,7 +2,7 @@ alias -g NV='| nvim -R -'
 alias -g CP="| dclip"
 
 f() {
-  fd -HI -t file "$1"
+  fd -H -t file "$1"
 }
 
 alias c="clear"

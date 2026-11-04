@@ -22,7 +22,7 @@
       "programs": [
         "doc-purge"
       ],
-      "source": "scripts/rust/crates/utility/doc-purge/"
+      "source": "scripts/rust/crates/utility/doc-purge/cli/"
     },
     {
       "name": "dotfile",

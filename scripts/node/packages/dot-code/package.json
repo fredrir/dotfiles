@@ -103,6 +103,11 @@
         "category": "Dot Code"
       },
       {
+        "command": "dotCode.purgeComments",
+        "title": "Purge Comments",
+        "category": "Dot Code"
+      },
+      {
         "command": "dotCode.install",
         "title": "Install Dependencies",
         "category": "Dot Code"
@@ -197,6 +202,10 @@
         {
           "command": "dotCode.copyFileAsMarkdown",
           "when": "editorIsOpen"
+        },
+        {
+          "command": "dotCode.purgeComments",
+          "when": "editorIsOpen && !editorReadonly"
         }
       ]
     },

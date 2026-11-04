@@ -286,20 +286,6 @@
     "command": "workbench.action.toggleAuxiliaryBar"
   },
   {
-    "key": "ctrl+alt+cmd+d",
-    "command": "runCommands",
-    "args": {
-      "commands": [
-        "workbench.action.files.save",
-        {
-          "command": "workbench.action.tasks.runTask",
-          "args": "Purge slop comments"
-        }
-      ]
-    },
-    "when": "editorFocus"
-  },
-  {
     "key": "ctrl+alt+cmd+i",
     "command": "dotCode.install"
   },
@@ -860,5 +846,9 @@
   {
     "key": "shift+alt+[Period]",
     "command": "dotCode.copyFileAsMarkdown"
+  },
+  {
+    "key": "ctrl+alt+cmd+d",
+    "command": "dotCode.purgeComments"
   }
 ]

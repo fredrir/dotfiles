@@ -1437,11 +1437,16 @@ name = "doc-purge"
 version = "0.1.0"
 dependencies = [
  "clap 4.6.7",
+ "doc-purge-core",
  "rayon",
  "testkit",
  "ui-batch",
  "workstation",
 ]
+
+[[package]]
+name = "doc-purge-core"
+version = "0.1.0"
 
 [[package]]
 name = "document-features"
@@ -1501,6 +1506,7 @@ name = "dot-code-server"
 version = "0.1.0"
 dependencies = [
  "clap 4.6.7",
+ "doc-purge-core",
  "dot-code-case",
  "dot-code-core",
  "dot-code-typescript",
