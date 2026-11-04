@@ -561,7 +561,7 @@ pub static PERL: Syntax = Syntax {
     filenames: &[],
     shebangs: &["perl"],
     family: Family::Hash,
-    engine: Engine::Ruby,
+    engine: Engine::Perl,
     line: &[LineComment {
         marker: "#",
         at: At::Anywhere,

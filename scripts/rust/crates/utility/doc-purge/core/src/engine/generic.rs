@@ -331,9 +331,24 @@ impl Generic<'_> {
         if !starts_with(self.source, at, close) {
             return None;
         }
-        let end = at + close.len();
+        let mut end = at + close.len();
         if !(0..hashes).all(|offset| self.byte(end + offset) == b'#') {
             return None;
+        }
+        // A run of one delimiter byte three or more deep is a triple-quote
+        // form, and TOML, Java, Kotlin and Swift all allow one or two extra
+        // copies of the delimiter before the close, which belong to the text:
+        // `"""ends with quote""""` is the content `ends with quote"`. Taking
+        // them greedily is right there, and where the form does not allow it
+        // (Python) the input is already a syntax error, so nothing that used to
+        // parse changes. It is the difference between reading a legal TOML file
+        // and skipping it as "unterminated string".
+        if close.len() >= 3 && close.iter().all(|byte| *byte == close[0]) {
+            let mut extra = 0usize;
+            while extra < 2 && self.byte(end) == close[0] {
+                end += 1;
+                extra += 1;
+            }
         }
         Some(end + hashes)
     }
@@ -1065,4 +1080,46 @@ mod tests {
         );
         assert_eq!(comments(b"x\n---\n", &ASTROISH), Vec::new());
     }
+
+        #[test]
+        fn a_triple_quote_close_absorbs_up_to_two_extra_quotes() {
+            const TOML: Syntax = Syntax {
+                name: "toml",
+                extensions: &["toml"],
+                filenames: &[],
+                shebangs: &[],
+                family: Family::Hash,
+                engine: Engine::Generic,
+                line: &[LineComment {
+                    marker: "#",
+                    at: At::Anywhere,
+                    continues_on_backslash: false,
+                    doc: false,
+                    owns_indent_block: false,
+                }],
+                block: &[],
+                quotes: &[Quote {
+                    open: "\"\"\"",
+                    close: "",
+                    escape: Escape::Backslash,
+                    multiline: true,
+                    prefixes: &[],
+                    hashes: false,
+                    raw_tag: false,
+                    text: None,
+                }],
+                heredocs: &[],
+                doc: DocStyle::None,
+                directives: &[],
+                regions: &[],
+            };
+            assert_eq!(
+                scan(b"s = \"\"\"ends with quote\"\"\"\"\n# note\n", &TOML)
+                    .expect("parses")
+                    .comments
+                    .len(),
+                1,
+                "the fourth quote belongs to the string, so `# note` is still a comment",
+            );
+        }
 }

@@ -42,6 +42,8 @@ pub enum Engine {
     Shell,
     /// `engine/ruby.rs` — `%`-literals, `=begin`, `__END__`.
     Ruby,
+    /// `engine/perl.rs` — POD, quote-like operators, heredocs, `__END__`.
+    Perl,
     /// `engine/markup.rs` — region stack, embedded engines.
     Markup,
     /// `engine/template.rs` — host + `{{ }}` / `{% %}` / `{# #}` regions.

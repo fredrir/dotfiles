@@ -1,5 +1,88 @@
-use crate::lang::Dialect;
 use crate::scan::{Bail, Out, char_width, starts_with};
+use crate::syntax::Syntax;
+
+/// What the JS/TS lexer does differently per dialect. Keyed by descriptor name so
+/// the engine never names a language variant; a new script language is one table row.
+#[derive(Clone, Copy)]
+struct Caps {
+    markup: bool,             // JSX/Tsx element tracking
+    html_comments: bool,      // `<!-- -->` is a line comment (Annex B)
+    typescript: bool,         // generics vs JSX disambiguation
+    flow_cast: bool,          // `<Foo>x` casts (NOT typescript)
+    generic_parameters: bool, // `<T>(x: T) => …` generic arrow heuristic
+}
+
+const CAPS: &[(&str, Caps)] = &[
+    (
+        "javascript",
+        Caps {
+            markup: true,
+            html_comments: true,
+            typescript: false,
+            flow_cast: true,
+            generic_parameters: true,
+        },
+    ),
+    (
+        "mjs",
+        Caps {
+            markup: true,
+            html_comments: false,
+            typescript: false,
+            flow_cast: true,
+            generic_parameters: true,
+        },
+    ),
+    (
+        "typescript",
+        Caps {
+            markup: false,
+            html_comments: false,
+            typescript: true,
+            flow_cast: false,
+            generic_parameters: false,
+        },
+    ),
+    (
+        "jsx",
+        Caps {
+            markup: true,
+            html_comments: false,
+            typescript: false,
+            flow_cast: true,
+            generic_parameters: true,
+        },
+    ),
+    (
+        "tsx",
+        Caps {
+            markup: true,
+            html_comments: false,
+            typescript: true,
+            flow_cast: false,
+            generic_parameters: true,
+        },
+    ),
+    (
+        "qml",
+        Caps {
+            markup: false,
+            html_comments: false,
+            typescript: false,
+            flow_cast: false,
+            generic_parameters: false,
+        },
+    ),
+];
+
+fn caps(syntax: &Syntax) -> Result<Caps, Bail> {
+    CAPS.iter()
+        .find(|(name, _)| *name == syntax.name)
+        .map(|(_, caps)| *caps)
+        .ok_or(Bail(
+            "script engine has no capabilities for this descriptor",
+        ))
+}
 
 const DEPTH: usize = 64;
 const BOM: &[u8] = b"\xef\xbb\xbf";
@@ -52,7 +135,7 @@ enum Paren {
 struct Js<'a> {
     source: &'a [u8],
     at: usize,
-    dialect: Dialect,
+    caps: Caps,
     out: Out,
     prev: Prev,
     last: Last,
@@ -69,11 +152,11 @@ struct Js<'a> {
     token_line_start: bool,
 }
 
-pub fn scan(source: &[u8], dialect: Dialect) -> Result<Out, Bail> {
+pub fn scan(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
     let mut scanner = Js {
         source,
         at: 0,
-        dialect,
+        caps: caps(syntax)?,
         out: Out::default(),
         prev: Prev::Operator,
         last: Last::Start,
@@ -104,18 +187,15 @@ impl Js<'_> {
     }
 
     fn markup(&self) -> bool {
-        matches!(
-            self.dialect,
-            Dialect::JavaScript | Dialect::Mjs | Dialect::Jsx | Dialect::Tsx
-        )
+        self.caps.markup
     }
 
     fn html_comments(&self) -> bool {
-        self.dialect == Dialect::JavaScript
+        self.caps.html_comments
     }
 
     fn typescript(&self) -> bool {
-        matches!(self.dialect, Dialect::TypeScript | Dialect::Tsx)
+        self.caps.typescript
     }
 
     fn hashbang(&mut self) {
@@ -763,10 +843,7 @@ impl Js<'_> {
     }
 
     fn flow_cast(&self) -> bool {
-        if !matches!(
-            self.dialect,
-            Dialect::JavaScript | Dialect::Mjs | Dialect::Jsx
-        ) {
+        if !self.caps.flow_cast {
             return false;
         }
         let Some(end) = angle_end(self.source, self.at) else {
@@ -1017,10 +1094,7 @@ impl Js<'_> {
     }
 
     fn generic_parameters(&self) -> bool {
-        if !matches!(
-            self.dialect,
-            Dialect::JavaScript | Dialect::Mjs | Dialect::Jsx | Dialect::Tsx
-        ) {
+        if !self.caps.generic_parameters {
             return false;
         }
         let Some(end) = angle_end(self.source, self.at) else {
@@ -1627,4 +1701,34 @@ fn skip_template(source: &[u8], start: usize) -> Option<usize> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CAPS;
+    use crate::lang::LANGUAGES;
+    use crate::syntax::Engine;
+
+    #[test]
+    fn caps_rows_match_the_script_descriptors() {
+        for language in LANGUAGES {
+            let syntax = language.dialect.syntax();
+            if syntax.engine == Engine::Script {
+                assert!(
+                    CAPS.iter().any(|(name, _)| *name == syntax.name),
+                    "no CAPS row for script descriptor {}",
+                    syntax.name
+                );
+            }
+        }
+        for (name, _) in CAPS {
+            assert!(
+                LANGUAGES.iter().any(|language| {
+                    let syntax = language.dialect.syntax();
+                    syntax.engine == Engine::Script && syntax.name == *name
+                }),
+                "CAPS row {name} does not name an Engine::Script descriptor"
+            );
+        }
+    }
 }

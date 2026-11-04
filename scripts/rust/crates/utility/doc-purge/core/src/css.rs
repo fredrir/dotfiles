@@ -1,5 +1,79 @@
-use crate::lang::Dialect;
 use crate::scan::{Bail, Out, char_width, line_end, starts_with};
+use crate::syntax::Syntax;
+
+/// What the stylesheet lexer does differently per dialect. Keyed by descriptor
+/// name so the engine never names a language variant; a new style language is one row.
+#[derive(Clone, Copy)]
+struct Caps {
+    indented: bool,
+    scss: bool,
+    less: bool,
+    stylus: bool,
+}
+
+const CAPS: &[(&str, Caps)] = &[
+    (
+        "css",
+        Caps {
+            indented: false,
+            scss: false,
+            less: false,
+            stylus: false,
+        },
+    ),
+    (
+        "scss",
+        Caps {
+            indented: false,
+            scss: true,
+            less: false,
+            stylus: false,
+        },
+    ),
+    (
+        "sass",
+        Caps {
+            indented: true,
+            scss: true,
+            less: false,
+            stylus: false,
+        },
+    ),
+    (
+        "less",
+        Caps {
+            indented: false,
+            scss: false,
+            less: true,
+            stylus: false,
+        },
+    ),
+    (
+        "stylus",
+        Caps {
+            indented: false,
+            scss: false,
+            less: false,
+            stylus: true,
+        },
+    ),
+    (
+        "sugarss",
+        Caps {
+            indented: false,
+            scss: false,
+            less: false,
+            stylus: false,
+        },
+    ),
+];
+
+fn caps(syntax: &Syntax) -> Result<Caps, Bail> {
+    CAPS.iter()
+        .find(|(name, _)| *name == syntax.name)
+        .map(|(_, caps)| *caps)
+        .ok_or(Bail("style engine has no capabilities for this descriptor"))
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Url {
@@ -7,11 +81,12 @@ enum Url {
     Sass,
 }
 
-pub fn scan(source: &[u8], dialect: Dialect) -> Result<Out, Bail> {
+pub fn scan(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
     let mut scanner = Css {
         source,
         at: 0,
-        dialect,
+        syntax,
+        caps: caps(syntax)?,
         out: Out::default(),
         declaration_start: true,
         custom: false,
@@ -24,7 +99,8 @@ pub fn scan(source: &[u8], dialect: Dialect) -> Result<Out, Bail> {
 struct Css<'a> {
     source: &'a [u8],
     at: usize,
-    dialect: Dialect,
+    syntax: &'static Syntax,
+    caps: Caps,
     out: Out,
     declaration_start: bool,
     custom: bool,
@@ -41,15 +117,15 @@ impl Css<'_> {
     }
 
     fn line_comments(&self) -> bool {
-        self.dialect != Dialect::Css
+        !self.syntax.line.is_empty()
     }
 
     fn indented(&self) -> bool {
-        self.dialect == Dialect::Sass
+        self.caps.indented
     }
 
     fn scss(&self) -> bool {
-        matches!(self.dialect, Dialect::Scss | Dialect::Sass)
+        self.caps.scss
     }
 
     fn tracks_custom(&self) -> bool {
@@ -57,7 +133,10 @@ impl Css<'_> {
     }
 
     fn block_to_eof(&self) -> bool {
-        self.dialect == Dialect::Stylus
+        self.syntax
+            .block
+            .first()
+            .is_some_and(|block| block.to_eof_ok)
     }
 
     fn url_kind(&self) -> Url {
@@ -81,14 +160,14 @@ impl Css<'_> {
                     self.line_comment();
                 }
                 b'"' | b'\'' => self.quoted(byte)?,
-                b'`' if self.dialect == Dialect::Less => self.less_js()?,
+                b'`' if self.caps.less => self.less_js()?,
                 b'\\' => {
                     self.escape();
                     if !self.custom {
                         self.declaration_start = false;
                     }
                 }
-                b'@' if self.dialect == Dialect::Stylus && self.stylus_css() => {
+                b'@' if self.caps.stylus && self.stylus_css() => {
                     self.stylus_literal()?;
                 }
                 b'u' | b'U' if self.url_ahead() => self.url()?,
@@ -514,7 +593,7 @@ impl Css<'_> {
                 b'#' if self.scss() && self.byte(self.at + 1) == b'{' => {
                     self.interpolation(b'#')?;
                 }
-                b'@' if self.dialect == Dialect::Less && self.byte(self.at + 1) == b'{' => {
+                b'@' if self.caps.less && self.byte(self.at + 1) == b'{' => {
                     self.interpolation(b'@')?;
                 }
                 b')' => {
@@ -651,4 +730,34 @@ fn close_at(source: &[u8], from: usize, to: usize) -> Option<usize> {
         at += 1;
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CAPS;
+    use crate::lang::LANGUAGES;
+    use crate::syntax::Engine;
+
+    #[test]
+    fn caps_rows_match_the_style_descriptors() {
+        for language in LANGUAGES {
+            let syntax = language.dialect.syntax();
+            if syntax.engine == Engine::Style {
+                assert!(
+                    CAPS.iter().any(|(name, _)| *name == syntax.name),
+                    "no CAPS row for style descriptor {}",
+                    syntax.name
+                );
+            }
+        }
+        for (name, _) in CAPS {
+            assert!(
+                LANGUAGES.iter().any(|language| {
+                    let syntax = language.dialect.syntax();
+                    syntax.engine == Engine::Style && syntax.name == *name
+                }),
+                "CAPS row {name} does not name an Engine::Style descriptor"
+            );
+        }
+    }
 }

@@ -4,7 +4,7 @@ use crate::keep::{self, Kept};
 use crate::lang::{Dialect, Family};
 use crate::luadoc;
 use crate::scan;
-use crate::syntax::Engine;
+use crate::syntax::{DocStyle, Engine, Syntax};
 use crate::{docstring, scan::Comment};
 
 #[derive(Default, Clone)]
@@ -69,13 +69,13 @@ pub const TOO_LARGE: &str = "larger than doc-purge reads";
 
 const BOM: &[u8] = b"\xef\xbb\xbf";
 
-fn leading(source: &[u8], comments: &[Comment], dialect: Dialect) -> usize {
+fn leading(source: &[u8], comments: &[Comment], syntax: &Syntax) -> usize {
     let mut cursor = if source.starts_with(BOM) {
         BOM.len()
     } else {
         0
     };
-    match dialect.family() {
+    match syntax.family {
         // `@charset` is not a comment, but a banner sitting behind it is still
         // the file's heading.
         Family::Css => cursor = cursor.max(after_charset(source)),
@@ -153,8 +153,8 @@ fn after_charset(source: &[u8]) -> usize {
 /// Whether a comment removed from the middle of a line has to leave a line break
 /// behind. Scripts are statement-oriented, so they need one; markup and template
 /// text does not, and joins like prose.
-fn scripty(dialect: Dialect) -> bool {
-    dialect.syntax().engine == Engine::Script
+fn scripty(syntax: &Syntax) -> bool {
+    syntax.engine == Engine::Script
 }
 
 fn line_break(source: &[u8], span: &std::ops::Range<usize>) -> Option<&'static str> {
@@ -249,11 +249,12 @@ pub fn purge_with(source: &[u8], dialect: Dialect, options: Options) -> Outcome 
     };
     let mut saved = Saved::default();
     let mut cuts: Vec<Cut> = Vec::new();
-    let heading = leading(source, &out.comments, dialect);
+    let syntax = dialect.syntax();
+    let heading = leading(source, &out.comments, syntax);
     for (index, comment) in out.comments.iter().enumerate() {
         let Some((kept, marker)) = keep::kept(source, comment, dialect, index < heading) else {
             if options.comments {
-                cuts.push(comment_cut(source, comment, dialect));
+                cuts.push(comment_cut(source, comment, syntax));
             }
             continue;
         };
@@ -265,8 +266,11 @@ pub fn purge_with(source: &[u8], dialect: Dialect, options: Options) -> Outcome 
             Kept::Important => saved.important += 1,
             Kept::Directive => {
                 saved.directives += 1;
+                // Lua's `---@param x t description` lines carry prose after the
+                // type; the descriptor says so with `DocStyle::Ldoc`, so the
+                // orchestrator never names the language.
                 if options.comments
-                    && dialect == Dialect::Lua
+                    && matches!(syntax.doc, DocStyle::Ldoc)
                     && let Some(cut) = luadoc::description(source, comment)
                 {
                     cuts.push(cut);
@@ -302,7 +306,7 @@ pub fn purge_with(source: &[u8], dialect: Dialect, options: Options) -> Outcome 
 
 /// The cut that removes one comment, widened to its whole line when nothing
 /// else shares it.
-fn comment_cut(source: &[u8], comment: &Comment, dialect: Dialect) -> Cut {
+fn comment_cut(source: &[u8], comment: &Comment, syntax: &Syntax) -> Cut {
     let (span, with) = match edit::whole_lines(source, &comment.span) {
         Some(widened) => (widened, None),
         None => {
@@ -326,7 +330,7 @@ fn comment_cut(source: &[u8], comment: &Comment, dialect: Dialect) -> Cut {
                 end += 1;
             }
             let padded = start < comment.span.start && end > comment.span.end;
-            if scripty(dialect)
+            if scripty(syntax)
                 && let Some(break_line) = line_break(source, &comment.span)
             {
                 let with = if ends_line(source, end) {
@@ -341,7 +345,7 @@ fn comment_cut(source: &[u8], comment: &Comment, dialect: Dialect) -> Cut {
                     lines: false,
                 };
             }
-            let space = if dialect.family() == Family::Css {
+            let space = if syntax.family == Family::Css {
                 let style_padded = start < comment.span.start || end > comment.span.end;
                 needs_style_space(source, start, end, style_padded)
             } else {

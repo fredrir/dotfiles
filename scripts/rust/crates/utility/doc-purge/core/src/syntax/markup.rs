@@ -130,6 +130,14 @@ pub static XHTML: Syntax = Syntax {
     directives: &["prettier-ignore", "cspell:disable", "cspell:enable"],
     regions: &[
         Region {
+            open: "<![CDATA[",
+            close: "]]>",
+            engine: Engine::Verbatim,
+            needs_attr: None,
+            close_at: At::Anywhere,
+            once: false,
+        },
+        Region {
             open: "<script",
             close: "</script>",
             engine: Engine::Script,
@@ -201,7 +209,16 @@ pub static XML: Syntax = Syntax {
     heredocs: &[],
     doc: DocStyle::None,
     directives: &["prettier-ignore", "cspell:disable", "cspell:enable"],
-    regions: &[],
+    regions: &[
+        Region {
+            open: "<![CDATA[",
+            close: "]]>",
+            engine: Engine::Verbatim,
+            needs_attr: None,
+            close_at: At::Anywhere,
+            once: false,
+        },
+    ],
 };
 
 // ---------------------------------------------------------------------------
@@ -237,6 +254,14 @@ pub static SVG: Syntax = Syntax {
     doc: DocStyle::None,
     directives: &["prettier-ignore"],
     regions: &[
+        Region {
+            open: "<![CDATA[",
+            close: "]]>",
+            engine: Engine::Verbatim,
+            needs_attr: None,
+            close_at: At::Anywhere,
+            once: false,
+        },
         Region {
             open: "<script",
             close: "</script>",
@@ -721,7 +746,16 @@ pub static XSLT: Syntax = Syntax {
     heredocs: &[],
     doc: DocStyle::None,
     directives: &[],
-    regions: &[],
+    regions: &[
+        Region {
+            open: "<![CDATA[",
+            close: "]]>",
+            engine: Engine::Verbatim,
+            needs_attr: None,
+            close_at: At::Anywhere,
+            once: false,
+        },
+    ],
 };
 
 // ---------------------------------------------------------------------------
@@ -764,7 +798,16 @@ pub static PLIST: Syntax = Syntax {
     heredocs: &[],
     doc: DocStyle::None,
     directives: &[],
-    regions: &[],
+    regions: &[
+        Region {
+            open: "<![CDATA[",
+            close: "]]>",
+            engine: Engine::Verbatim,
+            needs_attr: None,
+            close_at: At::Anywhere,
+            once: false,
+        },
+    ],
 };
 
 // ---------------------------------------------------------------------------

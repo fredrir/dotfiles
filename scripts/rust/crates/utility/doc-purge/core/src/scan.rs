@@ -51,11 +51,8 @@ impl Out {
     }
 }
 
-// TODO(wave 2): call `crate::engine::scan(source, dialect.syntax())` once js, css
-// and hash read the descriptor; today only `engine::scan_native` can tell the
-// dialects those scanners still match on apart.
 pub fn scan(source: &[u8], dialect: Dialect) -> Result<Out, Bail> {
-    crate::engine::scan_native(source, dialect)
+    crate::engine::scan(source, dialect.syntax())
 }
 
 pub fn char_width(source: &[u8], at: usize) -> usize {

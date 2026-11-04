@@ -1,29 +1,44 @@
 use std::ops::Range;
 
-use crate::lang::Dialect;
 use crate::scan::{Bail, Logical, Out, char_width, identifier_byte, line_end, starts_with};
+use crate::syntax::Syntax;
 
-/// Whether this module has a scanner for `dialect`.
+/// Which hand-written lexer reads this descriptor.
 ///
-/// The five dialects below predate the descriptor tables. Anything else naming
-/// an `Indented`, `Shell` or `Ruby` engine must not fall through to the empty
-/// `Out` at the bottom of [`scan`], which is indistinguishable from a file that
-/// genuinely has no comments.
-pub fn handles(dialect: Dialect) -> bool {
-    matches!(
-        dialect,
-        Dialect::Python | Dialect::Toml | Dialect::Yaml | Dialect::Shell | Dialect::Ruby
-    )
+/// Keyed by descriptor name, not by the language enum: the module must not
+/// depend on the language registry at all, and a new dialect in one of these
+/// shapes is one row.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Lexer {
+    Python,
+    Yaml,
+    Shell,
+    Ruby,
 }
 
-pub fn scan(source: &[u8], dialect: Dialect) -> Result<Out, Bail> {
-    match dialect {
-        Dialect::Python => python(source),
-        Dialect::Toml => toml(source),
-        Dialect::Yaml => yaml(source),
-        Dialect::Shell => Shell::new(source).run(),
-        Dialect::Ruby => Ruby::new(source).run(),
-        _ => Ok(Out::default()),
+const LEXERS: &[(&str, Lexer)] = &[
+    ("python", Lexer::Python),
+    ("yaml", Lexer::Yaml),
+    ("shell", Lexer::Shell),
+    ("ruby", Lexer::Ruby),
+];
+
+/// The lexer for `syntax`, or `None` when this module does not know the
+/// descriptor.
+pub fn lexer(syntax: &'static Syntax) -> Option<Lexer> {
+    LEXERS
+        .iter()
+        .find(|(name, _)| *name == syntax.name)
+        .map(|(_, lexer)| *lexer)
+}
+
+pub fn scan(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
+    match lexer(syntax) {
+        Some(Lexer::Python) => python(source),
+        Some(Lexer::Yaml) => yaml(source),
+        Some(Lexer::Shell) => Shell::new(source).run(),
+        Some(Lexer::Ruby) => Ruby::new(source).run(),
+        None => Err(Bail("no scanner for this dialect yet")),
     }
 }
 
@@ -203,63 +218,8 @@ fn python_string(
     Err(Bail("unterminated string"))
 }
 
-fn toml(source: &[u8]) -> Result<Out, Bail> {
-    let mut out = Out::default();
-    let mut at = 0usize;
-    while at < source.len() {
-        let byte = source[at];
-        match byte {
-            b'#' => {
-                let end = line_end(source, at);
-                out.comment(at..end, at + 1..end);
-                at = end;
-            }
-            b'"' | b'\'' => {
-                let triple = [byte; 3];
-                let escapes = byte == b'"';
-                if starts_with(source, at, &triple) {
-                    let start = at + 3;
-                    let mut cursor = start;
-                    loop {
-                        if cursor >= source.len() {
-                            return Err(Bail("unterminated string"));
-                        }
-                        if escapes && source[cursor] == b'\\' {
-                            cursor += 2;
-                            continue;
-                        }
-                        if starts_with(source, cursor, &triple) {
-                            out.text(start..cursor, escapes, true, 0);
-                            at = cursor + 3;
-                            break;
-                        }
-                        cursor += char_width(source, cursor);
-                    }
-                } else {
-                    let start = at + 1;
-                    let mut cursor = start;
-                    loop {
-                        if cursor >= source.len() || source[cursor] == b'\n' {
-                            return Err(Bail("unterminated string"));
-                        }
-                        if escapes && source[cursor] == b'\\' {
-                            cursor += 2;
-                            continue;
-                        }
-                        if source[cursor] == byte {
-                            out.text(start..cursor, escapes, true, byte);
-                            at = cursor + 1;
-                            break;
-                        }
-                        cursor += char_width(source, cursor);
-                    }
-                }
-            }
-            _ => at += char_width(source, at),
-        }
-    }
-    Ok(out)
-}
+// TOML is served by Engine::Generic: its descriptor covers `#` and both
+// triple-quote forms, so this module no longer owns a TOML lexer.
 
 fn yaml(source: &[u8]) -> Result<Out, Bail> {
     let mut out = Out::default();
@@ -895,5 +855,50 @@ impl<'a> Ruby<'a> {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LEXERS;
+    use crate::lang::LANGUAGES;
+    use crate::syntax::Engine;
+
+    fn hand_written(engine: Engine) -> bool {
+        matches!(engine, Engine::Indented | Engine::Shell | Engine::Ruby)
+    }
+
+    #[test]
+    fn lexers_cover_every_hand_written_descriptor() {
+        for language in LANGUAGES {
+            let syntax = language.dialect.syntax();
+            if !hand_written(syntax.engine) {
+                continue;
+            }
+            // Perl is the one dialect getting its own engine (engine/perl.rs),
+            // so it deliberately has no row here.
+            if syntax.name == "perl" {
+                continue;
+            }
+            assert!(
+                LEXERS.iter().any(|(name, _)| *name == syntax.name),
+                "{} ({}) has no lexer row",
+                language.name,
+                syntax.name
+            );
+        }
+
+        for &(name, _) in LEXERS {
+            let syntax = LANGUAGES
+                .iter()
+                .map(|language| language.dialect.syntax())
+                .find(|syntax| syntax.name == name)
+                .unwrap_or_else(|| panic!("LEXERS names {name}, which is not in LANGUAGES"));
+            assert!(
+                hand_written(syntax.engine),
+                "LEXERS names {name}, whose engine is {:?}",
+                syntax.engine
+            );
+        }
     }
 }

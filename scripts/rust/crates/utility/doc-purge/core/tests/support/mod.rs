@@ -120,17 +120,6 @@ pub fn cells(dialect: Dialect) -> Vec<Case> {
     // The placeholder covers every cell, `idempotent` included: with no scanner
     // there is no purging pass to run twice, so the matrix checks that row's
     // skip as its whole claim (`matrix::idempotent`).
-    if let Some(reason) = pending(dialect) {
-        return CELLS
-            .iter()
-            .map(|cell| Case {
-                dialect,
-                cell,
-                source: String::new(),
-                expect: Expect::Skipped(reason),
-            })
-            .collect();
-    }
     let syntax = dialect.syntax();
     let line = syntax.line.first();
     let block = syntax.block.first();
@@ -670,20 +659,4 @@ fn terminators(text: &str) -> BTreeSet<&'static str> {
         }
     }
     kinds
-}
-
-/// Dialects whose descriptor is written but whose engine is not.
-///
-/// Each entry is a promise: the reason is asserted by the matrix, so the row
-/// turns red the moment a scanner starts answering, and the placeholder must
-/// then be replaced by real cells.
-pub fn pending(dialect: Dialect) -> Option<&'static str> {
-    match dialect.syntax().name {
-        // Perl cannot use the table-driven lexer: `$#array` is the last-index
-        // sigil and `/re#x/` is a regex, both of which look like a `#` comment.
-        // POD (`=pod` .. `=cut`), `qw()`, `qq//` and `__END__` need the same
-        // hand-written treatment Ruby already has in the legacy scanner.
-        "perl" => Some("no scanner for this dialect yet"),
-        _ => None,
-    }
 }

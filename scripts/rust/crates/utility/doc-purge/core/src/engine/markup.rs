@@ -456,6 +456,7 @@ fn resolve(engine: Engine) -> Result<Option<&'static Syntax>, Bail> {
         Engine::Style => Ok(Some(named("css")?)),
         Engine::Ruby => Ok(Some(named("ruby")?)),
         Engine::Shell => Ok(Some(named("shell")?)),
+        Engine::Perl => Ok(Some(named("perl")?)),
     }
 }
 
@@ -480,7 +481,7 @@ fn scan_embedded(
                 _ => crate::engine::scan(source, elixir),
             }
         }
-        Engine::Script | Engine::Style | Engine::Ruby | Engine::Shell => {
+        Engine::Script | Engine::Style | Engine::Ruby | Engine::Shell | Engine::Perl => {
             let embedded = resolved.ok_or(Bail("engine dispatch needs the dialect"))?;
             crate::engine::scan(source, embedded)
         }
