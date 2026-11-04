@@ -24,6 +24,10 @@ impl Document<'_> {
 pub(crate) enum Item<'a> {
     Blank {
         count: usize,
+        /// A blank line that terminates a shell continuation. It must survive
+        /// even when `blank_lines = 0`, or the continuation swallows the next
+        /// line.
+        protected: bool,
     },
     /// `#` through the end of the line, verbatim.
     Comment {
@@ -45,6 +49,12 @@ pub(crate) struct Entry<'a> {
     /// Whitespace between `export` and the key, exactly as written.
     pub export_gap: &'a str,
     pub key: &'a str,
+    /// Whitespace between the key and `=`, exactly as written.
+    pub before_eq_gap: &'a str,
+    /// Whitespace between `=` and the value, exactly as written. Empty when
+    /// no value follows the `=`; in that case the same whitespace is stored in
+    /// `trailing_gap`, where trailing-whitespace trimming applies.
+    pub after_eq_gap: &'a str,
     pub value: Value<'a>,
     /// Whitespace between the value and a trailing comment, or the end of the
     /// line when there is no comment.

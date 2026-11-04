@@ -17,6 +17,10 @@ pub struct Row {
     pub missing: Vec<&'static str>,
     pub findings: bool,
     pub failed: bool,
+    /// Files that would reformat or did reformat in a check.
+    pub found: usize,
+    /// Files that failed individually.
+    pub failed_files: usize,
     pub ran: usize,
     pub note: Option<String>,
     pub output: String,
@@ -68,17 +72,30 @@ pub fn summary(done: &[Row], mode: Mode, style: &Style) -> Vec<String> {
         .unwrap_or(0);
     let count = reported
         .iter()
-        .map(|ran| ran.files.to_string().len())
+        .map(|ran| {
+            if ran.failed {
+                ran.failed_files
+            } else {
+                ran.found
+            }
+            .to_string()
+            .len()
+        })
         .max()
         .unwrap_or(0);
 
     let mut lines = Vec::new();
     for ran in &reported {
+        let affected = if ran.failed {
+            ran.failed_files
+        } else {
+            ran.found
+        };
         lines.push(format!(
             "{:name$}  {:>count$} {}  {}",
             ran.name,
-            ran.files,
-            plural(ran.files, "file", "files"),
+            affected,
+            plural(affected, "file", "files"),
             if ran.failed {
                 style.red("failed")
             } else {
@@ -91,8 +108,7 @@ pub fn summary(done: &[Row], mode: Mode, style: &Style) -> Vec<String> {
     let total: usize = counted.iter().map(|ran| ran.files).sum();
     let made: usize = counted
         .iter()
-        .filter(|ran| !ran.failed && !ran.findings)
-        .map(|ran| ran.files)
+        .map(|ran| ran.files.saturating_sub(ran.found + ran.failed_files))
         .sum();
     lines.push(format!(
         "{made} / {total} {} {}",
@@ -218,13 +234,13 @@ pub fn tally(done: &[Row], mode: Mode) -> String {
         Mode::Check => "checked",
     };
     let mut parts = vec![format!("{total} {} {verb}", plural(total, "file", "files"))];
-    let findings = done.iter().filter(|ran| ran.findings).count();
+    let findings: usize = done.iter().map(|ran| ran.found).sum();
     if findings > 0 {
         parts.push(format!("{findings} with findings"));
     }
-    let failed = done.iter().filter(|ran| ran.failed).count();
+    let failed: usize = done.iter().map(|ran| ran.failed_files).sum();
     if failed > 0 {
-        parts.push(format!("{failed} that could not be run"));
+        parts.push(format!("{failed} failed"));
     }
     let missing: usize = done.iter().map(|ran| ran.missing.len()).sum();
     if missing > 0 {
@@ -274,6 +290,7 @@ pub fn rows(files: &[crate::app::FileOutcome], check: bool, verbose: bool) -> Ve
             Ok(change) => {
                 if change.changed && check {
                     row.findings = true;
+                    row.found += 1;
                     row.blamed.push(file.path.display().to_string());
                 }
                 if verbose {
@@ -294,6 +311,7 @@ pub fn rows(files: &[crate::app::FileOutcome], check: bool, verbose: bool) -> Ve
             }
             Err(_) => {
                 row.failed = true;
+                row.failed_files += 1;
                 row.blamed.push(file.path.display().to_string());
             }
         }

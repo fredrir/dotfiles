@@ -13,6 +13,19 @@ pub enum Kind {
 }
 
 pub fn format(path: &Path, input: &[u8], config: &Config) -> Result<String, Diagnostic> {
+    format_with_context(path, path, input, config)
+}
+
+/// Format with a separate display path and path used to infer filename-dependent
+/// behavior. The display path keeps diagnostics relative to the invocation; the
+/// context path keeps `hypr`/`plain` selection stable when the target is `.` in
+/// a nested directory.
+pub fn format_with_context(
+    path: &Path,
+    context: &Path,
+    input: &[u8],
+    config: &Config,
+) -> Result<String, Diagnostic> {
     let text = std::str::from_utf8(input)
         .map_err(|_| Diagnostic::new(DiagnosticKind::Syntax, "not UTF-8").with_path(path))?;
     let kind = if path
@@ -23,25 +36,32 @@ pub fn format(path: &Path, input: &[u8], config: &Config) -> Result<String, Diag
     } else {
         Kind::Conf
     };
-    format_as(path, text, kind, config)
+    format_as_context(path, context, text, kind, config)
 }
 
-pub fn format_as(
+fn format_as_context(
     path: &Path,
+    context: &Path,
     text: &str,
     kind: Kind,
     config: &Config,
 ) -> Result<String, Diagnostic> {
-    let formatted = shape(path, text, kind, config)?;
-    guard(path, text, &formatted, kind, config)?;
+    let formatted = shape(path, context, text, kind, config)?;
+    guard(path, context, text, &formatted, kind, config)?;
     Ok(formatted)
 }
 
-fn shape(path: &Path, text: &str, kind: Kind, config: &Config) -> Result<String, Diagnostic> {
+fn shape(
+    path: &Path,
+    context: &Path,
+    text: &str,
+    kind: Kind,
+    config: &Config,
+) -> Result<String, Diagnostic> {
     match kind {
         Kind::Conf => Ok(conf::format(
             text,
-            conf::mode(&shown(path)),
+            conf::mode(&shown(context)),
             config.final_newline,
         )),
         Kind::Block => block::format(text, config).map_err(|problem| {
@@ -54,12 +74,13 @@ fn shape(path: &Path, text: &str, kind: Kind, config: &Config) -> Result<String,
 
 fn guard(
     path: &Path,
+    context: &Path,
     text: &str,
     formatted: &str,
     kind: Kind,
     config: &Config,
 ) -> Result<(), Diagnostic> {
-    if shape(path, formatted, kind, config)? != formatted {
+    if shape(path, context, formatted, kind, config)? != formatted {
         return Err(broken(path, "laying it out again does not settle"));
     }
     if kind == Kind::Block {

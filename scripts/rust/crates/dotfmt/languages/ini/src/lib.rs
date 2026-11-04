@@ -73,14 +73,14 @@ fn format_body(
 ) -> Result<String, Diagnostic> {
     let source = with_bom(bom, text);
     let document = parse::parse(&source, dialect);
-    let expected = verify::Fingerprint::of(&document, config);
+    let expected = verify::Fingerprint::of(&document, config, dialect);
     let body = print::print(&document, config, dialect);
 
     // The guard checks the exact text the final newline and line-ending
     // settings will be applied to.
     let guarded = with_bom(bom, &body);
     let reparsed = parse::parse(&guarded, dialect);
-    if expected != verify::Fingerprint::of(&reparsed, config) {
+    if expected != verify::Fingerprint::of(&reparsed, config, dialect) {
         return Err(internal("formatting would change INI content"));
     }
     let second = print::print(&reparsed, config, dialect);

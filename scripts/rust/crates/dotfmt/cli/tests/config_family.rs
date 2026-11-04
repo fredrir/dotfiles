@@ -131,7 +131,7 @@ fn config_family_files_are_formatted_and_settle() {
     assert!(ssh.contains("    User     root"), "{ssh}");
 
     let env = fs::read_to_string(root.path().join(".env")).unwrap();
-    assert!(env.contains("A=1"), "{env}");
+    assert!(env.contains("A  =  1"), "{env}");
     assert!(env.contains("B=\"two words\""), "{env}");
 
     let plist = fs::read_to_string(root.path().join("Info.plist")).unwrap();

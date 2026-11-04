@@ -49,8 +49,20 @@ fn leaves_canonical_entries_alone() {
 }
 
 #[test]
-fn normalizes_padding_around_the_equals_sign() {
-    stable("A  =   1\nB\t=\t2\n", "A=1\nB=2\n", &Config::default());
+fn preserves_padding_around_the_equals_sign_unless_aligning() {
+    // Whitespace around `=` is a word boundary to a shell: `A = 1` and
+    // `A= 1` run a command, while `A=1` assigns. Only alignment may rewrite
+    // it, and alignment is opt-in.
+    stable(
+        "A  =   1\nB\t=\t2\n",
+        "A  =   1\nB\t=\t2\n",
+        &Config::default(),
+    );
+    stable(
+        "LONG_NAME= \"=.bc#:X/XX\"\nA = 1\nB= 2\nC =3\n",
+        "LONG_NAME= \"=.bc#:X/XX\"\nA = 1\nB= 2\nC =3\n",
+        &Config::default(),
+    );
     stable(
         "A  =   1\nB\t=\t2\n",
         "A = 1\nB = 2\n",
@@ -94,6 +106,13 @@ fn alignment_is_capped_by_align_max() {
         "A = 1\nLONGKEY = 2\n",
         &configured("align = true\nalign_max = 0"),
     );
+}
+
+#[test]
+fn a_blank_ending_a_continuation_survives_blank_lines_zero() {
+    let config = configured("blank_lines = 0");
+    let input = "A=foo\\\n\nB=2\n";
+    stable(input, input, &config);
 }
 
 #[test]
@@ -239,6 +258,21 @@ fn keeps_empty_values_empty() {
         "A=\nB= \nC=   \n",
         "A=\nB= \nC=   \n",
         &configured("trim_trailing_whitespace = false"),
+    );
+    stable("A =\nB = \nC =   \n", "A =\nB =\nC =\n", &Config::default());
+}
+
+#[test]
+fn alignment_never_turns_a_value_starting_with_a_hash_into_a_comment() {
+    stable(
+        "A=#c\nB=# c\nLONG=1\n",
+        "A   =#c\nB   =# c\nLONG = 1\n",
+        &configured("align = true"),
+    );
+    stable(
+        "A=#frag #note\nB=#frag\n",
+        "A =#frag # note\nB =#frag\n",
+        &configured("align = true\nformat_comments = true"),
     );
 }
 

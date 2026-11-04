@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::dialect::Dialect;
 use crate::parse::{Document, LineKind, Separator, comment_body, trim_end_layout, trim_layout};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -30,7 +31,7 @@ enum ItemKind {
 }
 
 impl Fingerprint {
-    pub fn of(document: &Document<'_>, config: &Config) -> Fingerprint {
+    pub fn of(document: &Document<'_>, config: &Config, dialect: Dialect) -> Fingerprint {
         let mut items: Vec<Item> = Vec::new();
         let mut pending_blank = 0;
         for line in &document.lines {
@@ -40,6 +41,9 @@ impl Fingerprint {
             }
             let blank = if items.is_empty() {
                 0
+            } else if dialect == Dialect::Generic && matches!(line.kind, LineKind::Continuation(_))
+            {
+                pending_blank
             } else {
                 pending_blank.min(config.blank_lines)
             };
@@ -103,18 +107,18 @@ mod tests {
         let two = parse("key=two\n", Dialect::Generic);
         let other = parse("other=one\n", Dialect::Generic);
         assert_ne!(
-            Fingerprint::of(&one, &config),
-            Fingerprint::of(&two, &config)
+            Fingerprint::of(&one, &config, Dialect::Generic),
+            Fingerprint::of(&two, &config, Dialect::Generic)
         );
         assert_ne!(
-            Fingerprint::of(&one, &config),
-            Fingerprint::of(&other, &config)
+            Fingerprint::of(&one, &config, Dialect::Generic),
+            Fingerprint::of(&other, &config, Dialect::Generic)
         );
         let equals = parse("Key=\n", Dialect::Ssh);
         let space = parse("Key value\n", Dialect::Ssh);
         assert_ne!(
-            Fingerprint::of(&equals, &config),
-            Fingerprint::of(&space, &config)
+            Fingerprint::of(&equals, &config, Dialect::Ssh),
+            Fingerprint::of(&space, &config, Dialect::Ssh)
         );
     }
 
@@ -127,8 +131,8 @@ mod tests {
         let one = parse("\n\na=1\n\n\nb=2\n\n", Dialect::Generic);
         let two = parse("a=1\n\nb=2", Dialect::Generic);
         assert_eq!(
-            Fingerprint::of(&one, &config),
-            Fingerprint::of(&two, &config)
+            Fingerprint::of(&one, &config, Dialect::Generic),
+            Fingerprint::of(&two, &config, Dialect::Generic)
         );
     }
 }

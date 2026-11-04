@@ -15,7 +15,16 @@ pub fn print(document: &Document<'_>, config: &Config, dialect: Dialect) -> Stri
             continue;
         }
         if !output.is_empty() && pending_blank > 0 {
-            for _ in 0..pending_blank.min(config.blank_lines) {
+            // Blank lines inside a configparser continuation are part of the
+            // value when empty_lines_in_values is enabled, so preserve their
+            // exact count there instead of applying the layout limit.
+            let blanks =
+                if dialect == Dialect::Generic && matches!(line.kind, LineKind::Continuation(_)) {
+                    pending_blank
+                } else {
+                    pending_blank.min(config.blank_lines)
+                };
+            for _ in 0..blanks {
                 output.push(String::new());
             }
         }

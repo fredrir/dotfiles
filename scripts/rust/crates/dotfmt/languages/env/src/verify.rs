@@ -18,10 +18,15 @@ enum Content {
         lead_ws: String,
         export: bool,
         key: String,
+        /// Unaligned layout keeps the gaps around `=` byte-for-byte because
+        /// they are word boundaries to a shell, not padding.
+        before_eq_gap: Option<String>,
+        after_eq_gap: Option<String>,
         value: String,
         style: Style,
     },
     Verbatim(String),
+    ProtectedBlank(usize),
 }
 
 #[derive(PartialEq, Eq)]
@@ -40,7 +45,11 @@ impl Fingerprint {
         };
         for item in &document.items {
             match item {
-                Item::Blank { .. } => {}
+                Item::Blank { count, protected } => {
+                    if *protected {
+                        fingerprint.content.push(Content::ProtectedBlank(*count));
+                    }
+                }
                 Item::Comment { text } => fingerprint.comment(text, config, false),
                 Item::Verbatim { raw } => {
                     fingerprint
@@ -52,6 +61,8 @@ impl Fingerprint {
                         lead_ws: entry.lead_ws.to_owned(),
                         export: entry.export.is_some(),
                         key: entry.key.to_owned(),
+                        before_eq_gap: (!config.align).then(|| entry.before_eq_gap.to_owned()),
+                        after_eq_gap: (!config.align).then(|| entry.after_eq_gap.to_owned()),
                         value: entry.value.raw().to_owned(),
                         style: entry.value.style(),
                     });

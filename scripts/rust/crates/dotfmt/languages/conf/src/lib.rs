@@ -6,7 +6,7 @@ pub mod config;
 mod format;
 
 pub use conf::{Mode, mode};
-pub use format::format;
+pub use format::{format, format_with_context};
 
 #[cfg(test)]
 #[path = "../tests/unit/format_tests.rs"]

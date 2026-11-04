@@ -175,6 +175,20 @@ fn normalizes_empty_elements_only_when_asked() {
 }
 
 #[test]
+fn empty_data_stays_paired_when_self_closing_is_always() {
+    stable(
+        "<plist version=\"1.0\"><data></data></plist>\n",
+        "<plist version=\"1.0\">\n<data></data>\n</plist>\n",
+        &configured("self_closing = always"),
+    );
+    stable(
+        "<plist version=\"1.0\"><dict><key>A</key><data></data></dict></plist>\n",
+        "<plist version=\"1.0\">\n<dict>\n  <key>A</key>\n  <data></data>\n</dict>\n</plist>\n",
+        &configured("self_closing = always"),
+    );
+}
+
+#[test]
 fn preserves_wrapped_data_until_a_width_is_configured() {
     let input = "<plist version=\"1.0\"><dict><key>D</key><data>\n    aGVs\n    bG8=\n  </data></dict></plist>\n";
     stable(

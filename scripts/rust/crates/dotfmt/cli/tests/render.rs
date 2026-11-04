@@ -9,6 +9,8 @@ fn row(name: &'static str, files: usize) -> Row {
         missing: Vec::new(),
         findings: false,
         failed: false,
+        found: 0,
+        failed_files: 0,
         ran: 1,
         note: None,
         output: String::new(),
@@ -48,6 +50,7 @@ fn a_missing_tool_is_counted_in_the_tally_apart_from_the_findings() {
     let done = vec![
         Row {
             findings: true,
+            found: 3,
             ran: 2,
             ..row("python", 3)
         },
@@ -59,7 +62,36 @@ fn a_missing_tool_is_counted_in_the_tally_apart_from_the_findings() {
     ];
     assert_eq!(
         render::tally(&done, Mode::Check),
-        "4 files checked, 1 with findings, 1 not installed"
+        "4 files checked, 3 with findings, 1 not installed"
+    );
+}
+
+#[test]
+fn findings_and_clean_counts_track_files_not_provider_rows() {
+    let done = vec![
+        Row {
+            findings: true,
+            found: 26,
+            ..row("ini", 41)
+        },
+        Row {
+            findings: true,
+            found: 3,
+            ..row("ignore", 3)
+        },
+        row("plist", 17),
+    ];
+    assert_eq!(
+        render::tally(&done, Mode::Check),
+        "61 files checked, 29 with findings"
+    );
+    assert_eq!(
+        summary(&done, Mode::Check),
+        [
+            "ini     26 files  findings",
+            "ignore   3 files  findings",
+            "32 / 61 files clean",
+        ]
     );
 }
 
@@ -88,10 +120,12 @@ fn a_failed_provider_gets_a_line_and_its_files_leave_the_count() {
     let done = vec![
         Row {
             failed: true,
+            failed_files: 40,
             ..row("web", 40)
         },
         Row {
             failed: true,
+            failed_files: 5,
             ..row("yaml", 5)
         },
         row("python", 123),
@@ -111,6 +145,7 @@ fn drift_names_the_provider_in_the_same_shape() {
     let done = vec![
         Row {
             findings: true,
+            found: 3,
             ..row("python", 3)
         },
         row("lua", 7),
@@ -126,6 +161,7 @@ fn the_files_named_under_a_provider_are_capped() {
     let blamed: Vec<String> = (0..9).map(|nth| format!("f{nth}.py")).collect();
     let done = vec![Row {
         failed: true,
+        failed_files: 9,
         blamed,
         ..row("python", 9)
     }];

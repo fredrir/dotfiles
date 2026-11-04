@@ -173,6 +173,12 @@ fn trailing_space_after_a_backslash_stays_data() {
 }
 
 #[test]
+fn generic_blank_lines_inside_a_value_are_preserved() {
+    let input = "[s]\nkey = first\n\n    second\n\n\n    third\nnext = x\n";
+    assert_eq!(default(input, Dialect::Generic), input);
+}
+
+#[test]
 fn blank_line_runs_are_collapsed_but_never_inserted() {
     let input = "\n\n[one]\na=1\n\n\n\nb=2\n\n[two]\nc=3\n\n";
     let config = Config {

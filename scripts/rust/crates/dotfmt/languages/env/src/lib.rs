@@ -32,11 +32,11 @@ pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {
     }
 
     let expected = verify::Fingerprint::of(&document, config);
-    let mut output = print::print(&document, config);
+    let mut output = print::print(&document, config, bom);
     let reparsed =
         parse::parse(&output).map_err(|_| internal("formatting would produce invalid dotenv"))?;
     verify::check(&expected, &verify::Fingerprint::of(&reparsed, config))?;
-    if print::print(&reparsed, config) != output {
+    if print::print(&reparsed, config, bom) != output {
         return Err(internal("laying it out again does not settle"));
     }
 

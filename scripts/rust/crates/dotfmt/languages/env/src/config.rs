@@ -26,7 +26,8 @@ pub struct Config {
     pub align_max: usize,
     /// Insert one space after `#` in comments where it is missing.
     pub format_comments: bool,
-    /// Trim whitespace that trails an item outside a quoted value.
+    /// Trim whitespace that trails an item outside a quoted value. Whitespace
+    /// escaped by a backslash is value content and is kept.
     pub trim_trailing_whitespace: bool,
 }
 

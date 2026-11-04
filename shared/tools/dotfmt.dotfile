@@ -12,6 +12,7 @@ conf {
 
 env {
   final_newline  = true
+  align          = true
 }
 
 ignore {

@@ -165,6 +165,7 @@ impl Engine {
     pub fn format(
         &self,
         path: &Path,
+        context: &Path,
         input: &[u8],
         detected: dotfmt_markdown::dialect::Dialect,
         clean: bool,
@@ -177,18 +178,28 @@ impl Engine {
         };
         match &self.kind {
             Kind::Bib(config) => unrepaired(dotfmt_bib::format(utf8(input)?, config)?),
-            Kind::Conf(config) => unrepaired(dotfmt_conf::format(path, input, config)?),
+            Kind::Conf(config) => unrepaired(dotfmt_conf::format_with_context(
+                path, context, input, config,
+            )?),
             Kind::Env(config) => unrepaired(dotfmt_env::format(utf8(input)?, config)?),
             Kind::Ignore(config, dialect) => {
                 let mut config = config.clone();
-                let detected = dotfmt_ignore::dialect::Dialect::detect(path);
+                let detected = dotfmt_ignore::dialect::Dialect::detect(context);
                 config.dialect = dialect.resolve(config.dialect, detected);
-                unrepaired(dotfmt_ignore::format(path, input, &config)?)
+                unrepaired(dotfmt_ignore::format_with_dialect(
+                    utf8(input)?,
+                    &config,
+                    config.dialect,
+                )?)
             }
             Kind::Ini(config, dialect) => {
                 let mut config = config.clone();
-                config.dialect = dialect.resolve(config.dialect, path);
-                unrepaired(dotfmt_ini::format(path, input, &config)?)
+                config.dialect = dialect.resolve(config.dialect, context);
+                unrepaired(dotfmt_ini::format_with_dialect(
+                    utf8(input)?,
+                    &config,
+                    config.dialect,
+                )?)
             }
             Kind::Json(config, dialect) => {
                 let output = dotfmt_json::format(

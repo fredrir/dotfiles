@@ -114,7 +114,10 @@ impl Printer<'_> {
     fn empty(&mut self, element: &Element<'_>, depth: usize) {
         let self_closed = match self.config.self_closing {
             EmptyStyle::Preserve => element.self_closed,
-            EmptyStyle::Always => true,
+            // Apple's parser accepts `<data></data>` but rejects `<data/>`.
+            // Keep the paired form even when every other empty element is
+            // normalized to self-closing.
+            EmptyStyle::Always => element.name != "data",
             EmptyStyle::Never => false,
         };
         let line = if self_closed {

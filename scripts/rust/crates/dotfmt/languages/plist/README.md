@@ -31,7 +31,7 @@ Engine defaults below apply before configuration; see [shipped configuration](..
 | `blank_lines` | `1` | 0–10 consecutive blank lines kept between elements |
 | `data_width` | `0` | `0` preserves `<data>` content; 1–120 re-wraps valid base64 at that many columns |
 | `prolog` | `preserve` | `preserve`, `normalize`; `normalize` rewrites the XML declaration and DOCTYPE to Apple's spelling and inserts a missing DOCTYPE |
-| `self_closing` | `preserve` | `preserve`, `always`, `never`; controls empty elements such as `<true/>` and `<dict></dict>` |
+| `self_closing` | `preserve` | `preserve`, `always`, `never`; controls empty elements such as `<true/>` and `<dict></dict>`; empty `<data></data>` stays paired because Apple rejects `<data/>` |
 | `sort_keys` | `false` | Only `false` in v1: reordering keys would change duplicate-key shadowing |
 
 `width`, `indent` and `final_newline` also apply from the shared global block. `quote_style` is accepted there and ignored, because plist values are never rewritten. Every other setting belongs to the `plist` block.

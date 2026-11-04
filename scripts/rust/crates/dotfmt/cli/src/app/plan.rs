@@ -64,6 +64,7 @@ pub(super) struct Job {
 
 pub(super) struct BufferJob {
     pub input: Buffer,
+    pub absolute: PathBuf,
     pub language: Option<Language>,
     pub engine: Option<Arc<Engine>>,
     pub markdown: Dialect,
@@ -329,6 +330,7 @@ impl Session {
                     };
                     Some(BufferJob {
                         input: selected.input,
+                        absolute: selected.absolute,
                         language: selected.language,
                         engine,
                         markdown,

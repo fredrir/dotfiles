@@ -75,7 +75,9 @@ fn format_file(job: &Job, check: bool, clean: bool) -> FileOutcome {
     let result = (|| {
         let input = fs::read(&job.absolute)
             .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
-        let formatted = job.engine.format(&job.path, &input, job.markdown, clean)?;
+        let formatted = job
+            .engine
+            .format(&job.path, &job.absolute, &input, job.markdown, clean)?;
         let (changed, repairs) = match formatted {
             Formatted::Text { text, repairs } => {
                 let changed = text.as_bytes() != input;
@@ -99,9 +101,10 @@ fn format_file(job: &Job, check: bool, clean: bool) -> FileOutcome {
 
 fn format_buffer(job: BufferJob, clean: bool) -> BufferOutcome {
     let input = job.input;
+    let absolute = job.absolute;
     let result = match job.engine {
         Some(engine) => engine
-            .format(&input.path, &input.input, job.markdown, clean)
+            .format(&input.path, &absolute, &input.input, job.markdown, clean)
             .map(|formatted| match formatted {
                 Formatted::Text { text, repairs } => {
                     let output = text.into_bytes();

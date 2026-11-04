@@ -10,8 +10,8 @@ enum Arranged<'a> {
     Item(&'a Item<'a>),
 }
 
-pub(crate) fn print(document: &Document<'_>, config: &Config) -> String {
-    let arranged = arrange(&document.items, config);
+pub(crate) fn print(document: &Document<'_>, config: &Config, bom: bool) -> String {
+    let arranged = arrange(&document.items, config, bom);
     let widths = widths(&arranged, config);
     let mut output = String::new();
     for (index, line) in arranged.iter().enumerate() {
@@ -36,17 +36,32 @@ pub(crate) fn print(document: &Document<'_>, config: &Config) -> String {
 
 /// Drops leading and trailing blank runs and caps the ones that remain, so
 /// alignment sees the groups the reader will see.
-fn arrange<'a>(items: &'a [Item<'a>], config: &Config) -> Vec<Arranged<'a>> {
+fn arrange<'a>(items: &'a [Item<'a>], config: &Config, bom: bool) -> Vec<Arranged<'a>> {
     let mut arranged = Vec::new();
     let mut pending = 0;
     for item in items {
-        if let Item::Blank { count } = item {
-            if !arranged.is_empty() {
+        if let Item::Blank { count, protected } = item {
+            if *protected {
+                for _ in 0..pending.min(config.blank_lines) {
+                    arranged.push(Arranged::Blank);
+                }
+                pending = 0;
+                for _ in 0..*count {
+                    arranged.push(Arranged::Blank);
+                }
+            } else if !arranged.is_empty() {
                 pending += count;
             }
             continue;
         }
-        if !arranged.is_empty() {
+        if arranged.is_empty() {
+            // A BOM in the middle of the file is content. If dropping leading
+            // blanks would move it to byte zero, the next run would read it as
+            // the file BOM and strip a value byte; keep one blank as a pin.
+            if !bom && starts_with_bom(item) {
+                arranged.push(Arranged::Blank);
+            }
+        } else {
             for _ in 0..pending.min(config.blank_lines) {
                 arranged.push(Arranged::Blank);
             }
@@ -55,6 +70,16 @@ fn arrange<'a>(items: &'a [Item<'a>], config: &Config) -> Vec<Arranged<'a>> {
         arranged.push(Arranged::Item(item));
     }
     arranged
+}
+
+fn starts_with_bom(item: &Item<'_>) -> bool {
+    match item {
+        Item::Verbatim { raw } => raw.starts_with('\u{feff}'),
+        Item::Entry(entry) => {
+            entry.lead_ws.is_empty() && entry.export.is_none() && entry.key.starts_with('\u{feff}')
+        }
+        Item::Blank { .. } | Item::Comment { .. } => false,
+    }
 }
 
 fn widths(arranged: &[Arranged<'_>], config: &Config) -> Vec<Option<usize>> {
@@ -116,13 +141,19 @@ fn render_entry(entry: &Entry<'_>, width: Option<usize>, config: &Config) -> Str
             text.push_str(&" ".repeat(pad));
             text.push('=');
             if !entry.value.is_empty() {
-                text.push(' ');
+                // A space before a bare `#` would turn the value into a
+                // comment; alignment must not change what the value is.
+                if !entry.value.raw().starts_with('#') {
+                    text.push(' ');
+                }
                 text.push_str(entry.value.raw());
             }
         }
         None => {
             text.push_str(&prefix);
+            text.push_str(entry.before_eq_gap);
             text.push('=');
+            text.push_str(entry.after_eq_gap);
             text.push_str(entry.value.raw());
         }
     }
