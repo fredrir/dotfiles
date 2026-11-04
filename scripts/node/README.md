@@ -12,15 +12,17 @@ Behaviour
 - When convert is refused: for unions, merged interfaces, declare global blocks or default exports it doesn't convert, and pressing the key shows the reason instead.
 - Menus: both refactors also appear in the lightbulb and the Refactor menu, like the built-in TypeScript refactors.
 - Keys: shift+alt+x extracts an interface, shift+alt+cmd+x a type alias, shift+alt+cmd+t converts. All three are in the editor right-click menu and under Dot Code in Keyboard Shortcuts.
+- Case transforms: dotCode.transformTo{Camel,Kebab,Pascal,Snake,Title}case, Lowercase and Uppercase convert each selection, otherwise the word beside the cursor, otherwise the line. The words behind the last transform are remembered, so someThing lowered to something comes back as SomeThing. args.target picks where: editor (default, multi-cursor, one undo step), input (explorer rename, search, find, quick open) or fileName (only the part before the first extension; an empty selection converts the whole name). Inputs go through the clipboard, which is restored afterwards (text only). Embedded inputs like SCM and chat keep VS Code's built-in transforms.
 - Settings: dotCode.typescript.extract.name (supports ${name}, e.g. ${name}Props gives TestProps), .export (never / always / inherit), .rename, and dotCode.server.path.
 
 Architecture
 
 - scripts/rust/crates/dot-code/ (Rust workspace members):
+  - case: case conversion (heck) behind dotCode/transformCase, with memory of the last transform's words. Dots, slashes and other punctuation stay in place.
   - core: the Feature trait plus the Action and Edit types. It knows nothing about LSP.
   - typescript: the refactors, built on oxc. The file is parsed once per request.
   - workspace: next/previous file in Explorer order (ICU4X collation, files.exclude) and package manager detection.
-  - server: the LSP binary. It handles incremental document sync, UTF-16 positions, settings and the dotCode/siblingFile and dotCode/packageManager requests.
+  - server: the LSP binary. It handles incremental document sync, UTF-16 positions, settings and the dotCode/siblingFile, dotCode/packageManager and dotCode/transformCase requests.
 - scripts/node/packages/dot-code: thin TS client that starts the server, restarts it after crashes, passes settings through, and triggers the rename. The language client is a separate bundle (dist/client.js) loaded right after activation.
 - Adding a feature: implement Feature, add it to features() in server/src/lib.rs, and add its language to LANGUAGES in src/lib/constants.ts if it's a new one.
 

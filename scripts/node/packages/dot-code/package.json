@@ -53,6 +53,41 @@
         "category": "Dot Code"
       },
       {
+        "command": "dotCode.transformToCamelcase",
+        "title": "Transform to Camel Case",
+        "category": "Dot Code"
+      },
+      {
+        "command": "dotCode.transformToKebabcase",
+        "title": "Transform to Kebab Case",
+        "category": "Dot Code"
+      },
+      {
+        "command": "dotCode.transformToLowercase",
+        "title": "Transform to Lowercase",
+        "category": "Dot Code"
+      },
+      {
+        "command": "dotCode.transformToPascalcase",
+        "title": "Transform to Pascal Case",
+        "category": "Dot Code"
+      },
+      {
+        "command": "dotCode.transformToSnakecase",
+        "title": "Transform to Snake Case",
+        "category": "Dot Code"
+      },
+      {
+        "command": "dotCode.transformToTitlecase",
+        "title": "Transform to Title Case",
+        "category": "Dot Code"
+      },
+      {
+        "command": "dotCode.transformToUppercase",
+        "title": "Transform to Uppercase",
+        "category": "Dot Code"
+      },
+      {
         "command": "dotCode.nextFile",
         "title": "Next File in Directory",
         "category": "Dot Code"
@@ -125,6 +160,34 @@
         {
           "command": "dotCode.convertType",
           "when": "editorLangId =~ /^typescript(react)?$/"
+        },
+        {
+          "command": "dotCode.transformToCamelcase",
+          "when": "editorIsOpen && !editorReadonly"
+        },
+        {
+          "command": "dotCode.transformToKebabcase",
+          "when": "editorIsOpen && !editorReadonly"
+        },
+        {
+          "command": "dotCode.transformToLowercase",
+          "when": "editorIsOpen && !editorReadonly"
+        },
+        {
+          "command": "dotCode.transformToPascalcase",
+          "when": "editorIsOpen && !editorReadonly"
+        },
+        {
+          "command": "dotCode.transformToSnakecase",
+          "when": "editorIsOpen && !editorReadonly"
+        },
+        {
+          "command": "dotCode.transformToTitlecase",
+          "when": "editorIsOpen && !editorReadonly"
+        },
+        {
+          "command": "dotCode.transformToUppercase",
+          "when": "editorIsOpen && !editorReadonly"
         }
       ]
     },

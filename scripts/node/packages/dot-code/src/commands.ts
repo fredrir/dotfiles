@@ -5,6 +5,7 @@ import { install } from "./install";
 import { navigate } from "./navigate";
 import { rename } from "./rename";
 import type { Server } from "./server";
+import { transformCase, type Case, type Target } from "./transform";
 
 const execFile = util.promisify(cp.execFile);
 
@@ -13,6 +14,16 @@ const CODE_ACTIONS = {
   "dotCode.extractType": "refactor.extract.type.dotCode",
   "dotCode.convertType": "refactor.rewrite.typeDefinition",
 };
+
+const CASES = {
+  Camelcase: "camel",
+  Kebabcase: "kebab",
+  Lowercase: "lower",
+  Pascalcase: "pascal",
+  Snakecase: "snake",
+  Titlecase: "title",
+  Uppercase: "upper",
+} as const satisfies Record<string, Case>;
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -26,6 +37,13 @@ export function registerCommands(
           kind,
           apply: "first",
         }),
+      ),
+    ),
+    ...Object.entries(CASES).map(([name, kind]) =>
+      vscode.commands.registerCommand(
+        `dotCode.transformTo${name}`,
+        (args?: { target?: Target }) =>
+          transformCase(server, kind, args?.target ?? "editor"),
       ),
     ),
     vscode.commands.registerCommand("dotCode.rename", rename),

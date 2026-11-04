@@ -5,6 +5,7 @@ resolver = "2"
 members = [
   "crates/bench-workloads",
   "crates/dclip",
+  "crates/dot-code/case",
   "crates/dot-code/core",
   "crates/dot-code/server",
   "crates/dot-code/typescript",
@@ -92,6 +93,7 @@ tachyonfx            = { version = "0.25.1", default-features = false, features 
 tempfile             = "3"
 workstation          = { path = "crates/workstation" }
 dotfmt-core          = { path = "crates/dotfmt/core" }
+dot-code-case        = { path = "crates/dot-code/case" }
 dot-code-core        = { path = "crates/dot-code/core" }
 dot-code-typescript  = { path = "crates/dot-code/typescript" }
 dot-code-workspace   = { path = "crates/dot-code/workspace" }

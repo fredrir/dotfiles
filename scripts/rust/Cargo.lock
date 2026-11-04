@@ -1481,6 +1481,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dot-code-case"
+version = "0.1.0"
+dependencies = [
+ "heck 0.5.0",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dot-code-core"
 version = "0.1.0"
 dependencies = [
@@ -1492,6 +1501,7 @@ name = "dot-code-server"
 version = "0.1.0"
 dependencies = [
  "clap 4.6.7",
+ "dot-code-case",
  "dot-code-core",
  "dot-code-typescript",
  "dot-code-workspace",

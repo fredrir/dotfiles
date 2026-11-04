@@ -7,6 +7,7 @@ use std::error::Error;
 use std::io;
 
 use documents::{Document, Documents, position_in};
+use dot_code_case::Memory;
 use dot_code_core::{Action, Feature, Request as Query, Trigger, apply};
 use dot_code_workspace::{packages, siblings};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response};
@@ -39,6 +40,9 @@ pub const SIBLING_FILE: &str = "dotCode/siblingFile";
 /// Detects the package manager and directory to install from.
 pub const PACKAGE_MANAGER: &str = "dotCode/packageManager";
 
+/// Converts the case of editor selections or text taken from other inputs.
+pub const TRANSFORM_CASE: &str = "dotCode/transformCase";
+
 pub fn features() -> Vec<Box<dyn Feature>> {
     vec![Box::new(dot_code_typescript::TypeScript::default())]
 }
@@ -48,6 +52,7 @@ pub fn run(connection: &Connection, features: Vec<Box<dyn Feature>>) -> Result<(
         documents: Documents::default(),
         features,
         versioned: false,
+        memory: Memory::default(),
     };
     let (id, params) = connection.initialize_start()?;
     connection.initialize_finish(
@@ -92,6 +97,7 @@ struct Server {
     documents: Documents,
     features: Vec<Box<dyn Feature>>,
     versioned: bool,
+    memory: Memory,
 }
 
 impl Server {
@@ -146,6 +152,7 @@ impl Server {
             }),
             SIBLING_FILE => reply(request, |params| siblings::sibling(&params)),
             PACKAGE_MANAGER => reply(request, |params| Ok(packages::plan(&params))),
+            TRANSFORM_CASE => reply(request, |params| Ok(self.memory.transform(&params))),
             method => Response::new_err(
                 request.id,
                 ErrorCode::MethodNotFound as i32,

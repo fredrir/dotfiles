@@ -1,0 +1,16 @@
+[package]
+name              = "dot-code-case"
+version.workspace = true
+description       = "Case conversion for text inputs in dot-code"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heck            = "0.5.0"
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

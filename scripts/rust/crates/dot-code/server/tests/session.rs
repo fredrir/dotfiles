@@ -2,7 +2,7 @@
 
 use std::thread::{self, JoinHandle};
 
-use dot_code_server::{PACKAGE_MANAGER, SIBLING_FILE};
+use dot_code_server::{PACKAGE_MANAGER, SIBLING_FILE, TRANSFORM_CASE};
 use dot_code_typescript::{EXTRACT_INTERFACE, EXTRACT_TYPE};
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use serde_json::{Value, json};
@@ -206,6 +206,28 @@ fn workspace_requests_resolve_siblings_and_package_managers() {
     assert_eq!(
         plan,
         json!({ "cwd": project, "command": ["bun", "install"] })
+    );
+    client.stop();
+}
+
+#[test]
+fn transform_case_remembers_words_between_requests() {
+    let (mut client, _) = Client::start();
+    let lowered = client.request(
+        TRANSFORM_CASE,
+        json!({ "case": "lower", "targets": [{ "scope": "cursor", "before": "rename someThing", "after": ".ts" }] }),
+    );
+    assert_eq!(
+        lowered,
+        json!([{ "text": "something", "before": 9, "after": 0 }])
+    );
+    let pascal = client.request(
+        TRANSFORM_CASE,
+        json!({ "case": "pascal", "targets": [{ "scope": "selection", "text": "something" }] }),
+    );
+    assert_eq!(
+        pascal,
+        json!([{ "text": "SomeThing", "before": 0, "after": 0 }])
     );
     client.stop();
 }

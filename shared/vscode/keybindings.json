@@ -649,6 +649,153 @@
     "command": "editor.action.transformToUppercase"
   },
   {
+    "key": "shift+alt+l",
+    "command": "dotCode.transformToLowercase",
+    "when": "editorTextFocus && !editorReadonly && !editorSimpleInput"
+  },
+  {
+    "key": "shift+alt+c",
+    "command": "dotCode.transformToCamelcase",
+    "when": "editorTextFocus && !editorReadonly && !editorSimpleInput"
+  },
+  {
+    "key": "shift+alt+k",
+    "command": "dotCode.transformToKebabcase",
+    "when": "editorTextFocus && !editorReadonly && !editorSimpleInput"
+  },
+  {
+    "key": "shift+alt+p",
+    "command": "dotCode.transformToPascalcase",
+    "when": "editorTextFocus && !editorReadonly && !editorSimpleInput"
+  },
+  {
+    "key": "shift+alt+s",
+    "command": "dotCode.transformToSnakecase",
+    "when": "editorTextFocus && !editorReadonly && !editorSimpleInput"
+  },
+  {
+    "key": "shift+alt+t",
+    "command": "dotCode.transformToTitlecase",
+    "when": "editorTextFocus && !editorReadonly && !editorSimpleInput"
+  },
+  {
+    "key": "shift+alt+u",
+    "command": "dotCode.transformToUppercase",
+    "when": "editorTextFocus && !editorReadonly && !editorSimpleInput"
+  },
+  {
+    "key": "shift+alt+l",
+    "command": "dotCode.transformToLowercase",
+    "args": {
+      "target": "input"
+    },
+    "when": "inputFocus && !editorTextFocus && !terminalFocus"
+  },
+  {
+    "key": "shift+alt+c",
+    "command": "dotCode.transformToCamelcase",
+    "args": {
+      "target": "input"
+    },
+    "when": "inputFocus && !editorTextFocus && !terminalFocus"
+  },
+  {
+    "key": "shift+alt+k",
+    "command": "dotCode.transformToKebabcase",
+    "args": {
+      "target": "input"
+    },
+    "when": "inputFocus && !editorTextFocus && !terminalFocus"
+  },
+  {
+    "key": "shift+alt+p",
+    "command": "dotCode.transformToPascalcase",
+    "args": {
+      "target": "input"
+    },
+    "when": "inputFocus && !editorTextFocus && !terminalFocus"
+  },
+  {
+    "key": "shift+alt+s",
+    "command": "dotCode.transformToSnakecase",
+    "args": {
+      "target": "input"
+    },
+    "when": "inputFocus && !editorTextFocus && !terminalFocus"
+  },
+  {
+    "key": "shift+alt+t",
+    "command": "dotCode.transformToTitlecase",
+    "args": {
+      "target": "input"
+    },
+    "when": "inputFocus && !editorTextFocus && !terminalFocus"
+  },
+  {
+    "key": "shift+alt+u",
+    "command": "dotCode.transformToUppercase",
+    "args": {
+      "target": "input"
+    },
+    "when": "inputFocus && !editorTextFocus && !terminalFocus"
+  },
+  {
+    "key": "shift+alt+l",
+    "command": "dotCode.transformToLowercase",
+    "args": {
+      "target": "fileName"
+    },
+    "when": "filesExplorerFocus && inputFocus"
+  },
+  {
+    "key": "shift+alt+c",
+    "command": "dotCode.transformToCamelcase",
+    "args": {
+      "target": "fileName"
+    },
+    "when": "filesExplorerFocus && inputFocus"
+  },
+  {
+    "key": "shift+alt+k",
+    "command": "dotCode.transformToKebabcase",
+    "args": {
+      "target": "fileName"
+    },
+    "when": "filesExplorerFocus && inputFocus"
+  },
+  {
+    "key": "shift+alt+p",
+    "command": "dotCode.transformToPascalcase",
+    "args": {
+      "target": "fileName"
+    },
+    "when": "filesExplorerFocus && inputFocus"
+  },
+  {
+    "key": "shift+alt+s",
+    "command": "dotCode.transformToSnakecase",
+    "args": {
+      "target": "fileName"
+    },
+    "when": "filesExplorerFocus && inputFocus"
+  },
+  {
+    "key": "shift+alt+t",
+    "command": "dotCode.transformToTitlecase",
+    "args": {
+      "target": "fileName"
+    },
+    "when": "filesExplorerFocus && inputFocus"
+  },
+  {
+    "key": "shift+alt+u",
+    "command": "dotCode.transformToUppercase",
+    "args": {
+      "target": "fileName"
+    },
+    "when": "filesExplorerFocus && inputFocus"
+  },
+  {
     "key": "shift+cmd+m",
     "command": "filebunny.moveFolder"
   },
