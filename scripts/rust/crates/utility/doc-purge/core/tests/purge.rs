@@ -1,9 +1,26 @@
-use crate::lang::Dialect;
-use crate::purge::{self, Outcome};
+#![forbid(unsafe_code)]
+
+use doc_purge_core::lang::Dialect;
+use doc_purge_core::purge::{self, Outcome};
+use doc_purge_core::{Change, Edited};
+
+fn rebuilt(source: &str, changes: &[Change]) -> String {
+    let mut text = source.to_string();
+    for change in changes.iter().rev() {
+        text.replace_range(change.range.clone(), &change.text);
+    }
+    text
+}
+
+fn content(source: &str, edited: Edited) -> String {
+    let content = String::from_utf8(edited.content).expect("utf-8");
+    assert_eq!(rebuilt(source, &edited.changes), content);
+    content
+}
 
 fn purged(source: &str, dialect: Dialect) -> String {
     match purge::purge(source.as_bytes(), dialect) {
-        Outcome::Changed(edited, _) => String::from_utf8(edited.content).expect("utf-8"),
+        Outcome::Changed(edited, _) => content(source, *edited),
         Outcome::Untouched(_) => source.to_string(),
         Outcome::Skipped(reason) => panic!("left alone: {reason}"),
     }
@@ -852,7 +869,7 @@ fn sugarss_comments_go_and_urls_stay() {
 
 #[test]
 fn css_family_types_and_variations_resolve() {
-    use crate::lang::{for_path, for_token};
+    use doc_purge_core::lang::{for_path, for_token};
     use std::path::Path;
 
     for (token, dialect) in [

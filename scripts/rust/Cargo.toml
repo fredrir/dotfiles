@@ -49,7 +49,8 @@ members = [
   "crates/ui/theme",
   "crates/ui/widgets",
   "crates/utility/count",
-  "crates/utility/doc-purge",
+  "crates/utility/doc-purge/cli",
+  "crates/utility/doc-purge/core",
   "crates/utility/flatten",
   "crates/utility/hexcat",
   "crates/utility/path",
@@ -97,6 +98,7 @@ dot-code-case        = { path = "crates/dot-code/case" }
 dot-code-core        = { path = "crates/dot-code/core" }
 dot-code-typescript  = { path = "crates/dot-code/typescript" }
 dot-code-workspace   = { path = "crates/dot-code/workspace" }
+doc-purge-core       = { path = "crates/utility/doc-purge/core" }
 gitkit               = { path = "crates/git/gitkit" }
 hostkit              = { path = "crates/hostkit" }
 testkit              = { path = "crates/testkit" }

@@ -14,9 +14,17 @@ pub struct Cut {
     pub lines: bool,
 }
 
+/// Replaces a byte range of the source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Change {
+    pub range: Range<usize>,
+    pub text: String,
+}
+
 #[derive(Default)]
 pub struct Edited {
     pub content: Vec<u8>,
+    pub changes: Vec<Change>,
     pub minus: usize,
     pub plus: usize,
     pub comments: usize,
@@ -252,19 +260,34 @@ pub fn apply(source: &[u8], mut cuts: Vec<Cut>) -> Edited {
 
     inserts.sort_by_key(|(at, _)| *at);
     let mut content = Vec::with_capacity(source.len());
+    let mut changes: Vec<Change> = Vec::new();
     let mut pending = inserts.into_iter().peekable();
-    for at in 0..source.len() {
-        while pending.peek().is_some_and(|(spot, _)| *spot == at) {
-            let (_, with) = pending.next().expect("peeked");
-            content.extend_from_slice(with.as_bytes());
+    for at in 0..=source.len() {
+        let mut inserted = String::new();
+        while let Some((_, with)) = pending.next_if(|(spot, _)| *spot <= at || at == source.len()) {
+            inserted.push_str(&with);
         }
-        if !gone[at] {
+        content.extend_from_slice(inserted.as_bytes());
+        let removed = at < source.len() && gone[at];
+        if at < source.len() && !removed {
             content.push(source[at]);
         }
-    }
-    for (_, with) in pending {
-        content.extend_from_slice(with.as_bytes());
+        if inserted.is_empty() && !removed {
+            continue;
+        }
+        let end = at + usize::from(removed);
+        match changes.last_mut() {
+            Some(last) if last.range.end == at => {
+                last.range.end = end;
+                last.text.push_str(&inserted);
+            }
+            _ => changes.push(Change {
+                range: at..end,
+                text: inserted,
+            }),
+        }
     }
     edited.content = content;
+    edited.changes = changes;
     edited
 }

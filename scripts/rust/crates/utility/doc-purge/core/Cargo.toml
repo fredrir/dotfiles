@@ -1,0 +1,9 @@
+[package]
+name              = "doc-purge-core"
+version.workspace = true
+description       = "Comment, doc string and typographic glyph purging behind doc-purge"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

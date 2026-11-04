@@ -1,27 +1,4 @@
 {
   "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "Purge slop comments",
-      "type": "shell",
-      "command": "doc-purge",
-      "args": [
-        "--yes",
-        "${file}"
-      ],
-      "options": {
-        "shell": {
-          "executable": "/bin/zsh",
-          "args": [
-            "-ic"
-          ]
-        }
-      },
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "never",
-        "close": true
-      }
-    },
-  ]
+  "tasks": []
 }

@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 clap.workspace                = true
+doc-purge-core.workspace      = true
 dot-code-case.workspace       = true
 dot-code-core.workspace       = true
 dot-code-typescript.workspace = true

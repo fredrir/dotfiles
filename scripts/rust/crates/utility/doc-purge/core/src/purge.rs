@@ -33,6 +33,11 @@ pub enum Outcome {
     Skipped(&'static str),
 }
 
+/// Largest source, in bytes, that doc-purge reads.
+pub const LIMIT: u64 = 8 * 1024 * 1024;
+
+pub const TOO_LARGE: &str = "larger than doc-purge reads";
+
 const BOM: &[u8] = b"\xef\xbb\xbf";
 
 fn leading(source: &[u8], comments: &[Comment], dialect: Dialect) -> usize {
@@ -188,6 +193,12 @@ fn needs_style_space(source: &[u8], start: usize, end: usize, padded: bool) -> b
 }
 
 pub fn purge(source: &[u8], dialect: Dialect) -> Outcome {
+    if source.len() as u64 > LIMIT {
+        return Outcome::Skipped(TOO_LARGE);
+    }
+    if source.contains(&0) || std::str::from_utf8(source).is_err() {
+        return Outcome::Skipped("not utf-8 text");
+    }
     let out = match scan::scan(source, dialect) {
         Ok(out) => out,
         Err(bail) => return Outcome::Skipped(bail.0),

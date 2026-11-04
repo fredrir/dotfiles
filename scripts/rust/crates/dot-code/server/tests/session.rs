@@ -2,7 +2,9 @@
 
 use std::thread::{self, JoinHandle};
 
-use dot_code_server::{FILE_MARKDOWN, PACKAGE_MANAGER, SIBLING_FILE, TRANSFORM_CASE};
+use dot_code_server::{
+    FILE_MARKDOWN, PACKAGE_MANAGER, PURGE_COMMENTS, SIBLING_FILE, TRANSFORM_CASE,
+};
 use dot_code_typescript::{EXTRACT_INTERFACE, EXTRACT_TYPE};
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use serde_json::{Value, json};
@@ -242,6 +244,37 @@ fn file_markdown_renders_the_text_under_its_workspace_path() {
     assert_eq!(
         markdown,
         json!("---\n**src/a.ts:**\n```ts\nlet a = 1;\n```\n---\n\n")
+    );
+    client.stop();
+}
+
+#[test]
+fn purge_comments_returns_utf16_edits_or_why_it_skipped() {
+    let (mut client, _) = Client::start();
+    let purged = client.request(
+        PURGE_COMMENTS,
+        json!({ "path": "/project/a.rs", "text": "// gone\nlet å = 1; // gone\nlet b = 2;\n" }),
+    );
+    let range = |start: [u32; 2], end: [u32; 2]| {
+        json!({
+            "start": { "line": start[0], "character": start[1] },
+            "end": { "line": end[0], "character": end[1] },
+        })
+    };
+    assert_eq!(
+        purged,
+        json!({ "edits": [
+            { "range": range([0, 0], [1, 0]), "newText": "" },
+            { "range": range([1, 10], [1, 18]), "newText": "" },
+        ] })
+    );
+    let skipped = client.request(
+        PURGE_COMMENTS,
+        json!({ "path": "/project/notes.md", "text": "# title\n" }),
+    );
+    assert_eq!(
+        skipped,
+        json!({ "edits": [], "skipped": "not a file type doc-purge reads" })
     );
     client.stop();
 }

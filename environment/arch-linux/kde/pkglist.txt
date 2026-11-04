@@ -103,6 +103,7 @@ python
 python-pynvim
 rclone
 rsync
+rustup
 s-nail
 sccache
 sddm

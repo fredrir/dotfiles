@@ -5,9 +5,7 @@ use std::path::{Path, PathBuf};
 
 use workstation::walk::{Names, Policy, Symlinks, walk};
 
-use crate::lang::{self, Dialect};
-
-pub const LIMIT: u64 = 8 * 1024 * 1024;
+use doc_purge_core::lang::{self, Dialect};
 
 const AVOIDED: &[&str] = &[
     "node_modules",
