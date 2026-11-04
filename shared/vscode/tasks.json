@@ -2,50 +2,6 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Copy active relative path",
-      "type": "shell",
-      "command": "path",
-      "args": [
-        "-g",
-        "${file}",
-        "CP"
-      ],
-      "options": {
-        "shell": {
-          "executable": "/bin/zsh",
-          "args": [
-            "-ic"
-          ]
-        }
-      },
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "never",
-        "close": true
-      }
-    },
-    {
-      "label": "Copy active file content",
-      "type": "shell",
-      "command": "copy-file-pretty",
-      "args": [
-        "${file}"
-      ],
-      "options": {
-        "shell": {
-          "executable": "/bin/zsh",
-          "args": [
-            "-ic"
-          ]
-        }
-      },
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "never",
-        "close": true
-      }
-    },
-    {
       "label": "Purge slop comments",
       "type": "shell",
       "command": "doc-purge",

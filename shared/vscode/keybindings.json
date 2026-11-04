@@ -103,9 +103,8 @@
     "when": "!editorFocus"
   },
   {
-    "key": "ctrl+alt+c",
-    "command": "copyRelativeFilePath",
-    "when": "!editorFocus"
+    "key": "shift+cmd+[Period]",
+    "command": "copyRelativeFilePath"
   },
   {
     "key": "shift+cmd+t",
@@ -119,33 +118,6 @@
     "key": "shift+cmd+[Period]",
     "command": "-breadcrumbs.focus",
     "when": "breadcrumbsPossible && breadcrumbsVisible"
-  },
-  {
-    "key": "shift+cmd+[Period]",
-    "command": "runCommands",
-    "args": {
-      "commands": [
-        "workbench.action.files.save",
-        {
-          "command": "workbench.action.tasks.runTask",
-          "args": "Copy active relative path"
-        }
-      ]
-    },
-  },
-  {
-    "key": "shift+alt+[Period]",
-    "command": "runCommands",
-    "args": {
-      "commands": [
-        "workbench.action.files.save",
-        {
-          "command": "workbench.action.tasks.runTask",
-          "args": "Copy active file content"
-        }
-      ]
-    },
-    "when": "editorFocus"
   },
   {
     "key": "shift+cmd+g",
@@ -874,5 +846,15 @@
   {
     "key": "ctrl+shift+alt+cmd+tab",
     "command": "dotCode.previousFile"
+  },
+  {
+    "key": "cmd+k shift+alt+cmd+c",
+    "command": "-copyRelativeFilePath",
+    "when": "editorFocus"
+  },
+  {
+    "key": "shift+alt+cmd+c",
+    "command": "-copyRelativeFilePath",
+    "when": "!editorFocus"
   }
 ]

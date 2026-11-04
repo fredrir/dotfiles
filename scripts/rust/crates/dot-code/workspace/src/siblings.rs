@@ -85,7 +85,7 @@ pub fn sibling(params: &Params) -> io::Result<Option<PathBuf>> {
         .map(|name| dir.join(name)))
 }
 
-fn slash_separated(path: &Path) -> String {
+pub(crate) fn slash_separated(path: &Path) -> String {
     path.components()
         .filter_map(|component| match component {
             Component::Normal(part) => part.to_str(),

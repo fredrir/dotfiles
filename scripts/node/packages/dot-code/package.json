@@ -98,6 +98,11 @@
         "category": "Dot Code"
       },
       {
+        "command": "dotCode.copyFileAsMarkdown",
+        "title": "Copy File as Markdown",
+        "category": "Dot Code"
+      },
+      {
         "command": "dotCode.install",
         "title": "Install Dependencies",
         "category": "Dot Code"
@@ -188,6 +193,10 @@
         {
           "command": "dotCode.transformToUppercase",
           "when": "editorIsOpen && !editorReadonly"
+        },
+        {
+          "command": "dotCode.copyFileAsMarkdown",
+          "when": "editorIsOpen"
         }
       ]
     },
