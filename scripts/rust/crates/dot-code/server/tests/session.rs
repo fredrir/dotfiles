@@ -2,7 +2,7 @@
 
 use std::thread::{self, JoinHandle};
 
-use dot_code_server::{PACKAGE_MANAGER, SIBLING_FILE, TRANSFORM_CASE};
+use dot_code_server::{FILE_MARKDOWN, PACKAGE_MANAGER, SIBLING_FILE, TRANSFORM_CASE};
 use dot_code_typescript::{EXTRACT_INTERFACE, EXTRACT_TYPE};
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use serde_json::{Value, json};
@@ -228,6 +228,20 @@ fn transform_case_remembers_words_between_requests() {
     assert_eq!(
         pascal,
         json!([{ "text": "SomeThing", "before": 0, "after": 0 }])
+    );
+    client.stop();
+}
+
+#[test]
+fn file_markdown_renders_the_text_under_its_workspace_path() {
+    let (mut client, _) = Client::start();
+    let markdown = client.request(
+        FILE_MARKDOWN,
+        json!({ "path": "/project/src/a.ts", "root": "/project", "text": "let a = 1;\n" }),
+    );
+    assert_eq!(
+        markdown,
+        json!("---\n**src/a.ts:**\n```ts\nlet a = 1;\n```\n---\n\n")
     );
     client.stop();
 }

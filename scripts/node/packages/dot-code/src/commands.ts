@@ -1,6 +1,7 @@
 import * as cp from "node:child_process";
 import * as util from "node:util";
 import * as vscode from "vscode";
+import { copyFileAsMarkdown } from "./copy";
 import { install } from "./install";
 import { navigate } from "./navigate";
 import { rename } from "./rename";
@@ -52,6 +53,9 @@ export function registerCommands(
     ),
     vscode.commands.registerCommand("dotCode.previousFile", () =>
       navigate(server, -1),
+    ),
+    vscode.commands.registerCommand("dotCode.copyFileAsMarkdown", () =>
+      copyFileAsMarkdown(server),
     ),
     vscode.commands.registerCommand("dotCode.install", () =>
       install(server, outputChannel),

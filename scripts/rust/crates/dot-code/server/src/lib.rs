@@ -9,7 +9,7 @@ use std::io;
 use documents::{Document, Documents, position_in};
 use dot_code_case::Memory;
 use dot_code_core::{Action, Feature, Request as Query, Trigger, apply};
-use dot_code_workspace::{packages, siblings};
+use dot_code_workspace::{packages, siblings, snippet};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
@@ -42,6 +42,9 @@ pub const PACKAGE_MANAGER: &str = "dotCode/packageManager";
 
 /// Converts the case of editor selections or text taken from other inputs.
 pub const TRANSFORM_CASE: &str = "dotCode/transformCase";
+
+/// Renders a file as a fenced Markdown block under its workspace-relative path.
+pub const FILE_MARKDOWN: &str = "dotCode/fileMarkdown";
 
 pub fn features() -> Vec<Box<dyn Feature>> {
     vec![Box::new(dot_code_typescript::TypeScript::default())]
@@ -153,6 +156,7 @@ impl Server {
             SIBLING_FILE => reply(request, |params| siblings::sibling(&params)),
             PACKAGE_MANAGER => reply(request, |params| Ok(packages::plan(&params))),
             TRANSFORM_CASE => reply(request, |params| Ok(self.memory.transform(&params))),
+            FILE_MARKDOWN => reply(request, |params| Ok(snippet::markdown(&params))),
             method => Response::new_err(
                 request.id,
                 ErrorCode::MethodNotFound as i32,
