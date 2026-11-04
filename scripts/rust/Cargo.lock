@@ -1601,10 +1601,14 @@ dependencies = [
  "dotfmt-bib",
  "dotfmt-conf",
  "dotfmt-core",
+ "dotfmt-env",
+ "dotfmt-ignore",
+ "dotfmt-ini",
  "dotfmt-json",
  "dotfmt-latex",
  "dotfmt-lua",
  "dotfmt-markdown",
+ "dotfmt-plist",
  "dotfmt-toml",
  "dotfmt-yaml",
  "rayon",
@@ -1634,6 +1638,28 @@ version = "0.1.0"
 dependencies = [
  "ignore",
  "tempfile",
+]
+
+[[package]]
+name = "dotfmt-env"
+version = "0.1.0"
+dependencies = [
+ "dotfmt-core",
+ "unicode-width",
+]
+
+[[package]]
+name = "dotfmt-ignore"
+version = "0.1.0"
+dependencies = [
+ "dotfmt-core",
+]
+
+[[package]]
+name = "dotfmt-ini"
+version = "0.1.0"
+dependencies = [
+ "dotfmt-core",
 ]
 
 [[package]]
@@ -1668,6 +1694,16 @@ dependencies = [
  "comrak",
  "dotfmt-core",
  "unicode-width",
+]
+
+[[package]]
+name = "dotfmt-plist"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "dotfmt-core",
+ "plist",
+ "quick-xml 0.42.0",
 ]
 
 [[package]]

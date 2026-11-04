@@ -4,6 +4,7 @@ use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use dotfmt_core::language::Language;
 use rayon::prelude::*;
 
+use super::engine::Formatted;
 use super::plan::{BufferJob, Job, Work};
 use super::{
     BufferChange, BufferOutcome, Change, FileOutcome, Outcome, Plan, Repairs, Session, attach_path,
@@ -34,6 +35,7 @@ impl Session {
                         Language::Bib
                             | Language::Latex
                             | Language::Lua
+                            | Language::Plist
                             | Language::Toml
                             | Language::Yaml,
                     )
@@ -74,15 +76,18 @@ fn format_file(job: &Job, check: bool, clean: bool) -> FileOutcome {
         let input = fs::read(&job.absolute)
             .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
         let formatted = job.engine.format(&job.path, &input, job.markdown, clean)?;
-        let changed = formatted.text.as_bytes() != input;
-        if changed && !check {
-            dotfmt_core::file::replace(&job.absolute, formatted.text.as_bytes())
-                .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
-        }
-        Ok(Change {
-            changed,
-            repairs: formatted.repairs,
-        })
+        let (changed, repairs) = match formatted {
+            Formatted::Text { text, repairs } => {
+                let changed = text.as_bytes() != input;
+                if changed && !check {
+                    dotfmt_core::file::replace(&job.absolute, text.as_bytes())
+                        .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
+                }
+                (changed, repairs)
+            }
+            Formatted::Verbatim => (false, Repairs::default()),
+        };
+        Ok(Change { changed, repairs })
     })()
     .map_err(|error| attach_path(error, &job.path));
     FileOutcome {
@@ -97,15 +102,24 @@ fn format_buffer(job: BufferJob, clean: bool) -> BufferOutcome {
     let result = match job.engine {
         Some(engine) => engine
             .format(&input.path, &input.input, job.markdown, clean)
-            .map(|formatted| {
-                let output = formatted.text.into_bytes();
-                BufferChange {
-                    change: Change {
-                        changed: output != input.input,
-                        repairs: formatted.repairs,
-                    },
-                    output,
+            .map(|formatted| match formatted {
+                Formatted::Text { text, repairs } => {
+                    let output = text.into_bytes();
+                    BufferChange {
+                        change: Change {
+                            changed: output != input.input,
+                            repairs,
+                        },
+                        output,
+                    }
                 }
+                Formatted::Verbatim => BufferChange {
+                    output: input.input.clone(),
+                    change: Change {
+                        changed: false,
+                        repairs: Repairs::default(),
+                    },
+                },
             }),
         None => Ok(BufferChange {
             output: input.input,

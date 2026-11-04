@@ -1,6 +1,6 @@
 {
   # width = 80                   # Lua lines / Markdown tables / YAML flow collections / TOML arrays / inline tables
-  # indent = 2                   # conf / JSON / Lua / TOML / YAML
+  # indent = 2                   # Conf / Ini (Git and SSH) / JSON / LaTeX / Lua / Plist / TOML / YAML
   # final_newline = false        # true | false
   # quote_style = double         # double | single | auto | auto-prefer-double | auto-prefer-single; TOML preserves quoting
 }
@@ -15,6 +15,68 @@ conf {
 
   included_files {} # files to beyond what's supported; gitignore syntax
   excluded_files {} # gitignore syntax
+}
+
+env {
+  enabled                  = true  # true | false
+  line_endings             = unix  # unix | windows
+  final_newline            = true  # true | false
+  blank_lines              = 1     # 0..10; max consecutive blank lines
+  align                    = false # true | false; opt-in, spaces around = can break consumers
+  align_max                = 24    # 0..1000; widest entry prefix to align
+  format_comments          = false # true | false; space after #
+  trim_trailing_whitespace = true  # true | false; outside quoted values
+
+  included_files {}
+  excluded_files {}
+}
+
+ignore {
+  enabled                  = true  # true | false
+  dialect                  = auto  # auto | git (gitignore) | ignore (ripgrep) | prettier | vscode | attributes
+  line_endings             = unix  # unix | windows
+  final_newline            = true  # true | false
+  blank_lines              = 1     # 0..10; max consecutive blank lines
+  trim_trailing_whitespace = true  # true | false; dialect-safe
+  trim_leading_whitespace  = false # true | false; attributes only
+  format_comments          = false # true | false; space after #
+  align                    = true  # true | false; attributes only
+  align_max                = 24    # 0..1000; widest pattern to align
+
+  included_files {}
+  excluded_files {}
+}
+
+ini {
+  enabled          = true  # true | false
+  dialect          = auto  # auto | generic | git | editorconfig | systemd | ssh
+  # indent         = 2    # Git default; SSH defaults to 4; generic/editorconfig/systemd stay at column 0
+  indent_type      = spaces # spaces | tabs
+  line_endings     = unix  # unix | windows
+  final_newline    = true  # true | false
+  blank_lines      = 1     # 0..10; max consecutive blank lines
+  align            = true  # true | false; git/editorconfig/generic separators and ssh keywords
+  align_max        = 24    # 0..1000; widest key to align
+  format_comments  = false # true | false; space after # or ;
+
+  included_files {}
+  excluded_files {}
+}
+
+plist {
+  enabled        = true     # true | false
+  indent         = 2        # 1..16; spaces per level
+  indent_type    = spaces   # spaces | tabs
+  line_endings   = unix     # unix | windows
+  final_newline  = true     # true | false
+  blank_lines    = 1        # 0..10; max consecutive blank lines
+  data_width     = 0        # 0 = preserve; 1..120 = wrap base64
+  prolog         = preserve # preserve | normalize; XML declaration and DOCTYPE
+  self_closing   = preserve # preserve | always | never
+  sort_keys      = false    # only false; reordering keys changes duplicate-key shadowing
+
+  included_files {}
+  excluded_files {}
 }
 
 markdown {

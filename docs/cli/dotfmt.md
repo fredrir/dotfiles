@@ -3,9 +3,9 @@
 ## Commands
 
 <!-- cli:commands:start -->
-| Command  | Description                                                                                                      |
-| -------- | ---------------------------------------------------------------------------------------------------------------- |
-| `dotfmt` | Formats configured BibTeX, conf, JSON, LaTeX, Lua, Markdown, TOML and YAML files with one layered configuration. |
+| Command  | Description                                                                                                                               |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `dotfmt` | Formats configured BibTeX, conf, env, ignore, ini, JSON, LaTeX, Lua, Markdown, plist, TOML and YAML files with one layered configuration. |
 <!-- cli:commands:end -->
 
 ```sh
@@ -15,7 +15,11 @@ dotfmt -l json,markdown,yaml .
 dotfmt -l lua --dialect luau script.luau
 dotfmt -l latex,bib .
 dotfmt -l latex --dialect context main.tex
-dotfmt -l conf --stdin ~/.ssh/config < ~/.ssh/config
+dotfmt -l ini ~/.gitconfig
+dotfmt -l ini --dialect ssh --stdin ~/.ssh/config < ~/.ssh/config
+dotfmt -l ignore .gitignore .gitattributes
+dotfmt -l env .env
+dotfmt -l plist Info.plist
 dotfmt -e note.md < note.md
 dotfmt -c -l md note.md
 dotfmt --add .
@@ -48,22 +52,22 @@ A repair never invents a value, so `{"a":}` stays an error.
 ## Flags
 
 <!-- cli:flags:start -->
-| Flag                      | Description                                                                                                                                  |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-l`, `--lang <LANGUAGE>` | Select configured languages; repeat or comma-separate bib (bibtex, biblatex), conf, json, latex (tex), lua, markdown (md), toml, yaml (yml). |
-| `--check`                 | Report formatting differences without writing files.                                                                                         |
-| `-c`, `--clean`           | Format Markdown and strip all Markdown formatting; requires --lang markdown.                                                                 |
-| `-a`, `--add`             | Offer dotfmt.dotfile to the target, asking before writing.                                                                                   |
-| `-s`, `--sync`            | Replace an existing target dotfmt.dotfile with the shared configuration.                                                                     |
-| `--dialect <DIALECT>`     | Override the dialect for one selected language.                                                                                              |
-| `-e`, `--editor`          | Read standard input for an editor.                                                                                                           |
-| `--stdin <FILENAME>`      | Read standard input as the named file, using its configuration and dialect.                                                                  |
-| `--owns`                  | Read NUL-separated filenames and emit those selected by the effective configuration.                                                         |
-| `-v`, `--verbose`         | Show detailed formatting results and each repair.                                                                                            |
-| `-q`, `--quiet`           | Report only failures.                                                                                                                        |
-| `-h`, `--help`            | Shows help for the selected command and exits.                                                                                               |
-| `--completions <SHELL>`   | Prints a shell completion script for the named shell and exits.                                                                              |
-| `-V`, `--version`         | Prints the version and exits.                                                                                                                |
+| Flag                      | Description                                                                                                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `-l`, `--lang <LANGUAGE>` | Select configured languages; repeat or comma-separate bib (bibtex, biblatex), conf, env (dotenv), ignore (gitignore), ini, json, latex (tex), lua, markdown (md), plist, toml, yaml (yml). |
+| `--check`                 | Report formatting differences without writing files.                                                                                                                                       |
+| `-c`, `--clean`           | Format Markdown and strip all Markdown formatting; requires --lang markdown.                                                                                                               |
+| `-a`, `--add`             | Offer dotfmt.dotfile to the target, asking before writing.                                                                                                                                 |
+| `-s`, `--sync`            | Replace an existing target dotfmt.dotfile with the shared configuration.                                                                                                                   |
+| `--dialect <DIALECT>`     | Override the dialect for one selected language.                                                                                                                                            |
+| `-e`, `--editor`          | Read standard input for an editor.                                                                                                                                                         |
+| `--stdin <FILENAME>`      | Read standard input as the named file, using its configuration and dialect.                                                                                                                |
+| `--owns`                  | Read NUL-separated filenames and emit those selected by the effective configuration.                                                                                                       |
+| `-v`, `--verbose`         | Show detailed formatting results and each repair.                                                                                                                                          |
+| `-q`, `--quiet`           | Report only failures.                                                                                                                                                                      |
+| `-h`, `--help`            | Shows help for the selected command and exits.                                                                                                                                             |
+| `--completions <SHELL>`   | Prints a shell completion script for the named shell and exits.                                                                                                                            |
+| `-V`, `--version`         | Prints the version and exits.                                                                                                                                                              |
 <!-- cli:flags:end -->
 
 ## Configuration
@@ -90,6 +94,15 @@ conf {
     *.ssh
   }
 }
+
+env {}
+ignore {
+  align = true
+}
+ini {
+  align = true
+}
+plist {}
 
 markdown {}
 json {}
@@ -122,7 +135,7 @@ excluded_files {
 | Ambiguous mappings | Error; select the language explicitly |
 | Custom extensions | Must contain syntax understood by the assigned engine |
 
-The shipped config enables all eight languages. `dotfile sync` installs it. `--add` and `--sync` use that single configuration file.
+The shipped config enables all twelve languages. `dotfile sync` installs it. `--add` and `--sync` use that single configuration file.
 
 ## Languages and settings
 
@@ -130,29 +143,37 @@ The shipped config enables all eight languages. `dotfile sync` installs it. `--a
 | --- | --- | --- |
 | `bib` | `.bib` | None; BibTeX and BibLaTeX syntax share one grammar |
 | `conf` | `.conf`, `.config`, `.dotfile` | Filename-dependent plain/Hyprland and block formatting |
+| `env` (`dotenv`) | `.env`, `.env.*`, `*.env`, `env` | None; values, exports, order and duplicate keys are preserved |
+| `ignore` (`gitignore`) | `.gitignore`, `.ignore`, `ignore`, `.prettierignore`, `.vscodeignore`, `.gitattributes`, `.git/info/exclude`, `.git/info/attributes` | `auto`, `git` (`gitignore`), `ignore` (`ripgrep`), `prettier` (`prettierignore`), `vscode` (`vscodeignore`), `attributes` (`gitattributes`) |
+| `ini` | `.ini`, `.service`, `.timer`, `.path`, `.socket`, `.target`, `.mount`, `.automount`, `.swap`, `.slice`, `.scope`, `.device`, `.network`, `.netdev`, `.link`, `.gitconfig`, `.gitmodules`, `.git/config`, `git/config`, `.editorconfig`, `ssh_config`, `sshd_config`, `.ssh/config`, `.ssh/config.d/*` | `auto`, `generic`, `git` (`gitconfig`), `editorconfig`, `systemd`, `ssh` |
 | `json` | `.json`, `.jsonc`, `.hujson`, `.jwcc`, `.jsonl`, `.ndjson`, `.jsonlines` | `auto`, `json`, `jsonc`, `hujson` (`jwcc`), `jsonl` (`ndjson`, `jsonlines`) |
 | `latex` (`tex`) | `.tex`, `.ltx`, `.latex`, `.sty`, `.cls`, `.dtx`, `.ins`, `.def`, `.clo`, `.lco`, `.fd`, `.bbx`, `.cbx`, `.lbx`, `.pgf`, `.tikz`, `.ctx`, `.mkii`, `.mkiv`, `.mkvi`, `.mkxl` | `auto`, `latex` (`pdftex`, `xelatex`, `lualatex`, `expl3`, `beamer`, `tikz`), `plain` (`tex`, `optex`), `context` (`ctx`, `mkiv`, `lmtx`) |
 | `lua` | `.lua`, `.luau` | `auto`, `all`, `lua51`–`lua54`, `luajit`, `luau` |
 | `markdown` (`md`) | `.md`, `.markdown`, `.mdown`, `.mkd` | `auto`, `commonmark`, `gfm` (`github`), `obsidian` |
+| `plist` | `.plist` | None; XML plists are formatted, binary and OpenStep plists pass through unchanged |
 | `toml` | `.toml` | None |
 | `yaml` (`yml`) | `.yaml`, `.yml` | None |
 
 | Global setting | Application |
 | --- | --- |
 | `final_newline` | All languages |
-| `indent` | Bib, Conf blocks, JSON, LaTeX, Lua, TOML, YAML |
-| `width` | Bib and LaTeX wrapping, Lua line wrapping, Markdown table layout, YAML flow collections and TOML arrays/inline tables |
-| `quote_style` | Lua and YAML quote selection; JSON always emits double quotes; Bib, conf, LaTeX, Markdown and TOML preserve quoting and ignore it |
-| `repair` | All languages; defaults to `true`; see [Repairs](#repairs) |
+| `indent` | Bib, Conf blocks, Ini (Git and SSH), JSON, LaTeX, Lua, Plist, TOML, YAML |
+| `width` | Bib and LaTeX wrapping, Lua line wrapping, Markdown table layout, YAML flow collections and TOML arrays/inline tables; accepted and ignored by Env, Ignore, Ini and Plist |
+| `quote_style` | Lua and YAML quote selection; JSON always emits double quotes; Bib, conf, env, ignore, ini, LaTeX, Markdown, plist and TOML preserve quoting and ignore it |
+| `repair` | All languages; defaults to `true`; the new config engines do not repair, so malformed input is reported instead |
 
 | Language | Additional settings |
 | --- | --- |
 | Bib | `indent_type`, `line_endings`, `blank_lines`, `align`, `align_max`, `trailing_comma`, `wrap`, `wrap_min`, `field_name_case`, `entry_type_case` |
 | Conf | `align`, `align_max`, `blank_lines` |
+| Env | `line_endings`, `blank_lines`, `align`, `align_max`, `format_comments`, `trim_trailing_whitespace` |
+| Ignore | `dialect`, `line_endings`, `blank_lines`, `trim_trailing_whitespace`, `trim_leading_whitespace`, `format_comments`, `align`, `align_max` |
+| Ini | `dialect`, `indent`, `indent_type`, `line_endings`, `blank_lines`, `align`, `align_max`, `format_comments` |
 | JSON | `dialect`; `indent = -1` uses tabs, `0` emits compact JSON, `1`–`7` uses spaces; JSONL ignores `indent` |
 | LaTeX | `dialect`, `indent_type`, `line_endings`, `wrap`, `wrap_min`, `wrap_chars`, `format_tables`, `blank_lines`, `verify`, `lists`, `verbatims`, `no_indent_envs` |
 | Lua | `dialect`, `indent_type`, `line_endings`, `call_parentheses`, `collapse_simple_statement`, `space_after_function_names`, `block_newline_gaps`, `sort_requires`, `verify` |
 | Markdown | `dialect`, `table_style`, `autosize_table`, `blank_lines`, `heading_blank_lines`, `list_marker`, `trim_trailing_blank_lines` |
+| Plist | `indent`, `indent_type`, `line_endings`, `blank_lines`, `data_width`, `prolog`, `self_closing`, `sort_keys` (must be `false`) |
 | TOML | `line_endings`, `allowed_blank_lines`, `align_entries`, `align_comments`, `align_single_comments`, `array_trailing_comma`, `array_auto_expand`, `array_auto_collapse`, `compact_arrays`, `compact_inline_tables`, `compact_entries`, `inline_table_expand`, `indent_tables`, `indent_entries`, `reorder_keys`, `format_comments` |
 | YAML | `line_endings`, `indent_sequences`, `trailing_comma`, `brace_spacing`, `bracket_spacing`, `dash_spacing`, `prefer_single_line`, `format_comments` |
 
@@ -162,7 +183,9 @@ LaTeX verbatim environments and inline `\verb`, `\lstinline`, `\mintinline`, `\u
 
 Bib output keeps block and field order, field and entry keys, value delimiters, macro names used in values and every value byte; it never deduplicates or sorts. Field and entry type case are configurable, and malformed input is reported instead of repaired: a bare `@` that does not start a block, an unterminated `@comment`, a comment between concatenated value parts and a comment before the end of `@preamble` are located syntax errors. `@string` definition names follow `field_name_case`; macro uses keep their spelling. `line_endings = windows` also rewrites newlines inside multi-line values. `wrap` only replaces existing spaces inside values with line breaks and continuation indentation; verification ignores those inserted whitespace changes.
 
-Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. Markdown drops leading blank lines and collapses runs longer than `blank_lines` outside code and HTML blocks. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; `--clean` with `--lang markdown` formats and then strips all Markdown formatting, leaving plain text, code and table cells. JSONL reads any whitespace-separated values, like `jq -c`, and writes one compact record per line, dropping blank lines. YAML output must parse to the same values as its input, otherwise the file is left unchanged. TOML output must preserve values and comments or the file is left unchanged.
+Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. Markdown drops leading blank lines and collapses runs longer than `blank_lines` outside code and HTML blocks. `auto` detects Lua/JSON dialects from filenames, Ini and Ignore dialects from filenames and paths, and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; `--clean` with `--lang markdown` formats and then strips all Markdown formatting, leaving plain text, code and table cells. JSONL reads any whitespace-separated values, like `jq -c`, and writes one compact record per line, dropping blank lines. YAML output must parse to the same values as its input, otherwise the file is left unchanged. TOML output must preserve values and comments or the file is left unchanged.
+
+Ini preserves section order, duplicate keys, comments, quoting, inline marker bytes and continuation bytes; indentation, separator padding, trailing layout whitespace, blank runs, SSH `Keyword = Value` normalization and full-line comment spacing change. Ignore preserves every pattern and attribute byte, negation, ordering and BOM; only blank runs, safe trailing whitespace, comment spacing and `.gitattributes` attribute alignment change. A bare `ignore` is treated as Git (`core.excludesFile`); `.ignore` is the ripgrep dialect. Env never rewrites quoted value bytes, quotes, `export`, ordering or duplicate keys; layout whitespace around `=` and unquoted trailing whitespace are normalized (`trim_trailing_whitespace`), and `align` is opt-in because spaces around `=` can break shell and Docker consumers. Plist formats XML plists only; comments, CDATA, entity spelling, text bytes, key order and duplicate keys are preserved, while binary and OpenStep plists pass through unchanged.
 
 | Result | Exit status |
 | --- | --- |

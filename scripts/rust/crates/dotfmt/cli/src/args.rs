@@ -12,7 +12,7 @@ pub struct Cli {
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]
     pub targets: Vec<PathBuf>,
 
-    /// Select configured languages: bib (bibtex, biblatex), conf, json, latex (tex), lua, md, markdown, toml, yml or yaml.
+    /// Select configured languages: bib (bibtex, biblatex), conf, env (dotenv), ignore (gitignore), ini, json, latex (tex), lua, md, markdown, plist, toml, yml or yaml.
     #[arg(short = 'l', long = "lang", value_delimiter = ',', value_parser = language(), value_name = "LANGUAGE")]
     pub languages: Vec<Language>,
 

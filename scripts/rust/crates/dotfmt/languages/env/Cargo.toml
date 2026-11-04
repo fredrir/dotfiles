@@ -1,0 +1,13 @@
+[package]
+name              = "dotfmt-env"
+version.workspace = true
+description       = "Formats .env files"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace   = true
+unicode-width.workspace = true

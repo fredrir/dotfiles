@@ -21,6 +21,12 @@ pub struct Engine {
 enum Kind {
     Bib(dotfmt_bib::config::Config),
     Conf(dotfmt_conf::config::Config),
+    Env(dotfmt_env::config::Config),
+    Ignore(
+        dotfmt_ignore::config::Config,
+        dotfmt_ignore::dialect::Dialect,
+    ),
+    Ini(dotfmt_ini::config::Config, dotfmt_ini::dialect::Dialect),
     Json(dotfmt_json::config::Config, dotfmt_json::dialect::Dialect),
     Latex(dotfmt_latex::config::Config, dotfmt_latex::dialect::Dialect),
     Lua(dotfmt_lua::config::Config, dotfmt_lua::dialect::Dialect),
@@ -28,13 +34,14 @@ enum Kind {
         dotfmt_markdown::config::Config,
         dotfmt_markdown::dialect::Dialect,
     ),
+    Plist(dotfmt_plist::config::Config),
     Toml(dotfmt_toml::config::Config),
     Yaml(dotfmt_yaml::config::Config),
 }
 
-pub struct Formatted {
-    pub text: String,
-    pub repairs: Repairs,
+pub enum Formatted {
+    Text { text: String, repairs: Repairs },
+    Verbatim,
 }
 
 impl Engine {
@@ -62,6 +69,15 @@ impl Engine {
         let kind = match language {
             Language::Bib => Kind::Bib(dotfmt_bib::config::Config::from_settings(settings)?),
             Language::Conf => Kind::Conf(dotfmt_conf::config::Config::from_settings(settings)?),
+            Language::Env => Kind::Env(dotfmt_env::config::Config::from_settings(settings)?),
+            Language::Ignore => Kind::Ignore(
+                dotfmt_ignore::config::Config::from_settings(settings)?,
+                dotfmt_ignore::dialect::Dialect::Auto,
+            ),
+            Language::Ini => Kind::Ini(
+                dotfmt_ini::config::Config::from_settings(settings)?,
+                dotfmt_ini::dialect::Dialect::Auto,
+            ),
             Language::Json => Kind::Json(
                 dotfmt_json::config::Config::from_settings(settings)?,
                 dotfmt_json::dialect::Dialect::Auto,
@@ -78,6 +94,7 @@ impl Engine {
                 dotfmt_markdown::config::Config::from_settings(settings)?,
                 dotfmt_markdown::dialect::Dialect::Auto,
             ),
+            Language::Plist => Kind::Plist(dotfmt_plist::config::Config::from_settings(settings)?),
             Language::Toml => Kind::Toml(dotfmt_toml::config::Config::from_settings(settings)?),
             Language::Yaml => Kind::Yaml(dotfmt_yaml::config::Config::from_settings(settings)?),
         };
@@ -97,6 +114,16 @@ impl Engine {
                     return Err(configuration(format!("conf has no {value:?} dialect")));
                 }
             }
+            Kind::Env(_) => {
+                if !value.eq_ignore_ascii_case("auto") {
+                    return Err(configuration(format!("env has no {value:?} dialect")));
+                }
+            }
+            Kind::Plist(_) => {
+                if !value.eq_ignore_ascii_case("auto") {
+                    return Err(configuration(format!("plist has no {value:?} dialect")));
+                }
+            }
             Kind::Toml(_) => {
                 if !value.eq_ignore_ascii_case("auto") {
                     return Err(configuration(format!("toml has no {value:?} dialect")));
@@ -106,6 +133,14 @@ impl Engine {
                 if !value.eq_ignore_ascii_case("auto") {
                     return Err(configuration(format!("yaml has no {value:?} dialect")));
                 }
+            }
+            Kind::Ignore(_, dialect) => {
+                *dialect =
+                    dotfmt_ignore::dialect::Dialect::parse(value, true).map_err(configuration)?
+            }
+            Kind::Ini(_, dialect) => {
+                *dialect =
+                    dotfmt_ini::dialect::Dialect::parse(value, true).map_err(configuration)?
             }
             Kind::Json(_, dialect) => {
                 *dialect =
@@ -135,7 +170,7 @@ impl Engine {
         clean: bool,
     ) -> Result<Formatted, Diagnostic> {
         let unrepaired = |text| {
-            Ok(Formatted {
+            Ok(Formatted::Text {
                 text,
                 repairs: Repairs::default(),
             })
@@ -143,6 +178,18 @@ impl Engine {
         match &self.kind {
             Kind::Bib(config) => unrepaired(dotfmt_bib::format(utf8(input)?, config)?),
             Kind::Conf(config) => unrepaired(dotfmt_conf::format(path, input, config)?),
+            Kind::Env(config) => unrepaired(dotfmt_env::format(utf8(input)?, config)?),
+            Kind::Ignore(config, dialect) => {
+                let mut config = config.clone();
+                let detected = dotfmt_ignore::dialect::Dialect::detect(path);
+                config.dialect = dialect.resolve(config.dialect, detected);
+                unrepaired(dotfmt_ignore::format(path, input, &config)?)
+            }
+            Kind::Ini(config, dialect) => {
+                let mut config = config.clone();
+                config.dialect = dialect.resolve(config.dialect, path);
+                unrepaired(dotfmt_ini::format(path, input, &config)?)
+            }
             Kind::Json(config, dialect) => {
                 let output = dotfmt_json::format(
                     path,
@@ -155,7 +202,7 @@ impl Engine {
                         *dialect
                     },
                 )?;
-                Ok(Formatted {
+                Ok(Formatted::Text {
                     text: output.text,
                     repairs: output.repairs,
                 })
@@ -183,6 +230,10 @@ impl Engine {
                     formatted
                 })
             }
+            Kind::Plist(config) => match dotfmt_plist::format(input, config)? {
+                dotfmt_plist::Output::Text(text) => unrepaired(text),
+                dotfmt_plist::Output::Verbatim => Ok(Formatted::Verbatim),
+            },
             Kind::Toml(config) => self.settled(
                 utf8(input)?,
                 |text| dotfmt_toml::format(text, config),
@@ -209,12 +260,12 @@ impl Engine {
                 if repaired.repairs.is_empty() {
                     return Err(error);
                 }
-                Ok(Formatted {
+                Ok(Formatted::Text {
                     text: format(&repaired.text)?,
                     repairs: repaired.repairs,
                 })
             }
-            result => result.map(|text| Formatted {
+            result => result.map(|text| Formatted::Text {
                 text,
                 repairs: Repairs::default(),
             }),

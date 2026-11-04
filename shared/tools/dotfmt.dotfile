@@ -5,13 +5,29 @@
 }
 
 conf {
-  included_files {
-    **/ssh/config
-    **/ssh/config.d/*
-  }
   excluded_files {
     **/ssh/bin/
   }
+}
+
+env {
+  final_newline  = true
+}
+
+ignore {
+  final_newline    = true
+  align            = true
+  format_comments  = true
+}
+
+ini {
+  final_newline  = true
+  align          = true
+}
+
+plist {
+  final_newline  = true
+  indent         = 2
 }
 
 markdown {

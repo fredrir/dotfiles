@@ -1,0 +1,12 @@
+[package]
+name              = "dotfmt-ignore"
+version.workspace = true
+description       = "Formats .gitignore, .ignore, .prettierignore, .vscodeignore and .gitattributes files"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace = true

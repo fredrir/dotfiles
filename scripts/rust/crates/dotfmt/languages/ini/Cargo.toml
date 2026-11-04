@@ -1,0 +1,12 @@
+[package]
+name              = "dotfmt-ini"
+version.workspace = true
+description       = "Format INI-family files: generic INI, Git config, EditorConfig, systemd units and SSH config"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace = true

@@ -1,0 +1,17 @@
+[package]
+name              = "dotfmt-plist"
+version.workspace = true
+description       = "Formats XML property lists while preserving their values"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+base64                = "0.23"
+dotfmt-core.workspace = true
+quick-xml             = "0.42"
+
+[dev-dependencies]
+plist = { version = "1.10", default-features = false }
