@@ -204,3 +204,49 @@ fn readable_explicit_descendant_is_walked_when_ancestor_walk_is_incomplete() {
         "{\n  \"x\": 1\n}\n"
     );
 }
+
+#[test]
+fn file_runs_repair_files_and_verbose_names_each_fix() {
+    let root = tree_pairs(&[
+        ("dotfmt.dotfile", "json {}\n"),
+        ("a.json", "{\"a\":1 \"b\":2"),
+    ]);
+    let path = root.path().join("a.json");
+    let check = dotfmt(root.path()).args(["--check", "-v", "a.json"]).run();
+    assert_eq!(check.code(), Some(1), "{check:?}");
+    assert!(
+        check.stderr.contains("    1:7: would fix missing comma"),
+        "{check:?}"
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), "{\"a\":1 \"b\":2");
+    let quiet = dotfmt(root.path()).arg("a.json").run();
+    assert!(quiet.success(), "{quiet:?}");
+    assert!(!quiet.stderr.contains("fix"), "{quiet:?}");
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "{\n  \"a\": 1,\n  \"b\": 2\n}\n"
+    );
+    fs::write(&path, "{\"a\":1 \"b\":2").unwrap();
+    let verbose = dotfmt(root.path()).args(["-v", "a.json"]).run();
+    assert!(verbose.success(), "{verbose:?}");
+    assert!(
+        verbose.stderr.contains(
+            "  a.json: formatted\n    1:7: fixed missing comma\n    1:13: fixed bracket\n"
+        ),
+        "{verbose:?}"
+    );
+}
+
+#[test]
+fn a_json_file_with_comments_is_kept_as_jsonc() {
+    let body = "{\n  // note\n  \"a\": 1,\n}\n";
+    let root = tree_pairs(&[("dotfmt.dotfile", "json {}\n"), ("a.json", body)]);
+    let output = dotfmt(root.path()).args(["--check", "a.json"]).run();
+    assert!(output.success(), "{output:?}");
+    let output = dotfmt(root.path()).arg("a.json").run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.json")).unwrap(),
+        body
+    );
+}

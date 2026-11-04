@@ -15,6 +15,7 @@ dotfile dev check -p dotfmt-lua
 | Engine | Embedded [StyLua](https://github.com/JohnnyMorganz/StyLua); no subprocess |
 | Ignore comments | `-- stylua: ignore`, `-- stylua: ignore start`, `-- stylua: ignore end` |
 | Encoding | UTF-8; an existing UTF-8 BOM is preserved |
+| Repairs | Missing commas between table fields; `repair = false` turns them off; see [repairs](../../../../../../docs/cli/dotfmt.md#repairs) |
 | LuaJIT parser limitations | Hexadecimal floats such as `0x1p-1026` and identifiers named `goto` produce parse errors; affected files remain unchanged |
 | Configuration | `lua { ... }` in `dotfmt.dotfile`; global values and local overrides inherit |
 

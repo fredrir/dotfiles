@@ -7,23 +7,32 @@ use crate::config::Config;
 use crate::dialect::Dialect;
 use crate::parse::{self, Options};
 use crate::render;
-use crate::repair::Repairs;
+use dotfmt_core::repair::{Repair, Repairs};
 
 pub struct Formatted {
     pub text: String,
     pub repairs: Repairs,
 }
 
-/// Format in the selected dialect; editor mode permits repairs for plain JSON.
+/// `Dialect::Auto` resolves from the path, and a `.json` file found to hold
+/// comments is then formatted as JSONC so repairs keep them.
 pub fn format(
     path: &Path,
     input: &[u8],
     config: &Config,
-    editor: bool,
+    repair: bool,
     dialect: Dialect,
 ) -> Result<Formatted, Diagnostic> {
-    let shaped = shape(path, input, config, editor, dialect)?;
-    guard(path, &shaped.text, config, dialect)?;
+    let mut resolved = dialect.resolve(path);
+    let mut shaped = shape(path, input, config, repair, resolved)?;
+    if dialect == Dialect::Auto
+        && resolved == Dialect::Json
+        && shaped.repairs.of(Repair::Comment) > 0
+    {
+        resolved = Dialect::Jsonc;
+        shaped = shape(path, input, config, repair, resolved)?;
+    }
+    guard(path, &shaped.text, config, resolved)?;
     Ok(shaped)
 }
 
@@ -31,22 +40,22 @@ fn shape(
     path: &Path,
     input: &[u8],
     config: &Config,
-    editor: bool,
+    repair: bool,
     dialect: Dialect,
 ) -> Result<Formatted, Diagnostic> {
     if dialect.comments() {
-        return commented::format(input, config.layout())
-            .map(|text| Formatted {
-                text,
-                repairs: Repairs::default(),
-            })
+        return commented::format(input, config.layout(), repair)
+            .map(|(text, repairs)| Formatted { text, repairs })
             .map_err(|problem| syntax(path, problem));
     }
     if dialect == Dialect::Jsonl {
-        return lines(path, input, config, editor);
+        return lines(path, input, config, repair);
     }
-    let parsed =
-        parse::parse(input, Options { editor }).map_err(|problem| syntax(path, problem))?;
+    let options = Options {
+        repair,
+        commented: false,
+    };
+    let parsed = parse::parse(input, options).map_err(|problem| syntax(path, problem))?;
     let Some(value) = parsed.value else {
         // jq makes nothing of an empty input, so nothing is what an empty file
         // becomes. Anything else that holds no value is refused instead: a file
@@ -72,10 +81,13 @@ fn lines(
     path: &Path,
     input: &[u8],
     config: &Config,
-    editor: bool,
+    repair: bool,
 ) -> Result<Formatted, Diagnostic> {
-    let streamed =
-        parse::stream(input, Options { editor }).map_err(|problem| syntax(path, problem))?;
+    let options = Options {
+        repair,
+        commented: false,
+    };
+    let streamed = parse::stream(input, options).map_err(|problem| syntax(path, problem))?;
     // Blank lines hold no record, but a file of only comments still refuses.
     if streamed.values.is_empty() && !input.trim_ascii().is_empty() {
         return Err(Diagnostic::new(DiagnosticKind::Syntax, "expected a value")

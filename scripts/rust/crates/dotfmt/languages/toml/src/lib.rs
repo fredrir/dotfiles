@@ -3,11 +3,13 @@
 pub mod config;
 mod model;
 mod print;
+mod repair;
 mod trivia;
 mod verify;
 
 use config::{Config, LineEndings};
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
+pub use repair::repair;
 use toml_edit::{ImDocument, TomlError};
 
 #[cfg(test)]

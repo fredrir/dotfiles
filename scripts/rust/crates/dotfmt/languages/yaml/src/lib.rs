@@ -2,11 +2,13 @@
 
 pub mod config;
 mod print;
+mod repair;
 mod source;
 mod syntax;
 
 use config::{Config, LineEndings};
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
+pub use repair::repair;
 use source::Source;
 
 pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {

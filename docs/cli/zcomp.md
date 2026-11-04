@@ -20,8 +20,6 @@
 | `--current <INDEX>`     | Selects the cursor word by its position, counting from 1 like `$CURRENT`.               |
 | `--prefix <PREFIX>`     | Sets the cursor word up to the cursor, like `$PREFIX`.                                  |
 | `--color`               | Colors the candidates with the dotfile theme; set by the zsh integration under fzf-tab. |
-| `--lbuffer <LBUFFER>`   | Sets the command line left of the cursor, like `$LBUFFER`; passed for `jq`.             |
-| `--rbuffer <RBUFFER>`   | Sets the command line right of the cursor, like `$RBUFFER`; passed for `jq`.            |
 | `-h`, `--help`          | Shows help for the selected command and exits.                                          |
 | `--completions <SHELL>` | Prints a shell completion script for the named shell and exits.                         |
 | `-V`, `--version`       | Prints the version and exits.                                                           |

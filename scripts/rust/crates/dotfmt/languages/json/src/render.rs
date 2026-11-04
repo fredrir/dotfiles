@@ -135,6 +135,12 @@ fn indent(out: &mut String, layout: Layout, depth: usize) {
     }
 }
 
+pub(crate) fn string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    string_into(&mut out, text);
+    out
+}
+
 /// jq escapes the quote, the backslash, the control characters a JSON string
 /// cannot hold raw, and DEL — which JSON allows and jq writes as `\u007f`.
 fn string_into(out: &mut String, text: &str) {

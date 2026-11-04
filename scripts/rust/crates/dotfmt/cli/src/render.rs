@@ -286,6 +286,10 @@ pub fn rows(files: &[crate::app::FileOutcome], check: bool, verbose: bool) -> Ve
                             "unchanged"
                         }
                     ));
+                    let verb = if check { "would fix" } else { "fixed" };
+                    for fix in fixes(&change.repairs, verb) {
+                        row.output.push_str(&format!("    {fix}\n"));
+                    }
                 }
             }
             Err(_) => {
@@ -298,28 +302,49 @@ pub fn rows(files: &[crate::app::FileOutcome], check: bool, verbose: bool) -> Ve
 }
 
 pub fn repairs(repairs: &crate::app::Repairs) -> String {
-    use crate::app::Repair;
-    Repair::ALL
+    crate::app::Repair::ALL
         .into_iter()
         .filter_map(|repair| {
             let count = repairs.of(repair);
-            if count == 0 {
-                return None;
-            }
-            let (one, many) = match repair {
-                Repair::Comma => ("stray comma", "stray commas"),
-                Repair::MissingComma => ("missing comma", "missing commas"),
-                Repair::Comment => ("comment", "comments"),
-                Repair::Quote => ("single quote", "single quotes"),
-                Repair::Key => ("unquoted key", "unquoted keys"),
-                Repair::Literal => ("literal", "literals"),
-                Repair::Surrogate => ("lone surrogate", "lone surrogates"),
-                Repair::Control => ("control character", "control characters"),
-                Repair::Space => ("unusual space", "unusual spaces"),
-                Repair::Utf8 => ("invalid byte", "invalid bytes"),
-            };
-            Some(format!("{count} {}", plural(count, one, many)))
+            let (one, many) = label(repair);
+            (count > 0).then(|| format!("{count} {}", plural(count, one, many)))
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+pub fn fixes<'a>(
+    repairs: &'a crate::app::Repairs,
+    verb: &'a str,
+) -> impl Iterator<Item = String> + 'a {
+    repairs.fixes().iter().map(move |fix| {
+        format!(
+            "{}:{}: {verb} {}",
+            fix.line,
+            fix.column,
+            label(fix.repair).0
+        )
+    })
+}
+
+fn label(repair: crate::app::Repair) -> (&'static str, &'static str) {
+    use crate::app::Repair;
+    match repair {
+        Repair::Comma => ("stray comma", "stray commas"),
+        Repair::MissingComma => ("missing comma", "missing commas"),
+        Repair::Comment => ("comment", "comments"),
+        Repair::Quote => ("quote", "quotes"),
+        Repair::Key => ("unquoted key", "unquoted keys"),
+        Repair::Literal => ("literal", "literals"),
+        Repair::Number => ("number", "numbers"),
+        Repair::Surrogate => ("lone surrogate", "lone surrogates"),
+        Repair::Control => ("control character", "control characters"),
+        Repair::Space => ("unusual space", "unusual spaces"),
+        Repair::Utf8 => ("invalid byte", "invalid bytes"),
+        Repair::Fence => ("code fence", "code fences"),
+        Repair::Separator => ("separator", "separators"),
+        Repair::Colon => ("missing colon", "missing colons"),
+        Repair::Bracket => ("bracket", "brackets"),
+        Repair::Indent => ("tab indent", "tab indents"),
+    }
 }

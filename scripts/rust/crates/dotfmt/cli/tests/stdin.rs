@@ -100,7 +100,65 @@ fn editor_repairs_are_quiet_unless_verbose() {
         .run();
     assert!(verbose.success(), "{verbose:?}");
     assert_eq!(verbose.stdout, output.stdout);
-    assert!(verbose.stderr.contains("fixed"), "{verbose:?}");
+    assert_eq!(
+        verbose.stderr,
+        "dotfmt: a.json:1:2: fixed unquoted key\n\
+         dotfmt: a.json:1:6: fixed quote\n\
+         dotfmt: a.json:1:13: fixed stray comma\n"
+    );
+    let stdin = dotfmt(root.path())
+        .args(["--stdin", "a.json"])
+        .stdin("{key:'value',}")
+        .run();
+    assert!(stdin.success(), "{stdin:?}");
+    assert_eq!(
+        stdin.stderr,
+        "dotfmt: a.json: fixed 1 stray comma, 1 quote, 1 unquoted key\n"
+    );
+}
+
+#[test]
+fn repair_turns_off_globally_and_back_on_per_language() {
+    let broken = "{\"a\":1 \"b\":2}";
+    for (config, repaired) in [
+        ("{ repair = false }\njson {}\n", false),
+        ("{ repair = false }\njson { repair = true }\n", true),
+        ("json { repair = false }\n", false),
+        ("json {}\n", true),
+    ] {
+        let root = tree_pairs(&[("dotfmt.dotfile", config)]);
+        let output = dotfmt(root.path())
+            .args(["--stdin", "a.json"])
+            .stdin(broken)
+            .run();
+        assert_eq!(output.success(), repaired, "{config}: {output:?}");
+        if !repaired {
+            assert!(
+                output
+                    .stderr
+                    .contains("1:8: expected , or } between key-value pairs"),
+                "{output:?}"
+            );
+        }
+        let editor = dotfmt(root.path())
+            .args(["-e", "a.json"])
+            .stdin(broken)
+            .run();
+        assert!(editor.success(), "{editor:?}");
+        assert_eq!(editor.stdout != broken, repaired, "{config}: {editor:?}");
+    }
+    let root = tree_pairs(&[("dotfmt.dotfile", "json { repair = maybe }\n")]);
+    let output = dotfmt(root.path())
+        .args(["--stdin", "a.json"])
+        .stdin("{}")
+        .run();
+    assert!(!output.success());
+    assert!(
+        output
+            .stderr
+            .contains("repair must be true or false, not maybe"),
+        "{output:?}"
+    );
 }
 
 #[test]
@@ -227,8 +285,8 @@ fn configured_json_dialect_and_explicit_override_both_apply() {
         .args(["-l", "json", "--dialect", "json"])
         .stdin(input)
         .run();
-    assert!(!output.success(), "{output:?}");
-    assert!(output.stdout.is_empty());
+    assert!(output.success(), "{output:?}");
+    assert_eq!(output.stdout, "{\n  \"a\": 1\n}\n");
 }
 
 #[test]
@@ -342,4 +400,26 @@ fn editor_check_emits_no_output_and_legacy_stdin_flags_remain_compatible() {
         fs::read_to_string(root.path().join("a.json")).unwrap(),
         "disk contents"
     );
+}
+
+#[test]
+fn toml_yaml_and_lua_repair_through_the_same_setting() {
+    let root = tree_pairs(&[(
+        "dotfmt.dotfile",
+        "{ final_newline = false }\ntoml {}\nyaml {}\nlua { repair = false }\n",
+    )]);
+    for (name, input, expected) in [
+        ("a.toml", "a = [1 2]\n", "a = [1, 2]"),
+        ("a.yaml", "a:\n\tb: 1\n", "a:\n  b: 1"),
+    ] {
+        let output = dotfmt(root.path()).args(["-e", name]).stdin(input).run();
+        assert!(output.success(), "{output:?}");
+        assert_eq!(output.stdout, expected, "{name}");
+    }
+    let output = dotfmt(root.path())
+        .args(["--stdin", "a.lua"])
+        .stdin("local t = {a = 1 b = 2}\n")
+        .run();
+    assert_eq!(output.code(), Some(1), "{output:?}");
+    assert!(output.stderr.contains("after last field"), "{output:?}");
 }

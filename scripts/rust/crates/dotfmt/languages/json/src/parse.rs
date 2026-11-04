@@ -1,24 +1,35 @@
-//! Reading JSON, and — under `--editor` — reading what somebody meant.
+//! Reading JSON, and with `repair` on, reading what somebody meant.
 //!
-//! One parser does both jobs. Strict mode refuses everything JSON refuses, with
-//! a message that names the flag which would have taken it. Editor mode takes
-//! the repairs the flag promises and keeps a count of them, so a run can say
-//! what it changed rather than changing it quietly.
+//! One parser does both jobs. Strict mode refuses everything JSON refuses.
+//! Repair mode records every fix it takes along with the source edit that
+//! makes it, so a commented dialect can apply the same fixes to its own text
+//! and keep its comments.
 //!
 //! Numbers are the one place where being strict is not enough: `1e2` is a
 //! literal jq rewrites as `1E+2`, and a formatter that answered `100` would
 //! rewrite numbers nobody asked about. `number::canonical` decides, here, so
 //! the value tree only ever holds the text jq would print.
 
+use dotfmt_core::repair::{Edit, Locator, Repair, Repairs};
 use indexmap::IndexMap;
 
 use crate::number;
-use crate::repair::{Repair, Repairs};
+use crate::render;
 use crate::value::Value;
 
 /// Deep enough for any file a person writes, shallow enough that a pathological
 /// one is a message rather than a stack overflow.
 const MAX_DEPTH: usize = 512;
+
+const QUOTES: [(&[u8], &[u8]); 7] = [
+    (b"\"", b"\""),
+    (b"'", b"'"),
+    (b"`", b"`"),
+    ("\u{201c}".as_bytes(), "\u{201d}".as_bytes()),
+    ("\u{201d}".as_bytes(), "\u{201d}".as_bytes()),
+    ("\u{2018}".as_bytes(), "\u{2019}".as_bytes()),
+    ("\u{2019}".as_bytes(), "\u{2019}".as_bytes()),
+];
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Problem {
@@ -36,7 +47,9 @@ impl Problem {
 
 #[derive(Clone, Copy, Default)]
 pub struct Options {
-    pub editor: bool,
+    pub repair: bool,
+    /// Comments and trailing commas are part of the dialect, not repairs.
+    pub commented: bool,
 }
 
 pub struct Parsed {
@@ -44,6 +57,7 @@ pub struct Parsed {
     /// an empty file: nothing to write, and nothing wrong.
     pub value: Option<Value>,
     pub repairs: Repairs,
+    pub edits: Vec<Edit>,
 }
 
 pub struct Streamed {
@@ -55,22 +69,17 @@ pub fn parse(input: &[u8], options: Options) -> Result<Parsed, Problem> {
     let mut parser = Parser::new(input, options);
     parser.trivia()?;
     if parser.at == input.len() {
-        return Ok(Parsed {
-            value: None,
-            repairs: parser.repairs,
-        });
+        return Ok(parser.parsed(None));
     }
     let value = parser.value()?;
     parser.trivia()?;
+    parser.stray_closers()?;
     // jq reads `1 2` as a stream of two numbers. A formatter that did the same
     // would write two values into one file, which is not a file anybody wants.
     if parser.at != input.len() {
         return Err(parser.problem("more than one value"));
     }
-    Ok(Parsed {
-        value: Some(value),
-        repairs: parser.repairs,
-    })
+    Ok(parser.parsed(Some(value)))
 }
 
 /// Any run of values however they are spaced, as `jq -c` reads JSON Lines.
@@ -79,10 +88,11 @@ pub fn stream(input: &[u8], options: Options) -> Result<Streamed, Problem> {
     let mut values = Vec::new();
     loop {
         parser.trivia()?;
+        parser.stray_closers()?;
         if parser.at == input.len() {
             return Ok(Streamed {
                 values,
-                repairs: parser.repairs,
+                repairs: parser.located(),
             });
         }
         values.push(parser.value()?);
@@ -92,9 +102,13 @@ pub fn stream(input: &[u8], options: Options) -> Result<Streamed, Problem> {
 struct Parser<'a> {
     input: &'a [u8],
     at: usize,
-    editor: bool,
-    repairs: Repairs,
+    repair: bool,
+    commented: bool,
+    fixes: Vec<(Repair, usize)>,
+    edits: Vec<Edit>,
     depth: usize,
+    /// Where the last token ended: a missing comma or bracket goes here.
+    end: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -102,10 +116,39 @@ impl<'a> Parser<'a> {
         Parser {
             input,
             at: 0,
-            editor: options.editor,
-            repairs: Repairs::default(),
+            repair: options.repair,
+            commented: options.commented,
+            fixes: Vec::new(),
+            edits: Vec::new(),
             depth: 0,
+            end: 0,
         }
+    }
+
+    fn parsed(mut self, value: Option<Value>) -> Parsed {
+        Parsed {
+            value,
+            repairs: self.located(),
+            edits: std::mem::take(&mut self.edits),
+        }
+    }
+
+    fn located(&mut self) -> Repairs {
+        self.fixes.sort_by_key(|(_, at)| *at);
+        let mut locator = Locator::new(self.input);
+        self.fixes
+            .iter()
+            .map(|(repair, at)| locator.fix(*repair, *at))
+            .collect()
+    }
+
+    fn fix(&mut self, repair: Repair, at: usize) {
+        self.fixes.push((repair, at));
+    }
+
+    fn fixed(&mut self, repair: Repair, at: usize, edit: Edit) {
+        self.fix(repair, at);
+        self.edits.push(edit);
     }
 
     fn peek(&self) -> Option<u8> {
@@ -115,6 +158,7 @@ impl<'a> Parser<'a> {
     fn eat(&mut self, byte: u8) -> bool {
         if self.peek() == Some(byte) {
             self.at += 1;
+            self.end = self.at;
             return true;
         }
         false
@@ -127,7 +171,7 @@ impl<'a> Parser<'a> {
     /// Where the token starts rather than where it stopped being one: a reader
     /// wants the cursor on the literal, not after it.
     fn problem_at(&self, at: usize, message: impl Into<String>) -> Problem {
-        let (line, column) = locate(self.input, at);
+        let (line, column) = Locator::new(self.input).locate(at);
         Problem {
             line,
             column,
@@ -135,22 +179,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// A mistake JSON makes and `--editor` does not have to: the message names
-    /// the flag rather than leaving the reader to guess that one exists.
-    fn repairable(&self, message: impl Into<String>) -> Problem {
-        self.repairable_at(self.at, message)
+    fn unexpected(&self) -> Problem {
+        self.problem(format!("unexpected {}", self.character()))
     }
 
-    fn repairable_at(&self, at: usize, message: impl Into<String>) -> Problem {
-        let message = message.into();
-        if self.editor {
-            return self.problem_at(at, message);
+    fn character(&self) -> String {
+        match codepoint(&self.input[self.at..]) {
+            Some((character, _)) => character.to_string(),
+            None => format!("byte 0x{:02x}", self.input[self.at]),
         }
-        self.problem_at(at, format!("{message}; --editor fixes this"))
     }
 
-    /// Whitespace, and under `--editor` the things left where whitespace goes:
-    /// comments, a byte order mark, and the spaces a word processor inserts.
+    /// Whitespace, and under `repair` the things left where whitespace goes:
+    /// comments, a byte order mark, code fences and the spaces a word
+    /// processor inserts.
     fn trivia(&mut self) -> Result<(), Problem> {
         loop {
             while self
@@ -162,36 +204,49 @@ impl<'a> Parser<'a> {
             let Some(byte) = self.peek() else {
                 return Ok(());
             };
-            if byte == b'/' {
-                match self.input.get(self.at + 1) {
-                    Some(b'/') | Some(b'*') => {
-                        if !self.editor {
-                            return Err(self.repairable("comments are not JSON"));
-                        }
-                        self.comment()?;
-                        self.repairs.add(Repair::Comment);
+            match byte {
+                b'/' if matches!(self.input.get(self.at + 1), Some(b'/' | b'*')) => {
+                    if !self.repair && !self.commented {
+                        return Err(self.problem("comments are not JSON"));
                     }
-                    _ => return Ok(()),
+                    let start = self.at;
+                    self.comment()?;
+                    if !self.commented {
+                        self.fixed(Repair::Comment, start, Edit::replace(start, self.at, " "));
+                    }
                 }
-                continue;
-            }
-            if byte >= 0x80 {
-                let Some((character, width)) = codepoint(&self.input[self.at..]) else {
-                    return Err(self.problem("invalid UTF-8"));
-                };
-                // U+FEFF is a byte order mark rather than a space, and it is
-                // the thing most often found at the top of a file an editor is
-                // asked to look at.
-                if character.is_whitespace() || character == '\u{feff}' {
-                    if !self.editor {
-                        return Err(self.repairable("unusual whitespace"));
+                b'#' if self.repair => {
+                    let start = self.at;
+                    self.skip_line();
+                    let edit = if self.commented {
+                        Edit::replace(start, start + 1, "//")
+                    } else {
+                        Edit::delete(start, self.at)
+                    };
+                    self.fixed(Repair::Comment, start, edit);
+                }
+                b'`' | b'~' if self.repair && self.depth == 0 && self.fence() => {}
+                0x80.. => {
+                    let Some((character, width)) = codepoint(&self.input[self.at..]) else {
+                        return Err(self.problem("invalid UTF-8"));
+                    };
+                    // U+FEFF is a byte order mark rather than a space, and it is
+                    // the thing most often found at the top of a file an editor is
+                    // asked to look at.
+                    let bom = character == '\u{feff}';
+                    if !bom && !character.is_whitespace() {
+                        return Ok(());
                     }
+                    if !self.repair {
+                        return Err(self.problem("unusual whitespace"));
+                    }
+                    let start = self.at;
                     self.at += width;
-                    self.repairs.add(Repair::Space);
-                    continue;
+                    let space = if bom { "" } else { " " };
+                    self.fixed(Repair::Space, start, Edit::replace(start, self.at, space));
                 }
+                _ => return Ok(()),
             }
-            return Ok(());
         }
     }
 
@@ -199,9 +254,7 @@ impl<'a> Parser<'a> {
         self.at += 1;
         match self.peek() {
             Some(b'/') => {
-                while self.peek().is_some_and(|byte| byte != b'\n') {
-                    self.at += 1;
-                }
+                self.skip_line();
                 Ok(())
             }
             Some(b'*') => {
@@ -221,6 +274,41 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn skip_line(&mut self) {
+        while self.peek().is_some_and(|byte| byte != b'\n') {
+            self.at += 1;
+        }
+    }
+
+    /// A Markdown code fence line around a pasted document.
+    fn fence(&mut self) -> bool {
+        let start = self.at;
+        let line = self.input[..start]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |newline| newline + 1);
+        let indented = self.input[line..start]
+            .iter()
+            .all(|byte| matches!(byte, b' ' | b'\t'));
+        let rest = &self.input[start..];
+        if !indented || !(rest.starts_with(b"```") || rest.starts_with(b"~~~")) {
+            return false;
+        }
+        self.skip_line();
+        self.fixed(Repair::Fence, start, Edit::delete(start, self.at));
+        true
+    }
+
+    /// Closing brackets after the last value, which have nothing left to close.
+    fn stray_closers(&mut self) -> Result<(), Problem> {
+        while self.repair && matches!(self.peek(), Some(b'}' | b']')) {
+            self.fixed(Repair::Bracket, self.at, Edit::delete(self.at, self.at + 1));
+            self.at += 1;
+            self.trivia()?;
+        }
+        Ok(())
+    }
+
     fn value(&mut self) -> Result<Value, Problem> {
         self.depth += 1;
         if self.depth > MAX_DEPTH {
@@ -228,6 +316,7 @@ impl<'a> Parser<'a> {
         }
         let value = self.dispatch();
         self.depth -= 1;
+        self.end = self.at;
         value
     }
 
@@ -239,87 +328,75 @@ impl<'a> Parser<'a> {
         match byte {
             b'{' => {
                 self.at += 1;
+                self.end = self.at;
                 self.object()
             }
             b'[' => {
                 self.at += 1;
+                self.end = self.at;
                 self.array()
-            }
-            b'"' => {
-                self.at += 1;
-                Ok(Value::String(self.string(b'"')?))
-            }
-            b'\'' => {
-                if !self.editor {
-                    return Err(self.repairable("single-quoted strings are not JSON"));
-                }
-                self.at += 1;
-                self.repairs.add(Repair::Quote);
-                Ok(Value::String(self.string(b'\'')?))
             }
             b'-' | b'+' | b'.' | b'0'..=b'9' => self.number(),
             byte if byte.is_ascii_alphabetic() => self.literal(),
-            other => Err(self.problem(format!("unexpected {}", char::from(other)))),
+            _ if quote(&self.input[self.at..]).is_some() => self.text().map(Value::String),
+            _ => Err(self.unexpected()),
         }
     }
 
-    /// `true`, `false`, `null`, and under `--editor` the names Python and
-    /// JavaScript give the same three things. `NaN` and `Infinity` are not
-    /// JSON at all, and jq answers both with `null`, so that is what they
-    /// become — with a count, because the value did change.
+    /// `true`, `false`, `null`, and under `repair` the names Python and
+    /// JavaScript give the same three things. `NaN`, `Infinity` and `undefined`
+    /// are not JSON at all, and jq answers the first two with `null`, so that
+    /// is what all three become.
     fn literal(&mut self) -> Result<Value, Problem> {
         let start = self.at;
         self.skip_word();
-        let word = &self.input[start..self.at];
-        let word = String::from_utf8_lossy(word).into_owned();
+        let word = String::from_utf8_lossy(&self.input[start..self.at]).into_owned();
         match word.as_str() {
-            "true" => Ok(Value::Bool(true)),
-            "false" => Ok(Value::Bool(false)),
-            "null" => Ok(Value::Null),
-            _ if self.editor => match word.as_str() {
-                "True" | "False" => {
-                    self.repairs.add(Repair::Literal);
-                    Ok(Value::Bool(word == "True"))
-                }
-                "None" | "NaN" | "Infinity" => {
-                    self.repairs.add(Repair::Literal);
-                    Ok(Value::Null)
-                }
-                _ => Err(self.problem_at(start, format!("not a JSON literal: {word}"))),
-            },
-            _ => {
-                let said = format!("not a JSON literal: {word}");
-                if matches!(
-                    word.as_str(),
-                    "True" | "False" | "None" | "NaN" | "Infinity" | "undefined"
-                ) {
-                    return Err(self.repairable_at(start, said));
-                }
-                Err(self.problem_at(start, said))
-            }
+            "true" => return Ok(Value::Bool(true)),
+            "false" => return Ok(Value::Bool(false)),
+            "null" => return Ok(Value::Null),
+            _ => {}
         }
+        let (value, json) = match word.as_str() {
+            "True" => (Value::Bool(true), "true"),
+            "False" => (Value::Bool(false), "false"),
+            "None" | "NaN" | "Infinity" | "undefined" => (Value::Null, "null"),
+            _ => return Err(self.problem_at(start, format!("not a JSON literal: {word}"))),
+        };
+        if !self.repair {
+            return Err(self.problem_at(start, format!("not a JSON literal: {word}")));
+        }
+        self.fixed(Repair::Literal, start, Edit::replace(start, self.at, json));
+        Ok(value)
     }
 
     fn number(&mut self) -> Result<Value, Problem> {
         let start = self.at;
-        let signed = self.peek().is_some_and(|byte| matches!(byte, b'-' | b'+'));
-        if signed {
+        if self.peek().is_some_and(|byte| matches!(byte, b'-' | b'+')) {
             self.at += 1;
             // `-Infinity` names a value rather than a number, and it is the one
             // name that arrives with a sign in front of it.
-            if self.editor && self.peek().is_some_and(|byte| byte.is_ascii_alphabetic()) {
+            if self.repair && self.peek().is_some_and(|byte| byte.is_ascii_alphabetic()) {
                 self.skip_word();
                 let word = String::from_utf8_lossy(&self.input[start + 1..self.at]).into_owned();
                 if matches!(word.as_str(), "Infinity" | "NaN") {
-                    self.repairs.add(Repair::Literal);
+                    self.fixed(
+                        Repair::Literal,
+                        start,
+                        Edit::replace(start, self.at, "null"),
+                    );
                     return Ok(Value::Null);
                 }
                 let sign = char::from(self.input[start]);
                 return Err(self.problem_at(start, format!("not a JSON literal: {sign}{word}")));
             }
         }
+        if self.repair && matches!(self.input.get(self.at..self.at + 2), Some(b"0x" | b"0X")) {
+            return self.hex(start);
+        }
         self.skip_digits();
-        if self.eat(b'.') {
+        if self.peek() == Some(b'.') {
+            self.at += 1;
             self.skip_digits();
         }
         if self.peek().is_some_and(|byte| matches!(byte, b'e' | b'E')) {
@@ -329,27 +406,70 @@ impl<'a> Parser<'a> {
             }
             self.skip_digits();
         }
-        // A number stops where the number stops: `1abc` and `1.2.3` are
-        // mistakes, and reading them as a number followed by something else
-        // would put a value in the file that was never written.
-        if self
+        self.number_ends(start)?;
+        let text = String::from_utf8_lossy(&self.input[start..self.at]).into_owned();
+        let Some(literal) = number::canonical(&text) else {
+            return Err(self.problem_at(start, format!("not a number: {text}")));
+        };
+        if self.commented && !number::strict(text.as_bytes()) {
+            if !self.repair {
+                return Err(self.problem_at(start, "invalid JSON number"));
+            }
+            self.fixed(
+                Repair::Number,
+                start,
+                Edit::replace(start, self.at, literal.as_str()),
+            );
+        }
+        Ok(Value::Number(literal))
+    }
+
+    fn hex(&mut self, start: usize) -> Result<Value, Problem> {
+        self.at += 2;
+        let digits = self.at;
+        while self.peek().is_some_and(|byte| byte.is_ascii_hexdigit()) {
+            self.at += 1;
+        }
+        self.number_ends(start)?;
+        let text = String::from_utf8_lossy(&self.input[start..self.at]).into_owned();
+        let magnitude = std::str::from_utf8(&self.input[digits..self.at])
+            .ok()
+            .and_then(|digits| u128::from_str_radix(digits, 16).ok());
+        let Some(magnitude) = magnitude else {
+            return Err(self.problem_at(start, format!("not a number: {text}")));
+        };
+        let sign = if self.input[start] == b'-' && magnitude > 0 {
+            "-"
+        } else {
+            ""
+        };
+        let literal = format!("{sign}{magnitude}");
+        self.fixed(
+            Repair::Number,
+            start,
+            Edit::replace(start, self.at, literal.as_str()),
+        );
+        Ok(Value::Number(literal))
+    }
+
+    /// A number stops where the number stops: `1abc` and `1.2.3` are mistakes,
+    /// and reading them as a number followed by something else would put a
+    /// value in the file that was never written.
+    fn number_ends(&mut self, start: usize) -> Result<(), Problem> {
+        if !self
             .peek()
             .is_some_and(|byte| is_word(byte) || byte == b'.')
         {
-            while self
-                .peek()
-                .is_some_and(|byte| is_word(byte) || byte == b'.')
-            {
-                self.at += 1;
-            }
-            let text = String::from_utf8_lossy(&self.input[start..self.at]).into_owned();
-            return Err(self.problem_at(start, format!("not a number: {text}")));
+            return Ok(());
+        }
+        while self
+            .peek()
+            .is_some_and(|byte| is_word(byte) || byte == b'.')
+        {
+            self.at += 1;
         }
         let text = String::from_utf8_lossy(&self.input[start..self.at]).into_owned();
-        match number::canonical(&text) {
-            Some(literal) => Ok(Value::Number(literal)),
-            None => Err(self.problem_at(start, format!("not a number: {text}"))),
-        }
+        Err(self.problem_at(start, format!("not a number: {text}")))
     }
 
     fn skip_digits(&mut self) {
@@ -366,178 +486,291 @@ impl<'a> Parser<'a> {
 
     fn object(&mut self) -> Result<Value, Problem> {
         let mut entries: IndexMap<String, Value> = IndexMap::new();
-        // Whether a comma has been read and a member is still owed, which is
-        // how a trailing comma is told from the one between two members.
-        let mut owed = false;
+        // The comma read after the last member, which a trailing comma leaves
+        // owed; repair mode also deletes it when the object closes.
+        let mut comma = None;
         loop {
             self.trivia()?;
-            if self.peek() == Some(b'}') {
-                if owed {
-                    if !self.editor {
-                        return Err(self.repairable("stray comma"));
-                    }
-                    self.repairs.add(Repair::Comma);
+            match self.peek() {
+                Some(b'}') => {
+                    self.trailing(comma)?;
+                    self.eat(b'}');
+                    return Ok(Value::Object(entries));
                 }
-                self.at += 1;
-                return Ok(Value::Object(entries));
-            }
-            if self.peek() == Some(b',') {
-                if !self.editor {
-                    return Err(self.repairable("stray comma"));
+                Some(b',') => {
+                    self.stray_comma()?;
+                    continue;
                 }
-                self.at += 1;
-                self.repairs.add(Repair::Comma);
-                owed = false;
-                continue;
+                Some(b']') | None if self.close(b'}', comma) => {
+                    return Ok(Value::Object(entries));
+                }
+                _ => {}
             }
             let key = self.key()?;
-            self.trivia()?;
-            if !self.eat(b':') {
-                return Err(self.problem("expected : after a key"));
-            }
+            self.colon()?;
             let value = self.value()?;
             entries.insert(key, value);
-            owed = false;
+            comma = None;
             self.trivia()?;
             match self.peek() {
-                Some(b',') => {
-                    self.at += 1;
-                    owed = true;
-                }
+                Some(b',') => comma = Some(self.separator()),
+                Some(b';') if self.repair => comma = Some(self.separator()),
                 Some(b'}') => {
-                    self.at += 1;
+                    self.eat(b'}');
+                    return Ok(Value::Object(entries));
+                }
+                Some(b']') | None if self.close(b'}', None) => {
                     return Ok(Value::Object(entries));
                 }
                 None => return Err(self.problem("expected another key-value pair")),
-                Some(_) if self.editor => self.repairs.add(Repair::MissingComma),
-                Some(_) => {
-                    return Err(self.repairable("expected , or } between key-value pairs"));
-                }
+                Some(_) if self.repair => self.missing_comma(),
+                Some(_) => return Err(self.problem("expected , or } between key-value pairs")),
             }
         }
     }
 
     fn array(&mut self) -> Result<Value, Problem> {
         let mut items: Vec<Value> = Vec::new();
-        let mut owed = false;
+        let mut comma = None;
         loop {
             self.trivia()?;
-            if self.peek() == Some(b']') {
-                if owed {
-                    if !self.editor {
-                        return Err(self.repairable("stray comma"));
-                    }
-                    self.repairs.add(Repair::Comma);
+            match self.peek() {
+                Some(b']') => {
+                    self.trailing(comma)?;
+                    self.eat(b']');
+                    return Ok(Value::Array(items));
                 }
-                self.at += 1;
-                return Ok(Value::Array(items));
-            }
-            if self.peek() == Some(b',') {
-                if !self.editor {
-                    return Err(self.repairable("stray comma"));
+                Some(b',') => {
+                    self.stray_comma()?;
+                    continue;
                 }
-                self.at += 1;
-                self.repairs.add(Repair::Comma);
-                owed = false;
-                continue;
+                Some(b'}') | None if self.close(b']', comma) => {
+                    return Ok(Value::Array(items));
+                }
+                _ => {}
             }
             items.push(self.value()?);
-            owed = false;
+            comma = None;
             self.trivia()?;
             match self.peek() {
-                Some(b',') => {
-                    self.at += 1;
-                    owed = true;
-                }
+                Some(b',') => comma = Some(self.separator()),
+                Some(b';') if self.repair => comma = Some(self.separator()),
                 Some(b']') => {
-                    self.at += 1;
+                    self.eat(b']');
+                    return Ok(Value::Array(items));
+                }
+                Some(b'}') | None if self.close(b']', None) => {
                     return Ok(Value::Array(items));
                 }
                 None => return Err(self.problem("expected another array element")),
-                Some(_) if self.editor => self.repairs.add(Repair::MissingComma),
-                Some(_) => return Err(self.repairable("expected , or ] between elements")),
+                Some(_) if self.repair => self.missing_comma(),
+                Some(_) => return Err(self.problem("expected , or ] between elements")),
             }
         }
+    }
+
+    /// A `,` between members, or under `repair` a `;` written for one.
+    fn separator(&mut self) -> usize {
+        let at = self.at;
+        if self.peek() == Some(b';') {
+            self.fixed(Repair::Separator, at, Edit::replace(at, at + 1, ","));
+        }
+        self.at += 1;
+        self.end = self.at;
+        at
+    }
+
+    fn missing_comma(&mut self) {
+        self.fixed(Repair::MissingComma, self.end, Edit::insert(self.end, ","));
+    }
+
+    /// A comma where a member should be: leading, or one of two in a row.
+    fn stray_comma(&mut self) -> Result<(), Problem> {
+        if !self.repair {
+            return Err(self.problem("stray comma"));
+        }
+        self.fixed(Repair::Comma, self.at, Edit::delete(self.at, self.at + 1));
+        self.at += 1;
+        Ok(())
+    }
+
+    /// A comma right before the closing bracket, which only commented dialects allow.
+    fn trailing(&mut self, comma: Option<usize>) -> Result<(), Problem> {
+        if comma.is_some() && !self.commented && !self.repair {
+            return Err(self.problem("stray comma"));
+        }
+        self.drop_trailing(comma);
+        Ok(())
+    }
+
+    fn drop_trailing(&mut self, comma: Option<usize>) {
+        if let Some(at) = comma
+            && self.repair
+            && !self.commented
+        {
+            self.fixed(Repair::Comma, at, Edit::delete(at, at + 1));
+        }
+    }
+
+    /// Under `repair`, closes a container whose bracket is the wrong one or
+    /// missing at the end of input. Answers whether it closed.
+    fn close(&mut self, closer: u8, comma: Option<usize>) -> bool {
+        if !self.repair {
+            return false;
+        }
+        self.drop_trailing(comma);
+        let text = char::from(closer).to_string();
+        match self.peek() {
+            Some(_) => {
+                self.fixed(
+                    Repair::Bracket,
+                    self.at,
+                    Edit::replace(self.at, self.at + 1, text),
+                );
+                self.at += 1;
+                self.end = self.at;
+            }
+            None => self.fixed(Repair::Bracket, self.end, Edit::insert(self.end, text)),
+        }
+        true
+    }
+
+    fn colon(&mut self) -> Result<(), Problem> {
+        self.trivia()?;
+        if self.eat(b':') {
+            return Ok(());
+        }
+        if self.repair && self.peek() == Some(b'=') {
+            self.fixed(
+                Repair::Separator,
+                self.at,
+                Edit::replace(self.at, self.at + 1, ":"),
+            );
+            self.eat(b'=');
+            return Ok(());
+        }
+        if self.repair && self.starts_value() {
+            self.fixed(Repair::Colon, self.end, Edit::insert(self.end, ":"));
+            return Ok(());
+        }
+        Err(self.problem("expected : after a key"))
+    }
+
+    fn starts_value(&self) -> bool {
+        self.peek().is_some_and(|byte| {
+            matches!(byte, b'{' | b'[' | b'-' | b'+' | b'.')
+                || byte.is_ascii_alphanumeric()
+                || quote(&self.input[self.at..]).is_some()
+        })
     }
 
     fn key(&mut self) -> Result<String, Problem> {
         match self.peek() {
-            Some(b'"') => {
-                self.at += 1;
-                self.string(b'"')
-            }
-            Some(b'\'') if self.editor => {
-                self.at += 1;
-                self.repairs.add(Repair::Quote);
-                self.string(b'\'')
-            }
-            Some(byte) if self.editor && is_word(byte) => {
+            Some(_) if quote(&self.input[self.at..]).is_some() => self.text(),
+            Some(byte) if self.repair && is_key(byte) => {
                 let start = self.at;
-                self.skip_word();
-                self.repairs.add(Repair::Key);
-                Ok(String::from_utf8_lossy(&self.input[start..self.at]).into_owned())
+                while self.peek().is_some_and(is_key) {
+                    self.at += 1;
+                }
+                self.end = self.at;
+                let key = String::from_utf8_lossy(&self.input[start..self.at]).into_owned();
+                self.fixed(
+                    Repair::Key,
+                    start,
+                    Edit::replace(start, self.at, render::string(&key)),
+                );
+                Ok(key)
             }
-            Some(b'\'') => Err(self.repairable("single-quoted strings are not JSON")),
-            // A name is the only thing `--editor` can make a key out of, so
-            // anything else is answered without the offer.
-            Some(byte) if is_word(byte) => Err(self.repairable("expected a key")),
-            Some(byte) => Err(self.problem(format!("expected a key, found {}", char::from(byte)))),
+            Some(byte) if is_word(byte) => Err(self.problem("expected a key")),
+            Some(_) => Err(self.problem(format!("expected a key, found {}", self.character()))),
             None => Err(self.problem("expected a key")),
         }
     }
 
-    /// The opening quote has already been read. `quote` is what closes it, so a
-    /// single-quoted string is read by the same code that reads a double-quoted
-    /// one and the printer escapes the result either way.
-    fn string(&mut self, quote: u8) -> Result<String, Problem> {
+    /// A string at its opening quote, rewritten as JSON when it needed a fix.
+    fn text(&mut self) -> Result<String, Problem> {
+        let start = self.at;
+        let (open, close) = quote(&self.input[start..]).unwrap_or(QUOTES[0]);
+        let plain = open == b"\"";
+        if !plain && !self.repair {
+            if open == b"'" {
+                return Err(self.problem("single-quoted strings are not JSON"));
+            }
+            return Err(self.unexpected());
+        }
+        let before = self.fixes.len();
+        self.at += open.len();
+        let text = self.string(close, start)?;
+        if !plain {
+            self.fix(Repair::Quote, start);
+        }
+        if !plain || self.fixes.len() > before {
+            self.edits
+                .push(Edit::replace(start, self.at, render::string(&text)));
+        }
+        self.end = self.at;
+        Ok(text)
+    }
+
+    /// The opening quote has already been read and `close` ends the string, so
+    /// every quote style is read by one loop and the printer escapes the result.
+    fn string(&mut self, close: &[u8], start: usize) -> Result<String, Problem> {
+        let template = close == b"`";
         let mut text: Vec<u8> = Vec::new();
         loop {
             let Some(byte) = self.peek() else {
                 return Err(self.problem("unterminated string"));
             };
+            if self.input[self.at..].starts_with(close) {
+                self.at += close.len();
+                break;
+            }
             match byte {
-                _ if byte == quote => {
-                    self.at += 1;
-                    break;
+                b'\\' => self.escape(close, &mut text)?,
+                b'$' if template && self.input.get(self.at + 1) == Some(&b'{') => {
+                    return Err(self.problem("template literals are not JSON"));
                 }
-                b'\\' => self.escape(quote, &mut text)?,
                 0x00..=0x1f => {
-                    if !self.editor {
-                        return Err(self.repairable("control character in a string"));
+                    if !self.repair {
+                        return Err(self.problem("control character in a string"));
                     }
-                    self.repairs.add(Repair::Control);
+                    // A template literal holds raw line breaks as text.
+                    if !template {
+                        self.fix(Repair::Control, self.at);
+                    }
                     text.push(byte);
                     self.at += 1;
                 }
                 _ => {
-                    let start = self.at;
-                    while self
-                        .peek()
-                        .is_some_and(|byte| byte != quote && byte != b'\\' && byte >= 0x20)
-                    {
+                    let from = self.at;
+                    self.at += 1;
+                    while self.peek().is_some_and(|byte| {
+                        byte != close[0] && byte != b'\\' && byte >= 0x20 && byte != b'$'
+                    }) {
                         self.at += 1;
                     }
-                    text.extend_from_slice(&self.input[start..self.at]);
+                    text.extend_from_slice(&self.input[from..self.at]);
                 }
             }
         }
         match String::from_utf8(text) {
             Ok(text) => Ok(text),
             // jq answers a byte it cannot read with U+FFFD rather than with an
-            // error, and under `--editor` so does this: a file that is nearly
-            // text is worth opening, and the count says the value changed.
-            Err(error) if self.editor => {
-                self.repairs.add(Repair::Utf8);
+            // error, and under `repair` so does this: a file that is nearly
+            // text is worth opening, and the fix says the value changed.
+            Err(error) if self.repair => {
+                self.fix(Repair::Utf8, start);
                 Ok(String::from_utf8_lossy(&error.into_bytes()).into_owned())
             }
-            Err(_) => Err(self.repairable("invalid UTF-8 in a string")),
+            Err(_) => Err(self.problem_at(start, "invalid UTF-8 in a string")),
         }
     }
 
-    /// `quote` is the quote that opened this string, because an escape means
-    /// different things in each of them. It is *not* counted here when the
-    /// string is single quoted: that was already counted as the string.
-    fn escape(&mut self, quote: u8, text: &mut Vec<u8>) -> Result<(), Problem> {
+    /// `close` ends the string this escape is in, because an escape means
+    /// different things in each quote style. An escaped apostrophe is only a
+    /// fix of its own in a double quoted string; elsewhere the quote was.
+    fn escape(&mut self, close: &[u8], text: &mut Vec<u8>) -> Result<(), Problem> {
+        let at = self.at;
         self.at += 1;
         let Some(byte) = self.peek() else {
             return Err(self.problem("unterminated string"));
@@ -552,14 +785,14 @@ impl<'a> Parser<'a> {
             b'n' => text.push(b'\n'),
             b'r' => text.push(b'\r'),
             b't' => text.push(b'\t'),
-            // JavaScript lets an apostrophe escape for the benefit of a single
-            // quoted string, and takes the escape in a double quoted one too.
-            b'\'' if self.editor => {
-                if quote != b'\'' {
-                    self.repairs.add(Repair::Quote);
+            b'\'' if self.repair => {
+                if close == b"\"" {
+                    self.fix(Repair::Quote, at);
                 }
                 text.push(b'\'');
             }
+            b'`' if close == b"`" => text.push(b'`'),
+            b'$' if close == b"`" => text.push(b'$'),
             b'u' => self.unicode(text)?,
             _ => {
                 return Err(self.problem(format!("invalid escape: \\{}", char::from(byte))));
@@ -569,21 +802,22 @@ impl<'a> Parser<'a> {
     }
 
     fn unicode(&mut self, text: &mut Vec<u8>) -> Result<(), Problem> {
+        let at = self.at - 2;
         let first = self.hex4()?;
         let code = if (0xd800..=0xdbff).contains(&first) {
             // A surrogate is half a character, and jq refuses half a character
             // rather than writing one out.
             if !self.paired() {
-                return self.surrogate(text);
+                return self.surrogate(at, text);
             }
             self.at += 2;
             let second = self.hex4()?;
             if !(0xdc00..=0xdfff).contains(&second) {
-                return self.surrogate(text);
+                return self.surrogate(at, text);
             }
             0x10000 + ((first - 0xd800) << 10) + (second - 0xdc00)
         } else if (0xdc00..=0xdfff).contains(&first) {
-            return self.surrogate(text);
+            return self.surrogate(at, text);
         } else {
             first
         };
@@ -597,11 +831,11 @@ impl<'a> Parser<'a> {
         self.input.get(self.at) == Some(&b'\\') && self.input.get(self.at + 1) == Some(&b'u')
     }
 
-    fn surrogate(&mut self, text: &mut Vec<u8>) -> Result<(), Problem> {
-        if !self.editor {
-            return Err(self.repairable("lone surrogate"));
+    fn surrogate(&mut self, at: usize, text: &mut Vec<u8>) -> Result<(), Problem> {
+        if !self.repair {
+            return Err(self.problem("lone surrogate"));
         }
-        self.repairs.add(Repair::Surrogate);
+        self.fix(Repair::Surrogate, at);
         text.extend_from_slice("\u{fffd}".as_bytes());
         Ok(())
     }
@@ -622,8 +856,17 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// The opening and closing quote of a string starting at `bytes`.
+fn quote(bytes: &[u8]) -> Option<(&'static [u8], &'static [u8])> {
+    QUOTES.into_iter().find(|(open, _)| bytes.starts_with(open))
+}
+
 fn is_word(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
+}
+
+fn is_key(byte: u8) -> bool {
+    is_word(byte) || byte == b'-' || byte == b'.'
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -644,11 +887,4 @@ fn codepoint(bytes: &[u8]) -> Option<(char, usize)> {
     };
     let text = std::str::from_utf8(bytes.get(..width)?).ok()?;
     Some((text.chars().next()?, width))
-}
-
-fn locate(input: &[u8], at: usize) -> (usize, usize) {
-    let head = &input[..at.min(input.len())];
-    let line = 1 + head.iter().filter(|byte| **byte == b'\n').count();
-    let column = head.iter().rev().take_while(|byte| **byte != b'\n').count() + 1;
-    (line, column)
 }

@@ -15,6 +15,7 @@ dotfile dev check -p dotfmt-yaml
 | Normalized | Indentation, sequence dashes, spacing around `:` and `#`, blank lines (at most one), flow collection layout, quote style |
 | Preserved | Scalar text, block scalar content, comments, anchors, aliases, tags, explicit keys, directives and document markers |
 | Verification | Output must produce the same parse events as the input; otherwise the file remains unchanged |
+| Repairs | Tab indentation, when no indented line uses spaces; `repair = false` turns them off; see [repairs](../../../../../../docs/cli/dotfmt.md#repairs) |
 | Flow collections | Kept as written when they contain comments, empty values or explicit keys |
 | Final newline | A trailing block scalar keeps its final line break as written |
 | Encoding | UTF-8; an existing UTF-8 BOM is preserved; line breaks are normalized |

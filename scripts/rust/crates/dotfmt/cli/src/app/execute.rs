@@ -73,7 +73,7 @@ fn format_file(job: &Job, check: bool, clean: bool) -> FileOutcome {
     let result = (|| {
         let input = fs::read(&job.absolute)
             .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
-        let formatted = job.engine.format(&job.path, &input, false, job.markdown, clean)?;
+        let formatted = job.engine.format(&job.path, &input, job.markdown, clean)?;
         let changed = formatted.text.as_bytes() != input;
         if changed && !check {
             dotfmt_core::file::replace(&job.absolute, formatted.text.as_bytes())
@@ -96,7 +96,7 @@ fn format_buffer(job: BufferJob, clean: bool) -> BufferOutcome {
     let input = job.input;
     let result = match job.engine {
         Some(engine) => engine
-            .format(&input.path, &input.input, input.editor, job.markdown, clean)
+            .format(&input.path, &input.input, job.markdown, clean)
             .map(|formatted| {
                 let output = formatted.text.into_bytes();
                 BufferChange {

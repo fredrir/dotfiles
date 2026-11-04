@@ -239,6 +239,7 @@ fn malformed_configuration_reports_source_and_line() {
         ("{\n typo = 1\n}", "unknown global setting"),
         ("{ width = 0 }", "positive integer"),
         ("{ final_newline = maybe }", "true or false"),
+        ("{ repair = maybe }", "repair must be true or false"),
         ("json {}\njson {}", "duplicate json block"),
         ("bib {}\nbibtex {}", "duplicate bib block"),
         ("latex {}\ntex {}", "duplicate latex block"),

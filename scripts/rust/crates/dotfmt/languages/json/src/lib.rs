@@ -7,7 +7,6 @@ mod format;
 mod number;
 mod parse;
 pub mod render;
-pub mod repair;
 mod value;
 
 pub use format::{Formatted, format};

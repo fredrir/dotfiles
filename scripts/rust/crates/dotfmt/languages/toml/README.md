@@ -15,6 +15,7 @@ dotfile dev check -p dotfmt-toml
 | Normalized | Indentation, spacing around `=` and `,`, padding inside `[]` and `[[...]]` headers, padding around key dots, blank lines (at most `allowed_blank_lines`), array and inline table layout |
 | Preserved | String literals of every style, multi-line string content, number and date-time spelling, quoted and dotted keys, header key spelling, comments, section order |
 | Verification | Output must reparse and keep every decoded key, scalar value, array order, table and array-of-tables structure and every comment; otherwise the file remains unchanged |
+| Repairs | Missing commas in arrays and inline tables, trailing commas in inline tables; `repair = false` turns them off; see [repairs](../../../../../../docs/cli/dotfmt.md#repairs) |
 | Arrays | One line when they fit and contain no comments, one item per line otherwise; comments always keep the multi-line layout |
 | Inline tables | Kept on one line; only arrays nested in `{ ... }` may span lines, because TOML 1.0 forbids line breaks between inline-table entries |
 | Encoding | UTF-8; an existing UTF-8 BOM is preserved; CRLF line breaks are normalized to LF, including inside multi-line strings |

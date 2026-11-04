@@ -126,6 +126,49 @@ impl Digits {
     }
 }
 
+/// Whether a literal is a number in JSON's own grammar rather than jq's.
+pub fn strict(mut bytes: &[u8]) -> bool {
+    if bytes.first() == Some(&b'-') {
+        bytes = &bytes[1..];
+    }
+    match bytes.first() {
+        Some(b'0') => bytes = &bytes[1..],
+        Some(b'1'..=b'9') => {
+            bytes = &bytes[bytes
+                .iter()
+                .take_while(|byte| byte.is_ascii_digit())
+                .count()..];
+        }
+        _ => return false,
+    }
+    if bytes.first() == Some(&b'.') {
+        bytes = &bytes[1..];
+        let count = bytes
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        if count == 0 {
+            return false;
+        }
+        bytes = &bytes[count..];
+    }
+    if matches!(bytes.first(), Some(b'e' | b'E')) {
+        bytes = &bytes[1..];
+        if matches!(bytes.first(), Some(b'+' | b'-')) {
+            bytes = &bytes[1..];
+        }
+        let count = bytes
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        if count == 0 {
+            return false;
+        }
+        bytes = &bytes[count..];
+    }
+    bytes.is_empty()
+}
+
 fn digits_at(literal: &str, at: &mut usize) -> String {
     let bytes = literal.as_bytes();
     let start = *at;

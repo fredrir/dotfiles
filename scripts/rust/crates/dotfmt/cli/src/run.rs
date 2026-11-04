@@ -59,7 +59,6 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
             Some(Buffer {
                 path,
                 input: read_input()?,
-                editor: cli.editor,
             })
         } else {
             None
@@ -138,12 +137,17 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
             if let Some(buffer) = buffer {
                 match buffer.result {
                     Ok(formatted) => {
-                        if !cli.quiet && !formatted.change.repairs.is_empty() {
+                        let repairs = &formatted.change.repairs;
+                        let verb = if check { "would fix" } else { "fixed" };
+                        if cli.verbose {
+                            for fix in render::fixes(repairs, verb) {
+                                eprintln!("dotfmt: {}:{fix}", buffer.path.display());
+                            }
+                        } else if !cli.quiet && !repairs.is_empty() {
                             eprintln!(
-                                "dotfmt: {}: {} {}",
+                                "dotfmt: {}: {verb} {}",
                                 buffer.path.display(),
-                                if check { "would fix" } else { "fixed" },
-                                render::repairs(&formatted.change.repairs)
+                                render::repairs(repairs)
                             );
                         }
                         if !check {

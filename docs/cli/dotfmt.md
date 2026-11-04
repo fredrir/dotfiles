@@ -28,7 +28,22 @@ Editor mode uses the filename for language detection and local configuration, re
 dotfmt = { command = "dotfmt", args = { "-e", "$FILENAME" } }
 ```
 
-Selection uses filenames and `dotfmt.dotfile`, not the editor's filetype. For JSONC stored as `.json`, set `dialect = jsonc` in the applicable `json` block; map extensionless names through that block's `include` rules.
+Selection uses filenames and `dotfmt.dotfile`, not the editor's filetype. A `.json` file with comments is formatted as JSONC, keeping its comments and trailing commas; `dialect = json` in the applicable `json` block drops them instead. Map extensionless names through that block's `include` rules.
+
+## Repairs
+
+Input that nearly parses is repaired before formatting, in file runs, `--stdin` and editor mode alike. `--verbose` lists each repair with its line and column; `--check` reports repairs as differences. `repair = false` turns repairs off globally or in one language block, and a nearer value wins as with any other setting.
+
+| Language | Repairs |
+| --- | --- |
+| JSON | Missing, stray and trailing commas; `;` for `,`; missing `:` and `=` for `:`; brackets left open at the end, closed with the wrong bracket or repeated; `//`, `/* */` and `#` comments; Markdown code fences; single, curly and backtick quotes; unquoted keys; `True`, `False`, `None`, `NaN`, `Infinity`, `undefined`; hex numbers; control characters, lone surrogates, invalid UTF-8 and unusual whitespace in or around strings |
+| JSONC, HuJSON, `.json` with comments | The JSON repairs, keeping comments and trailing commas; `#` comments become `//` |
+| JSONL | The JSON repairs within each record, and closing brackets between records |
+| TOML | Missing commas in arrays and inline tables, trailing commas in inline tables |
+| YAML | Tab indentation, when no indented line uses spaces |
+| Lua | Missing commas between table fields |
+
+A repair never invents a value, so `{"a":}` stays an error.
 
 ## Flags
 
@@ -41,10 +56,10 @@ Selection uses filenames and `dotfmt.dotfile`, not the editor's filetype. For JS
 | `-a`, `--add`             | Offer dotfmt.dotfile to the target, asking before writing.                                                                                   |
 | `-s`, `--sync`            | Replace an existing target dotfmt.dotfile with the shared configuration.                                                                     |
 | `--dialect <DIALECT>`     | Override the dialect for one selected language.                                                                                              |
-| `-e`, `--editor`          | Read standard input for an editor; JSON mode enables repairs.                                                                                |
+| `-e`, `--editor`          | Read standard input for an editor.                                                                                                           |
 | `--stdin <FILENAME>`      | Read standard input as the named file, using its configuration and dialect.                                                                  |
 | `--owns`                  | Read NUL-separated filenames and emit those selected by the effective configuration.                                                         |
-| `-v`, `--verbose`         | Show detailed formatting results.                                                                                                            |
+| `-v`, `--verbose`         | Show detailed formatting results and each repair.                                                                                            |
 | `-q`, `--quiet`           | Report only failures.                                                                                                                        |
 | `-h`, `--help`            | Shows help for the selected command and exits.                                                                                               |
 | `--completions <SHELL>`   | Prints a shell completion script for the named shell and exits.                                                                              |
@@ -128,6 +143,7 @@ The shipped config enables all eight languages. `dotfile sync` installs it. `--a
 | `indent` | Bib, Conf blocks, JSON, LaTeX, Lua, TOML, YAML |
 | `width` | Bib and LaTeX wrapping, Lua line wrapping, Markdown table layout, YAML flow collections and TOML arrays/inline tables |
 | `quote_style` | Lua and YAML quote selection; JSON always emits double quotes; Bib, conf, LaTeX, Markdown and TOML preserve quoting and ignore it |
+| `repair` | All languages; defaults to `true`; see [Repairs](#repairs) |
 
 | Language | Additional settings |
 | --- | --- |
@@ -146,7 +162,7 @@ LaTeX verbatim environments and inline `\verb`, `\lstinline`, `\mintinline`, `\u
 
 Bib output keeps block and field order, field and entry keys, value delimiters, macro names used in values and every value byte; it never deduplicates or sorts. Field and entry type case are configurable, and malformed input is reported instead of repaired: a bare `@` that does not start a block, an unterminated `@comment`, a comment between concatenated value parts and a comment before the end of `@preamble` are located syntax errors. `@string` definition names follow `field_name_case`; macro uses keep their spelling. `line_endings = windows` also rewrites newlines inside multi-line values. `wrap` only replaces existing spaces inside values with line breaks and continuation indentation; verification ignores those inserted whitespace changes.
 
-Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. Markdown drops leading blank lines and collapses runs longer than `blank_lines` outside code and HTML blocks. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; `--clean` with `--lang markdown` formats and then strips all Markdown formatting, leaving plain text, code and table cells. JSONC/HuJSON editor mode preserves comments. JSONL reads any whitespace-separated values, like `jq -c`, and writes one compact record per line, dropping blank lines. YAML output must parse to the same values as its input, otherwise the file is left unchanged. TOML output must preserve values and comments or the file is left unchanged.
+Known global settings apply where supported. Unsupported language-local settings are errors. Markdown width does not reflow prose. Markdown drops leading blank lines and collapses runs longer than `blank_lines` outside code and HTML blocks. `auto` detects Lua/JSON dialects from filenames and Obsidian from vault ancestry. Markdown preserves frontmatter and protected content; `--clean` with `--lang markdown` formats and then strips all Markdown formatting, leaving plain text, code and table cells. JSONL reads any whitespace-separated values, like `jq -c`, and writes one compact record per line, dropping blank lines. YAML output must parse to the same values as its input, otherwise the file is left unchanged. TOML output must preserve values and comments or the file is left unchanged.
 
 | Result | Exit status |
 | --- | --- |

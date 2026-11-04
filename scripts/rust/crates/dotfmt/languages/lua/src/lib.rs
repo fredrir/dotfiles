@@ -2,10 +2,12 @@
 
 pub mod config;
 pub mod dialect;
+mod repair;
 
 use config::Config;
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use full_moon::tokenizer::{Lexer, LexerResult, TokenType};
+pub use repair::repair;
 use stylua_lib::OutputVerification;
 
 pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {
