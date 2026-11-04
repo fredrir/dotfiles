@@ -3,6 +3,19 @@ use std::ops::Range;
 use crate::lang::Dialect;
 use crate::scan::{Bail, Logical, Out, char_width, identifier_byte, line_end, starts_with};
 
+/// Whether this module has a scanner for `dialect`.
+///
+/// The five dialects below predate the descriptor tables. Anything else naming
+/// an `Indented`, `Shell` or `Ruby` engine must not fall through to the empty
+/// `Out` at the bottom of [`scan`], which is indistinguishable from a file that
+/// genuinely has no comments.
+pub fn handles(dialect: Dialect) -> bool {
+    matches!(
+        dialect,
+        Dialect::Python | Dialect::Toml | Dialect::Yaml | Dialect::Shell | Dialect::Ruby
+    )
+}
+
 pub fn scan(source: &[u8], dialect: Dialect) -> Result<Out, Bail> {
     match dialect {
         Dialect::Python => python(source),
@@ -16,7 +29,7 @@ pub fn scan(source: &[u8], dialect: Dialect) -> Result<Out, Bail> {
 
 fn indent_of(source: &[u8], at: usize) -> (usize, usize) {
     let mut begin = at;
-    while begin > 0 && source[begin - 1] != b'\n' {
+    while begin > 0 && !crate::scan::ends_line(source[begin - 1]) {
         begin -= 1;
     }
     (begin, at - begin)
@@ -656,7 +669,7 @@ impl<'a> Ruby<'a> {
     fn run(mut self) -> Result<Out, Bail> {
         while self.at < self.source.len() {
             let byte = self.byte(self.at);
-            let starts_line = self.at == 0 || self.byte(self.at - 1) == b'\n';
+            let starts_line = self.at == 0 || crate::scan::ends_line(self.byte(self.at - 1));
             if starts_line && starts_with(self.source, self.at, b"=begin") {
                 let start = self.at;
                 let mut at = self.at;

@@ -1,7 +1,6 @@
 use std::ops::Range;
 
-use crate::lang::{Dialect, Family};
-use crate::{css, curly, dash, hash, js};
+use crate::lang::Dialect;
 
 #[derive(Clone, Debug)]
 pub struct Comment {
@@ -52,21 +51,11 @@ impl Out {
     }
 }
 
+// TODO(wave 2): call `crate::engine::scan(source, dialect.syntax())` once js, css
+// and hash read the descriptor; today only `engine::scan_native` can tell the
+// dialects those scanners still match on apart.
 pub fn scan(source: &[u8], dialect: Dialect) -> Result<Out, Bail> {
-    match dialect.family() {
-        Family::Curly if is_script(dialect) => js::scan(source, dialect),
-        Family::Curly => curly::scan(source, dialect),
-        Family::Hash => hash::scan(source, dialect),
-        Family::Dash => dash::scan(source, dialect),
-        Family::Css => css::scan(source, dialect),
-    }
-}
-
-fn is_script(dialect: Dialect) -> bool {
-    matches!(
-        dialect,
-        Dialect::JavaScript | Dialect::Mjs | Dialect::TypeScript | Dialect::Jsx | Dialect::Tsx
-    )
+    crate::engine::scan_native(source, dialect)
 }
 
 pub fn char_width(source: &[u8], at: usize) -> usize {
@@ -85,12 +74,22 @@ pub fn char_width(source: &[u8], at: usize) -> usize {
     width.min(source.len() - at)
 }
 
+/// The end of the line `from` sits on: the first `\r` or `\n`, or the end of
+/// the source. Stopping at `\r` matters: a file with bare-CR line endings has
+/// no `\n` at all, and a scanner that only looked for `\n` would stretch every
+/// line comment to the end of the file.
 pub fn line_end(source: &[u8], from: usize) -> usize {
     let mut at = from;
-    while at < source.len() && source[at] != b'\n' {
+    while at < source.len() && !matches!(source[at], b'\n' | b'\r') {
         at += 1;
     }
     at
+}
+
+/// Whether `byte` ends a line. Every scanner shares this so that bare-CR and
+/// CRLF sources agree with `\n` sources about where lines break.
+pub fn ends_line(byte: u8) -> bool {
+    matches!(byte, b'\n' | b'\r')
 }
 
 pub fn starts_with(source: &[u8], at: usize, needle: &[u8]) -> bool {

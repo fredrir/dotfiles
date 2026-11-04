@@ -4,14 +4,18 @@ use crate::keep::{self, Kept};
 use crate::lang::{Dialect, Family};
 use crate::luadoc;
 use crate::scan;
+use crate::syntax::Engine;
 use crate::{docstring, scan::Comment};
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub struct Saved {
     pub shebangs: usize,
     pub important: usize,
     pub directives: usize,
     pub licenses: usize,
+    /// `(byte offset, marker)` for every kept comment, filled only when
+    /// `Options::explain` asks for it so `--explain` can name the reason.
+    pub markers: Vec<(usize, &'static str)>,
 }
 
 impl Saved {
@@ -19,11 +23,36 @@ impl Saved {
         self.shebangs + self.important + self.directives + self.licenses > 0
     }
 
-    pub fn add(&mut self, other: Saved) {
+    pub fn add(&mut self, other: &Saved) {
         self.shebangs += other.shebangs;
         self.important += other.important;
         self.directives += other.directives;
         self.licenses += other.licenses;
+        self.markers.extend_from_slice(&other.markers);
+    }
+}
+
+/// What a purge is allowed to remove.
+#[derive(Clone, Copy, Debug)]
+pub struct Options {
+    pub comments: bool,
+    pub docs: bool,
+    pub glyphs: bool,
+    /// Drop a doc string whole instead of keeping its first sentence.
+    pub aggressive: bool,
+    /// Record the marker that kept each comment in `Saved::markers`.
+    pub explain: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            comments: true,
+            docs: true,
+            glyphs: true,
+            aggressive: false,
+            explain: false,
+        }
     }
 }
 
@@ -46,8 +75,18 @@ fn leading(source: &[u8], comments: &[Comment], dialect: Dialect) -> usize {
     } else {
         0
     };
-    if dialect.family() == Family::Css {
-        cursor = cursor.max(after_charset(source));
+    match dialect.family() {
+        // `@charset` is not a comment, but a banner sitting behind it is still
+        // the file's heading.
+        Family::Css => cursor = cursor.max(after_charset(source)),
+        // Markup and templates have no header construct of their own: the leading
+        // comments are the heading from byte 0.
+        Family::Curly
+        | Family::Hash
+        | Family::Dash
+        | Family::Lisp
+        | Family::Markup
+        | Family::Template => {}
     }
     let mut count = 0usize;
     for comment in comments {
@@ -111,11 +150,11 @@ fn after_charset(source: &[u8]) -> usize {
     }
 }
 
+/// Whether a comment removed from the middle of a line has to leave a line break
+/// behind. Scripts are statement-oriented, so they need one; markup and template
+/// text does not, and joins like prose.
 fn scripty(dialect: Dialect) -> bool {
-    matches!(
-        dialect,
-        Dialect::JavaScript | Dialect::Mjs | Dialect::TypeScript | Dialect::Jsx | Dialect::Tsx
-    )
+    dialect.syntax().engine == Engine::Script
 }
 
 fn line_break(source: &[u8], span: &std::ops::Range<usize>) -> Option<&'static str> {
@@ -193,6 +232,11 @@ fn needs_style_space(source: &[u8], start: usize, end: usize, padded: bool) -> b
 }
 
 pub fn purge(source: &[u8], dialect: Dialect) -> Outcome {
+    purge_with(source, dialect, Options::default())
+}
+
+/// Purge under explicit [`Options`]; [`purge`] is this with the defaults.
+pub fn purge_with(source: &[u8], dialect: Dialect, options: Options) -> Outcome {
     if source.len() as u64 > LIMIT {
         return Outcome::Skipped(TOO_LARGE);
     }
@@ -207,94 +251,43 @@ pub fn purge(source: &[u8], dialect: Dialect) -> Outcome {
     let mut cuts: Vec<Cut> = Vec::new();
     let heading = leading(source, &out.comments, dialect);
     for (index, comment) in out.comments.iter().enumerate() {
-        match keep::kept(source, comment, dialect, index < heading) {
-            Some(Kept::Shebang) => {
-                saved.shebangs += 1;
-                continue;
+        let Some((kept, marker)) = keep::kept(source, comment, dialect, index < heading) else {
+            if options.comments {
+                cuts.push(comment_cut(source, comment, dialect));
             }
-            Some(Kept::Important) => {
-                saved.important += 1;
-                continue;
-            }
-            Some(Kept::Directive) => {
+            continue;
+        };
+        if options.explain {
+            saved.markers.push((comment.span.start, marker));
+        }
+        match kept {
+            Kept::Shebang => saved.shebangs += 1,
+            Kept::Important => saved.important += 1,
+            Kept::Directive => {
                 saved.directives += 1;
-                if dialect == Dialect::Lua
+                if options.comments
+                    && dialect == Dialect::Lua
                     && let Some(cut) = luadoc::description(source, comment)
                 {
                     cuts.push(cut);
                 }
-                continue;
             }
-            Some(Kept::License) => {
-                saved.licenses += 1;
-                continue;
-            }
-            None => {}
+            Kept::License => saved.licenses += 1,
         }
-        let (span, with) = match edit::whole_lines(source, &comment.span) {
-            Some(widened) => (widened, None),
-            None => {
-                let line_begin = edit::line_start(source, comment.span.start);
-                let content_begin = if line_begin == 0 && source.starts_with(BOM) {
-                    BOM.len()
-                } else {
-                    line_begin
-                };
-                let at_line_start = source[content_begin..comment.span.start]
-                    .iter()
-                    .all(|byte| matches!(byte, b' ' | b'\t'));
-                let mut start = comment.span.start;
-                if !at_line_start {
-                    while start > 0 && matches!(source[start - 1], b' ' | b'\t') {
-                        start -= 1;
-                    }
-                }
-                let mut end = comment.span.end;
-                while end < source.len() && matches!(source[end], b' ' | b'\t') {
-                    end += 1;
-                }
-                let padded = start < comment.span.start && end > comment.span.end;
-                if scripty(dialect)
-                    && let Some(break_line) = line_break(source, &comment.span)
-                {
-                    let with = if ends_line(source, end) {
-                        None
-                    } else {
-                        Some(break_line.to_string())
-                    };
-                    cuts.push(Cut {
-                        span: start..end,
-                        with,
-                        kind: Kind::Comment,
-                        lines: false,
-                    });
-                    continue;
-                }
-                let space = if dialect.family() == Family::Css {
-                    let style_padded = start < comment.span.start || end > comment.span.end;
-                    needs_style_space(source, start, end, style_padded)
-                } else {
-                    needs_style_space(source, start, end, padded)
-                };
-                (start..end, space.then(|| " ".to_string()))
-            }
-        };
-        cuts.push(Cut {
-            span,
-            with,
-            kind: Kind::Comment,
-            lines: false,
-        });
     }
-    cuts.extend(docstring::cuts(source, &out));
-    for text in &out.texts {
-        for swap in glyphs::sweep(source, text) {
-            cuts.push(Cut {
-                span: swap.span,
-                with: (!swap.with.is_empty()).then_some(swap.with),
-                kind: Kind::Glyph,
-                lines: false,
-            });
+    if options.docs {
+        cuts.extend(docstring::cuts(source, &out, options.aggressive));
+    }
+    if options.glyphs {
+        for text in &out.texts {
+            for swap in glyphs::sweep(source, text) {
+                cuts.push(Cut {
+                    span: swap.span,
+                    with: (!swap.with.is_empty()).then_some(swap.with),
+                    kind: Kind::Glyph,
+                    lines: false,
+                });
+            }
         }
     }
     let edited = edit::apply(source, cuts);
@@ -305,4 +298,62 @@ pub fn purge(source: &[u8], dialect: Dialect) -> Outcome {
         return Outcome::Skipped("the purged file would not read back");
     }
     Outcome::Changed(Box::new(edited), saved)
+}
+
+/// The cut that removes one comment, widened to its whole line when nothing
+/// else shares it.
+fn comment_cut(source: &[u8], comment: &Comment, dialect: Dialect) -> Cut {
+    let (span, with) = match edit::whole_lines(source, &comment.span) {
+        Some(widened) => (widened, None),
+        None => {
+            let line_begin = edit::line_start(source, comment.span.start);
+            let content_begin = if line_begin == 0 && source.starts_with(BOM) {
+                BOM.len()
+            } else {
+                line_begin
+            };
+            let at_line_start = source[content_begin..comment.span.start]
+                .iter()
+                .all(|byte| matches!(byte, b' ' | b'\t'));
+            let mut start = comment.span.start;
+            if !at_line_start {
+                while start > 0 && matches!(source[start - 1], b' ' | b'\t') {
+                    start -= 1;
+                }
+            }
+            let mut end = comment.span.end;
+            while end < source.len() && matches!(source[end], b' ' | b'\t') {
+                end += 1;
+            }
+            let padded = start < comment.span.start && end > comment.span.end;
+            if scripty(dialect)
+                && let Some(break_line) = line_break(source, &comment.span)
+            {
+                let with = if ends_line(source, end) {
+                    None
+                } else {
+                    Some(break_line.to_string())
+                };
+                return Cut {
+                    span: start..end,
+                    with,
+                    kind: Kind::Comment,
+                    lines: false,
+                };
+            }
+            let space = if dialect.family() == Family::Css {
+                let style_padded = start < comment.span.start || end > comment.span.end;
+                needs_style_space(source, start, end, style_padded)
+            } else {
+                needs_style_space(source, start, end, padded)
+            };
+            (start..end, space.then(|| " ".to_string()))
+        }
+    };
+    Cut {
+        span,
+        with,
+        kind: Kind::Comment,
+        lines: false,
+    }
 }

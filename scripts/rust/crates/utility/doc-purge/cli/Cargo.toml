@@ -11,9 +11,12 @@ workspace = true
 [dependencies]
 clap.workspace           = true
 doc-purge-core.workspace = true
+ignore                   = "0.4"
 rayon.workspace          = true
+serde_json.workspace     = true
 ui-batch.workspace       = true
-workstation              = { workspace = true, features = ["walk"] }
+workstation.workspace    = true
 
 [dev-dependencies]
-testkit.workspace = true
+serde_json.workspace = true
+testkit.workspace    = true

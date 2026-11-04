@@ -2,9 +2,9 @@
 
 mod css;
 mod curly;
-mod dash;
 mod docstring;
 mod edit;
+pub mod engine;
 mod glyphs;
 mod hash;
 mod js;
@@ -13,5 +13,15 @@ pub mod lang;
 mod luadoc;
 pub mod purge;
 mod scan;
+pub mod syntax;
 
 pub use edit::{Change, Edited};
+
+/// Test-only surface: `core/tests/equivalence.rs` compares the generic engine
+/// against the Curly reference, and neither module is otherwise reachable.
+#[doc(hidden)]
+pub mod bridge {
+    pub use crate::curly::scan as curly_scan;
+    pub use crate::engine::generic::scan as generic_scan;
+    pub use crate::scan::{Bail, Comment, Logical, Out, Text};
+}

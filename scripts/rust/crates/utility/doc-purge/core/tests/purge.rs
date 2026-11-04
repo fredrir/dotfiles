@@ -946,6 +946,62 @@ fn css_crlf_lines_survive_a_purge() {
     );
 }
 
+/// A bare-CR file has no `\n` at all. A scanner that only looked for `\n`
+/// would stretch the first line comment to the end of the file and delete the
+/// whole thing, so every family has to break lines on `\r` too.
+#[test]
+fn a_bare_cr_file_keeps_its_code() {
+    for (dialect, source, want) in [
+        (Dialect::Rust, "// note\rlet x = 1;\r", "let x = 1;\r"),
+        (Dialect::Python, "# note\rx = 1\r", "x = 1\r"),
+        (Dialect::Lua, "-- note\rlocal x = 1\r", "local x = 1\r"),
+        (Dialect::Sql, "-- note\rselect 1;\r", "select 1;\r"),
+        (Dialect::Haskell, "-- note\rx = 1\r", "x = 1\r"),
+        (Dialect::Toml, "# note\rx = 1\r", "x = 1\r"),
+        (Dialect::Shell, "# note\rx=1\r", "x=1\r"),
+        (Dialect::Ruby, "# note\rx = 1\r", "x = 1\r"),
+        (Dialect::Yaml, "# note\rx: 1\r", "x: 1\r"),
+        (
+            Dialect::Scss,
+            "// note\r.a { color: red; }\r",
+            ".a { color: red; }\r",
+        ),
+        (
+            Dialect::Css,
+            "/* note */\r.a { color: red; }\r",
+            ".a { color: red; }\r",
+        ),
+        (Dialect::Go, "// note\rvar x = 1\r", "var x = 1\r"),
+    ] {
+        assert_eq!(purged(source, dialect), want, "{dialect:?}");
+    }
+}
+
+/// The same shape for an inline comment: the code before and after must both
+/// survive, and no stray space may be left behind.
+#[test]
+fn a_bare_cr_inline_comment_leaves_the_code_alone() {
+    for (dialect, source, want) in [
+        (
+            Dialect::Rust,
+            "let x = 1; // note\rlet y = 2;\r",
+            "let x = 1;\rlet y = 2;\r",
+        ),
+        (Dialect::Python, "x = 1  # note\ry = 2\r", "x = 1\ry = 2\r"),
+        (Dialect::Lua, "x = 1 -- note\ry = 2\r", "x = 1\ry = 2\r"),
+    ] {
+        assert_eq!(purged(source, dialect), want, "{dialect:?}");
+    }
+}
+
+/// A bare-CR file whose comment is the only content becomes empty rather than
+/// keeping a stray `\r`.
+#[test]
+fn a_bare_cr_file_of_comments_only_becomes_empty() {
+    assert_eq!(purged("# one\r# two\r", Dialect::Python), "");
+    assert_eq!(purged("-- one\r-- two\r", Dialect::Lua), "");
+}
+
 #[test]
 fn scss_custom_property_braces_keep_their_double_slashes() {
     survives(".a { --x: { a: //literal; b: c }; }\n", Dialect::Scss);
@@ -983,4 +1039,146 @@ fn css_tool_directives_include_rtl_and_noinspection() {
         ".a { color: red; }\n/*rtl:ignore*/\n.b { color: blue; }\n/* noinspection CssInvalidPropertyValue */\n.c { color: green; }\n",
         Dialect::Css,
     );
+}
+
+fn purged_with(source: &str, dialect: Dialect, options: purge::Options) -> String {
+    match purge::purge_with(source.as_bytes(), dialect, options) {
+        Outcome::Changed(edited, _) => content(source, *edited),
+        Outcome::Untouched(_) => source.to_string(),
+        Outcome::Skipped(reason) => panic!("left alone: {reason}"),
+    }
+}
+
+#[test]
+fn options_can_leave_typographic_glyphs_alone() {
+    let source = "let s = \"“quoted”\"; // note\n";
+    assert_eq!(
+        purged_with(
+            source,
+            Dialect::Rust,
+            purge::Options {
+                glyphs: false,
+                ..purge::Options::default()
+            }
+        ),
+        "let s = \"“quoted”\";\n"
+    );
+    assert_eq!(
+        purged(source, Dialect::Rust),
+        "let s = \"\\\"quoted\\\"\";\n"
+    );
+}
+
+#[test]
+fn options_can_leave_comments_alone_while_purging_doc_strings() {
+    let source =
+        "def f():\n    \"\"\"Runs it.\n\n    More detail.\n    \"\"\"\n    x = 1  # note\n";
+    assert_eq!(
+        purged_with(
+            source,
+            Dialect::Python,
+            purge::Options {
+                comments: false,
+                ..purge::Options::default()
+            }
+        ),
+        "def f():\n    x = 1  # note\n"
+    );
+}
+
+#[test]
+fn options_can_leave_doc_strings_alone_while_purging_comments() {
+    let source =
+        "def f():\n    \"\"\"Runs it.\n\n    More detail.\n    \"\"\"\n    x = 1  # note\n";
+    assert_eq!(
+        purged_with(
+            source,
+            Dialect::Python,
+            purge::Options {
+                docs: false,
+                ..purge::Options::default()
+            }
+        ),
+        "def f():\n    \"\"\"Runs it.\n\n    More detail.\n    \"\"\"\n    x = 1\n"
+    );
+}
+
+#[test]
+fn aggressive_removes_a_stub_doc_string_entirely() {
+    let source = "def f():\n    \"\"\"Runs it.\n\n    More detail.\n    \"\"\"\n";
+    assert_eq!(
+        purged(source, Dialect::Python),
+        "def f():\n    \"\"\"Runs it.\"\"\"\n"
+    );
+    assert_eq!(
+        purged_with(
+            source,
+            Dialect::Python,
+            purge::Options {
+                aggressive: true,
+                ..purge::Options::default()
+            }
+        ),
+        "def f():\n"
+    );
+}
+
+#[test]
+fn only_kind_options_are_independent() {
+    let source = "\"\"\"Module docs.\"\"\"\nx = \"“quoted”\"  # note\n";
+    assert_eq!(
+        purged_with(
+            source,
+            Dialect::Python,
+            purge::Options {
+                comments: true,
+                docs: false,
+                glyphs: false,
+                ..purge::Options::default()
+            }
+        ),
+        "\"\"\"Module docs.\"\"\"\nx = \"“quoted”\"\n"
+    );
+    assert_eq!(
+        purged_with(
+            source,
+            Dialect::Python,
+            purge::Options {
+                comments: false,
+                docs: true,
+                glyphs: false,
+                ..purge::Options::default()
+            }
+        ),
+        "x = \"“quoted”\"  # note\n"
+    );
+    assert_eq!(
+        purged_with(
+            source,
+            Dialect::Python,
+            purge::Options {
+                comments: false,
+                docs: false,
+                glyphs: true,
+                ..purge::Options::default()
+            }
+        ),
+        "\"\"\"Module docs.\"\"\"\nx = \"\\\"quoted\\\"\"  # note\n"
+    );
+}
+
+#[test]
+fn explain_records_the_marker_that_kept_a_comment() {
+    let source = "// SAFETY: valid\n// note\nlet x = 1;\n";
+    let Outcome::Changed(_, saved) = purge::purge_with(
+        source.as_bytes(),
+        Dialect::Rust,
+        purge::Options {
+            explain: true,
+            ..purge::Options::default()
+        },
+    ) else {
+        panic!("the note should be purged");
+    };
+    assert_eq!(saved.markers, vec![(0, "safety:")]);
 }

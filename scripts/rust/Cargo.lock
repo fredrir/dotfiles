@@ -1438,7 +1438,9 @@ version = "0.1.0"
 dependencies = [
  "clap 4.6.7",
  "doc-purge-core",
+ "ignore",
  "rayon",
+ "serde_json",
  "testkit",
  "ui-batch",
  "workstation",

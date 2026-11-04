@@ -213,7 +213,7 @@ impl Css<'_> {
 
     fn line_starts_at(&self, at: usize) -> bool {
         let mut begin = at;
-        while begin > 0 && self.source[begin - 1] != b'\n' {
+        while begin > 0 && !crate::scan::ends_line(self.source[begin - 1]) {
             begin -= 1;
         }
         self.source[begin..at]
@@ -223,7 +223,7 @@ impl Css<'_> {
 
     fn indent_at(&self, at: usize) -> usize {
         let mut begin = at;
-        while begin > 0 && self.source[begin - 1] != b'\n' {
+        while begin > 0 && !crate::scan::ends_line(self.source[begin - 1]) {
             begin -= 1;
         }
         let mut cursor = begin;
