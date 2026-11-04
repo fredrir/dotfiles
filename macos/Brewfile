@@ -1,5 +1,6 @@
 brew "bash"
 brew "cargo-nextest"
+brew "cargo-zigbuild"
 brew "fzf"
 brew "git"
 brew "difftastic"

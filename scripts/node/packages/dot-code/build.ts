@@ -24,12 +24,9 @@ export async function build(
     TARGETS[platform],
   ]);
 
-  await $`cargo build --locked --release --package ${server} ${targets}`
-    .cwd(cargo)
-    .env({
-      ...process.env,
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: "rust-lld",
-    });
+  await $`cargo zigbuild --locked --release --package ${server} ${targets}`.cwd(
+    cargo,
+  );
 
   await rm(path.join(root, "bin"), { recursive: true, force: true });
   for (const platform of platforms) {

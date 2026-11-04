@@ -856,5 +856,9 @@
     "key": "shift+alt+cmd+c",
     "command": "-copyRelativeFilePath",
     "when": "!editorFocus"
+  },
+  {
+    "key": "shift+alt+[Period]",
+    "command": "dotCode.copyFileAsMarkdown"
   }
 ]
