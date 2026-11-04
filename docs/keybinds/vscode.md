@@ -53,6 +53,7 @@
 | <code>f4</code> | [<code>-goToNextReference</code>](../../shared/vscode/keybindings.json#L361) | Go To Next Reference<br><code>inReferenceSearchEditor &#124;&#124; referenceSearchVisible; remove binding</code> |
 | <code>f4</code> | [<code>-references-view.next</code>](../../shared/vscode/keybindings.json#L351) | References view next<br><code>reference-list.hasResult &amp;&amp; references-view.canNavigate; remove binding</code> |
 | <code>f4</code> | [<code>-search.action.focusNextSearchResult</code>](../../shared/vscode/keybindings.json#L356) | Search action focus Next Search Result<br><code>hasSearchResult &#124;&#124; inSearchEditor; remove binding</code> |
+| <code>shift+alt+&#91;Period&#93;</code> | [<code>dotCode.copyFileAsMarkdown</code>](../../shared/vscode/keybindings.json#L860) | Dot Code copy File As Markdown |
 | <code>shift+alt+b</code> | [<code>workbench.action.tasks.build</code>](../../shared/vscode/keybindings.json#L262) | Tasks build<br><code>taskCommandsRegistered</code> |
 | <code>shift+alt+c</code> | [<code>dotCode.transformToCamelcase</code>](../../shared/vscode/keybindings.json#L628) | Dot Code transform To Camelcase<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; !editorSimpleInput</code> |
 | <code>shift+alt+c</code> | [<code>dotCode.transformToCamelcase {"target":"fileName"}</code>](../../shared/vscode/keybindings.json#L722) | Dot Code transform To Camelcase<br><code>filesExplorerFocus &amp;&amp; inputFocus</code> |

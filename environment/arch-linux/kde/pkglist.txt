@@ -10,6 +10,7 @@ bluedevil
 breeze-gtk
 breeze-plymouth
 bun
+cargo-zigbuild
 cuda
 difftastic
 direnv
