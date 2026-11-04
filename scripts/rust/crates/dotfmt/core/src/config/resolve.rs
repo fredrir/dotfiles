@@ -135,7 +135,12 @@ pub(super) fn absolute(cwd: &Path, path: &Path) -> Result<PathBuf, Diagnostic> {
 
 fn read_layer(path: &Path, root: &Path) -> Result<Option<Layer>, Diagnostic> {
     match std::fs::read_to_string(path) {
-        Ok(source) => parse::parse(&source, path, root).map(Some),
+        Ok(source) => parse::parse(&source, path, root).map(|layer| {
+            Some(Layer {
+                source: Some(path.to_path_buf()),
+                ..layer
+            })
+        }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(Diagnostic::new(DiagnosticKind::Io, error.to_string()).with_path(path)),
     }

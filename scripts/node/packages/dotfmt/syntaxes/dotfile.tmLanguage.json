@@ -1,0 +1,108 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Dotfile",
+  "scopeName": "source.dotfile",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#block"
+    },
+    {
+      "include": "#close"
+    },
+    {
+      "include": "#setting"
+    },
+    {
+      "include": "#entry"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "match": "(#).*$",
+      "name": "comment.line.number-sign.dotfile",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.comment.dotfile"
+        }
+      }
+    },
+    "block": {
+      "match": "^\\s*(?:([^{}=#\\s][^{}=#]*?)\\s*)?(\\{)",
+      "captures": {
+        "1": {
+          "name": "entity.name.section.dotfile"
+        },
+        "2": {
+          "name": "punctuation.section.block.begin.dotfile"
+        }
+      }
+    },
+    "close": {
+      "match": "\\}",
+      "name": "punctuation.section.block.end.dotfile"
+    },
+    "setting": {
+      "begin": "^\\s*([^{}=#\\s][^{}=#]*?)\\s*(=)",
+      "beginCaptures": {
+        "1": {
+          "name": "variable.other.key.dotfile"
+        },
+        "2": {
+          "name": "keyword.operator.assignment.dotfile"
+        }
+      },
+      "end": "$",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "match": "\\b(?:true|false)\\b",
+          "name": "constant.language.boolean.dotfile"
+        },
+        {
+          "match": "(?<![\\w.])-?\\d+(?:\\.\\d+)?(?![\\w.])",
+          "name": "constant.numeric.dotfile"
+        },
+        {
+          "match": "[^\\s#\"'][^#]*?(?=\\s*(?:#|$))",
+          "name": "string.unquoted.value.dotfile"
+        }
+      ]
+    },
+    "string": {
+      "patterns": [
+        {
+          "begin": "\"",
+          "end": "\"",
+          "name": "string.quoted.double.dotfile",
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.dotfile"
+            }
+          ]
+        },
+        {
+          "begin": "'",
+          "end": "'",
+          "name": "string.quoted.single.dotfile"
+        }
+      ]
+    },
+    "entry": {
+      "match": "^\\s*([^#{}=\\s][^#{}=]*?)\\s*(?=#|$)",
+      "captures": {
+        "1": {
+          "name": "string.unquoted.pattern.dotfile"
+        }
+      }
+    }
+  }
+}

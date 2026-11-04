@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use dotfmt_core::config::{CONFIG_NAME, Resolver};
+use dotfmt_core::config::{CONFIG_NAME, Resolver, Selection};
 use dotfmt_core::language::Language;
 
 fn config(directory: &Path, source: &str) {
@@ -424,6 +424,41 @@ fn requested_languages_disambiguate_without_claiming_unfamiliar_files() {
             .unwrap(),
         Some(Language::Conf)
     );
+}
+
+#[test]
+fn selection_explains_skipped_files_and_sources_list_applied_layers() {
+    let root = tempfile::tempdir().unwrap();
+    let nested = root.path().join("nested");
+    let global = root.path().join("global.dotfile");
+    fs::write(&global, "json {}\n").unwrap();
+    config(
+        root.path(),
+        "lua { include { !keep.lua } }\nmarkdown { exclude { skip.md } }\nexclude { vendor/ }\n",
+    );
+    config(&nested, "toml { enabled = false }\n");
+    let effective = Resolver::with_paths(root.path().to_path_buf(), Some(global.clone()))
+        .for_directory(&nested)
+        .unwrap();
+    assert_eq!(
+        effective.sources(),
+        [global, root.path().join(CONFIG_NAME), nested.join(CONFIG_NAME)]
+    );
+    for (name, expected) in [
+        ("a.json", Selection::Language(Language::Json)),
+        ("vendor/a.json", Selection::Excluded),
+        ("keep.lua", Selection::Excluded),
+        ("skip.md", Selection::Excluded),
+        ("a.toml", Selection::Disabled(Language::Toml)),
+        ("a.yaml", Selection::Disabled(Language::Yaml)),
+        ("a.unknown", Selection::Unmapped),
+    ] {
+        assert_eq!(
+            effective.selection(&root.path().join(name), &[], None).unwrap(),
+            expected,
+            "{name}"
+        );
+    }
 }
 
 #[cfg(unix)]

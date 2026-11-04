@@ -182,18 +182,41 @@ fn editor_formatting_errors_succeed_silently_and_preserve_the_buffer() {
 }
 
 #[test]
-fn editor_configuration_errors_succeed_silently_and_preserve_the_buffer() {
-    for config in ["", "lua {", "lua { indent = bad }\n"] {
+fn editor_configuration_errors_fail_and_preserve_the_buffer() {
+    for (config, diagnostic) in [
+        ("", "configured"),
+        ("lua {", "dotfmt.dotfile:1:"),
+        ("lua { indent = bad }\n", "dotfmt.dotfile:1: "),
+    ] {
         let root = tree_pairs(&[("dotfmt.dotfile", config)]);
         let input = "local x=1\r\n";
-        let output = dotfmt(root.path())
-            .args(["-l", "lua", "-eq", "--stdin", "a.lua"])
-            .stdin(input)
-            .run();
-        assert!(output.success(), "{config}: {output:?}");
-        assert_eq!(output.stdout, input);
-        assert!(output.stderr.is_empty(), "{output:?}");
+        for args in [
+            vec!["-l", "lua", "-eq", "--stdin", "a.lua"],
+            vec!["-e", "a.lua"],
+        ] {
+            let output = dotfmt(root.path()).args(args).stdin(input).run();
+            assert_eq!(output.code(), Some(1), "{config}: {output:?}");
+            assert_eq!(output.stdout, input);
+            assert!(output.stderr.starts_with("dotfmt: "), "{output:?}");
+            assert!(output.stderr.contains(diagnostic), "{output:?}");
+        }
     }
+}
+
+#[test]
+fn editor_ambiguous_mappings_fail_and_unmapped_files_pass_through() {
+    let root = tree_pairs(&[(
+        "dotfmt.dotfile",
+        "json {\n include {\n  *.foo\n }\n}\nyaml {\n include {\n  *.foo\n }\n}\n",
+    )]);
+    let output = dotfmt(root.path()).args(["-e", "a.foo"]).stdin("a: 1\n").run();
+    assert_eq!(output.code(), Some(1), "{output:?}");
+    assert_eq!(output.stdout, "a: 1\n");
+    assert!(output.stderr.contains("ambiguous language mapping"), "{output:?}");
+    let output = dotfmt(root.path()).args(["-e", "a.bar"]).stdin("a: 1\n").run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(output.stdout, "a: 1\n");
+    assert!(output.stderr.is_empty(), "{output:?}");
 }
 
 #[test]

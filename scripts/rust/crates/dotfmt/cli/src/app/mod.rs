@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+pub use dotfmt_core::config::Selection;
+
 use dotfmt_core::config::Resolver;
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use dotfmt_core::language::Language;
@@ -132,6 +134,13 @@ pub struct BufferOutcome {
     pub path: PathBuf,
     pub language: Option<Language>,
     pub result: Result<BufferChange, Diagnostic>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Explanation {
+    pub selection: Selection,
+    pub dialect: Option<&'static str>,
+    pub sources: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug)]

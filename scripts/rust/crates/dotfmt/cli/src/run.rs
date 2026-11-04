@@ -2,9 +2,10 @@ use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use dotfmt::app::{Buffer, Operation, Options, Outcome, Request, Session};
+use dotfmt::app::{Buffer, Operation, Options, Outcome, Request, Selection, Session};
 use dotfmt::render::{self, Mode};
 use dotfmt_core::config::Resolver;
+use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use workstation::Style;
 
 use crate::args::Cli;
@@ -14,6 +15,9 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
     cli.languages.dedup();
     if cli.add || cli.sync {
         return crate::placement::run(&cli);
+    }
+    if let Some(path) = &cli.explain {
+        return explain(&cli, path);
     }
     if cli.editor {
         cli.quiet |= !cli.verbose;
@@ -106,15 +110,17 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
         io::stdout()
             .write_all(&input)
             .map_err(|error| format!("stdout: {error}"))?;
-        return Ok(ExitCode::SUCCESS);
+        let unexpected = unexpected(&outcome);
+        for error in &unexpected {
+            eprintln!("dotfmt: {error}");
+        }
+        return Ok(if unexpected.is_empty() {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        });
     }
-    let outcome = outcome.map_err(|errors| {
-        errors
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("\ndotfmt: ")
-    })?;
+    let outcome = outcome.map_err(joined)?;
     let failed = outcome.failed();
     match outcome {
         Outcome::Owned(paths) => {
@@ -202,6 +208,60 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
     } else {
         ExitCode::SUCCESS
     })
+}
+
+fn explain(cli: &Cli, path: &Path) -> Result<ExitCode, String> {
+    let explanation = Session::new(Resolver::new(), Options::default())
+        .explain(path, cli.languages.clone(), cli.dialect.clone())
+        .map_err(joined)?;
+    let mut rows = Vec::new();
+    match explanation.selection {
+        Selection::Language(language) => rows.push(("language", language.name().to_owned())),
+        Selection::Disabled(language) => {
+            rows.push(("language", language.name().to_owned()));
+            rows.push(("skipped", "disabled".to_owned()));
+        }
+        Selection::Excluded => rows.push(("skipped", "excluded".to_owned())),
+        Selection::Unmapped => rows.push(("skipped", "unmapped".to_owned())),
+    }
+    if let Some(dialect) = explanation.dialect {
+        rows.push(("dialect", dialect.to_owned()));
+    }
+    for source in &explanation.sources {
+        rows.push(("config", source.display().to_string()));
+    }
+    let output: String = rows
+        .iter()
+        .map(|(key, value)| format!("{key:<9}{value}\n"))
+        .collect();
+    io::stdout()
+        .write_all(output.as_bytes())
+        .map_err(|error| format!("stdout: {error}"))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Editor mode keeps syntax errors quiet; anything else is dotfmt's own failure.
+fn unexpected(outcome: &Result<Outcome, Vec<Diagnostic>>) -> Vec<&Diagnostic> {
+    let errors: Vec<&Diagnostic> = match outcome {
+        Err(errors) => errors.iter().collect(),
+        Ok(Outcome::Formatted { buffer, .. }) => buffer
+            .iter()
+            .filter_map(|buffer| buffer.result.as_ref().err())
+            .collect(),
+        Ok(Outcome::Owned(_)) => Vec::new(),
+    };
+    errors
+        .into_iter()
+        .filter(|error| error.kind != DiagnosticKind::Syntax)
+        .collect()
+}
+
+fn joined(errors: Vec<Diagnostic>) -> String {
+    errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\ndotfmt: ")
 }
 
 fn read_input() -> Result<Vec<u8>, String> {

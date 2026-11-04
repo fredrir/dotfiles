@@ -1,0 +1,109 @@
+{
+  "name": "dotfmt",
+  "displayName": "dotfmt",
+  "description": "Quiet formatting for config, data and markup files",
+  "version": "0.1.0",
+  "publisher": "fredrir",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fredrir/dotfiles"
+  },
+  "scripts": {
+    "build": "bun build.ts",
+    "deploy": "bun deploy.ts"
+  },
+  "dependencies": {
+    "diff": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.145.0",
+    "@vscode/vsce": "^4.1.0"
+  },
+  "engines": {
+    "vscode": "^1.145.0"
+  },
+  "categories": [
+    "Formatters"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:bibtex",
+    "onLanguage:chatagent",
+    "onLanguage:dockercompose",
+    "onLanguage:dotenv",
+    "onLanguage:ignore",
+    "onLanguage:ini",
+    "onLanguage:instructions",
+    "onLanguage:json",
+    "onLanguage:jsonc",
+    "onLanguage:jsonl",
+    "onLanguage:latex",
+    "onLanguage:lua",
+    "onLanguage:markdown",
+    "onLanguage:prompt",
+    "onLanguage:properties",
+    "onLanguage:skill",
+    "onLanguage:tex",
+    "onLanguage:toml",
+    "onLanguage:yaml",
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Workspace settings cannot choose the dotfmt binary.",
+      "restrictedConfigurations": [
+        "dotfmt.path"
+      ]
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "dotfmt resolves configuration from files on disk."
+    }
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "dotfile",
+        "aliases": [
+          "Dotfile",
+          "dotfile"
+        ],
+        "extensions": [
+          ".dotfile"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "dotfile",
+        "scopeName": "source.dotfile",
+        "path": "./syntaxes/dotfile.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "dotfmt.showOutput",
+        "title": "Show Output",
+        "category": "dotfmt"
+      }
+    ],
+    "configuration": {
+      "title": "dotfmt",
+      "properties": {
+        "dotfmt.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "dotfmt binary; empty uses the bundled one"
+        }
+      }
+    }
+  }
+}

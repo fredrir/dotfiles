@@ -1,17 +1,17 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use dotfmt_core::config::Effective;
+use dotfmt_core::config::{Effective, Selection};
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use dotfmt_core::language::Language;
 use dotfmt_markdown::dialect::Dialect;
 
 use super::engine::Engine;
 use super::{
-    Buffer, Operation, Request, Session, attach_path, configuration, discovery, forced, ordered,
-    requested,
+    Buffer, Explanation, Operation, Request, Session, attach_path, configuration, discovery,
+    forced, ordered, requested,
 };
 
 pub struct Prepared {
@@ -229,12 +229,85 @@ impl Session {
         })
     }
 
+    /// Resolves what editor mode would do with `path` without reading or formatting it.
+    pub fn explain(
+        &mut self,
+        path: &Path,
+        mut languages: Vec<Language>,
+        dialect: Option<String>,
+    ) -> Result<Explanation, Vec<Diagnostic>> {
+        languages.sort();
+        languages.dedup();
+        let request = &Request {
+            operation: Operation::Owns {
+                paths: vec![path.to_path_buf()],
+            },
+            languages,
+            dialect,
+            clean: false,
+        };
+        let (config, selection) = self
+            .resolve_buffer(request, path)
+            .map_err(|error| vec![error])?;
+        self.engines
+            .validate(&config)
+            .map_err(|error| vec![error])?;
+        ensure_dialect(
+            request,
+            selection
+                .language()
+                .into_iter()
+                .chain(request.languages.iter().copied()),
+        )
+        .map_err(|error| vec![error])?;
+        let dialect = match selection {
+            Selection::Language(language) => {
+                let engine = self
+                    .engines
+                    .get(&config, language, request.dialect.as_deref())
+                    .map_err(|error| vec![attach_path(error, path)])?;
+                let absolute = self
+                    .resolver
+                    .absolute_path(path)
+                    .map_err(|error| vec![error])?;
+                let markdown = if language == Language::Markdown {
+                    self.context.markdown(&absolute)
+                } else {
+                    Dialect::Gfm
+                };
+                engine.dialect(path, &absolute, markdown)
+            }
+            _ => None,
+        };
+        Ok(Explanation {
+            selection,
+            dialect,
+            sources: config.sources().to_vec(),
+        })
+    }
+
     fn select_buffer(
         &self,
         request: &Request,
         input: Buffer,
     ) -> Result<SelectedBuffer, Diagnostic> {
-        let config = self.resolver.for_file(&input.path)?;
+        let (config, selection) = self.resolve_buffer(request, &input.path)?;
+        Ok(SelectedBuffer {
+            absolute: self.resolver.absolute_path(&input.path)?,
+            input,
+            language: selection
+                .language()
+                .filter(|language| requested(request, *language)),
+            config,
+        })
+    }
+
+    fn resolve_buffer(
+        &self,
+        request: &Request,
+        path: &Path,
+    ) -> Result<(Arc<Effective>, Selection), Diagnostic> {
+        let config = self.resolver.for_file(path)?;
         ensure_requested(request, &config)?;
         if !config
             .languages
@@ -243,15 +316,8 @@ impl Session {
         {
             return Err(no_languages());
         }
-        let language = config
-            .select_languages(&input.path, &request.languages, forced(request))?
-            .filter(|language| requested(request, *language));
-        Ok(SelectedBuffer {
-            absolute: self.resolver.absolute_path(&input.path)?,
-            input,
-            language,
-            config,
-        })
+        let selection = config.selection(path, &request.languages, forced(request))?;
+        Ok((config, selection))
     }
 
     pub fn validate(&mut self, prepared: Prepared) -> Result<Plan, Vec<Diagnostic>> {

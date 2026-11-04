@@ -37,9 +37,13 @@ pub struct Cli {
     pub dialect: Option<String>,
 
     /// Quietly format stdin as TARGET; infer language and dialect.
-    /// On formatting or configuration errors, pass input through and succeed unless --verbose or --check.
+    /// Syntax errors pass input through and succeed unless --verbose or --check; other errors pass it through and fail.
     #[arg(short, long)]
     pub editor: bool,
+
+    /// Explain how FILENAME is formatted, or why it is skipped.
+    #[arg(long, value_name = "FILENAME", value_hint = ValueHint::FilePath, conflicts_with_all = ["targets", "check", "clean", "add", "sync", "editor", "stdin", "owns"])]
+    pub explain: Option<PathBuf>,
 
     /// Treat standard input as the named file, including its configuration.
     #[arg(long, value_name = "FILENAME", value_hint = ValueHint::FilePath, conflicts_with = "targets")]

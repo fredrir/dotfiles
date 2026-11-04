@@ -44,13 +44,13 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[json]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "fredrir.dotfmt"
   },
   "[jsonc]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "fredrir.dotfmt"
   },
   "[jsonl]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "fredrir.dotfmt"
   },
   "[lua]": {
     "editor.quickSuggestions": {
@@ -62,20 +62,20 @@
     "editor.quickSuggestionsDelay": 1,
     "editor.suggest.snippetsPreventQuickSuggestions": false,
     "editor.formatOnSave": true,
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "fredrir.dotfmt"
   },
   "[toml]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "fredrir.dotfmt"
   },
   "[rust]": {
     "editor.defaultFormatter": "rust-lang.rust-analyzer"
   },
   "[go]": {},
   "[markdown]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "fredrir.dotfmt"
   },
   "[skill][chatagent][instructions][prompt]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "fredrir.dotfmt"
   },
   "[nix]": {
     "editor.insertSpaces": true,
@@ -87,97 +87,30 @@
       "languages": [
         "sql"
       ]
-    },
-    {
-      "command": "dotfmt -l bib -eq --stdin \"${file}\"",
-      "languages": [
-        "bibtex",
-        "bib"
-      ]
-    },
-    {
-      "command": "dotfmt -l json -eq --stdin \"${file}\"",
-      "languages": [
-        "json"
-      ]
-    },
-    {
-      "command": "dotfmt -l json -eq --dialect jsonc --stdin \"${file}\"",
-      "languages": [
-        "jsonc"
-      ]
-    },
-    {
-      "command": "dotfmt -l json -eq --dialect jsonl --stdin \"${file}\"",
-      "languages": [
-        "jsonl",
-        "ndjson"
-      ]
-    },
-    {
-      "command": "dotfmt -l conf -eq --stdin \"${file}\"",
-      "languages": [
-        "properties"
-      ]
-    },
-    {
-      "command": "dotfmt -l latex -eq --stdin \"${file}\"",
-      "languages": [
-        "latex",
-        "tex",
-        "plaintex",
-        "context"
-      ]
-    },
-    {
-      "command": "dotfmt -l lua -eq --stdin \"${file}\"",
-      "languages": [
-        "lua"
-      ]
-    },
-    {
-      "command": "dotfmt -l markdown -eq --stdin \"${file}\"",
-      "languages": [
-        "markdown",
-        "skill",
-        "chatagent",
-        "instructions",
-        "prompt"
-      ]
-    },
-    {
-      "command": "dotfmt -l yaml -eq --stdin \"${file}\"",
-      "languages": [
-        "yaml"
-      ]
-    },
-    {
-      "command": "dotfmt -l toml -eq --stdin \"${file}\"",
-      "languages": [
-        "toml"
-      ]
     }
   ],
   "[latex]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "fredrir.dotfmt"
   },
   "[bibtex]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "fredrir.dotfmt"
   },
   "[yaml]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters",
+    "editor.defaultFormatter": "fredrir.dotfmt"
   },
   "[sql]": {
     "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[properties]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "fredrir.dotfmt"
+  },
+  "[tex][ini][dotenv][ignore][dotfile][dockercompose]": {
+    "editor.defaultFormatter": "fredrir.dotfmt"
   },
   "files.associations": {
     "*.hujson": "jsonc",
     "*.lua": "lua",
     "*.jsonlines": "jsonl",
-    "*.dotfile": "properties",
     "*.ctx": "latex",
     "*.mkii": "latex",
     "*.mkiv": "latex",

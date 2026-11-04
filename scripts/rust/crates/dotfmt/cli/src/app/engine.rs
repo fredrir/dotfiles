@@ -162,6 +162,53 @@ impl Engine {
         Ok(self)
     }
 
+    /// The dialect `format` would use; JSON reports `auto` while comments still decide it.
+    pub fn dialect(
+        &self,
+        path: &Path,
+        context: &Path,
+        detected: dotfmt_markdown::dialect::Dialect,
+    ) -> Option<&'static str> {
+        match &self.kind {
+            Kind::Bib(_)
+            | Kind::Conf(_)
+            | Kind::Env(_)
+            | Kind::Plist(_)
+            | Kind::Toml(_)
+            | Kind::Yaml(_) => None,
+            Kind::Ignore(config, dialect) => Some(
+                dialect
+                    .resolve(
+                        config.dialect,
+                        dotfmt_ignore::dialect::Dialect::detect(context),
+                    )
+                    .name(),
+            ),
+            Kind::Ini(config, dialect) => Some(dialect.resolve(config.dialect, context).name()),
+            Kind::Json(config, dialect) => {
+                use dotfmt_json::dialect::Dialect;
+                let chosen = if *dialect == Dialect::Auto {
+                    config.dialect
+                } else {
+                    *dialect
+                };
+                Some(
+                    if chosen == Dialect::Auto && chosen.resolve(path) == Dialect::Json {
+                        Dialect::Auto
+                    } else {
+                        chosen.resolve(path)
+                    }
+                    .name(),
+                )
+            }
+            Kind::Latex(config, dialect) => Some(dialect.resolve(config.dialect, path).name()),
+            Kind::Lua(config, dialect) => Some(dialect.resolve(config.dialect, path).name()),
+            Kind::Markdown(config, dialect) => {
+                Some(dialect.resolve(config.dialect, detected).name())
+            }
+        }
+    }
+
     pub fn format(
         &self,
         path: &Path,

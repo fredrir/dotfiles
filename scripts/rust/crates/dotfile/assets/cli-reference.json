@@ -427,6 +427,7 @@
       "--dialect": "Override the dialect for one selected language.",
       "--editor": "Read standard input for an editor.",
       "--stdin": "Read standard input as the named file, using its configuration and dialect.",
+      "--explain": "Print the language, dialect and configuration files editor mode would use for a filename, or why it is skipped.",
       "--owns": "Read NUL-separated filenames and emit those selected by the effective configuration.",
       "--verbose": "Show detailed formatting results and each repair.",
       "--quiet": "Report only failures."

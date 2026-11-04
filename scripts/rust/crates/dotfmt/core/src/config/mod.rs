@@ -45,6 +45,25 @@ pub struct Effective {
     includes: Patterns,
     excludes: Patterns,
     language_filters: BTreeMap<Language, (Patterns, Patterns)>,
+    sources: Vec<PathBuf>,
+}
+
+/// Why a file is or is not formatted under an effective configuration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Selection {
+    Language(Language),
+    Unmapped,
+    Excluded,
+    Disabled(Language),
+}
+
+impl Selection {
+    pub fn language(self) -> Option<Language> {
+        match self {
+            Self::Language(language) => Some(language),
+            _ => None,
+        }
+    }
 }
 
 impl Default for Effective {
@@ -58,6 +77,7 @@ impl Default for Effective {
             includes: Patterns::default(),
             excludes: Patterns::default(),
             language_filters: BTreeMap::new(),
+            sources: Vec::new(),
         }
     }
 }
@@ -65,6 +85,11 @@ impl Default for Effective {
 impl Effective {
     pub fn settings(&self, language: Language) -> &Settings {
         &self.languages[&language].settings
+    }
+
+    /// Configuration files applied to this configuration, outermost first.
+    pub fn sources(&self) -> &[PathBuf] {
+        &self.sources
     }
 
     pub fn select(
@@ -83,15 +108,25 @@ impl Effective {
         requested: &[Language],
         forced: Option<Language>,
     ) -> Result<Option<Language>, Diagnostic> {
+        Ok(self.selection(path, requested, forced)?.language())
+    }
+
+    pub fn selection(
+        &self,
+        path: &Path,
+        requested: &[Language],
+        forced: Option<Language>,
+    ) -> Result<Selection, Diagnostic> {
         let absolute = absolute(&self.cwd, path)?;
         let path = absolute.as_path();
         if (!self.includes.is_empty() && !self.includes.matches(path, false).unwrap_or(false))
             || self.excludes.matches(path, true).unwrap_or(false)
         {
-            return Ok(None);
+            return Ok(Selection::Excluded);
         }
         let builtin = Language::for_path(path);
         let mut selected = None;
+        let mut excluded = false;
         for (&language, config) in &self.languages {
             if !config.enabled
                 || (!requested.is_empty() && !requested.contains(&language))
@@ -100,32 +135,46 @@ impl Effective {
                 continue;
             }
             let filters = self.language_filters.get(&language);
-            if filters.is_some_and(|(_, excluded)| excluded.matches(path, true).unwrap_or(false)) {
-                continue;
-            }
             let included = filters.and_then(|(included, _)| included.matches(path, false));
-            if included == Some(false) {
+            if !(forced.is_some() || builtin == Some(language) || included == Some(true)) {
                 continue;
             }
-            if forced.is_some() || builtin == Some(language) || included == Some(true) {
-                if let Some(previous) = selected {
-                    return Err(Diagnostic::new(
-                        DiagnosticKind::Configuration,
-                        format!(
-                            "ambiguous language mapping: {} and {}; use --lang to select one",
-                            Language::name(previous),
-                            language.name()
-                        ),
-                    )
-                    .with_path(path));
-                }
-                selected = Some(language);
+            if included == Some(false)
+                || filters.is_some_and(|(_, excluded)| excluded.matches(path, true).unwrap_or(false))
+            {
+                excluded = true;
+                continue;
             }
+            if let Some(previous) = selected {
+                return Err(Diagnostic::new(
+                    DiagnosticKind::Configuration,
+                    format!(
+                        "ambiguous language mapping: {} and {}; use --lang to select one",
+                        Language::name(previous),
+                        language.name()
+                    ),
+                )
+                .with_path(path));
+            }
+            selected = Some(language);
         }
-        Ok(selected)
+        Ok(match (selected, builtin) {
+            (Some(language), _) => Selection::Language(language),
+            _ if excluded => Selection::Excluded,
+            (None, Some(language))
+                if !self
+                    .languages
+                    .get(&language)
+                    .is_some_and(|config| config.enabled) =>
+            {
+                Selection::Disabled(language)
+            }
+            _ => Selection::Unmapped,
+        })
     }
 
     fn apply(&mut self, layer: Layer) {
+        self.sources.extend(layer.source);
         for config in self.languages.values_mut() {
             config.settings.extend(layer.global.clone());
         }
@@ -144,6 +193,7 @@ impl Effective {
 
 #[derive(Default)]
 struct Layer {
+    source: Option<PathBuf>,
     global: Settings,
     languages: BTreeMap<Language, Local>,
     includes: Option<Arc<PatternLayer>>,

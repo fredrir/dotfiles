@@ -42,3 +42,7 @@ bun run build -- --host                                                         
 
 - **Cross-compiling:** Rust's own linker produces the static Linux binary, so no zig is needed.
 - **Script name:** it's deploy rather than install, because a script named install would run on every bun install.
+
+## dotfmt
+
+VS Code formatter for every dotfmt language, bundling the `dotfmt` binary from scripts/rust/crates/dotfmt/. It formats via `--editor`, reads the language status from `--explain`, and only speaks up when dotfmt itself fails. See [packages/dotfmt](packages/dotfmt/README.md).

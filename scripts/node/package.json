@@ -8,8 +8,8 @@
   ],
   "scripts": {
     "lint": "oxlint && bun check",
-    "build": "bun run --cwd packages/dot-code build",
-    "deploy": "bun run --cwd packages/dot-code deploy",
+    "build": "bun run --cwd packages/dot-code build && bun run --cwd packages/dotfmt build",
+    "deploy": "bun run --cwd packages/dot-code deploy && bun run --cwd packages/dotfmt deploy",
     "format": "prettier -w . && dotfmt -l md -l json ."
   },
   "devDependencies": {

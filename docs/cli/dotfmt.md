@@ -21,16 +21,27 @@ dotfmt -l ignore .gitignore .gitattributes
 dotfmt -l env .env
 dotfmt -l plist Info.plist
 dotfmt -e note.md < note.md
+dotfmt --explain ~/.ssh/config
 dotfmt -c -l md note.md
 dotfmt --add .
 dotfmt --sync .
 ```
 
-Editor mode uses the filename for language detection and local configuration, reads the buffer from stdin, and writes formatted text to stdout. Formatting or configuration errors return the original input unchanged, with no diagnostics and exit status `0`. Use `--verbose` to diagnose failures; `--check` retains normal failure status. It never writes the named file. Conform uses one formatter for all supported filetypes:
+Editor mode uses the filename for language detection and local configuration, reads the buffer from stdin, and writes formatted text to stdout. Syntax errors in the buffer return the original input unchanged, with no diagnostics and exit status `0`. Configuration, I/O and internal errors also return the original input, but report the error and exit `1`. Use `--verbose` to diagnose syntax errors; `--check` retains normal failure status. It never writes the named file. Conform uses one formatter for all supported filetypes:
 
 ```lua
 dotfmt = { command = "dotfmt", args = { "-e", "$FILENAME" } }
 ```
+
+`--explain` prints what editor mode would do with a filename, one `key value` row per line, without reading the file. `language` and `dialect` name the engine; `skipped` is `unmapped`, `excluded` or `disabled`; each applied `config` follows, outermost first. A `.json` file reports dialect `auto`, since comments decide between JSON and JSONC. `--lang` and `--dialect` apply as in editor mode, and configuration errors fail the same way.
+
+```text
+language ini
+dialect  ssh
+config   ~/.config/dotfmt/dotfmt.dotfile
+```
+
+The [VS Code extension](../../scripts/node/packages/dotfmt/README.md) uses editor mode and `--explain`.
 
 Selection uses filenames and `dotfmt.dotfile`, not the editor's filetype. A `.json` file with comments is formatted as JSONC, keeping its comments and trailing commas; `dialect = json` in the applicable `json` block drops them instead. Map extensionless names through that block's `include` rules.
 
@@ -61,6 +72,7 @@ A repair never invents a value, so `{"a":}` stays an error.
 | `-s`, `--sync`            | Replace an existing target dotfmt.dotfile with the shared configuration.                                                                                                                   |
 | `--dialect <DIALECT>`     | Override the dialect for one selected language.                                                                                                                                            |
 | `-e`, `--editor`          | Read standard input for an editor.                                                                                                                                                         |
+| `--explain <FILENAME>`    | Print the language, dialect and configuration files editor mode would use for a filename, or why it is skipped.                                                                            |
 | `--stdin <FILENAME>`      | Read standard input as the named file, using its configuration and dialect.                                                                                                                |
 | `--owns`                  | Read NUL-separated filenames and emit those selected by the effective configuration.                                                                                                       |
 | `-v`, `--verbose`         | Show detailed formatting results and each repair.                                                                                                                                          |
@@ -190,6 +202,7 @@ Ini preserves section order, duplicate keys, comments, quoting, inline marker by
 | Result | Exit status |
 | --- | --- |
 | Successful format / clean check | `0` |
-| Editor formatting/configuration failure, without `--verbose` or `--check` | `0` (original input) |
+| Editor syntax error, without `--verbose` or `--check` | `0` (original input) |
+| Editor configuration, I/O or internal error | `1` (original input) |
 | Formatting, configuration, I/O failure or check differences | `1` |
 | CLI usage error | `2` |
