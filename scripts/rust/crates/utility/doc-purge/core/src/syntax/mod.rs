@@ -224,7 +224,7 @@ pub mod curly;
 pub mod dash;
 pub mod hash;
 pub mod markup;
-pub mod template;
 pub mod script;
 pub mod shell_ruby;
 pub mod style;
+pub mod template;

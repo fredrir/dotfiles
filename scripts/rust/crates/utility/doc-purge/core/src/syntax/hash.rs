@@ -38,8 +38,9 @@ pub static PYTHON: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -132,8 +133,9 @@ pub static TOML: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -218,8 +220,9 @@ pub static YAML: Syntax = Syntax {
         at: At::WordStart,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -279,8 +282,9 @@ pub static ELIXIR: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -428,8 +432,9 @@ pub static CRYSTAL: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -485,8 +490,9 @@ pub static NIM: Syntax = Syntax {
         continues_on_backslash: false,
         // `##` is a doc comment; `#[ … ]#` below is the doc/block form.
         doc: true,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         // SPEC.md §1 names Nim `#[ ]#` as a NESTED block comment.
         open: "#[",
@@ -567,8 +573,9 @@ pub static PERL: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -645,8 +652,9 @@ pub static R: Syntax = Syntax {
         // `#'` is the roxygen doc comment.
         continues_on_backslash: false,
         doc: true,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -706,8 +714,9 @@ pub static JULIA: Syntax = Syntax {
         continues_on_backslash: false,
         // `#:` doc-comment form (Julia ≥1.11) and `##` both read as docs.
         doc: true,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "#=",
         close: "=#",
@@ -774,8 +783,9 @@ pub static POWERSHELL: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         // `<# … #>` is non-nesting. It is also how comment-based help is written
         // (`.SYNOPSIS`), which `keep.rs` must not treat as a doc rewrite.
@@ -873,8 +883,9 @@ pub static TCL: Syntax = Syntax {
         at: At::LineStart,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[Quote {
         open: "\"",
@@ -914,8 +925,9 @@ pub static FISH: Syntax = Syntax {
         at: At::WordStart,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -970,8 +982,9 @@ pub static AWK: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[Quote {
         open: "\"",
@@ -1009,8 +1022,9 @@ pub static GDSCRIPT: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: true,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -1100,8 +1114,9 @@ pub static DOCKERFILE: Syntax = Syntax {
         at: At::LineStart,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -1171,8 +1186,9 @@ pub static MAKEFILE: Syntax = Syntax {
         at: At::LineStart,
         continues_on_backslash: true,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[],
     heredocs: &[],
@@ -1201,8 +1217,9 @@ pub static CMAKE: Syntax = Syntax {
         at: At::WordStart,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "#[[",
         close: "]]",
@@ -1254,15 +1271,17 @@ pub static INI: Syntax = Syntax {
             at: At::LineStart,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: ";",
             at: At::LineStart,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[],
     quotes: &[],
@@ -1291,15 +1310,17 @@ pub static HCL: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[BlockComment {
         open: "/*",
@@ -1356,8 +1377,9 @@ pub static STARLARK: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -1443,8 +1465,9 @@ pub static JUSTFILE: Syntax = Syntax {
         at: At::LineStart,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {

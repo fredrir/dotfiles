@@ -83,17 +83,19 @@ pub static HTML: Syntax = Syntax {
             close: "</script>",
             engine: Engine::Script,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<style",
             close: "</style>",
             engine: Engine::Style,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -142,17 +144,19 @@ pub static XHTML: Syntax = Syntax {
             close: "</script>",
             engine: Engine::Script,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<style",
             close: "</style>",
             engine: Engine::Style,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -209,16 +213,14 @@ pub static XML: Syntax = Syntax {
     heredocs: &[],
     doc: DocStyle::None,
     directives: &["prettier-ignore", "cspell:disable", "cspell:enable"],
-    regions: &[
-        Region {
-            open: "<![CDATA[",
-            close: "]]>",
-            engine: Engine::Verbatim,
-            needs_attr: None,
-            close_at: At::Anywhere,
-            once: false,
-        },
-    ],
+    regions: &[Region {
+        open: "<![CDATA[",
+        close: "]]>",
+        engine: Engine::Verbatim,
+        needs_attr: None,
+        close_at: At::Anywhere,
+        once: false,
+    }],
 };
 
 // ---------------------------------------------------------------------------
@@ -267,17 +269,19 @@ pub static SVG: Syntax = Syntax {
             close: "</script>",
             engine: Engine::Script,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<style",
             close: "</style>",
             engine: Engine::Style,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -349,17 +353,19 @@ pub static MARKDOWN: Syntax = Syntax {
             close: "```",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "~~~",
             close: "~~~",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -419,33 +425,37 @@ pub static MDX: Syntax = Syntax {
             close: "```",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "~~~",
             close: "~~~",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<script",
             close: "</script>",
             engine: Engine::Script,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<style",
             close: "</style>",
             engine: Engine::Style,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -511,25 +521,28 @@ pub static VUE: Syntax = Syntax {
             close: "</template>",
             engine: Engine::Markup,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<script",
             close: "</script>",
             engine: Engine::Script,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<style",
             close: "</style>",
             engine: Engine::Style,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -591,17 +604,19 @@ pub static SVELTE: Syntax = Syntax {
             close: "</script>",
             engine: Engine::Script,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<style",
             close: "</style>",
             engine: Engine::Style,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -682,25 +697,28 @@ pub static ASTRO: Syntax = Syntax {
             close: "---",
             engine: Engine::Script,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<script",
             close: "</script>",
             engine: Engine::Script,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<style",
             close: "</style>",
             engine: Engine::Style,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -746,16 +764,14 @@ pub static XSLT: Syntax = Syntax {
     heredocs: &[],
     doc: DocStyle::None,
     directives: &[],
-    regions: &[
-        Region {
-            open: "<![CDATA[",
-            close: "]]>",
-            engine: Engine::Verbatim,
-            needs_attr: None,
-            close_at: At::Anywhere,
-            once: false,
-        },
-    ],
+    regions: &[Region {
+        open: "<![CDATA[",
+        close: "]]>",
+        engine: Engine::Verbatim,
+        needs_attr: None,
+        close_at: At::Anywhere,
+        once: false,
+    }],
 };
 
 // ---------------------------------------------------------------------------
@@ -798,16 +814,14 @@ pub static PLIST: Syntax = Syntax {
     heredocs: &[],
     doc: DocStyle::None,
     directives: &[],
-    regions: &[
-        Region {
-            open: "<![CDATA[",
-            close: "]]>",
-            engine: Engine::Verbatim,
-            needs_attr: None,
-            close_at: At::Anywhere,
-            once: false,
-        },
-    ],
+    regions: &[Region {
+        open: "<![CDATA[",
+        close: "]]>",
+        engine: Engine::Verbatim,
+        needs_attr: None,
+        close_at: At::Anywhere,
+        once: false,
+    }],
 };
 
 // ---------------------------------------------------------------------------
@@ -845,8 +859,9 @@ pub static QML: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -997,17 +1012,19 @@ pub static HEEX: Syntax = Syntax {
             close: "%>",
             engine: Engine::Indented,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<%",
             close: "%>",
             engine: Engine::Indented,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -1061,17 +1078,19 @@ pub static EEX: Syntax = Syntax {
             close: "%>",
             engine: Engine::Indented,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<%",
             close: "%>",
             engine: Engine::Indented,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 

@@ -445,7 +445,9 @@ fn tag_close_end(source: &[u8], at: usize, close: &[u8]) -> Option<usize> {
 /// descriptor name so this file does not depend on `lang.rs` variant spellings.
 fn resolve(engine: Engine) -> Result<Option<&'static Syntax>, Bail> {
     match engine {
-        Engine::Verbatim | Engine::Generic | Engine::Curly | Engine::Dash | Engine::Markup => Ok(None),
+        Engine::Verbatim | Engine::Generic | Engine::Curly | Engine::Dash | Engine::Markup => {
+            Ok(None)
+        }
         Engine::Template => Err(Bail("engine dispatch needs the dialect")),
         Engine::Elixir => Ok(Some(named("elixir")?)),
         // HEEx/EEX name `Engine::Indented` for their Elixir bodies. The

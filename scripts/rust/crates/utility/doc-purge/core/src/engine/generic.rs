@@ -1081,45 +1081,45 @@ mod tests {
         assert_eq!(comments(b"x\n---\n", &ASTROISH), Vec::new());
     }
 
-        #[test]
-        fn a_triple_quote_close_absorbs_up_to_two_extra_quotes() {
-            const TOML: Syntax = Syntax {
-                name: "toml",
-                extensions: &["toml"],
-                filenames: &[],
-                shebangs: &[],
-                family: Family::Hash,
-                engine: Engine::Generic,
-                line: &[LineComment {
-                    marker: "#",
-                    at: At::Anywhere,
-                    continues_on_backslash: false,
-                    doc: false,
-                    owns_indent_block: false,
-                }],
-                block: &[],
-                quotes: &[Quote {
-                    open: "\"\"\"",
-                    close: "",
-                    escape: Escape::Backslash,
-                    multiline: true,
-                    prefixes: &[],
-                    hashes: false,
-                    raw_tag: false,
-                    text: None,
-                }],
-                heredocs: &[],
-                doc: DocStyle::None,
-                directives: &[],
-                regions: &[],
-            };
-            assert_eq!(
-                scan(b"s = \"\"\"ends with quote\"\"\"\"\n# note\n", &TOML)
-                    .expect("parses")
-                    .comments
-                    .len(),
-                1,
-                "the fourth quote belongs to the string, so `# note` is still a comment",
-            );
-        }
+    #[test]
+    fn a_triple_quote_close_absorbs_up_to_two_extra_quotes() {
+        const TOML: Syntax = Syntax {
+            name: "toml",
+            extensions: &["toml"],
+            filenames: &[],
+            shebangs: &[],
+            family: Family::Hash,
+            engine: Engine::Generic,
+            line: &[LineComment {
+                marker: "#",
+                at: At::Anywhere,
+                continues_on_backslash: false,
+                doc: false,
+                owns_indent_block: false,
+            }],
+            block: &[],
+            quotes: &[Quote {
+                open: "\"\"\"",
+                close: "",
+                escape: Escape::Backslash,
+                multiline: true,
+                prefixes: &[],
+                hashes: false,
+                raw_tag: false,
+                text: None,
+            }],
+            heredocs: &[],
+            doc: DocStyle::None,
+            directives: &[],
+            regions: &[],
+        };
+        assert_eq!(
+            scan(b"s = \"\"\"ends with quote\"\"\"\"\n# note\n", &TOML)
+                .expect("parses")
+                .comments
+                .len(),
+            1,
+            "the fourth quote belongs to the string, so `# note` is still a comment",
+        );
+    }
 }

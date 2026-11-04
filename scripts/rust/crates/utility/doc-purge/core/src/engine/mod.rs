@@ -21,9 +21,9 @@ pub fn scan(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
         // engine, and the arm exists so HEEx/EEX `<%= … %>` bodies can be lexed
         // without inventing a `Region.syntax` resolver.
         // Elixir inside HEEx/EEX: the descriptor resolves to the Elixir table, which
-    // the generic lexer runs. Looked up by name so this module never names a
-    // `Dialect`; the descriptor is the only thing that knows a language.
-    Engine::Elixir => generic::scan(source, named("elixir")),
+        // the generic lexer runs. Looked up by name so this module never names a
+        // `Dialect`; the descriptor is the only thing that knows a language.
+        Engine::Elixir => generic::scan(source, named("elixir")),
         Engine::Script => js::scan(source, syntax),
         Engine::Style => css::scan(source, syntax),
         Engine::Indented | Engine::Shell | Engine::Ruby => hash::scan(source, syntax),

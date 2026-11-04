@@ -106,25 +106,28 @@ pub static JINJA: Syntax = Syntax {
             close: "{% endraw %}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "{{",
             close: "}}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "{%",
             close: "%}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -185,25 +188,28 @@ pub static TWIG: Syntax = Syntax {
             close: "{% endverbatim %}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "{{",
             close: "}}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "{%",
             close: "%}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -264,17 +270,19 @@ pub static HANDLEBARS: Syntax = Syntax {
             close: "{{{{/raw}}}}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "{{",
             close: "}}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -327,9 +335,10 @@ pub static MUSTACHE: Syntax = Syntax {
         close: "}}",
         engine: Engine::Verbatim,
         needs_attr: None,
-    
-    close_at: At::Anywhere,
-    once: false,}],
+
+        close_at: At::Anywhere,
+        once: false,
+    }],
 };
 
 // ---------------------------------------------------------------------------
@@ -426,33 +435,37 @@ pub static LIQUID: Syntax = Syntax {
             close: "{% endraw %}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "{%- raw -%}",
             close: "{%- endraw -%}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "{{",
             close: "}}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "{%",
             close: "%}",
             engine: Engine::Verbatim,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -526,25 +539,28 @@ pub static ERB: Syntax = Syntax {
             close: "%>",
             engine: Engine::Ruby,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<%-",
             close: "-%>",
             engine: Engine::Ruby,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<%",
             close: "%>",
             engine: Engine::Ruby,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -600,25 +616,28 @@ pub static EJS: Syntax = Syntax {
             close: "%>",
             engine: Engine::Script,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<%-",
             close: "-%>",
             engine: Engine::Script,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
         Region {
             open: "<%",
             close: "%>",
             engine: Engine::Script,
             needs_attr: None,
-        
+
             close_at: At::Anywhere,
-            once: false,},
+            once: false,
+        },
     ],
 };
 
@@ -681,8 +700,9 @@ pub static PUG: Syntax = Syntax {
         at: At::LineStart,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     // Deliberately empty: `'`/`"` appear in prose (`p It's fine`) and a quote
     // opened at any byte would swallow the document. Expression strings are the
@@ -741,8 +761,9 @@ pub static HAML: Syntax = Syntax {
         at: At::LineStart,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[],
     heredocs: &[],
@@ -798,8 +819,9 @@ pub static SLIM: Syntax = Syntax {
         at: At::LineStart,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[],
     heredocs: &[],

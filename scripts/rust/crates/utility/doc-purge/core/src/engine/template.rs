@@ -325,7 +325,9 @@ fn trimmed_needle_end(source: &[u8], at: usize, needle: &[u8]) -> Option<usize> 
 /// descriptor name so this file does not depend on `lang.rs` variant spellings.
 fn resolve(engine: Engine) -> Result<Option<&'static Syntax>, Bail> {
     match engine {
-        Engine::Verbatim | Engine::Generic | Engine::Curly | Engine::Dash | Engine::Template => Ok(None),
+        Engine::Verbatim | Engine::Generic | Engine::Curly | Engine::Dash | Engine::Template => {
+            Ok(None)
+        }
         Engine::Markup => Err(Bail("engine dispatch needs the dialect")),
         Engine::Elixir => Ok(Some(named("elixir")?)),
         // The indented template dialects (Pug/Haml/Slim) are not regions; this

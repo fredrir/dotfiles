@@ -357,8 +357,9 @@ pub static ADA: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         // `""` is the Ada escape: "a""b" is a three-character string.
@@ -404,8 +405,9 @@ pub static VHDL: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     // VHDL-2008 added `/* ... */`. Harmless on VHDL-93 (it is then a syntax
     // error in the source, not a misparse), and it is required by 2008.
     block: &[BlockComment {
@@ -483,8 +485,9 @@ pub static FORTRAN: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[
         Quote {
@@ -548,22 +551,25 @@ pub static FORTRAN_FIXED: Syntax = Syntax {
             at: At::LineStart,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "c",
             at: At::LineStart,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "*",
             at: At::LineStart,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         // Column-1 `!` and trailing `!` are legal in fixed form too (F90+).
         // `!` wins over `C` because `!` is never a valid statement start.
         LineComment {
@@ -571,8 +577,9 @@ pub static FORTRAN_FIXED: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[],
     quotes: &[
@@ -628,8 +635,9 @@ pub static MATLAB: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     // `%{` / `%}` block comments must sit alone on their line, which is what
     // `At::LineStart` gives us. `At::LineStart` does *not* require the marker to
     // be the whole line, so `%{ not alone` is still treated as an opener —
@@ -698,8 +706,9 @@ pub static ELM: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "{-",
         close: "-}",
@@ -784,8 +793,9 @@ pub static PURE_SCRIPT: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "{-",
         close: "-}",
@@ -921,15 +931,17 @@ pub static FSHARP: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[BlockComment {
         open: "(*",
@@ -1054,8 +1066,9 @@ pub static CLOJURE: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "#|",
         close: "|#",
@@ -1100,8 +1113,9 @@ pub static SCHEME: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     // `#| |#` is R6RS/R7RS and nests. `#;` is datum-comment (real syntax) — not
     // encoded, correctly.
     block: &[BlockComment {
@@ -1144,8 +1158,9 @@ pub static RACKET: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "#|",
         close: "|#",
@@ -1191,8 +1206,9 @@ pub static COMMON_LISP: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     // CLHS 2.4.4.2: `#| ... |#` blocks nest. `nested: true` for CL as well as
     // for the Schemes, not just Clojure/Racket.
     block: &[BlockComment {
@@ -1236,8 +1252,9 @@ pub static EMACS_LISP: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     // Emacs Lisp has NO `#| |#`. `#@NN` skips NN characters (real syntax, not a
     // comment) — correctly absent.
     block: &[],
@@ -1285,16 +1302,18 @@ pub static ASSEMBLY: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         // GAS also accepts `//` (x86, RISC-V) and `#` (x86 only).
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         // **TRAP — `#` is deliberately NOT encoded.** On x86 GAS `#` is a
         // comment; on ARM/AArch64 `#` is the immediate-operand prefix
         // (`mov r0, #42`, `add x0, x0, #1`). Encoding it at `Anywhere` would
@@ -1381,8 +1400,9 @@ pub static VIML: Syntax = Syntax {
             at: At::LineStart,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         // Vim9 script (`vim9script`) uses `#` for comments and forbids `"`.
         // `At::LineStart` is used for the same reason as above; a
         // `Dialect::Vim9` should carry `#` only.
@@ -1391,8 +1411,9 @@ pub static VIML: Syntax = Syntax {
             at: At::LineStart,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[],
     quotes: &[

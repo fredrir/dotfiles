@@ -56,22 +56,25 @@ pub static RUST: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//!",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[BlockComment {
         open: "/*",
@@ -145,8 +148,9 @@ pub static GO: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -214,8 +218,9 @@ pub static C: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: true,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -275,8 +280,9 @@ pub static CPP: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: true,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -349,8 +355,9 @@ pub static JAVA: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -429,15 +436,17 @@ pub static CSHARP: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[BlockComment {
         open: "/*",
@@ -548,8 +557,9 @@ pub static KOTLIN: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -631,15 +641,17 @@ pub static SWIFT: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[BlockComment {
         open: "/*",
@@ -734,22 +746,25 @@ pub static ZIG: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//!",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[],
     quotes: &[
@@ -799,15 +814,17 @@ pub static DART: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[BlockComment {
         open: "/*",
@@ -956,8 +973,9 @@ pub static SCALA: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -1035,8 +1053,9 @@ pub static GROOVY: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -1139,15 +1158,17 @@ pub static SOLIDITY: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[BlockComment {
         open: "/*",
@@ -1233,8 +1254,9 @@ pub static OBJECTIVE_C: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: true,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -1306,8 +1328,9 @@ pub static VALA: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -1396,15 +1419,17 @@ pub static D: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[
         // `/+ … +/` nests; longest open wins over `/*`.
@@ -1513,8 +1538,9 @@ pub static HAXE: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -1574,8 +1600,9 @@ pub static VERILOG: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -1628,15 +1655,17 @@ pub static WGSL: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[BlockComment {
         open: "/*",
@@ -1683,8 +1712,9 @@ pub static GLSL: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -1724,22 +1754,25 @@ pub static GLEAM: Syntax = Syntax {
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "///",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: true,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
         LineComment {
             marker: "//",
             at: At::Anywhere,
             continues_on_backslash: false,
             doc: false,
-        
-            owns_indent_block: false,},
+
+            owns_indent_block: false,
+        },
     ],
     block: &[],
     quotes: &[Quote {
@@ -1777,8 +1810,9 @@ pub static ODIN: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -1849,8 +1883,9 @@ pub static V: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -1952,8 +1987,9 @@ pub static ROC: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[],
     quotes: &[Quote {
         open: "\"",

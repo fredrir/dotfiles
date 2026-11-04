@@ -1,7 +1,9 @@
 //! The languages doc-purge reads.
 //!
-//! Generated from `syntax/*.rs`: `Dialect`, `Dialect::ALL`, `LANGUAGES` and
-//! `Dialect::syntax()` all come from one table, so they cannot disagree.
+//! **Generated — do not edit.** `Dialect`, `Dialect::ALL`, `LANGUAGES` and
+//! `Dialect::syntax()` all come from one parse of `syntax/*.rs`, so they cannot
+//! disagree. Change a descriptor table, then run
+//! `python3 crates/utility/doc-purge/core/generate-lang.py`.
 
 use std::path::Path;
 
@@ -378,7 +380,9 @@ pub const LANGUAGES: &[Language] = &[
     Language {
         name: "cpp",
         dialect: Dialect::Cpp,
-        extensions: &["cc", "cpp", "cxx", "c++", "hh", "hpp", "hxx", "h++", "ipp", "inl", "ixx", "tcc", "tpp"],
+        extensions: &[
+            "cc", "cpp", "cxx", "c++", "hh", "hpp", "hxx", "h++", "ipp", "inl", "ixx", "tcc", "tpp",
+        ],
     },
     Language {
         name: "java",
@@ -458,7 +462,10 @@ pub const LANGUAGES: &[Language] = &[
     Language {
         name: "glsl",
         dialect: Dialect::Glsl,
-        extensions: &["glsl", "vert", "frag", "geom", "comp", "tesc", "tese", "rgen", "rint", "rmiss", "rchit", "rahit", "vsh", "fsh", "gsh", "vs", "fs"],
+        extensions: &[
+            "glsl", "vert", "frag", "geom", "comp", "tesc", "tese", "rgen", "rint", "rmiss",
+            "rchit", "rahit", "vsh", "fsh", "gsh", "vs", "fs",
+        ],
     },
     Language {
         name: "gleam",
@@ -778,7 +785,9 @@ pub const LANGUAGES: &[Language] = &[
     Language {
         name: "xml",
         dialect: Dialect::Xml,
-        extensions: &["xml", "xsd", "rng", "wsdl", "xul", "fodt", "fods", "xaml", "resx"],
+        extensions: &[
+            "xml", "xsd", "rng", "wsdl", "xul", "fodt", "fods", "xaml", "resx",
+        ],
     },
     Language {
         name: "svg",
@@ -915,13 +924,9 @@ pub fn for_shebang(line: &[u8]) -> Option<&'static Language> {
         }
     }
     let program = program.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
-    LANGUAGES.iter().find(|language| {
-        language
-            .dialect
-            .syntax()
-            .shebangs
-            .contains(&program)
-    })
+    LANGUAGES
+        .iter()
+        .find(|language| language.dialect.syntax().shebangs.contains(&program))
 }
 
 /// Find the language for a path, consulting the first line for a shebang and
@@ -942,7 +947,9 @@ pub fn detect(path: &Path, head: &[u8]) -> Option<&'static Language> {
         _ => {}
     }
     if let Some(dialect) = sniff(&extension, head) {
-        return LANGUAGES.iter().find(|language| language.dialect == dialect);
+        return LANGUAGES
+            .iter()
+            .find(|language| language.dialect == dialect);
     }
     claimed.first().copied()
 }
@@ -955,15 +962,23 @@ fn sniff(extension: &str, head: &[u8]) -> Option<Dialect> {
     let text = std::str::from_utf8(head).ok()?;
     let lines: Vec<&str> = text.lines().take(200).collect();
     let has = |needle: &str| lines.iter().any(|line| line.contains(needle));
-    let trimmed = lines.iter().map(|line| line.trim_start()).collect::<Vec<_>>();
+    let trimmed = lines
+        .iter()
+        .map(|line| line.trim_start())
+        .collect::<Vec<_>>();
     let uses = |needle: &str| trimmed.iter().any(|line| line.starts_with(needle));
     match extension {
         // C, C++ and Objective-C all claim .h.
         "h" => {
             if has("@interface") || has("@implementation") || has("#import") {
                 Some(Dialect::ObjectiveC)
-            } else if has("template<") || has("template <") || has("namespace ") || has("class ")
-                || has("std::") || has("public:") || has("private:")
+            } else if has("template<")
+                || has("template <")
+                || has("namespace ")
+                || has("class ")
+                || has("std::")
+                || has("public:")
+                || has("private:")
             {
                 Some(Dialect::Cpp)
             } else {
@@ -1108,4 +1123,3 @@ pub fn known() -> String {
     every.dedup();
     every.join(" ")
 }
-

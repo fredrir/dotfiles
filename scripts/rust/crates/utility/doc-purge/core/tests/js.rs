@@ -426,10 +426,7 @@ fn javascript_extensions_resolve_to_the_right_dialect() {
     use doc_purge_core::lang::extensions_for_token;
     // `-t js` covers the whole JavaScript family, `.mjs` included: that is what
     // the CLI contract asks of it, and the two tests used to disagree.
-    assert_eq!(
-        extensions_for_token("node"),
-        Some(vec!["cjs", "js", "mjs"])
-    );
+    assert_eq!(extensions_for_token("node"), Some(vec!["cjs", "js", "mjs"]));
     assert_eq!(extensions_for_token("jsx"), Some(vec!["jsx", "tsx"]));
     assert_eq!(
         extensions_for_token("typescript"),

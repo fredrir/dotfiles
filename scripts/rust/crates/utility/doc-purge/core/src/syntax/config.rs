@@ -65,8 +65,9 @@ pub static JSONC: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
@@ -119,8 +120,9 @@ pub static JSON5: Syntax = Syntax {
         at: At::Anywhere,
         continues_on_backslash: false,
         doc: false,
-    
-    owns_indent_block: false,}],
+
+        owns_indent_block: false,
+    }],
     block: &[BlockComment {
         open: "/*",
         close: "*/",
