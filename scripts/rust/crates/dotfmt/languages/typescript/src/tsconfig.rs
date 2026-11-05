@@ -22,10 +22,30 @@ pub(crate) struct Tsconfig {
     pub experimental_decorators: bool,
     pub no_unused_locals: Option<bool>,
     pub no_unused_parameters: Option<bool>,
-    /// Parsed for path-alias resolution; import sorting uses `paths` directly.
-    #[allow(dead_code)]
+    /// `compilerOptions.baseUrl`, resolved against the config that declared it.
     pub base_url: Option<PathBuf>,
+    /// `compilerOptions.paths` targets with `${configDir}` expanded.
     pub paths: BTreeMap<String, Vec<String>>,
+    /// Directory the `paths` targets are relative to when there is no `baseUrl`.
+    pub paths_directory: Option<PathBuf>,
+    /// Directory of the root tsconfig/jsconfig file.
+    pub directory: PathBuf,
+    /// Project reference configs, resolved to config files where possible.
+    #[allow(dead_code)]
+    pub references: Vec<PathBuf>,
+    /// `include` patterns, resolved against the config that declared them.
+    #[allow(dead_code)]
+    pub include: Vec<String>,
+    /// `exclude` patterns, resolved against the config that declared them.
+    #[allow(dead_code)]
+    pub exclude: Vec<String>,
+    /// `files` entries, resolved against the config that declared them.
+    #[allow(dead_code)]
+    pub files: Vec<PathBuf>,
+    #[allow(dead_code)]
+    pub composite: bool,
+    /// Every config file in the `extends` chain, for cache invalidation.
+    pub chain: Vec<PathBuf>,
 }
 
 impl Tsconfig {
@@ -98,15 +118,70 @@ pub(crate) fn nearest(path: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Finds the nearest `tsconfig.json` or `jsconfig.json`, never walking above
+/// `root` (the workspace root).
+pub(crate) fn nearest_within(path: &Path, root: &Path) -> Option<PathBuf> {
+    let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let start = if path.is_dir() { path } else { path.parent()? };
+    let start = fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
+    if !start.starts_with(&root) {
+        return None;
+    }
+    let mut directory = start.as_path();
+    loop {
+        let tsconfig = directory.join("tsconfig.json");
+        if tsconfig.is_file() {
+            return Some(tsconfig);
+        }
+        let jsconfig = directory.join("jsconfig.json");
+        if jsconfig.is_file() {
+            return Some(jsconfig);
+        }
+        if directory == root {
+            return None;
+        }
+        directory = directory.parent()?;
+    }
+}
+
 /// Loads the nearest config, following relative and package `extends` chains.
 pub(crate) fn load_for(path: &Path) -> Tsconfig {
-    nearest(path)
-        .and_then(|path| load_file(&path, 0, &mut Vec::new()))
-        .map(Raw::into_config)
-        .unwrap_or(Tsconfig {
+    nearest(path).map_or_else(|| missing_for(path), |path| load_config(&path))
+}
+
+/// Loads the nearest config without walking above `root`.
+pub(crate) fn load_for_within(path: &Path, root: &Path) -> Tsconfig {
+    nearest_within(path, root).map_or_else(|| missing_for(path), |path| load_config(&path))
+}
+
+/// Loads a specific config file (following its `extends` chain).
+pub(crate) fn load_at(path: &Path) -> Tsconfig {
+    load_config(path)
+}
+
+fn load_config(path: &Path) -> Tsconfig {
+    let directory = path.parent().unwrap_or(Path::new("."));
+    load_file(path, 0, &mut Vec::new()).map_or_else(
+        || Tsconfig {
             missing: true,
+            directory: directory.to_path_buf(),
             ..Tsconfig::default()
-        })
+        },
+        |raw| raw.into_config(directory),
+    )
+}
+
+fn missing_for(path: &Path) -> Tsconfig {
+    let directory = if path.is_dir() {
+        path
+    } else {
+        path.parent().unwrap_or(Path::new("."))
+    };
+    Tsconfig {
+        missing: true,
+        directory: directory.to_path_buf(),
+        ..Tsconfig::default()
+    }
 }
 
 fn load_file(path: &Path, depth: usize, stack: &mut Vec<PathBuf>) -> Option<Raw> {
@@ -144,6 +219,9 @@ fn load_file_inner(path: &Path, depth: usize, stack: &mut Vec<PathBuf>) -> Optio
     if let Some(options) = object.get_object("compilerOptions") {
         raw.apply(options, directory);
     }
+    raw.apply_project_fields(&object, directory);
+    raw.chain
+        .push(fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()));
 
     Some(raw)
 }
@@ -242,6 +320,24 @@ fn package_tsconfig(root: &Path) -> Option<PathBuf> {
     resolve_config_path(&root.join(tsconfig))
 }
 
+#[derive(Clone, Debug)]
+struct RawPath {
+    directory: PathBuf,
+    value: String,
+}
+
+#[derive(Clone, Debug)]
+struct RawList {
+    directory: PathBuf,
+    values: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct RawPaths {
+    directory: PathBuf,
+    values: BTreeMap<String, Vec<String>>,
+}
+
 #[derive(Clone, Debug, Default)]
 struct Raw {
     jsx: Option<String>,
@@ -254,8 +350,14 @@ struct Raw {
     experimental_decorators: Option<bool>,
     no_unused_locals: Option<bool>,
     no_unused_parameters: Option<bool>,
-    base_url: Option<PathBuf>,
-    paths: Option<BTreeMap<String, Vec<String>>>,
+    base_url: Option<RawPath>,
+    paths: Option<RawPaths>,
+    references: Option<RawList>,
+    include: Option<RawList>,
+    exclude: Option<RawList>,
+    files: Option<RawList>,
+    composite: Option<bool>,
+    chain: Vec<PathBuf>,
 }
 
 impl Raw {
@@ -273,6 +375,12 @@ impl Raw {
             no_unused_parameters,
             base_url,
             paths,
+            references,
+            include,
+            exclude,
+            files,
+            composite,
+            chain,
         } = parent;
         merge_option(&mut self.jsx, jsx);
         merge_option(&mut self.jsx_factory, jsx_factory);
@@ -289,6 +397,12 @@ impl Raw {
         merge_option(&mut self.no_unused_parameters, no_unused_parameters);
         merge_option(&mut self.base_url, base_url);
         merge_option(&mut self.paths, paths);
+        merge_option(&mut self.references, references);
+        merge_option(&mut self.include, include);
+        merge_option(&mut self.exclude, exclude);
+        merge_option(&mut self.files, files);
+        merge_option(&mut self.composite, composite);
+        self.chain.extend(chain);
     }
 
     fn apply(&mut self, options: &jsonc_parser::JsonObject<'_>, directory: &Path) {
@@ -308,6 +422,7 @@ impl Raw {
             ("experimentalDecorators", &mut self.experimental_decorators),
             ("noUnusedLocals", &mut self.no_unused_locals),
             ("noUnusedParameters", &mut self.no_unused_parameters),
+            ("composite", &mut self.composite),
         ] {
             if let Some(value) = options.get_boolean(name) {
                 *slot = Some(value);
@@ -317,7 +432,10 @@ impl Raw {
             self.imports_not_used_as_values = Some(value.as_ref().to_owned());
         }
         if let Some(value) = options.get_string("baseUrl") {
-            self.base_url = Some(directory.join(value.as_ref()));
+            self.base_url = Some(RawPath {
+                directory: directory.to_path_buf(),
+                value: value.to_string(),
+            });
         }
         if let Some(paths) = options.get_object("paths") {
             let mut map = BTreeMap::new();
@@ -336,11 +454,76 @@ impl Raw {
                         .collect(),
                 );
             }
-            self.paths = Some(map);
+            self.paths = Some(RawPaths {
+                directory: directory.to_path_buf(),
+                values: map,
+            });
         }
     }
 
-    fn into_config(self) -> Tsconfig {
+    fn apply_project_fields(&mut self, object: &jsonc_parser::JsonObject<'_>, directory: &Path) {
+        if let Some(references) = object.get_array("references") {
+            let values = references
+                .iter()
+                .filter_map(|value| match value {
+                    jsonc_parser::JsonValue::Object(reference) => {
+                        reference.get_string("path").map(|path| path.to_string())
+                    }
+                    jsonc_parser::JsonValue::String(path) => Some(path.to_string()),
+                    _ => None,
+                })
+                .collect();
+            self.references = Some(RawList {
+                directory: directory.to_path_buf(),
+                values,
+            });
+        }
+        for (name, slot) in [
+            ("include", &mut self.include),
+            ("exclude", &mut self.exclude),
+            ("files", &mut self.files),
+        ] {
+            if let Some(array) = object.get_array(name) {
+                *slot = Some(RawList {
+                    directory: directory.to_path_buf(),
+                    values: array
+                        .iter()
+                        .filter_map(|value| match value {
+                            jsonc_parser::JsonValue::String(value) => Some(value.to_string()),
+                            _ => None,
+                        })
+                        .collect(),
+                });
+            }
+        }
+    }
+
+    fn into_config(self, config_dir: &Path) -> Tsconfig {
+        let base_url = self
+            .base_url
+            .map(|raw| expand_path(&raw.directory, &raw.value, config_dir));
+        let (paths, paths_directory) = self.paths.map_or_else(
+            || (BTreeMap::new(), None),
+            |raw| {
+                let values = raw
+                    .values
+                    .into_iter()
+                    .map(|(key, targets)| {
+                        (
+                            key,
+                            targets
+                                .into_iter()
+                                .map(|target| expand_template(&target, config_dir))
+                                .collect(),
+                        )
+                    })
+                    .collect();
+                (values, Some(raw.directory))
+            },
+        );
+        let mut chain = self.chain;
+        chain.sort();
+        chain.dedup();
         Tsconfig {
             missing: false,
             jsx: self.jsx,
@@ -353,10 +536,79 @@ impl Raw {
             experimental_decorators: self.experimental_decorators.unwrap_or(false),
             no_unused_locals: self.no_unused_locals,
             no_unused_parameters: self.no_unused_parameters,
-            base_url: self.base_url,
-            paths: self.paths.unwrap_or_default(),
+            base_url,
+            paths,
+            paths_directory,
+            directory: config_dir.to_path_buf(),
+            references: self.references.map_or_else(Vec::new, |raw| {
+                raw.values
+                    .iter()
+                    .map(|value| expand_path(&raw.directory, value, config_dir))
+                    .collect()
+            }),
+            include: self
+                .include
+                .map_or_else(Vec::new, |raw| expand_patterns(&raw, config_dir)),
+            exclude: self
+                .exclude
+                .map_or_else(Vec::new, |raw| expand_patterns(&raw, config_dir)),
+            files: self.files.map_or_else(Vec::new, |raw| {
+                raw.values
+                    .iter()
+                    .map(|value| expand_path(&raw.directory, value, config_dir))
+                    .collect()
+            }),
+            composite: self.composite.unwrap_or(false),
+            chain,
         }
     }
+}
+
+fn expand_template(value: &str, config_dir: &Path) -> String {
+    if value.contains("${configDir}") {
+        value.replace("${configDir}", &config_dir.to_string_lossy())
+    } else {
+        value.to_owned()
+    }
+}
+
+fn expand_path(directory: &Path, value: &str, config_dir: &Path) -> PathBuf {
+    let expanded = expand_template(value, config_dir);
+    let path = Path::new(&expanded);
+    if path.is_absolute() {
+        normalize(path)
+    } else {
+        normalize(&directory.join(path))
+    }
+}
+
+fn expand_patterns(raw: &RawList, config_dir: &Path) -> Vec<String> {
+    raw.values
+        .iter()
+        .map(|value| {
+            let expanded = expand_template(value, config_dir);
+            let path = Path::new(&expanded);
+            if path.is_absolute() {
+                path.to_string_lossy().into_owned()
+            } else {
+                raw.directory.join(path).to_string_lossy().into_owned()
+            }
+        })
+        .collect()
+}
+
+fn normalize(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
 }
 
 fn merge_option<T>(slot: &mut Option<T>, value: Option<T>) {
@@ -531,5 +783,95 @@ mod tests {
         let config = load(root);
         assert_eq!(config.jsx.as_deref(), Some("react"));
         assert!(config.verbatim_module_syntax);
+    }
+
+    #[test]
+    fn config_dir_placeholder_expands_against_the_root_config() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(
+            root,
+            "configs/base.json",
+            r#"{"compilerOptions":{"baseUrl":"${configDir}/src","paths":{"@/*":["${configDir}/src/*"]}}}"#,
+        );
+        write(
+            root,
+            "tsconfig.json",
+            r#"{"extends":"./configs/base.json"}"#,
+        );
+
+        let config = load(root);
+        assert_eq!(config.base_url.as_deref(), Some(root.join("src").as_path()));
+        assert_eq!(
+            config.paths.get("@/*").unwrap(),
+            &vec![root.join("src/*").to_string_lossy().into_owned()]
+        );
+        assert_eq!(config.directory, root);
+    }
+
+    #[test]
+    fn references_include_exclude_files_and_composite_are_parsed() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(
+            root,
+            "tsconfig.json",
+            r#"{
+                "compilerOptions":{"composite":true},
+                "references":[{"path":"./packages/a"},{"path":"./packages/b"}],
+                "include":["src/**/*"],
+                "exclude":["src/generated"],
+                "files":["src/main.ts"]
+            }"#,
+        );
+
+        let config = load(root);
+        assert!(config.composite);
+        assert_eq!(
+            config.references,
+            vec![root.join("packages/a"), root.join("packages/b")]
+        );
+        assert_eq!(
+            config.include,
+            vec![root.join("src/**/*").to_string_lossy()]
+        );
+        assert_eq!(
+            config.exclude,
+            vec![root.join("src/generated").to_string_lossy()]
+        );
+        assert_eq!(config.files, vec![root.join("src/main.ts")]);
+    }
+
+    #[test]
+    fn nearest_within_stops_at_the_workspace_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(root, "tsconfig.json", r#"{"compilerOptions":{}}"#);
+        write(root, "packages/app/src/a.ts", "");
+
+        let source = root.join("packages/app/src/a.ts");
+        assert_eq!(
+            nearest_within(&source, root),
+            Some(root.join("tsconfig.json"))
+        );
+        assert_eq!(nearest_within(&source, &root.join("packages/app")), None);
+        assert_eq!(
+            nearest(&source),
+            Some(root.join("tsconfig.json")),
+            "the unrestricted lookup still walks to the workspace root"
+        );
+    }
+
+    #[test]
+    fn nearest_prefers_tsconfig_over_jsconfig() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(root, "tsconfig.json", "{}");
+        write(root, "jsconfig.json", "{}");
+        write(root, "src/a.ts", "");
+        assert_eq!(
+            nearest(&root.join("src/a.ts")),
+            Some(root.join("tsconfig.json"))
+        );
     }
 }

@@ -6,6 +6,7 @@ pub mod dialect;
 mod format;
 pub mod project;
 mod range;
+mod resolve;
 mod source;
 mod tsconfig;
 
