@@ -5,19 +5,19 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 10000,
-      "defaultDescription": "each language's own value — 80 everywhere except Lua, which uses 120",
+      "defaultDescription": "each language's own value \u2014 80 everywhere except Lua, which uses 120",
       "description": "Line width used where a language wraps: BibTeX and LaTeX prose, Lua lines, Markdown tables, YAML flow collections, TOML arrays and inline tables, and TypeScript, CSS and HTML output. Accepted and ignored by env, ignore, ini and plist; CSS, HTML and TypeScript cap it at 320."
     },
     "indent": {
       "type": "integer",
       "minimum": 1,
       "maximum": 24,
-      "defaultDescription": "each language's own value — 2 spaces, except ini, which keeps its dialect's indentation",
+      "defaultDescription": "each language's own value \u2014 2 spaces, except ini, which keeps its dialect's indentation",
       "description": "Spaces per indentation level. Most languages accept 1 to 16, CSS, HTML and TypeScript accept 0 to 24, and the JSON block also takes `-1` for tabs or `0` for compact JSON. Env, ignore and markdown ignore it."
     },
     "final_newline": {
       "type": "boolean",
-      "defaultDescription": "each language's own value — `true` for JSON, TOML, YAML, plist, env, ini, CSS, HTML and TypeScript, and `false` for Bib, conf, ignore, LaTeX, Lua and Markdown",
+      "defaultDescription": "each language's own value \u2014 `true` for JSON, TOML, YAML, plist, env, ini, CSS, HTML and TypeScript, and `false` for Bib, conf, ignore, LaTeX, Lua and Markdown",
       "description": "Write a trailing newline at the end of every file."
     },
     "repair": {
@@ -34,7 +34,7 @@
         "auto-prefer-double",
         "auto-prefer-single"
       ],
-      "defaultDescription": "each language's own preference — `double` for TypeScript, CSS and HTML, and `auto-prefer-double` for Lua and YAML",
+      "defaultDescription": "each language's own preference \u2014 `double` for TypeScript, CSS and HTML, and `auto-prefer-double` for Lua and YAML",
       "description": "Quote character preference for the languages that rewrite quoting: Lua and YAML strings, plus TypeScript, CSS and HTML. JSON always emits double quotes, and bib, conf, env, ignore, ini, LaTeX, Markdown, plist and TOML preserve the source quoting."
     }
   },
@@ -45,7 +45,7 @@
         "type": "string"
       },
       "defaultDescription": "no restriction",
-      "description": "Gitignore-style patterns that restrict which files are eligible, one pattern per entry. A nonempty list allows only matching files; an empty list allows every supported filename mapping. A language's `include` adds custom mappings instead of filtering."
+      "description": "Gitignore-style patterns that add eligible files, one pattern per entry. A file is eligible when any configuration layer matches; a language's `include` adds custom mappings instead of filtering."
     },
     "excluded_files": {
       "type": "array",
@@ -59,8 +59,8 @@
   "common": {
     "enabled": {
       "type": "boolean",
-      "defaultDescription": "the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript",
-      "description": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults."
+      "defaultDescription": "the language's `dotfmt.dotfile` state \u2014 the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript",
+      "description": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly."
     },
     "include": {
       "type": "array",
@@ -264,7 +264,7 @@
           "crlf"
         ],
         "default": "unix",
-        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document."
+        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF)."
       },
       "hex_case": {
         "type": "string",
@@ -286,7 +286,9 @@
           "prefer-double",
           "prefer-single",
           "preserve",
-          "auto"
+          "auto",
+          "auto-prefer-double",
+          "auto-prefer-single"
         ],
         "default": "double",
         "description": "Quotation style for strings and `url()` values; `preserve`/`auto` keep the source style, and `prefer-*` keep it unless the other quote needs fewer escapes."
@@ -301,7 +303,9 @@
           "prefer-double",
           "prefer-single",
           "preserve",
-          "auto"
+          "auto",
+          "auto-prefer-double",
+          "auto-prefer-single"
         ],
         "default": "double",
         "description": "Alias of `quotes`, so the shared `quote_style` setting applies to CSS."
@@ -320,7 +324,7 @@
         "type": "integer",
         "minimum": 1,
         "maximum": 10000,
-        "defaultDescription": "unset — blocks always expand",
+        "defaultDescription": "unset \u2014 blocks always expand",
         "description": "Put a declaration block on one line when its content fits in this many characters."
       },
       "operator_linebreak": {
@@ -354,7 +358,7 @@
           "keyword",
           "percentage"
         ],
-        "defaultDescription": "unset — the source notation is preserved",
+        "defaultDescription": "unset \u2014 the source notation is preserved",
         "description": "Rewrite keyframe selectors as `from`/`to` (`keyword`) or percentages; `none` preserves them."
       },
       "prefer_single_line": {
@@ -368,7 +372,7 @@
           "none",
           "alphabetical"
         ],
-        "defaultDescription": "unset — declarations keep their source order",
+        "defaultDescription": "unset \u2014 declarations keep their source order",
         "description": "Sort declarations inside each block; `none` keeps the source order."
       },
       "tailwind": {
@@ -403,12 +407,12 @@
       },
       "tailwind_stylesheet": {
         "type": "string",
-        "defaultDescription": "unset — the project's stylesheet is discovered",
+        "defaultDescription": "unset \u2014 the project's stylesheet is discovered",
         "description": "Stylesheet that declares the Tailwind theme used for ordering."
       },
       "tailwind_config": {
         "type": "string",
-        "defaultDescription": "unset — the project's Tailwind config is discovered",
+        "defaultDescription": "unset \u2014 the project's Tailwind config is discovered",
         "description": "Tailwind config file used for ordering."
       }
     },
@@ -523,13 +527,16 @@
           "crlf"
         ],
         "default": "unix",
-        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document."
+        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF)."
       },
       "quotes": {
         "type": "string",
         "enum": [
           "double",
-          "single"
+          "single",
+          "auto",
+          "auto-prefer-double",
+          "auto-prefer-single"
         ],
         "default": "double",
         "description": "Quote character for attribute values."
@@ -538,7 +545,10 @@
         "type": "string",
         "enum": [
           "double",
-          "single"
+          "single",
+          "auto",
+          "auto-prefer-double",
+          "auto-prefer-single"
         ],
         "default": "double",
         "description": "Alias of `quotes`, so the shared `quote_style` setting applies to markup."
@@ -567,7 +577,7 @@
         "type": "integer",
         "minimum": 1,
         "maximum": 1000,
-        "defaultDescription": "unset — tags wrap only past `width`",
+        "defaultDescription": "unset \u2014 tags wrap only past `width`",
         "description": "Write at most this many attributes on one line."
       },
       "prefer_attrs_single_line": {
@@ -630,12 +640,12 @@
       },
       "tailwind_stylesheet": {
         "type": "string",
-        "defaultDescription": "unset — the project's stylesheet is discovered",
+        "defaultDescription": "unset \u2014 the project's stylesheet is discovered",
         "description": "Stylesheet that declares the Tailwind theme used for ordering."
       },
       "tailwind_config": {
         "type": "string",
-        "defaultDescription": "unset — the project's Tailwind config is discovered",
+        "defaultDescription": "unset \u2014 the project's Tailwind config is discovered",
         "description": "Tailwind config file used for ordering."
       }
     },
@@ -854,7 +864,7 @@
           "crlf"
         ],
         "default": "unix",
-        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document."
+        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF)."
       },
       "quote_style": {
         "type": "string",
@@ -1063,12 +1073,12 @@
       },
       "tailwind_stylesheet": {
         "type": "string",
-        "defaultDescription": "unset — the project's stylesheet is discovered",
+        "defaultDescription": "unset \u2014 the project's stylesheet is discovered",
         "description": "Stylesheet that declares the Tailwind theme used for ordering."
       },
       "tailwind_config": {
         "type": "string",
-        "defaultDescription": "unset — the project's Tailwind config is discovered",
+        "defaultDescription": "unset \u2014 the project's Tailwind config is discovered",
         "description": "Tailwind config file used for ordering."
       },
       "fixes": {
@@ -1496,7 +1506,10 @@
       "sort_keys": {
         "type": "boolean",
         "default": false,
-        "description": "Accepted only as `false`: reordering keys would change duplicate-key shadowing."
+        "description": "Accepted only as `false`: reordering keys would change duplicate-key shadowing.",
+        "enum": [
+          false
+        ]
       }
     },
     "toml": {
@@ -1656,13 +1669,16 @@
           "crlf"
         ],
         "default": "unix",
-        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document."
+        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF)."
       },
       "quote_style": {
         "type": "string",
         "enum": [
           "double",
-          "single"
+          "single",
+          "auto",
+          "auto-prefer-double",
+          "auto-prefer-single"
         ],
         "default": "double",
         "description": "Quote character for string literals."
@@ -1865,12 +1881,12 @@
       },
       "tailwind_stylesheet": {
         "type": "string",
-        "defaultDescription": "unset — the project's stylesheet is discovered",
+        "defaultDescription": "unset \u2014 the project's stylesheet is discovered",
         "description": "Stylesheet that declares the Tailwind theme used for ordering."
       },
       "tailwind_config": {
         "type": "string",
-        "defaultDescription": "unset — the project's Tailwind config is discovered",
+        "defaultDescription": "unset \u2014 the project's Tailwind config is discovered",
         "description": "Tailwind config file used for ordering."
       },
       "fixes": {

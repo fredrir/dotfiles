@@ -16,6 +16,8 @@ pub struct Workspace {
     sessions: Mutex<HashMap<PathBuf, Arc<Mutex<Session>>>>,
     /// When present, sessions apply the native `dotfmt.format` overlay of their root.
     settings: Option<Arc<SettingsStore>>,
+    /// The client-resolved global config path; falls back to the process environment.
+    global: Option<PathBuf>,
 }
 
 impl Workspace {
@@ -24,15 +26,21 @@ impl Workspace {
             roots: Mutex::new(normalized(roots)),
             sessions: Mutex::new(HashMap::new()),
             settings: None,
+            global: global_config(),
         }
     }
 
     /// Creates sessions that apply the settings store's native overlay.
-    pub fn with_settings(roots: Vec<PathBuf>, settings: Arc<SettingsStore>) -> Self {
+    pub fn with_settings(
+        roots: Vec<PathBuf>,
+        settings: Arc<SettingsStore>,
+        global: Option<PathBuf>,
+    ) -> Self {
         Self {
             roots: Mutex::new(normalized(roots)),
             sessions: Mutex::new(HashMap::new()),
             settings: Some(settings),
+            global: global.or_else(global_config),
         }
     }
 
@@ -78,20 +86,22 @@ impl Workspace {
 
     pub fn session(&self, path: &Path) -> Arc<Mutex<Session>> {
         let root = self.root_for(path);
+        let mut sessions = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        // Resolve the overlay under the sessions lock: a concurrent settings
+        // change invalidates this map, and an overlay read before that
+        // invalidation must not be inserted afterwards.
         let overlay = self
             .settings
             .as_ref()
             .and_then(|settings| settings.overlay_for(&root))
             .map(|overlay| (*overlay).clone());
-        let mut sessions = self
-            .sessions
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let global = self.global.clone();
         Arc::clone(sessions.entry(root.clone()).or_insert_with(move || {
             Arc::new(Mutex::new(Session::with_paths_overlay(
-                root,
-                global_config(),
-                overlay,
+                root, global, overlay,
             )))
         }))
     }
@@ -166,7 +176,7 @@ pub(crate) fn normalize(path: &Path) -> PathBuf {
     lexical(path)
 }
 
-fn lexical(path: &Path) -> PathBuf {
+pub(crate) fn lexical(path: &Path) -> PathBuf {
     let mut output = PathBuf::new();
     for component in path.components() {
         match component {

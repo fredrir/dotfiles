@@ -174,6 +174,8 @@ pub struct Server {
     folder_requests: Mutex<HashSet<PathBuf>>,
     /// Orders overlapping settings pulls; older responses are discarded.
     settings_epoch: AtomicU64,
+    /// The client-resolved global config path, preferred over the process env.
+    global_config: Option<PathBuf>,
     capabilities: EditCapabilities,
     in_flight: Mutex<HashMap<RequestId, Arc<RequestState>>>,
     queued: Mutex<HashMap<(Uri, &'static str), RequestId>>,
@@ -254,7 +256,25 @@ impl Server {
         for root in &roots {
             settings.set_folder_overlay(root.clone(), Arc::new(empty_overlay(root)));
         }
-        let workspace = Arc::new(Workspace::with_settings(roots, Arc::clone(&settings)));
+        let global_config = params
+            .initialization_options
+            .as_ref()
+            .and_then(|options| {
+                options.get("globalConfig").or_else(|| {
+                    options
+                        .get("dotfmt")
+                        .and_then(|value| value.get("globalConfig"))
+                })
+            })
+            .and_then(Value::as_str)
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+            .or_else(crate::workspace::global_config);
+        let workspace = Arc::new(Workspace::with_settings(
+            roots,
+            Arc::clone(&settings),
+            global_config.clone(),
+        ));
         let pull = params
             .capabilities
             .text_document
@@ -305,6 +325,7 @@ impl Server {
             supports_configuration,
             folder_requests: Mutex::new(HashSet::new()),
             settings_epoch: AtomicU64::new(0),
+            global_config,
             capabilities,
             in_flight: Mutex::new(HashMap::new()),
             queued: Mutex::new(HashMap::new()),
@@ -462,10 +483,16 @@ impl Server {
                     .get(0)
                     .is_some_and(|settings| server.configure_default(settings));
                 let mut changed = Vec::new();
+                let current_roots = server.workspace.roots();
                 for (index, root) in roots.iter().enumerate() {
                     let Some(settings) = value.get(index + 1) else {
                         continue;
                     };
+                    // A folder may have been removed while this pull was in
+                    // flight; do not resurrect its settings.
+                    if !current_roots.iter().any(|current| current == root) {
+                        continue;
+                    }
                     if server.configure_folder(root, settings) {
                         changed.push(root.clone());
                     }
@@ -516,6 +543,11 @@ impl Server {
             );
             if let Ok(value) = result
                 && let Some(settings) = value.get(0)
+                && server
+                    .workspace
+                    .roots()
+                    .iter()
+                    .any(|current| current == &root)
                 && (server.configure_folder(&root, settings) || !known)
             {
                 server.reload_folder(&root);
@@ -1451,7 +1483,7 @@ impl Server {
                 if let Ok(params) =
                     serde_json::from_value::<DidChangeWatchedFilesParams>(notification.params)
                 {
-                    let global_config = crate::workspace::global_config();
+                    let global_config = self.global_config.clone();
                     let mut config_roots = HashSet::new();
                     let mut tsc_roots = HashSet::new();
                     let mut all_config = false;
@@ -1508,6 +1540,11 @@ impl Server {
                         let root = crate::workspace::normalize(&path);
                         roots.retain(|candidate| candidate != &root);
                         self.settings.remove_folder(&root);
+                        self.settings_epoch.fetch_add(1, Ordering::SeqCst);
+                        self.folder_requests
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .remove(&root);
                         affected.push(root);
                     }
                     let mut added = false;
@@ -1554,7 +1591,7 @@ impl Server {
             json!({ "globPattern": "**/bun.lock" }),
             json!({ "globPattern": "**/bun.lockb" }),
         ];
-        if let Some(global) = crate::workspace::global_config() {
+        if let Some(global) = &self.global_config {
             watchers.push(json!({ "globPattern": global.display().to_string() }));
         }
         let params = json!({
@@ -2272,6 +2309,18 @@ mod tests {
             )))
             .unwrap();
         serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn initialization_options_provide_the_global_config_path() {
+        let temporary = tempfile::tempdir().unwrap();
+        let global = temporary.path().join("dotfmt.dotfile");
+        std::fs::write(&global, "typescript {}\n").unwrap();
+        let (server, _receiver) = server_with_options(
+            temporary.path(),
+            json!({ "trusted": true, "globalConfig": global }),
+        );
+        assert_eq!(server.global_config.as_deref(), Some(global.as_path()));
     }
 
     #[test]

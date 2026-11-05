@@ -57,7 +57,7 @@ type OptionType = "boolean" | "integer" | "string" | "array";
 
 interface Option {
   type: OptionType;
-  enum?: string[];
+  enum?: (string | boolean)[];
   minimum?: number;
   maximum?: number;
   items?: { type: "string" };
@@ -122,12 +122,14 @@ function validateOptions(scope: string, options: Record<string, Option>): void {
       fail(`schema.json: ${where} has both a default and a defaultDescription`);
     }
     if (option.enum) {
-      if (option.type !== "string") {
-        fail(`schema.json: ${where} has enum values but is not a string`);
+      if (option.type !== "string" && option.type !== "boolean") {
+        fail(
+          `schema.json: ${where} has enum values but is not a string or boolean`,
+        );
       }
       if (
         option.default !== undefined &&
-        !option.enum.includes(String(option.default))
+        !option.enum.some((value) => String(value) === String(option.default))
       ) {
         fail(`schema.json: ${where} default is not one of its enum values`);
       }

@@ -124,7 +124,6 @@ impl Client {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,6 +146,10 @@ mod tests {
         client.shutdown();
         let result = waiting.join().expect("request thread");
         assert!(result.is_err(), "pending request should be rejected");
-        assert!(client.request("workspace/configuration", json!({})).is_err());
+        assert!(
+            client
+                .request("workspace/configuration", json!({}))
+                .is_err()
+        );
     }
 }

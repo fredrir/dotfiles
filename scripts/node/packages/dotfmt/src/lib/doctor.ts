@@ -216,7 +216,7 @@ function settingsLines(
   value: DoctorSettings,
   shortenPath: (path: string) => string,
 ): string[] {
-  return [
+  const lines = [
     `type-aware: ${onOff(value.typeAware)}`,
     `syntax diagnostics: ${onOff(value.syntax)}`,
     `tsc scope: ${value.tscScope ?? "unknown"}`,
@@ -224,6 +224,13 @@ function settingsLines(
     `fixes on save: ${value.fixesOnSave ?? "unknown"}`,
     `tsdk: ${value.tsdk ? shortenPath(value.tsdk) : "auto"}`,
   ];
+  if (value.hasFormat !== undefined || value.hasFormatExtra !== undefined) {
+    lines.push(
+      `native format: ${onOff(value.hasFormat)}`,
+      `format extra: ${onOff(value.hasFormatExtra)}`,
+    );
+  }
+  return lines;
 }
 
 function objects(value: unknown): Record<string, unknown>[] {

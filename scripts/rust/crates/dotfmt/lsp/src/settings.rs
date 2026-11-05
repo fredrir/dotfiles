@@ -165,6 +165,7 @@ impl Settings {
         if let Some(format) = overlay_setting(value, "format") {
             self.format = match format {
                 Value::Null => None,
+                other if is_empty_object(other) => None,
                 other => Some(other.clone()),
             };
         }
@@ -173,6 +174,7 @@ impl Settings {
         {
             self.format_extra = match extra {
                 Value::Null => None,
+                other if is_empty_object(other) => None,
                 other => Some(other.clone()),
             };
         }
@@ -507,6 +509,10 @@ fn lookup<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
         .or_else(|| value.get(format!("dotfmt.{dotted}").as_str()))
 }
 
+fn is_empty_object(value: &Value) -> bool {
+    value.as_object().is_some_and(serde_json::Map::is_empty)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -658,6 +664,14 @@ mod tests {
         );
         settings.apply(&json!({ "dotfmt.format": null }));
         assert_eq!(settings.format, None);
+    }
+
+    #[test]
+    fn empty_native_objects_inherit_instead_of_overriding() {
+        let mut settings = Settings::default();
+        settings.apply(&json!({ "format": {}, "formatExtra": {} }));
+        assert_eq!(settings.format, None);
+        assert_eq!(settings.format_extra, None);
     }
 
     #[test]

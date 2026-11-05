@@ -761,6 +761,25 @@ fn component_consumers_keep_exports_alive() {
 }
 
 #[test]
+fn component_non_literal_dynamic_imports_block_project_fixes() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "package.json", r#"{"private":true}"#);
+    write(root, "tsconfig.json", "{}");
+    write(root, "src/a.ts", "export const a = 1;\n");
+    write(
+        root,
+        "src/App.vue",
+        "<script setup lang=\"ts\">\nconst name = \"./a\";\nconst mod = import(name);\n</script>\n<template><div /></template>\n",
+    );
+    assert!(!project::graph_complete(&root.join("src/a.ts")));
+    assert!(project::unused_exports(&root.join("src/a.ts"))
+        .unwrap()
+        .fixes
+        .is_empty());
+}
+
+#[test]
 fn package_imports_subpath_resolves() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();

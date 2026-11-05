@@ -294,7 +294,7 @@
             "type": "string"
           },
           "scope": "resource",
-          "markdownDescription": "Gitignore-style patterns that restrict which files are eligible, one pattern per entry. A nonempty list allows only matching files; an empty list allows every supported filename mapping. A language's `include` adds custom mappings instead of filtering.\n\nDefault: no restriction. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Gitignore-style patterns that add eligible files, one pattern per entry. A file is eligible when any configuration layer matches; a language's `include` adds custom mappings instead of filtering.\n\nDefault: no restriction. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.excluded_files": {
           "type": "array",
@@ -307,7 +307,7 @@
         "dotfmt.format.bib.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.bib.include": {
           "type": "array",
@@ -430,7 +430,7 @@
         "dotfmt.format.conf.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.conf.include": {
           "type": "array",
@@ -484,7 +484,7 @@
         "dotfmt.format.css.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.css.include": {
           "type": "array",
@@ -556,7 +556,7 @@
             "crlf"
           ],
           "scope": "resource",
-          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document.\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.css.hex_case": {
           "type": "string",
@@ -578,7 +578,9 @@
             "prefer-double",
             "prefer-single",
             "preserve",
-            "auto"
+            "auto",
+            "auto-prefer-double",
+            "auto-prefer-single"
           ],
           "scope": "resource",
           "markdownDescription": "Quotation style for strings and `url()` values; `preserve`/`auto` keep the source style, and `prefer-*` keep it unless the other quote needs fewer escapes.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
@@ -593,7 +595,9 @@
             "prefer-double",
             "prefer-single",
             "preserve",
-            "auto"
+            "auto",
+            "auto-prefer-double",
+            "auto-prefer-single"
           ],
           "scope": "resource",
           "markdownDescription": "Alias of `quotes`, so the shared `quote_style` setting applies to CSS.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
@@ -706,7 +710,7 @@
         "dotfmt.format.env.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.env.include": {
           "type": "array",
@@ -789,7 +793,7 @@
         "dotfmt.format.html.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.html.include": {
           "type": "array",
@@ -863,13 +867,16 @@
             "crlf"
           ],
           "scope": "resource",
-          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document.\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.html.quotes": {
           "type": "string",
           "enum": [
             "double",
-            "single"
+            "single",
+            "auto",
+            "auto-prefer-double",
+            "auto-prefer-single"
           ],
           "scope": "resource",
           "markdownDescription": "Quote character for attribute values.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
@@ -878,7 +885,10 @@
           "type": "string",
           "enum": [
             "double",
-            "single"
+            "single",
+            "auto",
+            "auto-prefer-double",
+            "auto-prefer-single"
           ],
           "scope": "resource",
           "markdownDescription": "Alias of `quotes`, so the shared `quote_style` setting applies to markup.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
@@ -981,7 +991,7 @@
         "dotfmt.format.ignore.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.ignore.include": {
           "type": "array",
@@ -1068,7 +1078,7 @@
         "dotfmt.format.ini.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.ini.include": {
           "type": "array",
@@ -1160,7 +1170,7 @@
         "dotfmt.format.json.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.json.include": {
           "type": "array",
@@ -1218,7 +1228,7 @@
         "dotfmt.format.javascript.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.javascript.include": {
           "type": "array",
@@ -1290,7 +1300,7 @@
             "crlf"
           ],
           "scope": "resource",
-          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document.\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.javascript.quote_style": {
           "type": "string",
@@ -1562,7 +1572,7 @@
         "dotfmt.format.latex.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.latex.include": {
           "type": "array",
@@ -1694,7 +1704,7 @@
         "dotfmt.format.lua.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.lua.include": {
           "type": "array",
@@ -1839,7 +1849,7 @@
         "dotfmt.format.markdown.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.markdown.include": {
           "type": "array",
@@ -1932,7 +1942,7 @@
         "dotfmt.format.plist.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.plist.include": {
           "type": "array",
@@ -2027,13 +2037,16 @@
         },
         "dotfmt.format.plist.sort_keys": {
           "type": "boolean",
+          "enum": [
+            false
+          ],
           "scope": "resource",
           "markdownDescription": "Accepted only as `false`: reordering keys would change duplicate-key shadowing.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.toml.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.toml.include": {
           "type": "array",
@@ -2164,7 +2177,7 @@
         "dotfmt.format.typescript.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.typescript.include": {
           "type": "array",
@@ -2236,13 +2249,16 @@
             "crlf"
           ],
           "scope": "resource",
-          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document.\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.typescript.quote_style": {
           "type": "string",
           "enum": [
             "double",
-            "single"
+            "single",
+            "auto",
+            "auto-prefer-double",
+            "auto-prefer-single"
           ],
           "scope": "resource",
           "markdownDescription": "Quote character for string literals.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
@@ -2508,7 +2524,7 @@
         "dotfmt.format.yaml.enabled": {
           "type": "boolean",
           "scope": "resource",
-          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it. In native settings, an empty language block changes nothing; use `dotfmt.format.<language>.enabled` explicitly.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.yaml.include": {
           "type": "array",

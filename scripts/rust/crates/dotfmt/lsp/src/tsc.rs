@@ -78,6 +78,8 @@ pub struct Tsc {
     /// A `--version` probe from doctor, tracked separately so it cannot
     /// overwrite the worker's child slot and is still killed on shutdown.
     version_running: Running,
+    /// Doctor can run concurrently; serialize the single version child slot.
+    version_lock: Mutex<()>,
     workspace: Arc<Workspace>,
 }
 
@@ -260,6 +262,7 @@ impl Tsc {
             pending,
             running,
             version_running: Running::default(),
+            version_lock: Mutex::new(()),
             workspace,
         }
     }
@@ -401,7 +404,7 @@ impl Tsc {
                 });
                 let state = if compiler.is_none() {
                     "unavailable"
-                } else if self.backed_off(&project) {
+                } else if self.backed_off(&config) {
                     "backoff"
                 } else {
                     "ok"
@@ -435,6 +438,10 @@ impl Tsc {
         compiler: &Compiler,
     ) -> Option<String> {
         let key = (project.to_path_buf(), tsdk.map(Path::to_path_buf));
+        let _guard = self
+            .version_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         if let Some(version) = self
             .state
             .lock()
@@ -500,16 +507,19 @@ fn run(
                 generation: job_generation,
                 settings,
             } => {
-                let anchors: Vec<PathBuf> = pending
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .remove(&root)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect();
-                if job_generation != current_generation(&generations, &root) {
-                    continue;
-                }
+                let anchors: Vec<PathBuf> = {
+                    let mut pending = pending.lock().unwrap_or_else(|error| error.into_inner());
+                    if job_generation != current_generation(&generations, &root) {
+                        // A reload bumped the generation and re-added the anchors
+                        // for its fresh Check. Do not steal them for a stale job.
+                        continue;
+                    }
+                    pending
+                        .remove(&root)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect()
+                };
                 let graph = config_graph(&anchors);
                 log_graph_issues(&state, &diagnostics, &root, &graph);
                 for config in graph.configs {
@@ -587,17 +597,17 @@ fn check_config(
             settings.tsdk.as_deref(),
             format!("tsc: no compiler found for {}", project.display()),
         );
-        diagnostics.set_tsc(project, generation_now, Vec::new());
+        diagnostics.set_tsc(config, generation_now, Vec::new());
         return;
     };
     if state
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .failures
-        .get(project)
+        .get(config)
         .is_some_and(|failures| *failures >= MAX_FAILURES)
     {
-        diagnostics.set_tsc(project, generation_now, Vec::new());
+        diagnostics.set_tsc(config, generation_now, Vec::new());
         return;
     }
     if log_once(
@@ -651,7 +661,7 @@ fn check_config(
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .failures
-                .remove(project);
+                .remove(config);
             let entries = group(project, lines, diagnostics);
             if current_generation(generations, root) == generation_now {
                 cache
@@ -672,7 +682,7 @@ fn check_config(
         return;
     }
     let entries = scoped(config, entries, documents, settings.tsc_scope);
-    diagnostics.set_tsc(project, generation_now, entries);
+    diagnostics.set_tsc(config, generation_now, entries);
 }
 
 /// Every config reachable from the scheduled anchors through `references`.
@@ -914,12 +924,12 @@ fn check(
                 let mut state = state.lock().unwrap_or_else(|error| error.into_inner());
                 let count = state
                     .failures
-                    .entry(project.to_path_buf())
+                    .entry(tsconfig.to_path_buf())
                     .and_modify(|count| *count += 1)
                     .or_insert(1);
                 let count = *count;
                 let backoff =
-                    count >= MAX_FAILURES && state.backoff_logged.insert(project.to_path_buf());
+                    count >= MAX_FAILURES && state.backoff_logged.insert(tsconfig.to_path_buf());
                 (count, backoff)
             };
             diagnostics.log(format!(
@@ -1224,7 +1234,7 @@ fn group(
             project.join(path)
         };
         grouped
-            .entry(uri::from_path(&absolute))
+            .entry(uri::from_path(&crate::workspace::lexical(&absolute)))
             .or_default()
             .push(line.diagnostic());
     }
@@ -2190,6 +2200,110 @@ mod tests {
                 "a missing reference was logged twice"
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn same_directory_referenced_configs_keep_distinct_diagnostics() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        fs::write(
+            root.join("tsconfig.json"),
+            r#"{"files":[],"references":[{"path":"./tsconfig.app.json"},{"path":"./tsconfig.node.json"}]}"#,
+        )
+        .unwrap();
+        fs::write(root.join("tsconfig.app.json"), "{}").unwrap();
+        fs::write(root.join("tsconfig.node.json"), "{}").unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        let source = root.join("src/a.ts");
+        fs::write(&source, "const value: number = 'x';\n").unwrap();
+        fake_tsc(
+            root,
+            r#"case "$*" in
+*tsconfig.app.json*) echo "src/a.ts(1,7): error TS2322: APP error" ;;
+*tsconfig.node.json*) echo "src/a.ts(1,8): error TS2322: NODE error" ;;
+esac"#,
+        );
+        let uri = uri::from_path(&source);
+        let (tsc, _diagnostics, _documents, receiver, settings) = harness(root, TscScope::Project);
+        tsc.schedule(source, root.to_path_buf(), settings);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut last = Vec::new();
+        while Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let Ok(message) = receiver.recv_timeout(remaining) else {
+                break;
+            };
+            let lsp_server::Message::Notification(notification) = message else {
+                continue;
+            };
+            if notification.method != "textDocument/publishDiagnostics" {
+                continue;
+            }
+            let params: lsp_types::PublishDiagnosticsParams =
+                serde_json::from_value(notification.params).unwrap();
+            if params.uri == uri && !params.diagnostics.is_empty() {
+                let complete = params
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains("APP error"))
+                    && params
+                        .diagnostics
+                        .iter()
+                        .any(|diagnostic| diagnostic.message.contains("NODE error"));
+                last = params.diagnostics;
+                if complete {
+                    break;
+                }
+            }
+        }
+        let messages: Vec<String> = last
+            .into_iter()
+            .map(|diagnostic| diagnostic.message)
+            .collect();
+        assert!(
+            messages.iter().any(|message| message.contains("APP error")),
+            "{messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("NODE error")),
+            "{messages:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_reload_does_not_lose_anchors_to_a_stale_check() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        fs::write(root.join("tsconfig.json"), "{}").unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/a.ts"), "export const a = 1;\n").unwrap();
+        fs::write(root.join("src/b.ts"), "export const b = 1;\n").unwrap();
+        fake_tsc(root, "sleep 0.5\necho \"src/b.ts(1,1): error TS2322: b\"");
+        let (tsc, _diagnostics, _documents, receiver, settings) = harness(root, TscScope::Project);
+        tsc.schedule(root.join("src/a.ts"), root.to_path_buf(), settings.clone());
+        let marker = root.join("marker.log");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !marker.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(marker.exists(), "fake compiler did not start");
+        tsc.schedule(root.join("src/b.ts"), root.to_path_buf(), settings.clone());
+        tsc.invalidate_root(root);
+        tsc.schedule(root.join("src/b.ts"), root.to_path_buf(), settings);
+        let uri = uri::from_path(&root.join("src/b.ts"));
+        let params = wait_for_tsc(&receiver, &uri, Duration::from_secs(10));
+        assert!(
+            params
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains('b')),
+            "{:?}",
+            params.diagnostics
+        );
     }
 
     #[cfg(unix)]

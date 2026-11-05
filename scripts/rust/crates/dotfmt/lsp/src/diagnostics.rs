@@ -814,6 +814,7 @@ impl Published {
                     format!("{:?}", right.code),
                 ))
         });
+        diagnostics.dedup();
         diagnostics
     }
 }
@@ -1065,6 +1066,21 @@ mod tests {
         let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
         assert_eq!(params.version, None);
         assert_eq!(params.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn overlapping_projects_do_not_duplicate_identical_tsc_diagnostics() {
+        let (mut published, client, _receiver) = harness(false);
+        let uri = Uri::from_str("file:///tmp/a.ts").unwrap();
+        let entries = vec![(uri.clone(), vec![Diagnostic::default()])];
+        published.set_tsc(
+            Path::new("/tmp/tsconfig.app.json"),
+            1,
+            entries.clone(),
+            &client,
+        );
+        published.set_tsc(Path::new("/tmp/tsconfig.node.json"), 1, entries, &client);
+        assert_eq!(published.merged(&uri, None).diagnostics.len(), 1);
     }
 
     #[test]

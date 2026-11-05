@@ -1246,7 +1246,11 @@ fn load_module(path: &Path) -> Option<LoadedModule> {
         (Module::default(), false)
     } else {
         match fs::read_to_string(path) {
-            Ok(text) if is_consumer_file(path) => (scan_consumer_module(&text), true),
+            Ok(text) if is_consumer_file(path) => {
+                let module = scan_consumer_module(&text);
+                let complete = !module.unknown_dynamic;
+                (module, complete)
+            }
             Ok(text) => match parse_module(path, &text) {
                 Some(module) => {
                     let complete = !module.unknown_dynamic;
@@ -1345,7 +1349,7 @@ fn ignored_specifier(specifier: &str) -> bool {
 /// TypeScript (`.vue`, `.svelte`, `.astro`, `.mdx`).
 fn scan_consumer_module(text: &str) -> Module {
     let mut module = Module {
-        unknown_dynamic: text.contains("import(") || text.contains("require("),
+        unknown_dynamic: has_non_literal_dynamic_import(text),
         ..Module::default()
     };
     let bytes = text.as_bytes();
@@ -1385,6 +1389,23 @@ fn scan_consumer_module(text: &str) -> Module {
         index = end.saturating_add(1);
     }
     module
+}
+
+/// Whether a component contains `import(...)` or `require(...)` whose first
+/// argument is not a quoted literal. A literal is modeled as an edge; a
+/// computed specifier can hide any consumer and must keep fixes disabled.
+fn has_non_literal_dynamic_import(text: &str) -> bool {
+    for marker in ["import(", "require("] {
+        let mut rest = text;
+        while let Some(at) = rest.find(marker) {
+            rest = &rest[at + marker.len()..];
+            let next = rest.trim_start().chars().next();
+            if !matches!(next, Some('"' | '\'' | '`')) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn is_import_specifier(specifier: &str) -> bool {

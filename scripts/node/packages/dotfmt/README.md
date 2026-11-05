@@ -12,7 +12,7 @@ Formatting, range formatting, on-type formatting, errors, code actions and comma
 - **Format on paste:** pasted text is formatted through the language server and offered as a paste edit; a snippet that does not parse keeps its original text. Paste formatting is format-only and never applies configured fixes.
 - **Binary:** `dotfmt.server.path` replaces the bundled language server. `dotfmt.path` names the CLI used by status and doctor. Workspace values are ignored in untrusted workspaces.
 - **Configuration:** the filename and `dotfmt.dotfile` decide the language and dialect, as in Neovim. Untitled buffers use their VS Code language and the engine's default dialect; JSONC and JSONL need a filename extension because an untitled JSON buffer formats as plain JSON. The nearest `dotfmt.dotfile` applies, with the user config directory as the final fallback.
-- **Settings:** `dotfmt.dotfile` is the base formatting configuration and every option also has a native setting under `dotfmt.format.*`; VS Code's tab size and indentation settings are ignored. A native value overrides `dotfmt.dotfile`, so the editor can change width or quote style without editing a dotfile. A `line_endings` change also switches the document's line endings.
+- **Settings:** `dotfmt.dotfile` is the base formatting configuration and every option also has a native setting under `dotfmt.format.*`; VS Code's tab size and indentation settings are ignored. A native value overrides `dotfmt.dotfile`, so the editor can change width or quote style without editing a dotfile.
 - **Scope:** the dotfmt settings below are resource-scoped. In a multi-root workspace each folder resolves its own values from the nearest workspace folder, including its own type-aware scope and TypeScript SDK.
 - **Status:** the dotfmt language status item shows the resolved language, dialect and config, or why a file is skipped (`unmapped`, `excluded`, `disabled`). Its tooltip shows the extension version, server name and version, CLI path, tsc state, the resolved compiler when the server reports it, and the configuration chain. It turns red on errors.
 - **Dotfile language:** `*.dotfile` gets highlighting, `#` comments, bracket matching and indentation.
@@ -41,7 +41,7 @@ Precedence, lowest to highest: engine defaults → global `dotfmt.dotfile` → a
 }
 ```
 
-An invalid native value is logged in the dotfmt output channel and ignored rather than breaking formatting.
+Generated settings are constrained by the editor schema. `dotfmt.formatExtra` is an escape hatch: an invalid value is logged and reported as a configuration diagnostic for that resource until it is corrected.
 
 ## Diagnostics: errors only
 
@@ -78,7 +78,7 @@ organize_imports = false
 
 Configured fixes apply only to full-document formatting and `textDocument/willSaveWaitUntil`. Range formatting, on-type formatting, paste formatting and formatting requested through a code action never apply them; explicit fix actions (`source.fixAll.dotfmt`, **dotfmt: Fix All**) apply fixes directly.
 
-The implemented import and local-variable categories are available interactively through code actions and **dotfmt: Fix All**. Project-wide unused exports are offered as the unsafe quick fix **Remove unused export (unsafe)** when `dotfmt.codeActions.unusedExports` is on (the default) and the workspace is trusted; export removal is also available at format time and through `dotfmt --fix-unsafe`. Parameter removal is diagnose-only. Unsafe fixes are hidden in untrusted workspaces.
+The implemented import and local-variable categories are available interactively through code actions and **dotfmt: Fix All**. Project-wide unused exports are offered as the unsafe quick fix **Remove unused export (unsafe)** when `dotfmt.codeActions.unusedExports` is on (the default) and the workspace is trusted; export removal is also available at format time when `remove_unused_exports = true`, including through `dotfmt --fix-unsafe` with that setting enabled. Parameter removal is diagnose-only. Unsafe fixes are hidden in untrusted workspaces.
 
 ## Type-aware diagnostics
 

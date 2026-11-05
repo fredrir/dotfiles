@@ -94,9 +94,11 @@ export class Client implements vscode.Disposable {
       outputChannel: this.log,
       traceOutputChannel: this.trace,
       revealOutputChannelOn: RevealOutputChannelOn.Never,
-      initializationOptions: tsdk
-        ? { trusted: vscode.workspace.isTrusted, tsdk }
-        : { trusted: vscode.workspace.isTrusted },
+      initializationOptions: {
+        trusted: vscode.workspace.isTrusted,
+        globalConfig: globalConfigFile(),
+        ...(tsdk ? { tsdk } : {}),
+      },
       middleware: {
         executeCommand: (executable, args, next) =>
           this.execute(executable, args, next),
