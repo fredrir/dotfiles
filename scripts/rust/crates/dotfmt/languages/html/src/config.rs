@@ -71,8 +71,6 @@ impl Default for Config {
 impl Config {
     pub fn from_settings(settings: &Settings) -> Result<Self, Diagnostic> {
         let mut config = Self::default();
-        // Embedded language settings are inherited from the global TypeScript
-        // and CSS blocks, so `html {}` only needs HTML-specific overrides.
         for (key, setting) in settings {
             config
                 .set(key, &setting.value, setting.global, &setting.source)
@@ -222,8 +220,6 @@ impl Config {
     }
 }
 
-/// A local setting is relative to its declaring config file; globals are
-/// relative to the workspace root and therefore have no base here.
 fn setting_base(global: bool, source: &std::path::Path) -> Option<std::path::PathBuf> {
     (!global).then(|| {
         source
@@ -241,8 +237,6 @@ fn flag(key: &str, value: &str) -> Result<bool, String> {
     }
 }
 
-/// Clamps a shared-global number into what this engine can represent; invalid
-/// native values are ignored like other unsupported globals.
 fn clamped(value: &str, minimum: usize, maximum: usize) -> Option<usize> {
     value
         .parse::<usize>()

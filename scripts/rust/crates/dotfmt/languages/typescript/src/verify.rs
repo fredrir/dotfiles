@@ -6,16 +6,6 @@ use oxc_ast_visit::Visit;
 use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType};
 
-/// Detect formatter code removal while tolerating the two known false
-/// positives in oxc's count-based detector:
-///
-/// - adjacent JSX text nodes merge after whitespace folding;
-/// - every string literal under an object property is counted as a key,
-///   including values that the Tailwind sorter legitimately reorders.
-///
-/// When the upstream detector fails only in those categories, compare a
-/// structural signature. Any other mismatch, or a signature difference, still
-/// fails closed.
 pub fn detect_code_removal(before: &str, after: &str, source_type: SourceType) -> Option<String> {
     let removal = oxc_formatter::detect_code_removal(before, after, source_type)?;
     if !is_known_false_positive(&removal) {
@@ -88,8 +78,6 @@ impl<'a> Visit<'a> for SignatureVisitor<'_> {
             &container.expression,
             JSXExpression::StringLiteral(value) if value.value == " "
         ) {
-            // Preserve the separator that the formatter may fold into an
-            // adjacent JSXText node.
             self.jsx_words.push(" ".to_owned());
         }
         oxc_ast_visit::walk::walk_jsx_expression_container(self, container);

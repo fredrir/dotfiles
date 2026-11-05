@@ -69,8 +69,6 @@ fn type_aware_without_project_analysis_skips_unused_exports() {
     write(root, "src/b.ts", "export const other = 1;\n");
     project::clear_cache();
 
-    // The supplied diagnostic stands in for a compiler run, keeping the test
-    // independent of an installed `tsc`.
     let analysis = analyze::analyze(
         &root.join("src/a.ts"),
         "export const unused = 1;\n",

@@ -296,10 +296,10 @@ const SHARED_LIST: &str = "## `shared`
 - `fastfetch`
 - `gh`
 - `git`
-- `hport` — Ignore rules for the ports hport forwards from the peer
+- `hport` Ignore rules for the ports hport forwards from the peer
 - `nvim`
 - `obsidian`
-- `op-bridge` — op that sends 1Password reads through the op-bridge daemon on macie; the rest goes to the real op
+- `op-bridge` op that sends 1Password reads through the op-bridge daemon on macie; the rest goes to the real op
 - `rsync`
 - `ssh`
 - `starship`
@@ -307,7 +307,7 @@ const SHARED_LIST: &str = "## `shared`
 - `transcript`
 - `ui`
 - `vscode`
-- `wez-vtabs` — wez-vtabs deploy targets
+- `wez-vtabs` wez-vtabs deploy targets
 - `wezterm`
 - `yazi`
 - `zsh`";

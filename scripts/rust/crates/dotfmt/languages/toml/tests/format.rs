@@ -153,7 +153,6 @@ fn aligns_entries_and_comments_within_groups() {
     stable(lone, "a = 1      # one\nlonger = 2\n", &Config::default());
     stable(lone, lone, &configured("align_single_comments = false"));
 
-    // Blank lines, comments and headers each start a new group.
     let groups = "a = 1 # one\n\nbb = 2 # two\n# split\ncc = 3 # three\n";
     stable(
         groups,
@@ -180,8 +179,6 @@ fn indents_tables_and_entries() {
         "root = 1\n[a]\n  x = 1\n  [a.b]\n    y = 2\n[d]\n  z = 3\n",
         &configured("indent_tables = true\nindent_entries = true"),
     );
-    // A parent header that was printed earlier still indents a later subtable,
-    // even when other sections appear in between.
     let interleaved = "[table]\na = 1\n\n[other]\nb = 2\n\n[table.child]\nc = 3\n";
     stable(
         interleaved,
@@ -193,14 +190,11 @@ fn indents_tables_and_entries() {
         "[table]\n  a = 1\n\n[other]\n  b = 2\n\n  [table.child]\n    c = 3\n",
         &configured("indent_tables = true\nindent_entries = true"),
     );
-    // A parent written after its child cannot indent the earlier child.
     stable(
         "[a.b.c]\nx = 1\n[a]\ny = 2\n",
         "[a.b.c]\nx = 1\n[a]\ny = 2\n",
         &configured("indent_tables = true"),
     );
-    // Each array-of-tables element indents under the ancestor header printed
-    // before it, so an element after [a] is indented while the first one is not.
     stable(
         "[[a.b]]\nx = 1\n[a]\ny = 2\n[[a.b]]\nz = 3\n",
         "[[a.b]]\nx = 1\n[a]\ny = 2\n  [[a.b]]\n  z = 3\n",
@@ -226,8 +220,6 @@ fn reorders_keys_within_groups() {
         "t = { a = 2, b = 1 }\n",
         &configured("reorder_keys = true"),
     );
-    // The group's own-line comment stays at its head; trailing comments move
-    // with the entry they belong to.
     stable(
         "# about b and a\nb = 1\na = 2\n",
         "# about b and a\na = 2\nb = 1\n",
@@ -258,7 +250,6 @@ fn limits_blank_lines() {
         "a = 1\n\n\n\nb = 2\n",
         &configured("allowed_blank_lines = 3"),
     );
-    // A header never gains a blank line it did not have.
     stable(
         "[a]\nx = 1\n[b]\ny = 2\n",
         "[a]\nx = 1\n[b]\ny = 2\n",
@@ -313,14 +304,12 @@ fn keeps_dotted_keys_and_sections_in_written_order() {
         "a.b.c = 1\nsite.\"google.com\" = true\n",
         &Config::default(),
     );
-    // A parent header written after a child stays where it was written.
     stable(
         "[a.b.c]\nx = 1\n[a]\ny = 2\n",
         "[a.b.c]\nx = 1\n[a]\ny = 2\n",
         &Config::default(),
     );
     stable("[a.b]\nx = 1\n", "[a.b]\nx = 1\n", &Config::default());
-    // Interleaved sections and array-of-tables elements keep their order.
     stable(
         "[a]\nx = 1\n[b]\ny = 2\n[a.c]\nz = 3\n",
         "[a]\nx = 1\n[b]\ny = 2\n[a.c]\nz = 3\n",
@@ -331,7 +320,6 @@ fn keeps_dotted_keys_and_sections_in_written_order() {
         "[[a]]\nn = 1\n[b]\nx = 1\n[[a]]\nn = 2\n",
         &Config::default(),
     );
-    // Dotted-key entries keep the order they were written in.
     stable(
         "a.b = 1\nc = 2\na.d = 3\n",
         "a.b = 1\nc = 2\na.d = 3\n",
@@ -347,8 +335,6 @@ fn reorder_keys_stays_within_comment_groups() {
         "# first\nstatic.a = 2\nstatic.b = 1\n\n# second\nconst.c = 4\nstatic.d = 3\n",
         &config,
     );
-    // A comment on its own line introduces one entry and starts a new group,
-    // so these entries are never reordered.
     stable(
         "# z\nz = 1\n# y\ny = 2\n",
         "# z\nz = 1\n# y\ny = 2\n",

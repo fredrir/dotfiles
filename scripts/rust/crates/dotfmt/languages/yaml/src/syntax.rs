@@ -194,7 +194,6 @@ pub(crate) fn parse(source: &Source, reads: &[Read]) -> Result<Stream, Diagnosti
         .map(|read| {
             let (start, end) = (source.byte(read.start), source.byte(read.end));
             match read.style {
-                // Quoted scalar spans can extend past their closing quote.
                 ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
                     if matches!(read.shape, Shape::Scalar(..)) =>
                 {
@@ -550,7 +549,6 @@ impl Builder<'_, '_> {
                     let key_node = self.node(flow, true)?;
                     let value = self.node(flow, false)?;
                     let first = key_node.first();
-                    // A block key's own entries cannot claim the `?` that introduces it.
                     let question = (flow || !key || !entries.is_empty())
                         .then(|| self.previous_mark(first))
                         .flatten()
@@ -612,7 +610,6 @@ impl Builder<'_, '_> {
             .map_or(from, |at| at + 1)
     }
 
-    /// A block collection whose first entry is a flow collection starts at the same position.
     fn opens(&self, index: usize, start: usize, bracket: char) -> bool {
         let shared = self.reads.get(index + 1).is_some_and(|next| {
             matches!(

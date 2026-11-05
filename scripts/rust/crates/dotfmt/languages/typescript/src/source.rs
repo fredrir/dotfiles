@@ -1,7 +1,6 @@
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use oxc_diagnostics::OxcDiagnostic;
 
-/// One-based line and UTF-16 column for a byte offset.
 pub(crate) fn line_column(text: &str, offset: usize) -> (usize, usize) {
     let before = text.get(..offset).unwrap_or(text);
     let line = before.matches('\n').count() + 1;
@@ -12,7 +11,6 @@ pub(crate) fn line_column(text: &str, offset: usize) -> (usize, usize) {
     (line, column)
 }
 
-/// Converts an oxc parser diagnostic into the formatter's fatal diagnostic.
 pub(crate) fn syntax_diagnostic(text: &str, error: &OxcDiagnostic) -> Diagnostic {
     let diagnostic = Diagnostic::new(DiagnosticKind::Syntax, error.to_string());
     let offset = error
@@ -30,8 +28,6 @@ pub(crate) fn syntax_diagnostic(text: &str, error: &OxcDiagnostic) -> Diagnostic
 }
 
 const NESTING_LIMIT: usize = 8192;
-/// Bound the lookahead used to classify an angle bracket. A generic type that
-/// does not close within this many bytes is treated as ambiguous and ignored.
 const MAX_ANGLE_LOOKAHEAD: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,29 +46,9 @@ enum Angle {
     Ignore,
 }
 
-/// A conservative guard against parser/formatter stack exhaustion.
-///
-/// oxc is recursive; a few adversarial inputs (30k nested JSX or 100k parens)
-/// overflow even the 32 MiB worker stack. This scanner ignores strings,
-/// comments, template literals, and regular expressions, counts balanced
-/// `()[]{}` nesting, and distinguishes JSX elements from generic angle
-/// brackets.
-///
-/// Angle classification is intentionally conservative. In code (outside a
-/// JSX child), fragments, self-closing tags, and tags followed by another tag
-/// are JSX. A simple `<Identifier>` is also JSX when a matching closing tag is
-/// found in a bounded window; otherwise it is balanced as a generic. Constructs
-/// with generic syntax markers (commas, `extends`/`keyof`/`infer`, nested
-/// angles, unions, defaults, and so on) are generics. That choice keeps
-/// repeated flat type assertions, generic calls, and declarations from
-/// accumulating while still counting nested JSX whose children are themselves
-/// tags. Ambiguous components with plain text children beyond the closing-tag
-/// lookahead are under-counted; treating every such angle as JSX could reject
-/// ordinary flat generic code instead.
 pub(crate) fn nesting_exceeded(text: &str) -> bool {
     let bytes = text.as_bytes();
     let mut modes = vec![Mode::Code];
-    // Brace depth to restore when returning from a JSX expression container.
     let mut braces = Vec::new();
     let mut bracket_depth = 0usize;
     let mut jsx_depth = 0usize;
@@ -349,8 +325,6 @@ fn classify_code_angle(
     }
 }
 
-/// Finds the `>` balancing a generic opening angle without being fooled by
-/// comments, strings, template literals, arrow `=>`, or nested angles.
 fn generic_end(text: &[u8], start: usize) -> Option<usize> {
     let mut index = start + 1;
     let limit = text.len().min(start.saturating_add(MAX_ANGLE_LOOKAHEAD));
@@ -557,15 +531,9 @@ fn angle_is_generic(text: &[u8], start: usize, end: usize) -> bool {
     if has_close {
         return false;
     }
-    // Without a closing tag, a simple `<Identifier>` followed by text is a
-    // type assertion or generic usage, not an unclosed JSX element. Balancing
-    // it at its `>` keeps repeated flat constructs from accumulating.
     true
 }
 
-/// Looks for a matching closing tag in a bounded window. This distinguishes
-/// `<div>text</div>` from the flat type assertion `<string>text` without
-/// scanning the rest of a large file for the latter.
 fn has_matching_closing_tag(text: &[u8], start: usize, name: &[u8]) -> bool {
     const MAX_CLOSING_TAG_LOOKAHEAD: usize = 64 * 1024;
     if name.is_empty() {

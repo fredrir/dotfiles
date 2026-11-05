@@ -34,8 +34,6 @@ pub(crate) fn print(document: &Document<'_>, config: &Config, bom: bool) -> Stri
     output
 }
 
-/// Drops leading and trailing blank runs and caps the ones that remain, so
-/// alignment sees the groups the reader will see.
 fn arrange<'a>(items: &'a [Item<'a>], config: &Config, bom: bool) -> Vec<Arranged<'a>> {
     let mut arranged = Vec::new();
     let mut pending = 0;
@@ -55,9 +53,6 @@ fn arrange<'a>(items: &'a [Item<'a>], config: &Config, bom: bool) -> Vec<Arrange
             continue;
         }
         if arranged.is_empty() {
-            // A BOM in the middle of the file is content. If dropping leading
-            // blanks would move it to byte zero, the next run would read it as
-            // the file BOM and strip a value byte; keep one blank as a pin.
             if !bom && starts_with_bom(item) {
                 arranged.push(Arranged::Blank);
             }
@@ -141,8 +136,6 @@ fn render_entry(entry: &Entry<'_>, width: Option<usize>, config: &Config) -> Str
             text.push_str(&" ".repeat(pad));
             text.push('=');
             if !entry.value.is_empty() {
-                // A space before a bare `#` would turn the value into a
-                // comment; alignment must not change what the value is.
                 if !entry.value.raw().starts_with('#') {
                     text.push(' ');
                 }

@@ -4,9 +4,6 @@ use crate::comment;
 use crate::config::Config;
 use crate::model::{Document, Item, Style};
 
-/// What a document means, independent of its layout: entries in written order
-/// with their raw values and quote style, verbatim lines, and comments at the
-/// positions they occupy.
 pub(crate) struct Fingerprint {
     content: Vec<Content>,
     comments: Vec<Comment>,
@@ -18,8 +15,6 @@ enum Content {
         lead_ws: String,
         export: bool,
         key: String,
-        /// Unaligned layout keeps the gaps around `=` byte-for-byte because
-        /// they are word boundaries to a shell, not padding.
         before_eq_gap: Option<String>,
         after_eq_gap: Option<String>,
         value: String,
@@ -31,7 +26,6 @@ enum Content {
 
 #[derive(PartialEq, Eq)]
 struct Comment {
-    /// Number of content items written before this comment.
     after: usize,
     trailing: bool,
     text: String,

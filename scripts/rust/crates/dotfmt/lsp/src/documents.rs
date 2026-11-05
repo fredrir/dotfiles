@@ -1,8 +1,3 @@
-//! In-memory text documents, updated incrementally over UTF-16 positions.
-//!
-//! The handler pattern follows `crates/dot-code/server/src/documents.rs`: one
-//! immutable `LineIndex` per snapshot, rebuilt after each change, so a position
-//! can never be resolved against a different revision of the text.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -34,7 +29,6 @@ impl Documents {
         self.0.iter()
     }
 
-    /// The open document's client URI for one path identity, if any.
     pub fn uri_for_identity(&self, key: &crate::uri::Key) -> Option<Uri> {
         self.0
             .keys()
@@ -76,8 +70,6 @@ impl Document {
         }
     }
 
-    /// Whether an incremental change could not be applied. The buffer no
-    /// longer matches the editor until a full-text change or `didOpen`.
     pub fn is_desynchronised(&self) -> bool {
         self.desynchronised
     }
@@ -90,16 +82,10 @@ impl Document {
         &self.language
     }
 
-    /// Marks the buffer stale after an out-of-order or unapplicable change.
     pub fn mark_desynchronised(&mut self) {
         self.desynchronised = true;
     }
 
-    /// Applies an incremental change; a change without a range replaces the text.
-    ///
-    /// Invalid ranges leave the document unchanged and mark it desynchronised,
-    /// which is the only safe answer when an editor sends a position that cannot
-    /// be resolved. A full-text change clears the flag.
     pub fn change(&mut self, change: TextDocumentContentChangeEvent) -> bool {
         match change.range {
             None => {
@@ -164,7 +150,6 @@ impl Document {
         start..end.max(start)
     }
 
-    /// The text of one zero-based line, without its line ending.
     pub fn line_text(&self, line: usize) -> &str {
         let start = self.line_start(line);
         let end = self.line_start(line.saturating_add(1)).min(self.text.len());

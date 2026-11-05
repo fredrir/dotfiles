@@ -1,11 +1,5 @@
 #![forbid(unsafe_code)]
 
-//! Property tests over generated comment/string/code soups (SPEC §7).
-//!
-//! There is no dev-dependency to lean on: a small deterministic LCG builds the
-//! soups, so a failure is reproducible from the seed in the panic message and
-//! the whole run stays well under ten seconds.
-
 #[path = "support/mod.rs"]
 mod support;
 
@@ -15,9 +9,6 @@ use doc_purge_core::syntax::Family;
 
 const CASES_PER_FAMILY: usize = 2000;
 
-/// Statements that are code in every family; `soup` filters out any that
-/// carry a family's own comment marker (Lisp's `;`), so the code projection of
-/// a soup is known exactly.
 const CODE: &[&str] = &[
     "x = 1",
     "value = 2",
@@ -31,9 +22,6 @@ const CODE: &[&str] = &[
     "y = 2;",
 ];
 
-/// Bodies for comments and strings. They deliberately carry the other
-/// families' markers and typographic glyphs, because that is where scanners
-/// get confused.
 const PROSE: &[&str] = &[
     "note",
     "a note about the code",
@@ -78,8 +66,6 @@ impl Rng {
 
 struct Soup {
     source: String,
-    /// Every code statement in the order it was written. Nothing in it may
-    /// vanish: it carries no comment marker, quote or glyph.
     code: String,
 }
 
@@ -95,9 +81,6 @@ fn family_name(family: Family) -> &'static str {
     }
 }
 
-/// One dialect per family, because a soup is only meaningful with a real
-/// descriptor. Families with no dialect are named on stderr, never skipped
-/// silently.
 fn representatives() -> Vec<(&'static str, Dialect)> {
     let mut found: Vec<(&'static str, Dialect)> = Vec::new();
     for dialect in Dialect::ALL.iter().copied() {
@@ -145,9 +128,6 @@ fn soup(dialect: Dialect, rng: &mut Rng) -> Soup {
         CODE.iter()
             .copied()
             .filter(|statement| {
-                // A statement may not carry this family's comment marker: in Lisp
-                // the trailing `;` of `x = 1;` starts a comment, so a generator
-                // that called it code would report a loss the scanner never made.
                 !lines.iter().any(|marker| statement.contains(*marker))
                     && !syntax.block.iter().any(|block| {
                         statement.contains(block.open) || statement.contains(block.close)
@@ -189,8 +169,6 @@ fn soup(dialect: Dialect, rng: &mut Rng) -> Soup {
                 source.push_str(lines[rng.below(lines.len())]);
                 source.push(' ');
                 source.push_str(prose(rng, &[]));
-                // A line comment owns the rest of the line, so the next
-                // fragment has to start a new one.
                 needs_break = true;
             }
             4 if !blocks.is_empty() => {
@@ -224,13 +202,6 @@ fn soup(dialect: Dialect, rng: &mut Rng) -> Soup {
     Soup { source, code }
 }
 
-/// A body that keeps the quote fragment plausible for its family.
-///
-/// In the curly family `'` is a char literal (or a Rust lifetime), not a
-/// string: a multi-character body would let a `//` marker open a comment, so a
-/// tick always gets the one-character body every curly language accepts. A
-/// triple-quoted body also rejects the smart quotes that fold onto its own
-/// delimiter at either edge.
 fn quote_body(family: Family, open: &str, rng: &mut Rng, forbidden: &[&str]) -> &'static str {
     if family == Family::Curly && open == "'" {
         return "x";

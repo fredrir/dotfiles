@@ -6,28 +6,16 @@ pub enum LineEndings {
     Windows,
 }
 
-/// Layout choices for [`format`][crate::format].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
-    /// Accepted for the shared settings block; dotenv has no nesting.
     pub indent: usize,
-    /// Accepted for the shared settings block; values are never wrapped.
     pub width: usize,
     pub final_newline: bool,
     pub line_endings: LineEndings,
-    /// Maximum consecutive blank lines kept between items.
     pub blank_lines: usize,
-    /// Write `key = value` and align `=` within contiguous entry groups.
-    ///
-    /// Off by default: spaces around `=` are not accepted by every shell or
-    /// container env-file reader, so alignment is opt-in.
     pub align: bool,
-    /// Widest entry prefix that alignment may use; longer keys overflow.
     pub align_max: usize,
-    /// Insert one space after `#` in comments where it is missing.
     pub format_comments: bool,
-    /// Trim whitespace that trails an item outside a quoted value. Whitespace
-    /// escaped by a backslash is value content and is kept.
     pub trim_trailing_whitespace: bool,
 }
 
@@ -51,8 +39,6 @@ impl Config {
     pub fn from_settings(settings: &dotfmt_core::config::Settings) -> Result<Self, Diagnostic> {
         let mut config = Self::default();
         for (key, setting) in settings {
-            // The shared block supplies this to every language. Dotenv never
-            // rewrites quoting because quotes control interpolation.
             if setting.global && key == "quote_style" {
                 continue;
             }
@@ -116,8 +102,6 @@ fn choice<T: Copy>(key: &str, value: &str, choices: &[(&str, T)]) -> Result<T, S
         })
 }
 
-/// Clamps a shared-global number into what this engine can represent; invalid
-/// native values are ignored like other unsupported globals.
 fn clamped(value: &str, minimum: usize, maximum: usize) -> Option<usize> {
     value
         .parse::<usize>()

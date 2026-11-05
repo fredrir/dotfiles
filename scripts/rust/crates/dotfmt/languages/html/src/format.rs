@@ -34,9 +34,6 @@ pub fn format(
             |code, hints| Ok(embedded(code, hints.ext, config)),
         )
     };
-    // Format the document as written first. The optional-end-tag pre-pass is
-    // only a repair path for markup that omits optional closing tags; running
-    // it unconditionally can corrupt well-formed HTML with container elements.
     let mut prepared = Cow::Borrowed(text.as_str());
     let mut output = match format_markup(&prepared) {
         Ok(output) => output,
@@ -82,12 +79,6 @@ pub fn format(
     Ok(output)
 }
 
-/// Formats one embedded `<style>` or `<script>` snippet.
-///
-/// `markup_fmt` derives the extension from the tag's `lang` (and `type`)
-/// attribute, so `lang="scss"`, `lang="ts"` and `lang="tsx"` arrive here as
-/// `scss`, `ts` and `tsx`. A snippet that the embedded formatter rejects is
-/// returned unchanged; one bad snippet must not fail the whole document.
 fn embedded<'a>(code: &'a str, extension: &str, config: &Config) -> Cow<'a, str> {
     let extension = extension
         .trim()
@@ -112,10 +103,6 @@ fn embedded<'a>(code: &'a str, extension: &str, config: &Config) -> Cow<'a, str>
             let dialect = Dialect::for_path(&path).unwrap_or(Dialect::Html);
             format(&path, code, config, dialect).ok()
         }
-        // `markup_fmt` supplies `js`/`css` when the tag has no `lang`. An
-        // explicitly empty or unrecognized language hint still tells us this is
-        // script or style content; choose the embedded formatter only when
-        // exactly one of them accepts the snippet.
         "json" => None,
         extension if extension.starts_with("markup-fmt-") => None,
         _ => fallback(code, config),

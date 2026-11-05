@@ -1,9 +1,3 @@
-//! Project-wide TypeScript diagnostics from `tsc --noEmit`.
-//!
-//! The check runs in its own thread so formatting never waits for it. There is
-//! one compiler run per project, keyed by a fingerprint of the configuration
-//! chain, package metadata and source files. Diagnostics are errors only;
-//! unused-code codes are filtered out because dotfmt is a formatter.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -33,9 +27,6 @@ use crate::workspace::Workspace;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
-/// How long to wait for the stdout/stderr readers after the compiler exited.
-/// A grandchild process can keep a pipe open indefinitely; the worker must not
-/// be wedged by it.
 const PIPE_GRACE: Duration = Duration::from_secs(1);
 const SCAN_LIMIT: usize = 20_000;
 const MAX_FAILURES: u32 = 3;
@@ -55,11 +46,8 @@ const SKIP: &[&str] = &[
     ".bun-cache",
 ];
 
-/// TypeScript codes that report unused code. The language crate reports these
-/// as formatting/fix findings, never as editor diagnostics.
 pub const FILTERED_CODES: &[u32] = &[6133, 6138, 6192, 6196, 6198, 6199, 6205, 7027, 7028];
 
-/// Lockfiles whose change invalidates a cached compiler run.
 const LOCKFILES: &[&str] = &[
     "package-lock.json",
     "pnpm-lock.yaml",
@@ -73,22 +61,11 @@ pub struct Tsc {
     jobs: crossbeam_channel::Sender<Job>,
     cache: Arc<Mutex<HashMap<PathBuf, Cache>>>,
     state: Arc<Mutex<State>>,
-    /// One generation per workspace folder; a folder reload never cancels
-    /// another folder's in-flight compiler run.
     generations: Arc<Mutex<HashMap<PathBuf, u64>>>,
-    /// Configs waiting for a check, coalesced per workspace root. Every
-    /// schedule adds its nearest config; the worker drains the whole set in
-    /// one job before a new job is queued for that root.
     pending: Arc<Mutex<HashMap<PathBuf, HashSet<PathBuf>>>>,
-    /// The compiler process the worker currently owns.
     running: Running,
-    /// A `--version` probe from doctor, tracked separately so it cannot
-    /// overwrite the worker's child slot and is still killed on shutdown.
     version_running: Running,
-    /// Doctor can run concurrently; serialize the single version child slot.
     version_lock: Mutex<()>,
-    /// The latest settings used to schedule each workspace root, so a watched
-    /// file can requeue a dependent config without a document notification.
     settings: Arc<Mutex<HashMap<PathBuf, Settings>>>,
     workspace: Arc<Workspace>,
     diagnostics: Arc<Diagnostics>,
@@ -109,13 +86,10 @@ enum Job {
 struct Cache {
     fingerprint: u64,
     diagnostics: Vec<(Uri, Vec<Diagnostic>)>,
-    /// Directories and files whose changes invalidate this result.
     seeds: Vec<PathBuf>,
-    /// The workspace folder that scheduled the config.
     root: PathBuf,
 }
 
-/// Compiler discovery depends on the folder's `tsdk`, so the cache key keeps it.
 type CompilerKey = (PathBuf, Option<PathBuf>);
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -195,7 +169,6 @@ impl Running {
         self.stopped.load(Ordering::SeqCst)
     }
 
-    /// Registers a spawned child, killing it if shutdown already started.
     fn start(&self, mut child: Child) -> Result<(), RunError> {
         let mut slot = self.child.lock().unwrap_or_else(|error| error.into_inner());
         if self.is_stopped() {
@@ -208,7 +181,6 @@ impl Running {
         Ok(())
     }
 
-    /// Kills the tracked child, if any; later runs are still allowed.
     fn kill(&self) {
         let child = self
             .child
@@ -221,7 +193,6 @@ impl Running {
         }
     }
 
-    /// Kills the tracked child and refuses any further compiler run.
     fn shutdown(&self) {
         self.stopped.store(true, Ordering::SeqCst);
         self.kill();
@@ -229,9 +200,7 @@ impl Running {
 }
 
 pub struct ProjectStatus {
-    /// The workspace folder that owns this config.
     pub root: PathBuf,
-    /// The directory `tsc -p` runs in.
     pub project: PathBuf,
     pub tsconfig: Option<PathBuf>,
     pub compiler: Option<PathBuf>,
@@ -297,10 +266,6 @@ impl Tsc {
         }
     }
 
-    /// Queues the config nearest to `path` for its workspace root.
-    ///
-    /// Every document of a root joins one pending job; the worker expands
-    /// project references and runs each config at most once per fingerprint.
     pub fn schedule(&self, path: PathBuf, root: PathBuf, settings: Settings) {
         let tsconfigs = nearest_tsconfigs(&path, &root);
         if tsconfigs.is_empty() {
@@ -333,16 +298,10 @@ impl Tsc {
         });
     }
 
-    /// Drops every cached result whose dependency seeds contain `path` and
-    /// requeues each owning config once. Returns the scheduled workspace roots.
     pub fn invalidate_path(&self, path: &Path) -> Vec<PathBuf> {
         self.invalidate_path_except(path, &HashSet::new())
     }
 
-    /// Like [`Tsc::invalidate_path`], but skips configs owned by `skip` roots.
-    ///
-    /// A workspace-folder reload already invalidates its own root; watched
-    /// config files use this to invalidate only dependents in other folders.
     pub(crate) fn invalidate_path_except(
         &self,
         path: &Path,
@@ -449,10 +408,6 @@ impl Tsc {
         let _ = self.jobs.send(Job::Invalidate);
     }
 
-    /// Invalidates one workspace folder's configs and compiler state.
-    ///
-    /// Configs that belong to a nested workspace root keep their cache, in
-    /// addition to every other folder's in-flight runs and diagnostics.
     pub fn invalidate_root(&self, root: &Path) {
         self.bump_generation(root);
         self.cache
@@ -470,8 +425,6 @@ impl Tsc {
         let _ = self.jobs.send(Job::InvalidateRoot(root.to_path_buf()));
     }
 
-    /// Resolved compiler state for `dotfmt/doctor`, one entry per config and
-    /// referenced config. May spawn `<tsc> --version` per project.
     pub fn status(&self, roots: &[(PathBuf, Settings)]) -> Vec<ProjectStatus> {
         let mut statuses = Vec::new();
         let mut seen = HashSet::new();
@@ -534,8 +487,6 @@ impl Tsc {
         statuses
     }
 
-    /// Doctor's view of roots the workspace has not trusted: configuration
-    /// discovery is static, but no compiler process is spawned.
     pub fn status_untrusted(&self, roots: &[(PathBuf, Settings)]) -> Vec<ProjectStatus> {
         let mut statuses = Vec::new();
         let mut seen = HashSet::new();
@@ -627,10 +578,6 @@ impl Tsc {
             .is_some_and(|failures| *failures >= MAX_FAILURES)
     }
 
-    /// Stops the worker and kills any in-flight compiler process.
-    ///
-    /// Called from [`Drop`], so a killed server never leaves a `tsc` child
-    /// behind; idempotent and safe to call from another thread.
     pub fn shutdown(&self) {
         self.running.shutdown();
         self.version_running.shutdown();
@@ -640,9 +587,6 @@ impl Tsc {
 
 impl Drop for Tsc {
     fn drop(&mut self) {
-        // Kill the child instead of joining the worker: `wait` notices an
-        // emptied `Running` slot within one poll interval, so shutdown never
-        // waits for `TIMEOUT`.
         self.shutdown();
     }
 }
@@ -669,8 +613,6 @@ fn run(
                 let anchors: Vec<PathBuf> = {
                     let mut pending = pending.lock().unwrap_or_else(|error| error.into_inner());
                     if job_generation != current_generation(&generations, &root) {
-                        // A reload bumped the generation and re-added the anchors
-                        // for its fresh Check. Do not steal them for a stale job.
                         continue;
                     }
                     pending
@@ -933,7 +875,6 @@ fn log_graph_issues(
     }
 }
 
-/// Explains an unavailable compiler without suggesting a silent PATH fallback.
 fn missing_compiler_message(project: &Path, tsdk: Option<&Path>) -> String {
     if let Some(environment) = std::env::var_os("DOTFMT_TSC") {
         return format!(
@@ -952,7 +893,6 @@ fn missing_compiler_message(project: &Path, tsdk: Option<&Path>) -> String {
     format!("tsc: no compiler found for {}", project.display())
 }
 
-/// Logs `message` once per project and SDK; returns whether this call was the first.
 fn log_once(
     state: &Mutex<State>,
     diagnostics: &Diagnostics,
@@ -1153,15 +1093,12 @@ fn run_command(
             })
         }
         Err(error) => {
-            // The child is already killed and reaped; a grandchild may still
-            // hold the pipes, so drop them instead of joining the readers.
             running.kill();
             Err(error)
         }
     }
 }
 
-/// Drains one pipe on a detached thread and hands the bytes back over a channel.
 fn read_pipe<R: Read + Send + 'static>(mut pipe: R) -> crossbeam_channel::Receiver<Vec<u8>> {
     let (sender, receiver) = crossbeam_channel::bounded(1);
     let _ = thread::Builder::new()
@@ -1174,7 +1111,6 @@ fn read_pipe<R: Read + Send + 'static>(mut pipe: R) -> crossbeam_channel::Receiv
     receiver
 }
 
-/// Reads whatever the pipe reader produced before `deadline`.
 fn collect(receiver: crossbeam_channel::Receiver<Vec<u8>>, deadline: Instant) -> Vec<u8> {
     receiver
         .recv_timeout(deadline.saturating_duration_since(Instant::now()))
@@ -1259,8 +1195,6 @@ impl TscLine {
                 message: message.to_owned(),
             });
         }
-        // Position-less errors (`error TS5053: ...`) belong to the project
-        // configuration; attach them to the tsconfig so they are not dropped.
         let (severity, rest) = severity(line.trim_start())?;
         let (code, message) = rest.split_once(": ")?;
         let code = code.strip_prefix("TS").unwrap_or(code);
@@ -1296,8 +1230,6 @@ impl TscLine {
     }
 }
 
-/// Splits `file(line,col): rest` and `file(line,col) - rest`, including paths
-/// that themselves contain parentheses.
 fn location(line: &str) -> Option<(&str, u32, u32, &str)> {
     for (open, _) in line.match_indices('(').rev() {
         let Some(close) = line[open + 1..].find(')').map(|offset| open + 1 + offset) else {
@@ -1343,7 +1275,6 @@ fn windows_absolute(path: &Path) -> bool {
 
 struct ParsedOutput {
     lines: Vec<TscLine>,
-    /// TS6305/TS6310 were present and filtered.
     reference_build: bool,
 }
 
@@ -1359,9 +1290,6 @@ fn parse_output(output: &Output, project: &Path, tsconfig: &Path) -> ParsedOutpu
             continue;
         }
         if let Some(line) = TscLine::parse(raw, project, tsconfig) {
-            // Warnings are editor noise for a formatter; unused-code codes are
-            // handled by dotfmt's own fix pipeline. Unbuilt referenced projects
-            // are reported once as a configuration message, not per source.
             if line.severity == DiagnosticSeverity::ERROR
                 && is_reference_build_diagnostic(line.number())
             {
@@ -1556,11 +1484,8 @@ fn fingerprint_with_limit(
 
 #[derive(Default)]
 struct FingerprintInputs {
-    /// Files whose contents are hashed and whose metadata is ignored.
     content: BTreeSet<PathBuf>,
-    /// Directories walked for non-seed project files.
     roots: BTreeSet<PathBuf>,
-    /// Every file and directory that makes a cached result depend on a path.
     seeds: BTreeSet<PathBuf>,
 }
 
@@ -2136,8 +2061,6 @@ fn discover_with(
     environment: Option<&Path>,
     path: Option<&OsStr>,
 ) -> Option<Compiler> {
-    // An explicit compiler is authoritative. If it is invalid, report the
-    // compiler as unavailable instead of silently using a different one.
     if let Some(environment) = environment {
         return compiler_at(environment);
     }
@@ -2160,8 +2083,6 @@ fn discover_with(
     find_on_path("tsc", path)
 }
 
-/// Resolves a `DOTFMT_TSC`/`tsdk` value: a package directory, `lib` directory,
-/// `bin` directory, or the compiler file itself.
 fn compiler_at(base: &Path) -> Option<Compiler> {
     if base.is_file() {
         return Some(compiler(base.to_path_buf()));
@@ -2763,7 +2684,6 @@ mod tests {
         path
     }
 
-    /// A compiler that leaves a long-lived grandchild holding its stdout pipe.
     #[cfg(unix)]
     fn hanging_tsc(project: &Path) -> PathBuf {
         let directory = project.join("node_modules/.bin");
@@ -2784,8 +2704,6 @@ mod tests {
         path
     }
 
-    /// A stable compiler whose result switches with marker files, so the
-    /// fingerprint does not change when a test simulates a failure.
     #[cfg(unix)]
     fn switchable_tsc(project: &Path) -> PathBuf {
         let directory = project.join("node_modules/.bin");
@@ -2908,8 +2826,6 @@ mod tests {
         assert!(!process_alive(pid), "Tsc::drop left the compiler running");
     }
 
-    /// Every config runs in its own project directory, so the fake compiler's
-    /// relative marker lands in the config's project.
     #[cfg(unix)]
     fn runs_in(root: &Path) -> usize {
         ["marker.log", "app/marker.log"]
@@ -3560,7 +3476,6 @@ esac"#,
         let app_uri = uri::from_path(&app_source);
         let (tsc, _diagnostics, _documents, receiver, settings) = harness(root, TscScope::Project);
         tsc.schedule(main_source.clone(), root.to_path_buf(), settings.clone());
-        // Missing configs and reference cycles log once, not per document.
         let mut missing = 0;
         let mut cycles = 0;
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -3601,7 +3516,6 @@ esac"#,
             "the root and referenced config must each run once"
         );
 
-        // A later schedule of the referenced project reuses its cached run.
         tsc.schedule(app_source, root.to_path_buf(), settings);
         thread::sleep(Duration::from_millis(300));
         assert_eq!(runs_in(root), 2, "a cached referenced config was run again");

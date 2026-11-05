@@ -92,9 +92,6 @@ fn a_key_is_written_where_it_was_written_rather_than_in_order() {
 
 #[test]
 fn a_string_is_written_with_the_escapes_jq_writes() {
-    // The quote, the backslash, the five control characters with names, every
-    // other control character as `\u00xx` in lower case, and DEL — which JSON
-    // allows raw and jq does not.
     assert_eq!(
         laid_out("\"a\\\"b\\\\c\\bd\\fe\\nf\\rg\\th\\u0001i\\u007fj\""),
         "\"a\\\"b\\\\c\\bd\\fe\\nf\\rg\\th\\u0001i\\u007fj\"\n"
@@ -103,8 +100,6 @@ fn a_string_is_written_with_the_escapes_jq_writes() {
 
 #[test]
 fn a_character_json_can_hold_raw_is_not_escaped_on_the_way_out() {
-    // `\/`, `\u00e9` and a surrogate pair all arrive as themselves, which is
-    // what jq writes and what a diff after a format wants to see.
     assert_eq!(laid_out("\"a\\/b\""), "\"a/b\"\n");
     assert_eq!(laid_out("\"\\u00e9\""), "\"é\"\n");
     assert_eq!(laid_out("\"\\ud83d\\ude00\""), "\"😀\"\n");

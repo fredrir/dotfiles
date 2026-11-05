@@ -5,15 +5,9 @@ use std::path::{Path, PathBuf};
 const MAX_EXTENDS_DEPTH: usize = 8;
 const MAX_REFERENCE_DEPTH: usize = 8;
 
-/// The tsconfig/jsconfig options that change the safety of a code fix.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Tsconfig {
-    /// No tsconfig/jsconfig was found; assume the classic JSX factory may be in
-    /// scope rather than risk removing `React`/`h`.
     pub missing: bool,
-    /// The config file, an `extends` target, or a referenced config could not
-    /// be read or parsed. `paths`/`baseUrl` may be incomplete, so the project
-    /// graph cannot be trusted for export fixes.
     pub invalid: bool,
     pub jsx: Option<String>,
     pub jsx_factory: Option<String>,
@@ -22,41 +16,28 @@ pub(crate) struct Tsconfig {
     pub imports_not_used_as_values: Option<String>,
     pub preserve_value_imports: bool,
     pub emit_decorator_metadata: bool,
-    /// Parsed for callers that gate decorator rewrites; no current fix reads it.
     #[allow(dead_code)]
     pub experimental_decorators: bool,
     pub no_unused_locals: Option<bool>,
     pub no_unused_parameters: Option<bool>,
-    /// `compilerOptions.baseUrl`, resolved against the config that declared it.
     pub base_url: Option<PathBuf>,
-    /// `compilerOptions.paths` targets with `${configDir}` expanded.
     pub paths: BTreeMap<String, Vec<String>>,
-    /// Directory the `paths` targets are relative to when there is no `baseUrl`.
     pub paths_directory: Option<PathBuf>,
-    /// Directory of the root tsconfig/jsconfig file.
     pub directory: PathBuf,
-    /// Project reference configs, resolved to config files where possible.
     pub references: Vec<PathBuf>,
-    /// `files: []` with a non-empty `references` list: the config only
-    /// references other projects and supplies no files of its own.
     pub solution: bool,
-    /// `include` patterns, resolved against the config that declared them.
     #[allow(dead_code)]
     pub include: Vec<String>,
-    /// `exclude` patterns, resolved against the config that declared them.
     #[allow(dead_code)]
     pub exclude: Vec<String>,
-    /// `files` entries, resolved against the config that declared them.
     #[allow(dead_code)]
     pub files: Vec<PathBuf>,
     #[allow(dead_code)]
     pub composite: bool,
-    /// Every config file in the `extends` chain, for cache invalidation.
     pub chain: Vec<PathBuf>,
 }
 
 impl Tsconfig {
-    /// Whether TypeScript's default emit drops unused imports entirely.
     pub(crate) fn elides_unused_imports(&self) -> bool {
         !self.verbatim_module_syntax
             && !self.preserve_value_imports
@@ -66,8 +47,6 @@ impl Tsconfig {
             )
     }
 
-    /// A type-only import is behaviour-preserving only when TypeScript already
-    /// elides the value import.
     pub(crate) fn allows_type_only_import_conversion(&self) -> bool {
         if self.verbatim_module_syntax
             || self.preserve_value_imports
@@ -81,13 +60,10 @@ impl Tsconfig {
         )
     }
 
-    /// The classic JSX transform reads its factory from an implicit binding.
     pub(crate) fn classic_jsx(&self) -> bool {
         self.missing || matches!(self.jsx.as_deref(), Some("react" | "preserve"))
     }
 
-    /// Local names that must survive unused-import removal under the classic
-    /// JSX transform (for example `React` or Preact's `h`).
     pub(crate) fn protected_jsx_names(&self) -> Vec<String> {
         if !self.classic_jsx() {
             return Vec::new();
@@ -109,11 +85,6 @@ impl Tsconfig {
     }
 }
 
-/// Config files in `directory`, in TypeScript's discovery order.
-///
-/// A standard `tsconfig.json` (or, without it, `jsconfig.json`) wins over
-/// nonstandard names. Otherwise every `tsconfig*.json`/`jsconfig*.json` is
-/// returned so callers can run all of them.
 pub(crate) fn configs_in(directory: &Path) -> Vec<PathBuf> {
     let tsconfig = directory.join("tsconfig.json");
     if tsconfig.is_file() {
@@ -143,7 +114,6 @@ pub(crate) fn configs_in(directory: &Path) -> Vec<PathBuf> {
     configs
 }
 
-/// Whether `name` is a nonstandard `tsconfig*.json`/`jsconfig*.json`.
 pub(crate) fn is_nonstandard_config_name(name: &str) -> bool {
     name.ends_with(".json")
         && (name.starts_with("tsconfig") || name.starts_with("jsconfig"))
@@ -151,7 +121,6 @@ pub(crate) fn is_nonstandard_config_name(name: &str) -> bool {
         && name != "jsconfig.json"
 }
 
-/// Whether `path` is any config file discovered by [`configs_in`].
 pub(crate) fn is_config_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -160,7 +129,6 @@ pub(crate) fn is_config_file(path: &Path) -> bool {
         })
 }
 
-/// Every config at the nearest directory that contains one, sorted.
 pub(crate) fn nearest_configs(path: &Path) -> Vec<PathBuf> {
     let Some(mut directory) = (if path.is_dir() {
         Some(path)
@@ -181,12 +149,10 @@ pub(crate) fn nearest_configs(path: &Path) -> Vec<PathBuf> {
     }
 }
 
-/// Finds the nearest config for a source path.
 pub(crate) fn nearest(path: &Path) -> Option<PathBuf> {
     nearest_configs(path).into_iter().next()
 }
 
-/// Finds the nearest configs, never walking above `root` (the workspace root).
 pub(crate) fn nearest_configs_within(path: &Path, root: &Path) -> Vec<PathBuf> {
     let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let Some(start) = (if path.is_dir() {
@@ -216,31 +182,22 @@ pub(crate) fn nearest_configs_within(path: &Path, root: &Path) -> Vec<PathBuf> {
     }
 }
 
-/// Finds the nearest config, never walking above `root` (the workspace root).
 pub(crate) fn nearest_within(path: &Path, root: &Path) -> Option<PathBuf> {
     nearest_configs_within(path, root).into_iter().next()
 }
 
-/// Loads the nearest config, following relative and package `extends` chains.
 pub(crate) fn load_for(path: &Path) -> Tsconfig {
     nearest(path).map_or_else(|| missing_for(path), |path| load_config(&path))
 }
 
-/// Loads the nearest config without walking above `root`.
 pub(crate) fn load_for_within(path: &Path, root: &Path) -> Tsconfig {
     nearest_within(path, root).map_or_else(|| missing_for(path), |path| load_config(&path))
 }
 
-/// Loads a specific config file (following its `extends` chain).
 pub(crate) fn load_at(path: &Path) -> Tsconfig {
     load_config(path)
 }
 
-/// Whether `path` is a solution-style config file (`files: []` plus
-/// `references`).
-///
-/// Root discovery walks many ancestors, so this reads only the file's own
-/// top-level fields instead of resolving its `extends` chain.
 pub(crate) fn is_solution_config_file(path: &Path) -> bool {
     let Ok(text) = fs::read_to_string(path) else {
         return false;
@@ -260,11 +217,6 @@ pub(crate) fn is_solution_config_file(path: &Path) -> bool {
             .is_some_and(|references| !references.is_empty())
 }
 
-/// The configs that supply `paths` and `baseUrl` for imports from `path`.
-///
-/// A normal config applies alone. A solution-style config applies the union of
-/// itself and every referenced config, recursively, because the solution file
-/// owns no sources but its references do.
 pub(crate) fn resolution_configs_for(path: &Path, root: &Path) -> Vec<Tsconfig> {
     match nearest_within(path, root) {
         Some(path) => resolution_configs(&path),
@@ -383,7 +335,6 @@ fn load_file_inner(
     let value = match jsonc_parser::parse_to_value(&text, &Default::default()) {
         Ok(Some(value)) => value,
         Ok(None) => {
-            // An empty config is valid and supplies the TypeScript defaults.
             let mut raw = Raw::default();
             raw.chain
                 .push(fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()));
@@ -821,7 +772,6 @@ fn merge_option<T>(slot: &mut Option<T>, value: Option<T>) {
     }
 }
 
-/// Internal import prefixes derived from `compilerOptions.paths` aliases.
 pub(crate) fn import_patterns(path: &Path) -> Option<Vec<String>> {
     let config = load_for(path);
     if config.paths.is_empty() {

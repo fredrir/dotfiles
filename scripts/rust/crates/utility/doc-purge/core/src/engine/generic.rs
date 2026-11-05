@@ -1,17 +1,3 @@
-//! The table-driven engine: one loop that asks the descriptor what to do at the
-//! current byte.
-//!
-//! At each byte the longest matching [`LineComment`] or [`BlockComment`] wins;
-//! on a tie the line comment goes first, as SPEC §3 orders them. Then comes the
-//! longest matching [`Quote`], otherwise the scanner advances one character.
-//! Everything the scanner knows about a language comes from the [`Syntax`] it
-//! was handed.
-//!
-//! `heredocs`, `doc`, `directives`, `regions` and `owns_indent_block` are
-//! deliberately not consulted here: heredocs belong to `Engine::Shell`, doc
-//! strings to `Engine::Indented`, indent-owned comments to the template engines
-//! and regions to `Engine::Markup`/`Engine::Template`. A descriptor that needs
-//! them must name one of those engines.
 
 use std::ops::Range;
 
@@ -21,8 +7,6 @@ use crate::syntax::{At, BlockComment, Escape, LineComment, Quote, Syntax, TextGl
 
 const BOM: &[u8] = b"\xef\xbb\xbf";
 
-/// Longest C++ raw string delimiter tag, in bytes, as `curly.rs` has always
-/// allowed: `R"tag(… )tag"`.
 const RAW_TAG_LIMIT: usize = 16;
 
 pub fn scan(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
@@ -43,11 +27,8 @@ struct Generic<'a> {
     out: Out,
 }
 
-/// A quote that matched: how many bytes open it, and how many `#`s its close is
-/// suffixed with.
 struct Opening {
     quote: &'static Quote,
-    /// Bytes from `at` to the end of the opening delimiter, prefixes included.
     len: usize,
     hashes: usize,
 }
@@ -65,10 +46,6 @@ impl Generic<'_> {
         while self.at < self.len() {
             let line = self.matching_line();
             let block = self.matching_block();
-            // A line marker can be a proper prefix of a block opener: Nim `#`
-            // and `#[`, MATLAB `%` and `%{`, Lua `--` and `--[[`. The longer
-            // marker is the comment that actually starts here, so the block
-            // wins; equal lengths keep the line comment first.
             if let Some(block) = block
                 && line.is_none_or(|line| block.open.len() > line.marker.len())
             {
@@ -87,7 +64,6 @@ impl Generic<'_> {
         Ok(())
     }
 
-    /// Whether a marker is allowed to start here.
     fn allowed(&self, at: At) -> bool {
         match at {
             At::Anywhere => true,
@@ -99,7 +75,6 @@ impl Generic<'_> {
         }
     }
 
-    /// Byte 0, or the first byte after a BOM and an optional shebang line.
     fn content_start(&self) -> usize {
         let mut at = if self.source.starts_with(BOM) {
             BOM.len()
@@ -112,7 +87,6 @@ impl Generic<'_> {
         at
     }
 
-    /// The longest line comment marker placed at `self.at`, if any.
     fn matching_line(&self) -> Option<&'static LineComment> {
         let mut best: Option<&'static LineComment> = None;
         for line in self.syntax.line {
@@ -147,7 +121,6 @@ impl Generic<'_> {
         self.at = end;
     }
 
-    /// The longest block comment opener placed at `self.at`, if any.
     fn matching_block(&self) -> Option<&'static BlockComment> {
         let mut best: Option<&'static BlockComment> = None;
         for block in self.syntax.block {
@@ -197,7 +170,6 @@ impl Generic<'_> {
         Err(Bail("unterminated block comment"))
     }
 
-    /// The longest quote placed at `self.at`, if any.
     fn matching_quote(&self) -> Option<Opening> {
         let mut best: Option<Opening> = None;
         for quote in self.syntax.quotes {
@@ -212,8 +184,6 @@ impl Generic<'_> {
         best
     }
 
-    /// The length of `quote`'s opening at `self.at`, prefixes included, and the
-    /// number of `#` bytes that opening consumed.
     fn opening_of(&self, quote: &'static Quote) -> Option<(usize, usize)> {
         let open = quote.open.as_bytes();
         if starts_with(self.source, self.at, open) {
@@ -228,9 +198,6 @@ impl Generic<'_> {
                 continue;
             }
             let mut at = self.at + prefix.len();
-            // Rust puts the hashes between `r` and `"`; Swift puts its whole
-            // prefix in front of them. Counting the hashes in the prefix as well
-            // as the run keeps `r#"` (1) and `##"` (2) both right.
             let mut hashes = prefix.iter().filter(|byte| **byte == b'#').count();
             if quote.hashes {
                 while self.byte(at) == b'#' {
@@ -262,13 +229,6 @@ impl Generic<'_> {
         Ok(true)
     }
 
-    /// Rust's `'a` lifetime is not a character literal.
-    ///
-    /// A single-quoted, single-line literal opens only when it is followed by a
-    /// backslash or when the character after that character is the closing
-    /// quote: `'x'` and `'\n'` are literals, `&'a str` is not. This is the rule
-    /// `curly.rs` has always applied to Rust, and the only reading of `'` that
-    /// keeps lifetimes out of `Bail("unterminated string")`.
     fn tick(&self, opening: &Opening) -> bool {
         let quote = opening.quote;
         if opening.hashes != 0
@@ -281,9 +241,6 @@ impl Generic<'_> {
             return false;
         }
         let next = self.byte(self.at + 1);
-        // Nothing that follows a line terminator can be a one-line literal, so a
-        // `'` before one is a tick too. Without this, `'a'\r'b'` reads as a
-        // literal spanning the `\r` and the whole file bails.
         if next == 0 || matches!(next, b'\n' | b'\r') {
             return true;
         }
@@ -325,7 +282,6 @@ impl Generic<'_> {
         Err(Bail(unterminated(quote)))
     }
 
-    /// Where the closing delimiter that starts at `at` ends, hashes included.
     fn close_at(&self, quote: &'static Quote, at: usize, hashes: usize) -> Option<usize> {
         let close = close_of(quote).as_bytes();
         if !starts_with(self.source, at, close) {
@@ -335,14 +291,6 @@ impl Generic<'_> {
         if !(0..hashes).all(|offset| self.byte(end + offset) == b'#') {
             return None;
         }
-        // A run of one delimiter byte three or more deep is a triple-quote
-        // form, and TOML, Java, Kotlin and Swift all allow one or two extra
-        // copies of the delimiter before the close, which belong to the text:
-        // `"""ends with quote""""` is the content `ends with quote"`. Taking
-        // them greedily is right there, and where the form does not allow it
-        // (Python) the input is already a syntax error, so nothing that used to
-        // parse changes. It is the difference between reading a legal TOML file
-        // and skipping it as "unterminated string".
         if close.len() >= 3 && close.iter().all(|byte| *byte == close[0]) {
             let mut extra = 0usize;
             while extra < 2 && self.byte(end) == close[0] {
@@ -364,8 +312,6 @@ impl Generic<'_> {
             tag_end += 1;
         }
         if self.byte(tag_end) != b'(' {
-            // `R` was an identifier after all: `curly.rs` falls back to scanning
-            // it as one and lets the quote after it open a normal string.
             return Ok(false);
         }
         let tag = &source[open_end..tag_end];
@@ -397,13 +343,6 @@ impl Generic<'_> {
     }
 }
 
-/// The byte a folded typographic quote must not become inside this literal.
-///
-/// `TextGlyphs::delim` is the descriptor's answer, except for a hash-suffixed
-/// literal that carries no hashes: that one closes on the bare delimiter, so
-/// folding a typographic quote to the delimiter there would end the string
-/// early. Rust `r"..."` is that case; `r#"..."#` closes on `"#`, so folding
-/// stays safe and the descriptor's `delim` is kept.
 fn folding_delim(quote: &Quote, glyphs: TextGlyphs, hashes: usize) -> u8 {
     if quote.hashes && hashes == 0 {
         close_of(quote).as_bytes()[0]
@@ -412,7 +351,6 @@ fn folding_delim(quote: &Quote, glyphs: TextGlyphs, hashes: usize) -> u8 {
     }
 }
 
-/// The bytes that close `quote`; `close: ""` means "same as open".
 fn close_of(quote: &Quote) -> &'static str {
     if quote.close.is_empty() {
         quote.open
@@ -421,10 +359,6 @@ fn close_of(quote: &Quote) -> &'static str {
     }
 }
 
-/// The reason an unterminated literal reports.
-///
-/// `Bail` is wire-visible through the LSP, so each form keeps the spelling it
-/// has always used instead of collapsing to one message.
 fn unterminated(quote: &Quote) -> &'static str {
     if quote.hashes || quote.raw_tag {
         "unterminated raw string"
@@ -439,8 +373,6 @@ fn unterminated(quote: &Quote) -> &'static str {
     }
 }
 
-/// The byte after the line terminator `at` sits on: `\r\n` moves two, a lone
-/// `\r` or `\n` moves one.
 fn past_terminator(source: &[u8], at: usize) -> usize {
     if source.get(at) == Some(&b'\r') && source.get(at + 1) == Some(&b'\n') {
         return at + 2;
@@ -634,8 +566,6 @@ mod tests {
         );
     }
 
-    /// Nim `#` / `#[`, Lua `--` / `--[[`: the line marker is a proper prefix of
-    /// the block opener, so the block comment has to win at the shared byte.
     const PREFIXED_BLOCK: Syntax = Syntax {
         name: "prefixed-block",
         extensions: &[],
@@ -667,8 +597,6 @@ mod tests {
 
     #[test]
     fn a_block_opener_that_extends_a_line_marker_wins() {
-        // `a=#[n]#1`: the `#` is not a line comment, so `1` must survive the
-        // block span instead of being eaten to end of line.
         assert_eq!(comments(b"a=#[n]#1\n", &PREFIXED_BLOCK), vec![(2..7, 4..5)]);
         assert_eq!(comments(b"# note\n", &PREFIXED_BLOCK), vec![(0..6, 1..6)]);
     }
@@ -698,9 +626,6 @@ mod tests {
         assert_eq!(comments(source, &TO_EOF), vec![(0..19, 2..19)]);
     }
 
-    /// MATLAB `%` / `%{`: the block opener is confined to a line start, but the
-    /// line marker is allowed anywhere, so it must not eat the opener line and
-    /// leave the body behind.
     const LINE_START_PREFIX: Syntax = Syntax {
         name: "line-start-prefix",
         extensions: &[],
@@ -756,8 +681,6 @@ mod tests {
             }],
             ..PREFIXED_BLOCK
         };
-        // At `##x!` both markers start; `##` (2 bytes) beats `#` (1 byte), so
-        // the `!` stays code instead of closing a block.
         assert_eq!(comments(b"##x!\n", &LONG_LINE), vec![(0..4, 2..4)]);
     }
 
@@ -883,8 +806,6 @@ mod tests {
         line: &[SLASH],
         block: &[],
         quotes: &[
-            // The plain/byte spelling is listed first so it wins the tie against
-            // the hash-capable spelling at a bare `"`.
             Quote {
                 open: "\"",
                 close: "",

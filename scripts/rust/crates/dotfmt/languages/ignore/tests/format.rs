@@ -22,10 +22,8 @@ fn default(input: &str, dialect: Dialect) -> String {
 fn blank_line_kinds_are_dialect_specific() {
     assert_eq!(default("   \na\n", Dialect::Git), "a");
     assert_eq!(default("a\n   \nb\n", Dialect::Git), "a\n\nb");
-    // A tab-only line is a real pattern in gitignore, so it is never removed.
     assert_eq!(default("a\n\t\nb\n", Dialect::Git), "a\n\t\nb");
     assert_eq!(default("a\n\t\nb\n", Dialect::Vscode), "a\n\t\nb");
-    // The other dialects treat it as blank and collapse it.
     for dialect in [Dialect::Ignore, Dialect::Prettier, Dialect::Attributes] {
         assert_eq!(default("a\n\t\nb\n", dialect), "a\n\nb", "{dialect:?}");
     }
@@ -102,22 +100,18 @@ fn escaped_hash_lines_are_patterns_not_comments() {
         formatted("\\#notacomment  \n", Dialect::Git, &config),
         "\\#notacomment"
     );
-    // In gitignore only a `#` at byte zero is a comment.
     assert_eq!(formatted("  #x\n", Dialect::Git, &config), "  #x");
 }
 
 #[test]
 fn git_trims_only_spaces_and_never_escaped_runs() {
     assert_eq!(default("a.txt   \n", Dialect::Git), "a.txt");
-    // A tab is pattern data in gitignore.
     assert_eq!(default("a.txt\t\n", Dialect::Git), "a.txt\t");
     assert_eq!(default("a.txt \t\n", Dialect::Git), "a.txt \t");
-    // Escaped or trailing backslash runs are left byte-exact.
     assert_eq!(default("b.txt\\ \n", Dialect::Git), "b.txt\\ ");
     assert_eq!(default("a\\  \n", Dialect::Git), "a\\  ");
     assert_eq!(default("b\\\n", Dialect::Git), "b\\");
     assert_eq!(default("\\ \n", Dialect::Git), "\\ ");
-    // Internal spaces are pattern data.
     assert_eq!(default("a  b\n", Dialect::Git), "a  b");
 }
 
@@ -127,8 +121,6 @@ fn ignore_and_prettier_trim_tabs_but_not_escaped_runs() {
     assert_eq!(default("a.txt\t\n", Dialect::Prettier), "a.txt");
     assert_eq!(default("a\\  \n", Dialect::Prettier), "a\\  ");
     assert_eq!(default("a\\ \n", Dialect::Ignore), "a\\ ");
-    // VS Code is handled conservatively: without its parser locally, tabs are
-    // kept because they may be pattern data.
     assert_eq!(default("a.txt\t\n", Dialect::Vscode), "a.txt\t");
 }
 
@@ -177,15 +169,12 @@ fn crlf_is_normalized_and_a_lone_cr_is_data() {
         formatted("a.txt\r\nb.txt\r\n", Dialect::Git, &windows),
         "a.txt\r\nb.txt"
     );
-    // The CR is inside the pattern, not a line ending.
     assert_eq!(default("a\rb\n", Dialect::Git), "a\rb");
     let final_newline = Config {
         final_newline: true,
         ..Config::default()
     };
     assert_eq!(formatted("a\rb\n", Dialect::Git, &final_newline), "a\rb\n");
-    // Adding LF after a final CR would change it into CRLF, so the trailer is
-    // withheld to keep the pattern bytes intact.
     assert_eq!(formatted("a\r", Dialect::Git, &final_newline), "a\r");
 }
 

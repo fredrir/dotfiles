@@ -121,8 +121,6 @@ fn rejects_non_utf8_input() {
 
 #[test]
 fn preserves_escaped_trailing_whitespace_and_glued_hashes() {
-    // A backslash escapes the following whitespace in a shell, so it is value
-    // content, not layout. The `#` after an escaped space is not a comment.
     let input =
         "A=foo\\ \nB=bar\\\t\nC=foo\\ #not a comment\nD=foo\\  #comment\nE=foo\\\\ \nF=foo\\\\\t\n";
     let output = format(input, &Config::default()).unwrap();
@@ -195,8 +193,6 @@ fn keeps_comment_lines_verbatim_when_a_backslash_joins_them() {
         assert_eq!(format(&output, &config).unwrap(), output);
     }
 
-    // With no indentation the joined `#` is part of the value, so formatting
-    // the comment text would rewrite that value.
     let glued = "A=foo\\\n#bar\nC=3\n";
     let output = format(
         glued,
@@ -208,7 +204,6 @@ fn keeps_comment_lines_verbatim_when_a_backslash_joins_them() {
     .unwrap();
     assert_eq!(output, glued);
 
-    // A blank line ends the join; the next comment is ordinary layout again.
     let ended = "A=foo\\\n\n  #standalone\n";
     assert_eq!(
         format(ended, &Config::default()).unwrap(),

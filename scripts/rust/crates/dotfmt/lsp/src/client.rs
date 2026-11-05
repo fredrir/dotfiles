@@ -1,4 +1,3 @@
-//! Requests initiated by the server, routed back through the main loop.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -64,10 +63,6 @@ impl Client {
         }
     }
 
-    /// Rejects every pending and future server-initiated request.
-    ///
-    /// Called when the main loop exits: a configuration pull must not keep the
-    /// writer thread alive for its 30-second timeout after `exit`.
     pub fn shutdown(&self) {
         self.closed.store(true, Ordering::SeqCst);
         let pending = std::mem::take(
@@ -88,9 +83,6 @@ impl Client {
             .remove(id);
     }
 
-    /// Sends a server-initiated request without waiting for its response.
-    /// Used for notifications that are requests in the protocol, such as
-    /// `client/registerCapability`.
     pub fn send_request(&self, method: &str, params: impl Serialize) -> Result<RequestId, String> {
         if self.closed.load(Ordering::SeqCst) {
             return Err("client is shut down".into());
@@ -107,7 +99,6 @@ impl Client {
         Ok(id)
     }
 
-    /// Completes a request previously sent through [`Client::request`].
     pub fn response(&self, response: Response) {
         let Some(sender) = self
             .pending

@@ -1,6 +1,3 @@
-//! Byte-preserving lexical primitives shared by configuration and block formatting.
-//!
-//! Callers decide whether braces, comments, and whitespace are syntax or data.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QuoteMode {

@@ -91,10 +91,6 @@ fn unused_variables<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) 
         {
             continue;
         }
-        // Removing a declaration is destructive even when its initializer is
-        // pure, so the fix is unsafe and only selected by unsafe fix modes.
-        // An impure initializer also needs the explicit opt-in; `unsafe_fixes`
-        // alone must not delete side effects.
         if !pure_initializer && !context.config.remove_impure_locals {
             continue;
         }
@@ -111,9 +107,6 @@ fn unused_variables<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) 
         let Ok(candidate) = apply(context.text, std::slice::from_ref(&edit)) else {
             continue;
         };
-        // The same guard as export fixes: a deletion that does not re-parse
-        // (for example a partial statement inside a namespace) must not be
-        // offered, because applying it would abort every other finding.
         if !crate::project::reparses(context.path, &candidate) {
             continue;
         }
@@ -258,8 +251,6 @@ fn unused_private_members<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Anal
     }
 }
 
-/// tsc reports unused locals/parameters as errors only when the option is on;
-/// otherwise the finding stays informational so opt-in fixes can still use it.
 fn unused_local_severity(enabled: Option<bool>) -> Severity {
     if enabled == Some(true) {
         Severity::Warning
@@ -268,12 +259,6 @@ fn unused_local_severity(enabled: Option<bool>) -> Severity {
     }
 }
 
-/// Whether the parameter's own signature is a value function with a body.
-///
-/// Ancestors are walked from the parameter and the first function-like node
-/// decides. This keeps parameters of `TSFunctionType`, call/method/construct
-/// signatures, index signatures, `declare function` and abstract methods from
-/// inheriting the body of an enclosing real function.
 fn param_belongs_to_value_signature(
     context: &Context<'_, '_>,
     node_id: oxc_semantic::NodeId,
@@ -307,11 +292,6 @@ fn has_function_body(context: &Context<'_, '_>, node_id: oxc_semantic::NodeId) -
 }
 
 fn is_side_effect_free(expression: &Expression<'_>) -> bool {
-    // Only expressions whose evaluation cannot run user code or observe an
-    // uninitialized binding. Anything that can coerce, iterate, touch a getter,
-    // or throw (identifiers, binary/unary operators, spreads, template
-    // interpolation) is intentionally excluded: `--fix` must never remove a
-    // side effect. The unsafe fix remains available explicitly.
     match expression {
         Expression::BooleanLiteral(_)
         | Expression::NullLiteral(_)

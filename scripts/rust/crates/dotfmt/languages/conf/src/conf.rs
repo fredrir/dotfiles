@@ -75,8 +75,6 @@ pub fn matches(pattern: &str, path: &str) -> bool {
                 continue;
             }
         }
-        // Nothing matched here, so the last `*` swallows one more character
-        // and the pattern after it is tried again.
         let Some(back) = star else {
             return false;
         };
@@ -93,7 +91,6 @@ fn step(pattern: &[char], at: usize, ch: char) -> Option<usize> {
         '[' => match class(pattern, at, ch) {
             Some((end, true)) => Some(end),
             Some((_, false)) => None,
-            // An unclosed `[` is a literal `[`, which is what fnmatch does.
             None => (ch == '[').then_some(at + 1),
         },
         literal => (literal == ch).then_some(at + 1),
@@ -109,8 +106,6 @@ fn class(pattern: &[char], at: usize, ch: char) -> Option<(usize, bool)> {
     let mut hit = false;
     let mut first = true;
     while here < pattern.len() {
-        // A `]` in the first position is a literal, so `[]]` is the class of
-        // one bracket rather than an empty one.
         if pattern[here] == ']' && !first {
             return Some((here + 1, hit != negated));
         }
@@ -142,8 +137,6 @@ fn format_lines(lines: &[&str], mode: Mode) -> Vec<String> {
             continue;
         }
         let closing = line.trim_start_matches([' ', '\t']);
-        // The gap above a `}` is the gap at the end of a block, which is not
-        // a gap between two things.
         if blank && !(mode == Mode::Hypr && closing == "}") {
             out.push(String::new());
         }

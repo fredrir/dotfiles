@@ -44,8 +44,6 @@ impl Dialect {
         }
     }
 
-    /// Parses a dialect name or alias. `ignore_case` follows the other
-    /// language crates; `auto` is always accepted and resolved by the caller.
     pub fn parse(value: &str, ignore_case: bool) -> Result<Self, String> {
         Self::ALL
             .into_iter()
@@ -63,7 +61,6 @@ impl Dialect {
             .ok_or_else(|| format!("invalid dialect: {value}"))
     }
 
-    /// The dialect named by a path, if the path names one.
     pub fn for_path(path: &Path) -> Option<Self> {
         let basename = path
             .file_name()
@@ -98,8 +95,6 @@ impl Dialect {
         None
     }
 
-    /// An explicitly requested dialect wins. Otherwise the configured dialect
-    /// is used, and only then does the path choose one.
     pub fn resolve(self, configured: Self, path: &Path) -> Self {
         if self != Self::Auto {
             self

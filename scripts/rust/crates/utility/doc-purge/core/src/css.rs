@@ -1,8 +1,6 @@
 use crate::scan::{Bail, Out, char_width, line_end, starts_with};
 use crate::syntax::Syntax;
 
-/// What the stylesheet lexer does differently per dialect. Keyed by descriptor
-/// name so the engine never names a language variant; a new style language is one row.
 #[derive(Clone, Copy)]
 struct Caps {
     indented: bool,

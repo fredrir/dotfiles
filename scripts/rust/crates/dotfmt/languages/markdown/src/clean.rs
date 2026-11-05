@@ -4,9 +4,6 @@ use comrak::{Arena, parse_document};
 use crate::config::Config;
 use crate::dialect::Dialect;
 
-// Render the document as plain text: inline markers, list markers and link
-// syntax are stripped to their content, block constructs lose their Markdown
-// syntax, and code, HTML, math, frontmatter and Obsidian links stay literal.
 pub(super) fn clean(input: &str, config: &Config) -> String {
     let normalized = input.replace("\r\n", "\n");
     let input = crate::without_leading_blank_lines(&normalized);
@@ -47,7 +44,6 @@ fn render_block<'a>(node: &'a AstNode<'a>, config: &Config) -> String {
             render_blocks(node, config)
         }
         NodeValue::Table(_) => render_table(node, config),
-        // Alerts keep their body blocks; the [!TYPE] marker is formatting.
         NodeValue::Alert(_) => render_blocks(node, config),
         NodeValue::FootnoteDefinition(_)
         | NodeValue::DescriptionList
@@ -62,8 +58,6 @@ fn render_block<'a>(node: &'a AstNode<'a>, config: &Config) -> String {
 }
 
 fn render_table<'a>(node: &'a AstNode<'a>, config: &Config) -> String {
-    // Rows separated by blank lines parse back as independent paragraphs, so
-    // cleaning settles after one pass instead of merging rows on the next.
     let separator = "\n".repeat(config.blank_lines + 1);
     node.children()
         .map(|row| {

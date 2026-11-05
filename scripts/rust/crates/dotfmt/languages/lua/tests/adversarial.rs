@@ -84,7 +84,6 @@ fn extreme_width_and_combined_options_preserve_literal_contents() {
     ] {
         let config = configured(&format!("verify = true\n{settings}"));
         let first = format(&input, &config).unwrap();
-        // Lua normalizes line breaks inside long strings when loading them.
         assert!(
             first
                 .replace("\r\n", "\n")

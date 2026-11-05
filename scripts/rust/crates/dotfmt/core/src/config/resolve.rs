@@ -37,14 +37,10 @@ impl Resolver {
         Self::with_paths(cwd, base.map(|base| base.join("dotfmt").join(CONFIG_NAME)))
     }
 
-    /// Constructs an isolated resolver without changing the process environment.
     pub fn with_paths(cwd: PathBuf, global_config: Option<PathBuf>) -> Self {
         Self::with_paths_overlay(cwd, global_config, None)
     }
 
-    /// Constructs a resolver that applies native editor settings after every
-    /// configuration file layer. The file-config cache stays overlay-free and
-    /// the overlay is applied once to each final directory configuration.
     pub fn with_paths_overlay(
         cwd: PathBuf,
         global_config: Option<PathBuf>,
@@ -75,8 +71,6 @@ impl Resolver {
         if effective.has_language_blocks() {
             return Ok(effective);
         }
-        // No layer selected a language: use the shipped default set and cache
-        // it so an unconfigured workspace does not clone the map per file.
         let cell = cache_entry(&self.finalized, &directory)?;
         cell.get_or_init(|| {
             let mut effective = (*effective).clone();
@@ -131,8 +125,6 @@ impl Resolver {
         .clone()
     }
 
-    /// Resolves relative and parent components using the same path semantics as
-    /// configuration discovery, without following ordinary symlink targets.
     pub fn absolute_path(&self, path: &Path) -> Result<PathBuf, Diagnostic> {
         absolute(&self.cwd, path)
     }
@@ -166,9 +158,6 @@ pub(super) fn absolute(cwd: &Path, path: &Path) -> Result<PathBuf, Diagnostic> {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                // A symlink followed by `..` names the physical target's parent.
-                // Only resolve links at this boundary; ordinary link paths keep
-                // their lexical spelling and configuration beside the link.
                 if std::fs::symlink_metadata(&normalized)
                     .is_ok_and(|metadata| metadata.file_type().is_symlink())
                 {

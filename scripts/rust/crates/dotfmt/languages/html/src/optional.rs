@@ -1,9 +1,3 @@
-//! Insert omitted HTML end tags before formatting.
-//!
-//! `markup_fmt` is strict about optional HTML end tags. HTML permits omitting
-//! `</li>`, `</p>`, `</td>`, `</tr>`, `</option>`, etc.; explicitly closing them
-//! is valid and is what Prettier also emits. This pass only adds end tags, never
-//! removes or reorders markup.
 
 use std::borrow::Cow;
 

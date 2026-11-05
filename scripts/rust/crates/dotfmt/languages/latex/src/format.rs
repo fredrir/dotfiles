@@ -9,7 +9,6 @@ use crate::protect;
 
 mod wrap;
 
-/// Format a TeX-family source. The input is UTF-8; a BOM is preserved.
 pub fn format(input: &str, config: &Config, dialect: Dialect) -> Result<String, Diagnostic> {
     let (bom, input) = match input.strip_prefix('\u{feff}') {
         Some(input) => (true, input),
@@ -69,8 +68,6 @@ fn format_once(text: &str, config: &Config, dialect: Dialect) -> Result<String, 
         check: false,
         print: false,
         fail_on_change: false,
-        // Wrapping and indentation width are handled after tex-fmt, with a
-        // one-character tab size so its i8 indent arithmetic cannot overflow.
         wrap: false,
         wraplen: config.width,
         wrapmin: config.width,
@@ -86,8 +83,6 @@ fn format_once(text: &str, config: &Config, dialect: Dialect) -> Result<String, 
         arguments: false,
         files: Vec::new(),
         recursive: false,
-        // tex-fmt's table formatter slices bytes at the first character of a
-        // row, so a row that starts with a multi-byte character panics.
         format_tables: config.format_tables && !breaks_table_alignment(&prepared.text),
     };
     let mut current = prepared.text.clone();
@@ -133,19 +128,12 @@ fn merge(defaults: &[&str], extra: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// Whether a row that tex-fmt's table formatter would split can start with a
-/// non-ASCII character. `add_line_breaks` slices the first character of every
-/// row, so a multi-byte character panics; it runs again on the rows produced by
-/// a previous break, so every `\\ `-continued segment starts a line.
 fn breaks_table_alignment(text: &str) -> bool {
     text.lines().any(|line| {
         let mut segments: Vec<&str> = line.split("\\\\ ").collect();
         if segments.len() < 2 {
             return false;
         }
-        // The rows produced by an earlier split start new lines, so every
-        // segment but the last can be re-split; a multi-byte first character
-        // panics in tex-fmt's byte slice.
         segments.pop();
         if segments.iter().any(|segment| {
             segment
@@ -156,15 +144,11 @@ fn breaks_table_alignment(text: &str) -> bool {
         }) {
             return true;
         }
-        // tex-fmt drops the text between the first `\\` and a later `\\ `
-        // when the first one is not followed by a space (for example `\\[2pt]`).
         line.find("\\\\")
             .is_some_and(|first| !line[first + 2..].starts_with(' '))
     })
 }
 
-/// tex-fmt is given a tab size of one, so leading spaces are indentation
-/// levels. Convert them to the configured width and character.
 fn reindent(text: &str, config: &Config) -> String {
     let mut output = String::with_capacity(text.len());
     let mut ignore = false;
@@ -179,7 +163,6 @@ fn reindent(text: &str, config: &Config) -> String {
         } else {
             let trimmed = line.trim_start_matches([' ', '\t']);
             if trimmed.is_empty() {
-                // Empty lines carry no indentation.
             } else {
                 let level = line.len() - trimmed.len();
                 match config.indent_type {
@@ -207,8 +190,6 @@ fn reindent(text: &str, config: &Config) -> String {
     output
 }
 
-/// tex-fmt works in one-space indentation levels. Convert the final indentation
-/// back to levels before the next pass, so a second pass sees the same depth.
 fn denormalize(text: &str, config: &Config) -> String {
     let mut output = String::with_capacity(text.len());
     let mut ignore = false;
@@ -223,7 +204,6 @@ fn denormalize(text: &str, config: &Config) -> String {
         } else {
             let trimmed = line.trim_start_matches([' ', '\t']);
             if trimmed.is_empty() {
-                // Blank marker lines are comments, so this is only a raw blank.
             } else {
                 let leading = line.len() - trimmed.len();
                 let level = match config.indent_type {

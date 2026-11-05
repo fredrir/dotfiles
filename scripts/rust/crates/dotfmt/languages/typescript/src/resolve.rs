@@ -1,9 +1,3 @@
-//! Module specifier resolution for the project graph.
-//!
-//! Resolution follows the TypeScript conventions that matter for deciding
-//! whether an export is imported anywhere: relative specifiers, `paths` and
-//! `baseUrl` aliases, package `imports` (`#subpath`), and workspace packages
-//! reachable through `node_modules`.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -32,9 +26,6 @@ const AVOIDED_DIRECTORIES: &[&str] = &[
 const MAX_GLOB_RESULTS: usize = 10_000;
 const MAX_GLOB_EXPANSIONS: usize = 64;
 
-/// Resolves specifiers for one project build, reusing the loaded configs for
-/// each importer directory. A solution-style config contributes the union of
-/// its own and its referenced projects' `paths`/`baseUrl` options.
 pub(crate) struct Resolver {
     root: PathBuf,
     configs: HashMap<PathBuf, Arc<Vec<Tsconfig>>>,
@@ -61,8 +52,6 @@ impl Resolver {
         }
         let configs = self.configs_for(importer);
         if specifier.starts_with('#') {
-            // TypeScript accepts `#`-prefixed aliases in `compilerOptions.paths`;
-            // those take precedence over Node `package.json#imports`.
             for config in configs.iter() {
                 if let Some(path) = resolve_paths(config, specifier) {
                     return Some(path);
@@ -84,8 +73,6 @@ impl Resolver {
         resolve_bare(importer, specifier)
     }
 
-    /// The configs that apply to imports from `importer`, loaded once per
-    /// directory for the lifetime of this build.
     pub(crate) fn configs_for(&mut self, importer: &Path) -> Arc<Vec<Tsconfig>> {
         let directory = importer
             .parent()
@@ -103,8 +90,6 @@ impl Resolver {
     }
 }
 
-/// Resolves one concrete path to an existing source file, trying the
-/// TypeScript extension substitutions and index files.
 pub(crate) fn resolve_target(path: &Path) -> Option<PathBuf> {
     let path = normalize(path);
     let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
@@ -127,8 +112,6 @@ pub(crate) fn resolve_target(path: &Path) -> Option<PathBuf> {
     if SOURCE_EXTENSIONS.contains(&extension.as_str()) {
         return None;
     }
-    // A dotted file name such as `x.repo` or `x.types`: the extension is part
-    // of the module name, so append candidates instead of replacing it.
     resolve_extensionless(&path)
 }
 
@@ -249,7 +232,6 @@ fn resolve_path_target(config: &Tsconfig, target: &str) -> Option<PathBuf> {
     resolve_target(&base.join(path))
 }
 
-/// Returns `(prefix, suffix, captured)` when `pattern` matches `specifier`.
 fn match_alias<'p, 's>(
     pattern: &'p str,
     specifier: &'s str,
@@ -476,12 +458,6 @@ fn resolve_package_imports(importer: &Path, specifier: &str) -> Option<PathBuf> 
     }
 }
 
-/// Expands a simple `import.meta.glob` pattern into the files it matches.
-///
-/// Brace alternation (`./{a,b}.ts`) becomes one pattern per alternative.
-/// Unsupported syntax returns no matches; callers consult
-/// [`glob_pattern_supported`] so an unmodelled pattern keeps the project graph
-/// incomplete instead of being mistaken for a pattern that matched nothing.
 pub(crate) fn expand_glob(root: &Path, importer: &Path, pattern: &str) -> Vec<PathBuf> {
     let pattern = pattern.trim();
     if pattern.is_empty() || pattern.starts_with('!') {
@@ -503,7 +479,6 @@ pub(crate) fn expand_glob(root: &Path, importer: &Path, pattern: &str) -> Vec<Pa
     files
 }
 
-/// Whether [`expand_glob`] models the pattern exactly.
 pub(crate) fn glob_pattern_supported(pattern: &str) -> bool {
     let pattern = pattern.trim();
     !pattern.is_empty() && !pattern.starts_with('!') && brace_expand(pattern).is_some()
@@ -581,8 +556,6 @@ fn contains_glob(component: &str) -> bool {
     component.contains('*') || component.contains('?')
 }
 
-/// Expands one level of brace alternation, recursing into nested groups and
-/// into each alternative. Returns `None` for unsupported glob syntax.
 fn brace_expand(pattern: &str) -> Option<Vec<String>> {
     if pattern.contains(['[', ']', '(', ')', '\\']) {
         return None;

@@ -143,8 +143,6 @@ fn built_in_names_do_not_claim_the_same_path_twice() {
             }
         }
     }
-    // The concrete path table is the real collision test: exact names,
-    // prefixes, suffixes and directories are checked through for_path.
     for (path, language) in [
         (".gitconfig", Language::Ini),
         (".gitmodules", Language::Ini),

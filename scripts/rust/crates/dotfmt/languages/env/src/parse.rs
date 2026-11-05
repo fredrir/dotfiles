@@ -6,10 +6,6 @@ pub(crate) fn parse(text: &str) -> Result<Document<'_>, Diagnostic> {
     let bytes = text.as_bytes();
     let mut items: Vec<Item<'_>> = Vec::new();
     let mut pos = 0;
-    // A shell joins a backslash-newline pair, so `#` on the next physical
-    // line may be part of the previous word instead of a comment. Such a line
-    // stays verbatim: dropping its indentation or spacing its `#` would
-    // change the joined word.
     let mut continued = false;
     while pos < text.len() {
         let (end, next) = line_bounds(text, pos);
@@ -97,8 +93,6 @@ fn line_bounds(text: &str, from: usize) -> (usize, usize) {
     }
 }
 
-/// Returns the entry and the offset just past its last line, or `None` when
-/// the line is not shaped like an entry at all and must stay verbatim.
 fn try_entry<'a>(
     text: &'a str,
     pos: usize,
@@ -365,8 +359,6 @@ fn bare<'a>(
     Ok((value, gap, comment, next))
 }
 
-/// Whether the byte at `index` is preceded by an odd number of backslashes.
-/// In a bare value, that makes the byte part of the word rather than layout.
 fn is_escaped(bytes: &[u8], index: usize) -> bool {
     let mut backslashes = 0;
     let mut cursor = index;
@@ -377,9 +369,6 @@ fn is_escaped(bytes: &[u8], index: usize) -> bool {
     backslashes % 2 == 1
 }
 
-/// End of the value after dropping trailing layout whitespace. A first
-/// whitespace byte escaped by a preceding backslash belongs to the value, so
-/// it (and anything before it) stays even when the rest of the run is layout.
 fn unescaped_value_end(bytes: &[u8], at: usize, end: usize) -> usize {
     let mut start = end;
     while start > at && matches!(bytes[start - 1], b' ' | b'\t') {

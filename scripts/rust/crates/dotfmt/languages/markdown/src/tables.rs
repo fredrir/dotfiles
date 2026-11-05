@@ -17,7 +17,6 @@ pub fn format(
         .map(|(line, column)| split_row(line, *column))
         .collect::<Result<_, _>>()?;
     if rows.len() < 2 || rows[0].1.len() != alignments.len() {
-        // Uncertain source positions must never cause a partial rewrite.
         return Ok(());
     }
     let count = rows.iter().map(|(_, cells)| cells.len()).max().unwrap_or(0);
@@ -130,8 +129,6 @@ fn split_row(line: &str, column: usize) -> Result<(&str, Vec<&str>), String> {
             cells.push(text[beginning..offset].trim());
             beginning = offset + 1;
         }
-        // GFM's table scanner treats a pipe immediately following a
-        // backslash as cell content, including an even backslash run.
         escaped = byte == b'\\';
     }
     if !final_pipe {

@@ -1,14 +1,3 @@
-//! The markup engine: host comments around regions lexed by another engine.
-//!
-//! Outside a region the descriptor's own `line`/`block`/`quotes` tables are run
-//! by [`crate::engine::generic`]. A region opener is only considered at a byte
-//! the host scanner did not already claim for a comment, and the longest match
-//! wins across line comments, block comments and region openers (`<%#` before
-//! `<%`, `{% comment %}` before `{%`, `<!--` before a tag).
-//!
-//! A region's closing marker is found by running the *embedded* engine over the
-//! candidate body: a `%>` inside a string or a block comment is rejected, while
-//! a line comment is truncated at `%>` so the close always wins.
 
 use std::ops::Range;
 
@@ -18,11 +7,8 @@ use crate::syntax::{At, Engine, LineComment, Region, Syntax};
 
 const BOM: &[u8] = b"\xef\xbb\xbf";
 
-/// A guard against a pathological nesting depth turning the recursive region
-/// scan into a stack overflow.
 const MAX_DEPTH: usize = 64;
 
-/// Bytes a template dialect may insert next to a whitespace-control delimiter.
 const TRIM: &[u8] = b"-~";
 
 pub fn scan(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
@@ -63,12 +49,9 @@ fn scan_at_depth(source: &[u8], syntax: &'static Syntax, depth: usize) -> Result
 struct Hit {
     region: &'static Region,
     start: usize,
-    /// Bytes of `region.open` that matched, trim byte included.
     open_len: usize,
 }
 
-/// Scan the host stretch that ends at `stop`. A region opener inside a host
-/// comment is not an opener: the caller skips to the end of the comment.
 enum Host {
     Clear(Out),
     Blocked(Out, usize),
@@ -98,7 +81,6 @@ fn host_until(
     }
 }
 
-/// Re-scan a stretch that a comment crosses, so the comment is emitted whole.
 fn blocked(
     source: &[u8],
     syntax: &'static Syntax,
@@ -109,9 +91,6 @@ fn blocked(
     Ok(Host::Blocked(host, resume))
 }
 
-/// A line comment that the host stretch truncates at `stop`: its marker is
-/// before `stop` and its real end is after it. Block comments that cross `stop`
-/// make `generic::scan` bail instead.
 fn truncated_line_comment_end(
     source: &[u8],
     syntax: &'static Syntax,
@@ -135,9 +114,6 @@ fn truncated_line_comment_end(
     None
 }
 
-/// The end of a block comment that starts before `stop` and closes after it.
-/// Extending a line at a time keeps the scan inside the host language until the
-/// comment is complete.
 fn crossing_comment_end(
     source: &[u8],
     syntax: &'static Syntax,
@@ -178,8 +154,6 @@ fn next_region(
     while at < source.len() {
         if let Some((region, open_len)) = matching_region(source, syntax, at, content_start) {
             let comment_len = longest_comment_at(source, syntax, at, content_start);
-            // Longest match wins; on a tie the comment wins so the tail of a
-            // comment is never emitted as markup.
             if comment_len < open_len {
                 return Some(Hit {
                     region,
@@ -201,9 +175,6 @@ fn matching_region(
 ) -> Option<(&'static Region, usize)> {
     let mut best: Option<(&'static Region, usize)> = None;
     for region in syntax.regions {
-        // `Region` has no open-anchor field. `once` is the only descriptor data
-        // Astro frontmatter has for "only at the top of the file", so it is the
-        // anchor as well as the one-region-per-file limit.
         if region.once && at != content_start {
             continue;
         }
@@ -211,7 +182,6 @@ fn matching_region(
             continue;
         };
         let len = end - at;
-        // ERB/EEx escape a literal opener as `<%%`; the escape is host text.
         if region.open == "<%" && source.get(at + len) == Some(&b'%') {
             continue;
         }
@@ -283,10 +253,6 @@ fn enter_region(
     let mut search = body_start;
     while let Some((close_start, close_end)) = next_close(source, hit.region, search, content_start)
     {
-        // Candidate scanning is what makes the close string-aware and what lets
-        // it win over a line comment opened in the body: a close inside a
-        // string/block comment leaves the body scan "unterminated", a close
-        // after a line-comment marker leaves it complete at the slice end.
         match scan_embedded(
             &source[body_start..close_start],
             hit.region.engine,
@@ -330,8 +296,6 @@ fn close_end(source: &[u8], close: &[u8], at: usize) -> Option<usize> {
     needle_at(source, at, close)
 }
 
-/// Literal match, or one whitespace-control byte either side of the delimited
-/// body (`{%- raw -%}` against `{% raw %}`).
 fn needle_at(source: &[u8], at: usize, needle: &[u8]) -> Option<usize> {
     if starts_with(source, at, needle) {
         return Some(at + needle.len());
@@ -387,7 +351,6 @@ fn opening_tag_has(source: &[u8], at: usize, open_len: usize, attr: &str, value:
     contains(tag, attr.as_bytes()) && contains(tag, value.as_bytes())
 }
 
-/// The `>` that ends the opening tag, skipping quoted attribute values.
 fn tag_end(source: &[u8], from: usize) -> Option<usize> {
     let mut at = from;
     while at < source.len() {
@@ -409,8 +372,6 @@ fn tag_end(source: &[u8], from: usize) -> Option<usize> {
     None
 }
 
-/// `</SCRIPT >` closes `</script>`. Tag closes are case-insensitive and admit
-/// whitespace before `>` as the HTML parser does; the descriptor cannot say it.
 fn tag_close_end(source: &[u8], at: usize, close: &[u8]) -> Option<usize> {
     if close.len() < 3 || close.last() != Some(&b'>') {
         return None;
@@ -440,9 +401,6 @@ fn tag_close_end(source: &[u8], at: usize, close: &[u8]) -> Option<usize> {
     }
 }
 
-/// The descriptor an embedded engine needs. `Engine::Markup` nests with the
-/// host descriptor; the three `SPEC-DELTA-1` resolvers are looked up by
-/// descriptor name so this file does not depend on `lang.rs` variant spellings.
 fn resolve(engine: Engine) -> Result<Option<&'static Syntax>, Bail> {
     match engine {
         Engine::Verbatim | Engine::Generic | Engine::Curly | Engine::Dash | Engine::Markup => {
@@ -450,9 +408,6 @@ fn resolve(engine: Engine) -> Result<Option<&'static Syntax>, Bail> {
         }
         Engine::Template => Err(Bail("engine dispatch needs the dialect")),
         Engine::Elixir => Ok(Some(named("elixir")?)),
-        // HEEx/EEX name `Engine::Indented` for their Elixir bodies. The
-        // descriptor has no field that says the embedded language is Elixir;
-        // this is the resolver SPEC-DELTA-1 asks the markup engine to carry.
         Engine::Indented => Ok(Some(named("elixir")?)),
         Engine::Script => Ok(Some(named("javascript")?)),
         Engine::Style => Ok(Some(named("css")?)),
@@ -569,8 +524,6 @@ fn line_comment_end(source: &[u8], line: &LineComment, at: usize) -> usize {
     end
 }
 
-/// The end of the last line under the marker whose indent is greater than the
-/// marker line's indent. Blank lines inside the block are transparent.
 fn indent_block_end(source: &[u8], at: usize, marker_line_end: usize) -> usize {
     let start = line_start(source, at);
     let indent = indent_width(source, start, at);

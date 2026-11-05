@@ -22,7 +22,6 @@ enum TokenKind<'a> {
 #[derive(Clone, Copy)]
 struct Token<'a> {
     kind: TokenKind<'a>,
-    /// Byte offset of the first byte of the event.
     start: usize,
 }
 
@@ -74,7 +73,6 @@ fn tokenize(text: &str) -> Result<Vec<Token<'_>>, Diagnostic> {
     Ok(tokens)
 }
 
-/// The name is a substring of the source tag, so slicing preserves its spelling.
 fn element_name<'a>(
     text: &'a str,
     start: usize,
@@ -335,7 +333,6 @@ fn node<'a>(token: Token<'a>, blank_before: usize) -> Node<'a> {
     Node { kind, blank_before }
 }
 
-/// Attribute text between the element name and `>` or `/>`, byte-exact.
 fn attributes<'a>(raw: &'a str, name: &str, self_closed: bool) -> &'a str {
     let end = raw.len() - if self_closed { 2 } else { 1 };
     &raw[1 + name.len()..end]

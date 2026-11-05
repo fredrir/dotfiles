@@ -60,8 +60,6 @@ fn object(pairs: &[(&str, Value)]) -> Value {
     )
 }
 
-// ------------------------------------------------------------------- reading
-
 #[test]
 fn every_shape_of_value_reads() {
     assert_eq!(value("null"), Value::Null);
@@ -86,8 +84,6 @@ fn whitespace_around_a_value_is_not_part_of_it() {
 
 #[test]
 fn an_empty_body_holds_no_value_rather_than_failing() {
-    // jq makes nothing of an empty input and answers with nothing, which is not
-    // an error and not a value either.
     for body in ["", "   ", "\n\t\n"] {
         assert_eq!(
             strict(body).expect("nothing to read").value,
@@ -99,7 +95,6 @@ fn an_empty_body_holds_no_value_rather_than_failing() {
 
 #[test]
 fn a_repeated_key_keeps_its_first_position_and_its_last_value() {
-    // `echo '{"a":1,"b":2,"a":3}' | jq -c .` answers `{"a":3,"b":2}`.
     let mut expected = indexmap::IndexMap::new();
     expected.insert("a".to_string(), number("3"));
     expected.insert("b".to_string(), number("2"));
@@ -118,7 +113,6 @@ fn a_string_is_read_as_the_characters_it_names() {
 
 #[test]
 fn a_mistake_is_reported_where_it_is() {
-    // Line and column, so an editor can put the cursor on it.
     let cases = [
         ("{\n  \"a\": 1,\n  @\n}", "3:3: expected a key, found @"),
         ("{\n  \"a\" 1\n}", "2:7: expected : after a key"),
@@ -131,8 +125,6 @@ fn a_mistake_is_reported_where_it_is() {
         assert_eq!(refused(body), expected, "{body:?}");
     }
 }
-
-// ------------------------------------------------------------- refusing JSON
 
 #[test]
 fn what_json_refuses_is_refused_where_it_is() {
@@ -178,8 +170,6 @@ fn nesting_past_the_limit_is_a_message_rather_than_a_crash() {
 
     assert_eq!(refused(&deep), "1:513: too deeply nested");
 }
-
-// -------------------------------------------------------------- repairing
 
 #[test]
 fn a_trailing_comma_is_counted_and_dropped() {

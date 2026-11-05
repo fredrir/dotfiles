@@ -1,4 +1,3 @@
-//! Project-wide export usage analysis and TypeScript diagnostics.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
@@ -62,8 +61,6 @@ const SOURCE_LIST_TTL: Duration = Duration::from_millis(250);
 const MAX_SOURCE_SIZE: u64 = 4 * 1024 * 1024;
 const TSC_TIMEOUT: Duration = Duration::from_secs(30);
 const TSC_TIMEOUT_POLL: Duration = Duration::from_millis(10);
-/// Synthetic diagnostic code for a compiler invocation that exceeded the
-/// timeout. Real TypeScript diagnostics start at TS1000.
 pub const TSC_TIMEOUT_CODE: u32 = 0;
 const CONSUMER_EXTENSIONS: &[&str] = &["vue", "svelte", "astro", "mdx"];
 const NON_CODE_EXTENSIONS: &[&str] = &[
@@ -115,14 +112,6 @@ const NODE_BUILTINS: &[&str] = &[
 ];
 const UNUSED_DIAGNOSTIC_CODES: &[u32] = &[6133, 6138, 6192, 6196, 6198, 6199, 6205, 7027, 7028];
 
-/// Finds the project root by walking up to the nearest tsconfig/jsconfig or
-/// package.json.
-///
-/// A package that belongs to a workspace resolves to the nearest workspace
-/// root instead, so the graph includes consumers in sibling packages. A
-/// workspace root is a directory with `package.json#workspaces`,
-/// `pnpm-workspace.yaml`, `turbo.json`, `lerna.json`, or a solution-style
-/// tsconfig (`files: []` plus `references`).
 pub fn discover_root(start: &Path) -> Option<PathBuf> {
     let mut directory = if start.is_dir() {
         start.to_path_buf()
@@ -149,8 +138,6 @@ pub fn discover_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Whether `directory` declares a package workspace or a solution-style
-/// TypeScript project.
 fn is_workspace_root(directory: &Path) -> bool {
     ["pnpm-workspace.yaml", "turbo.json", "lerna.json"]
         .iter()
@@ -181,28 +168,22 @@ fn package_declares_workspaces(directory: &Path) -> bool {
     })
 }
 
-/// The nearest tsconfig/jsconfig for a source file, if any.
 pub fn tsconfig_for(path: &Path) -> Option<PathBuf> {
     crate::tsconfig::nearest(path)
 }
 
-/// Every config at the nearest directory that contains one.
 pub fn tsconfigs_for(path: &Path) -> Vec<PathBuf> {
     crate::tsconfig::nearest_configs(path)
 }
 
-/// Config files in `directory`, preferring the standard names.
 pub fn configs_in(directory: &Path) -> Vec<PathBuf> {
     crate::tsconfig::configs_in(directory)
 }
 
-/// Whether `path` is one of the config files discovered by [`configs_in`].
 pub fn is_config_file(path: &Path) -> bool {
     crate::tsconfig::is_config_file(path)
 }
 
-/// Reports exports in `path` that are never imported by another file in the
-/// project. Entry points and declaration files are exempt.
 pub fn unused_exports(path: &Path) -> Result<Analysis, Diagnostic> {
     let mut analysis = unused_exports_stripped(path)?;
     if fs::read(path).is_ok_and(|bytes| bytes.starts_with(b"\xEF\xBB\xBF")) {
@@ -215,12 +196,6 @@ pub(crate) fn unused_exports_for_analysis(path: &Path) -> Result<Analysis, Diagn
     unused_exports_stripped(path)
 }
 
-/// Whether `text` is exactly the file's on-disk contents (BOM stripped).
-///
-/// Project analysis reads the file for export spans and for the post-edit
-/// re-parse; a dirty buffer or an in-flight format pass has different
-/// coordinates, so project findings and fixes are skipped until the file is
-/// saved.
 pub(crate) fn buffer_matches_disk(path: &Path, text: &str) -> bool {
     fs::read_to_string(path)
         .is_ok_and(|disk| disk.strip_prefix('\u{feff}').unwrap_or(&disk) == text)
@@ -261,7 +236,6 @@ fn unused_exports_stripped(path: &Path) -> Result<Analysis, Diagnostic> {
     Ok(graph.analysis_for(&canonical))
 }
 
-/// Clears every cached project graph, source listing and TypeScript result.
 pub fn clear_cache() {
     if let Some(cache) = GRAPH_CACHE.get() {
         lock(cache).clear();
@@ -277,10 +251,6 @@ pub fn clear_cache() {
     }
 }
 
-/// Drops the cached file list, graph and module entries for `root`.
-///
-/// Call this after creating, renaming or deleting files so lookups do not wait
-/// for the short source-listing TTL.
 pub fn invalidate_root(root: &Path) {
     let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     if let Some(cache) = SOURCE_LISTINGS.get() {
@@ -294,10 +264,6 @@ pub fn invalidate_root(root: &Path) {
     }
 }
 
-/// The severity dotfmt assigns to a TypeScript compiler diagnostic.
-///
-/// Unused-code diagnostics are reported as warnings so callers can treat them
-/// as formatter findings rather than build errors.
 pub fn type_diagnostic_severity(code: u32) -> Severity {
     if UNUSED_DIAGNOSTIC_CODES.contains(&code) {
         Severity::Warning
@@ -306,25 +272,16 @@ pub fn type_diagnostic_severity(code: u32) -> Severity {
     }
 }
 
-/// Whether `code` is one of the TypeScript unused-code diagnostics.
 pub fn is_unused_diagnostic(code: u32) -> bool {
     UNUSED_DIAGNOSTIC_CODES.contains(&code)
 }
 
-/// One resolved TypeScript compiler invocation.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TscProgram {
     pub program: PathBuf,
-    /// Arguments placed before the standard `--noEmit ...` flags (for example
-    /// the path of `tsc.js` when the compiler is run through `node`).
     pub arguments: Vec<String>,
 }
 
-/// Resolves the compiler used for type-aware diagnostics.
-///
-/// Order: `DOTFMT_TSC`, the nearest `node_modules/typescript/lib/tsc.js`
-/// (through `node`), the nearest `node_modules/.bin/tsc`, the nearest
-/// `@typescript/native-preview` `tsgo`, `tsgo` on `PATH`, then `tsc` on `PATH`.
 pub fn resolve_compiler(project_root: &Path) -> TscProgram {
     if let Some(value) = std::env::var_os("DOTFMT_TSC") {
         return compiler_program(PathBuf::from(value));
@@ -411,12 +368,6 @@ fn executable_name(name: &str) -> String {
     name.to_owned()
 }
 
-/// Every config reachable from `anchors` through `references`.
-///
-/// This is the single project graph used by the CLI and the LSP. Each existing
-/// config is visited once even when several references point at it, cycles are
-/// reported instead of followed, and missing reference targets are recorded so
-/// callers can log them.
 #[derive(Clone, Debug, Default)]
 pub struct ConfigGraph {
     pub configs: Vec<PathBuf>,
@@ -424,7 +375,6 @@ pub struct ConfigGraph {
     pub cycles: Vec<PathBuf>,
 }
 
-/// Builds the project graph rooted at `anchors`.
 pub fn config_graph(anchors: &[PathBuf]) -> ConfigGraph {
     let mut graph = ConfigGraph::default();
     let mut seen = HashSet::new();
@@ -467,7 +417,6 @@ fn visit_config(
     active.remove(&config);
 }
 
-/// `references` entries are `{ "path": ... }` objects (and, leniently, strings).
 fn reference_specs(config: &Path) -> Vec<String> {
     let Ok(text) = fs::read_to_string(config) else {
         return Vec::new();
@@ -492,7 +441,6 @@ fn reference_specs(config: &Path) -> Vec<String> {
         .collect()
 }
 
-/// A reference may point at a tsconfig file or at its directory.
 fn reference_path(config: &Path, spec: &str) -> PathBuf {
     let raw = Path::new(spec);
     let directory = config.parent().unwrap_or(Path::new("."));
@@ -511,7 +459,6 @@ fn reference_path(config: &Path, spec: &str) -> PathBuf {
     normalize_config_path(&resolved)
 }
 
-/// Resolved configs named by `config`'s top-level `references`.
 pub fn referenced_configs(config: &Path) -> Vec<PathBuf> {
     reference_specs(config)
         .iter()
@@ -541,22 +488,14 @@ fn normalize_config_path(path: &Path) -> PathBuf {
     normalized
 }
 
-/// TypeScript's "referenced project was not built" diagnostics.
 pub fn is_reference_build_diagnostic(code: u32) -> bool {
     matches!(code, 6305 | 6310)
 }
 
-/// Synthetic code for the single build hint that replaces TS6305/TS6310.
 pub const TSC_REFERENCE_BUILD_CODE: u32 = 9001;
 
-/// One actionable message for filtered project-reference build diagnostics.
 pub const TSC_REFERENCE_BUILD_MESSAGE: &str = "referenced project not built; run tsc -b";
 
-/// Runs `tsc --noEmit` for every config reachable from `tsconfig` and merges
-/// their diagnostics.
-///
-/// Results are cached by anchor set and graph fingerprint, so all files in a
-/// project share one compiler run per reachable config.
 pub fn type_diagnostics(
     project_root: &Path,
     tsconfig: &Path,
@@ -574,9 +513,6 @@ pub fn type_diagnostics(
     Ok(diagnostics)
 }
 
-/// Runs `tsc --noEmit` with an explicit timeout. A compiler that does not exit
-/// within `timeout` is killed and reported as a timeout diagnostic instead of
-/// blocking the caller forever.
 pub fn type_diagnostics_with_timeout(
     project_root: &Path,
     tsconfig: &Path,
@@ -595,12 +531,6 @@ pub fn type_diagnostics_with_timeout(
     Ok(diagnostics)
 }
 
-/// Returns the project diagnostics that belong to `path`.
-///
-/// Every config reachable from `tsconfig` runs once; subsequent calls reuse the
-/// result until a source or config file changes. A project-wide timeout is
-/// attributed to the requested file so it is not silently dropped by the path
-/// filter.
 pub fn type_diagnostics_for(
     path: &Path,
     project_root: &Path,
@@ -609,10 +539,6 @@ pub fn type_diagnostics_for(
     type_diagnostics_for_anchors(path, project_root, &[tsconfig.to_path_buf()])
 }
 
-/// Runs the union of every graph reachable from `anchors` and selects `path`.
-///
-/// Callers that discover several nonstandard configs pass all of them so a
-/// shared referenced config still runs only once.
 pub fn type_diagnostics_for_anchors(
     path: &Path,
     project_root: &Path,
@@ -657,9 +583,6 @@ fn reference_build_hint() -> TypeDiagnostic {
     }
 }
 
-/// Whether the project graph for `path` resolved every source file and import
-/// specifier it found. Project-wide fixes must not be applied to an incomplete
-/// graph because a missing module could still consume the exports.
 pub fn graph_complete(path: &Path) -> bool {
     let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let Some(root) = discover_root(path).or_else(|| canonical.parent().map(Path::to_path_buf))
@@ -683,15 +606,9 @@ struct Module {
     exports: Vec<Export>,
     comments: Vec<(usize, usize)>,
     edges: Vec<Edge>,
-    /// A dynamic import/require/glob whose target is not statically known.
     unknown_dynamic: bool,
 }
 
-/// One exported binding plus the spans a fix needs.
-///
-/// `start`/`end` are the identifier span used by findings. `prefix` is the
-/// `export `/`export default ` range a keyword fix deletes, and `specifier` is
-/// the `export { ... }` specifier a named fix removes.
 #[derive(Clone, Debug)]
 struct Export {
     name: String,
@@ -737,8 +654,6 @@ impl Graph {
         if self.entries.contains(path) || is_declaration_file(path) {
             return Analysis::default();
         }
-        // Spans and safety checks are computed against the file the graph was
-        // built from. Callers must not request fixes for a dirty buffer.
         let Ok(text) = fs::read_to_string(path) else {
             return Analysis::default();
         };
@@ -781,9 +696,6 @@ impl Graph {
             let Some(module) = self.modules.get(&importer) else {
                 continue;
             };
-            // A malformed nearest/solution config or a broken `extends` chain
-            // hides aliases, so unresolved imports cannot be classified as
-            // external.
             if resolver
                 .configs_for(&importer)
                 .iter()
@@ -794,10 +706,6 @@ impl Graph {
             for edge in &module.edges {
                 if let EdgeKind::Glob(patterns) = &edge.kind {
                     for pattern in patterns {
-                        // Negated patterns and glob syntax this resolver does
-                        // not model (extglobs, character classes, broken
-                        // braces) may hide a consumer, so project fixes stay
-                        // disabled.
                         if pattern.trim_start().starts_with('!') || !glob_pattern_supported(pattern)
                         {
                             self.complete = false;
@@ -823,14 +731,9 @@ impl Graph {
                 };
                 let target = fs::canonicalize(&target).unwrap_or(target);
                 if inside_node_modules(&target) {
-                    // Installed packages are outside the project graph; their
-                    // imports cannot consume this project's exports.
                     continue;
                 }
                 if !self.modules.contains_key(&target) {
-                    // A local module the graph could not include (declaration
-                    // file, generated file, or a path outside the walked root)
-                    // means an unseen consumer may exist.
                     if !target.starts_with(root)
                         || is_declaration_file(&target)
                         || local_specifier(&mut resolver, root, &importer, &edge.specifier)
@@ -854,13 +757,7 @@ impl Graph {
     }
 }
 
-/// Whether the walked root is nested in a larger project and so cannot see
-/// every consumer of its exports.
 fn graph_truncated(root: &Path) -> bool {
-    // A workspace root already contains its member packages. An unrelated
-    // ancestor package (for example a tooling manifest in a home directory)
-    // does not make the workspace partial; only a nested project, or a larger
-    // workspace that can consume it, does.
     let workspace = is_workspace_root(root);
     for ancestor in root.ancestors().skip(1) {
         if !crate::tsconfig::configs_in(ancestor).is_empty()
@@ -886,11 +783,6 @@ fn inside_node_modules(path: &Path) -> bool {
         .any(|component| component.as_os_str() == "node_modules")
 }
 
-/// Whether an unresolved specifier is expected to name a local module.
-///
-/// TypeScript treats relative paths, `#imports`, `paths` aliases and `baseUrl`
-/// lookups as local. A bare package that resolves to `node_modules` is external
-/// even when it is not part of the graph, so it cannot hide a consumer.
 fn local_specifier(resolver: &mut Resolver, root: &Path, importer: &Path, specifier: &str) -> bool {
     let specifier = specifier.trim();
     if specifier.is_empty() {
@@ -915,8 +807,6 @@ fn local_specifier(resolver: &mut Resolver, root: &Path, importer: &Path, specif
         let package = fs::canonicalize(&package).unwrap_or(package);
         return package.starts_with(root) && !inside_node_modules(&package);
     }
-    // `baseUrl` makes bare specifiers project-local unless an installed package
-    // already owns the name.
     configs.iter().any(|config| config.base_url.is_some())
 }
 
@@ -949,11 +839,6 @@ fn node_modules_package(importer: &Path, specifier: &str) -> Option<PathBuf> {
     }
 }
 
-/// Builds one fix per unused export where a deletion is provably safe.
-///
-/// Statement-wide strategies (an all-unused specifier list or a multi-declarator
-/// declaration) attach their single edit to the first unused export so applying
-/// every fix cannot overlap.
 fn export_fixes(
     path: &Path,
     text: &str,
@@ -987,13 +872,9 @@ fn export_fixes(
             continue;
         }
         match first.kind {
-            // Deleting the whole statement would remove the value expression or
-            // an anonymous default declaration, so keep the finding only.
             ExportKind::DefaultExpression => {}
             ExportKind::DefaultNamed | ExportKind::Keyword => {
                 if first.kind == ExportKind::Keyword && unused.len() != indexes.len() {
-                    // A multi-declarator statement may only lose `export ` when
-                    // every name it binds is unused.
                     continue;
                 }
                 let Some((start, end)) = first.prefix.and_then(|range| export_prefix(text, range))
@@ -1063,11 +944,6 @@ fn export_prefix(text: &str, (start, end): (usize, usize)) -> Option<(usize, usi
     matches!(prefix, "export" | "export default").then_some((start, end))
 }
 
-/// The byte range that removes one specifier from `export { ... }`.
-///
-/// Non-final specifiers take their following comma; a final specifier takes the
-/// preceding comma when the previous specifier is kept. That keeps the edits for
-/// several unused specifiers non-overlapping.
 fn specifier_removal(
     text: &str,
     exports: &[Export],
@@ -1173,8 +1049,6 @@ fn trailing_comment(text: &str, end: usize, comment_start: usize) -> bool {
             .is_some_and(|gap| !gap.contains('\n'))
 }
 
-/// The byte range that removes a whole statement without touching other
-/// statements that share its line.
 fn statement_edit(text: &str, start: usize, end: usize) -> (usize, usize) {
     let line_start = text[..start.min(text.len())]
         .rfind('\n')
@@ -1203,10 +1077,6 @@ fn statement_edit(text: &str, start: usize, end: usize) -> (usize, usize) {
     (start, end)
 }
 
-/// The nearest package.json decides whether a fix may remove public API.
-///
-/// A file with no package boundary inside the project root is not published as
-/// a package, so it behaves like a private package.
 fn is_private_package(path: &Path, root: &Path) -> bool {
     let mut directory = path.parent();
     while let Some(current) = directory {
@@ -1389,8 +1259,6 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 fn build_graph(root: &Path, listing: &SourceListing) -> Graph {
     let mut modules = HashMap::new();
-    // A graph rooted at a package inside a larger workspace cannot see the
-    // package's consumers, so project fixes must stay off.
     let mut complete = !graph_truncated(root);
     for path in &listing.files {
         let Some(loaded) = load_module(path) else {
@@ -1539,8 +1407,6 @@ fn ignored_specifier(specifier: &str) -> bool {
         })
 }
 
-/// Collects import edges from component files that are not parsed as
-/// TypeScript (`.vue`, `.svelte`, `.astro`, `.mdx`).
 fn scan_consumer_module(text: &str) -> Module {
     let mut module = Module {
         unknown_dynamic: has_non_literal_dynamic_import(text),
@@ -1585,9 +1451,6 @@ fn scan_consumer_module(text: &str) -> Module {
     module
 }
 
-/// Whether a component contains `import(...)` or `require(...)` whose first
-/// argument is not a quoted literal. A literal is modeled as an edge; a
-/// computed specifier can hide any consumer and must keep fixes disabled.
 fn has_non_literal_dynamic_import(text: &str) -> bool {
     for marker in ["import(", "require("] {
         let mut rest = text;
@@ -1926,7 +1789,6 @@ struct DynamicEdges<'t> {
     unknown: bool,
 }
 
-/// A string literal or a template literal with no substitutions.
 fn static_specifier(expression: &Expression<'_>) -> Option<String> {
     match expression {
         Expression::StringLiteral(literal) => literal.value.as_str().map(str::to_owned),
@@ -2128,11 +1990,6 @@ fn package_entries(directory: &Path, files: &[PathBuf], entries: &mut HashSet<Pa
     }
 }
 
-/// Files matched by a wildcard `package.json#exports` target.
-///
-/// Wildcard public entry points are common (`"./features/*":
-/// "./src/features/*.ts"`); without expanding them a public module would be
-/// reported unused and could receive an unsafe export fix.
 fn wildcard_package_entries(directory: &Path, value: &str, files: &[PathBuf]) -> Vec<PathBuf> {
     let value = value.strip_prefix("./").unwrap_or(value);
     if value.is_empty() || value.starts_with("http") || !value.contains('*') {
@@ -2239,10 +2096,6 @@ fn is_entry_file(root: &Path, path: &Path) -> bool {
     let Some(stem) = source_stem(name) else {
         return false;
     };
-    // Framework and layout conventions are relative to the package, not to the
-    // graph root. A workspace root keeps every package nested, so comparing
-    // against it would treat package directory names such as `app` as route
-    // folders.
     let project = project_directory(path, root);
     let relative = path.strip_prefix(&project).unwrap_or(path);
     let components: Vec<&str> = relative
@@ -2256,8 +2109,6 @@ fn is_entry_file(root: &Path, path: &Path) -> bool {
         || is_framework_entry(stem, name, directories)
 }
 
-/// The nearest package or tsconfig directory between `path` and the graph
-/// root.
 fn project_directory(path: &Path, root: &Path) -> PathBuf {
     let mut directory = path.parent();
     while let Some(current) = directory {
@@ -2416,7 +2267,6 @@ type DiagnosticList = Vec<(PathBuf, TypeDiagnostic)>;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct MergedDiagnostics {
     diagnostics: DiagnosticList,
-    /// Project directories whose run produced only filtered TS6305/TS6310.
     reference_build: Vec<PathBuf>,
 }
 
@@ -2465,8 +2315,6 @@ fn cached_type_diagnostics(
     let cache = TSC_CACHE.get_or_init(|| TscCache {
         diagnostics: Mutex::new(HashMap::new()),
     });
-    // Holding the lock for the duration of the run coalesces concurrent
-    // requests for the same project into one compiler invocation.
     let mut diagnostics = lock(&cache.diagnostics);
     if let Some(diagnostics) = diagnostics.get(&key).cloned() {
         return Ok(diagnostics);
@@ -2581,8 +2429,6 @@ fn run_tsc(
                 format!("failed to run tsc for {}: {error}", tsconfig.display()),
             )
         })?;
-    // Drain both pipes concurrently: a compiler can emit more than a pipe
-    // buffer before exiting, and waiting for it without reading would deadlock.
     let stdout = child.stdout.take().map(read_pipe);
     let stderr = child.stderr.take().map(read_pipe);
     let deadline = Instant::now() + timeout;
@@ -2592,8 +2438,6 @@ fn run_tsc(
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                // The readers are intentionally detached: a grandchild may
-                // still hold the pipe, and joining would reintroduce the hang.
                 let tsconfig =
                     fs::canonicalize(tsconfig).unwrap_or_else(|_| tsconfig.to_path_buf());
                 return Ok(vec![(

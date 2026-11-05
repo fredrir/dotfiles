@@ -51,8 +51,6 @@ impl Config {
             }
             "indent" => self.indent = indent(value)?,
             "final_newline" => self.final_newline = flag(key, value)?,
-            // JSON always emits double quotes; the documented setting is
-            // accepted for every layer and value, but has no effect.
             "quote_style" => {}
             other => return Err(format!("unknown setting: {other}")),
         }
@@ -60,8 +58,6 @@ impl Config {
     }
 }
 
-/// Clamps a shared-global indent into what JSON can render; invalid native
-/// values are ignored like other unsupported globals.
 fn clamped_indent(value: &str) -> Option<Indent> {
     match value.parse::<i64>().ok()? {
         -1 => Some(Indent::Tabs),

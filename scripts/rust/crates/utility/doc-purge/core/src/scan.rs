@@ -71,10 +71,6 @@ pub fn char_width(source: &[u8], at: usize) -> usize {
     width.min(source.len() - at)
 }
 
-/// The end of the line `from` sits on: the first `\r` or `\n`, or the end of
-/// the source. Stopping at `\r` matters: a file with bare-CR line endings has
-/// no `\n` at all, and a scanner that only looked for `\n` would stretch every
-/// line comment to the end of the file.
 pub fn line_end(source: &[u8], from: usize) -> usize {
     let mut at = from;
     while at < source.len() && !matches!(source[at], b'\n' | b'\r') {
@@ -83,8 +79,6 @@ pub fn line_end(source: &[u8], from: usize) -> usize {
     at
 }
 
-/// Whether `byte` ends a line. Every scanner shares this so that bare-CR and
-/// CRLF sources agree with `\n` sources about where lines break.
 pub fn ends_line(byte: u8) -> bool {
     matches!(byte, b'\n' | b'\r')
 }

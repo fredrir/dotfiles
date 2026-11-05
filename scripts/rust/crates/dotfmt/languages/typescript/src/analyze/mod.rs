@@ -19,20 +19,13 @@ mod organize;
 
 use context::Context;
 
-/// Analysis inputs that need project context.
 #[derive(Clone, Debug, Default)]
 pub struct Options {
     pub fix: bool,
     pub unsafe_fixes: bool,
-    /// Run `tsc` inside the language crate.
     pub type_aware: bool,
-    /// Generate organize-import edits. Format-time callers enable this only
-    /// when the organize category is selected, so individual import fixes are
-    /// not hidden by an organize plan.
     pub organize: bool,
-    /// Include project-wide unused-export findings and fixes.
     pub project_analysis: bool,
-    /// TypeScript diagnostics forwarded by the editor, as `(code, start, end)`.
     pub type_diagnostics: Vec<TypeDiagnostic>,
 }
 
@@ -44,10 +37,6 @@ pub struct TypeDiagnostic {
     pub end: usize,
 }
 
-/// Returns findings and explicit fixes for a document.
-///
-/// Formatting never calls this function; only `--fix`, `--diagnose`, and code
-/// actions do.
 pub fn analyze(
     path: &Path,
     input: &str,
@@ -141,8 +130,6 @@ fn analyze_text(
             diagnostic.end,
         ));
     }
-    // A dirty buffer or an in-flight format pass has different coordinates than
-    // the project graph on disk, so project findings wait for a saved file.
     if options.project_analysis
         && project::buffer_matches_disk(path, text)
         && let Ok(exports) = project::unused_exports_for_analysis(path)

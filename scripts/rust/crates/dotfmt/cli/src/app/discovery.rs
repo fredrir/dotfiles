@@ -28,7 +28,6 @@ pub fn gather(
                     .with_path(target),
             );
         }
-        // Explicit targets bypass the language's filename filter.
         return Ok(Gathered {
             files: vec![target.to_path_buf()],
             unreadable: 0,

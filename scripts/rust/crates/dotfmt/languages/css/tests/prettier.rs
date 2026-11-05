@@ -1,7 +1,3 @@
-//! A small Prettier 3.9 CSS conformance corpus.
-//!
-//! Expected files were produced with `prettier --no-config --parser css`
-//! (3.9.10).
 
 use std::path::Path;
 

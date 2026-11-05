@@ -1025,7 +1025,6 @@ fn nonstandard_config_is_discovered_and_used() {
     );
     assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 1);
 
-    // A standard config wins over nonstandard siblings.
     write(root, "tsconfig.json", "{}");
     assert_eq!(
         project::tsconfigs_for(&source),

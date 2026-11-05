@@ -1,9 +1,3 @@
-//! Server-side view of the `dotfmt` configuration section.
-//!
-//! Editor settings are resource scoped: every workspace folder can have its
-//! own `typeAware`, `diagnostics.*`, `fixes.onSave` and `typescript.tsdk`
-//! values. Trust is the exception: it belongs to the workspace window, so it
-//! is stored once per process and never changes with a folder configuration.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -44,13 +38,10 @@ impl FixesOnSave {
     }
 }
 
-/// Which TypeScript files receive `tsc` diagnostics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TscScope {
-    /// Publish compiler errors only for documents open in the editor.
     #[default]
     Open,
-    /// Publish compiler errors for every file in the project.
     Project,
 }
 
@@ -75,10 +66,6 @@ pub const DEBOUNCE_MIN_MS: u64 = 50;
 pub const DEBOUNCE_MAX_MS: u64 = 2000;
 pub const DEBOUNCE_DEFAULT_MS: u64 = 250;
 
-/// One resolved `dotfmt` configuration section.
-///
-/// Trust is deliberately absent: it is process level and lives in
-/// [`SettingsStore`]. A folder configuration can never change it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub type_aware: bool,
@@ -86,13 +73,9 @@ pub struct Settings {
     pub tsc_scope: TscScope,
     pub debounce_ms: u64,
     pub fixes_on_save: FixesOnSave,
-    /// Offer project-wide unused-export removal as an unsafe code action.
     pub code_actions_unused_exports: bool,
-    /// Explicit TypeScript SDK: a package directory, its `lib` directory, or `tsc.js`.
     pub tsdk: Option<PathBuf>,
-    /// Native `dotfmt.format` overlay, normalized to the nested dotfmt.dotfile shape.
     pub format: Option<Value>,
-    /// Free-form `dotfmt.formatExtra`; lower precedence than [`Settings::format`].
     pub format_extra: Option<Value>,
 }
 
@@ -113,12 +96,6 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Applies either a whole `dotfmt` object or its parent settings object.
-    ///
-    /// Both nested (`{"dotfmt": {"fixes": {"onSave": "safe"}}}`) and flat
-    /// dotted keys (`"dotfmt.fixes.onSave"`) are accepted. Absent values keep
-    /// the current setting. Trust is read by [`Settings::trust`] instead and
-    /// is never applied to a folder configuration.
     pub fn apply(&mut self, value: &Value) {
         let value = value
             .get("dotfmt")
@@ -159,8 +136,6 @@ impl Settings {
         self.apply_overlays(value);
     }
 
-    /// Reads `format`/`formatExtra` and folds flat `format.*` keys into the
-    /// nested object. `null` clears an overlay so the setting inherits again.
     fn apply_overlays(&mut self, value: &Value) {
         if let Some(format) = overlay_setting(value, "format") {
             self.format = match format {
@@ -207,7 +182,6 @@ impl Settings {
         self.format = Some(Value::Object(root));
     }
 
-    /// A fresh configuration from a pull response or an initialization option.
     #[allow(dead_code)]
     pub fn from_value(value: &Value) -> Self {
         let mut settings = Self::default();
@@ -215,11 +189,6 @@ impl Settings {
         settings
     }
 
-    /// The explicit `trusted` value in an initialization option or settings object.
-    ///
-    /// A top-level `trusted` key is authoritative; a nested `dotfmt.trusted`
-    /// value is only a fallback so extension initialization options cannot be
-    /// overridden by a stray nested object.
     pub fn trust(value: &Value) -> Option<bool> {
         if let Some(trusted) = value.get("trusted").and_then(Value::as_bool) {
             return Some(trusted);
@@ -232,7 +201,6 @@ impl Settings {
     }
 }
 
-/// The process-wide trust flag plus one configuration per workspace folder.
 pub struct SettingsStore {
     trusted: AtomicBool,
     default: RwLock<Settings>,
@@ -252,7 +220,6 @@ impl SettingsStore {
         }
     }
 
-    /// Enables trust when the server is started with `DOTFMT_TRUSTED=1`.
     pub fn trust_from_environment() -> Option<bool> {
         std::env::var("DOTFMT_TRUSTED").ok().map(|value| {
             matches!(
@@ -277,10 +244,6 @@ impl SettingsStore {
             .clone()
     }
 
-    /// The nearest folder configuration containing `path`, or the default.
-    ///
-    /// A path outside every workspace folder uses the default; it must never
-    /// inherit the first folder's settings.
     pub fn settings_for(&self, path: &Path) -> Settings {
         let path = normalize(path);
         let folders = self
@@ -319,7 +282,6 @@ impl SettingsStore {
             .contains_key(&root)
     }
 
-    /// Replaces the validated `dotfmt.format` overlay used outside a folder.
     pub fn set_default_overlay(&self, overlay: Option<Arc<ConfigOverlay>>) {
         *self
             .default_overlay
@@ -327,7 +289,6 @@ impl SettingsStore {
             .unwrap_or_else(|error| error.into_inner()) = overlay;
     }
 
-    /// Replaces one folder's validated overlay; the default still applies elsewhere.
     pub fn set_folder_overlay(&self, root: PathBuf, overlay: Arc<ConfigOverlay>) {
         let root = normalize(&root);
         self.folder_overlays
@@ -336,7 +297,6 @@ impl SettingsStore {
             .insert(root, overlay);
     }
 
-    /// Drops one folder overlay so the folder inherits the default overlay again.
     pub fn remove_folder_overlay(&self, root: &Path) {
         let root = normalize(root);
         self.folder_overlays
@@ -345,7 +305,6 @@ impl SettingsStore {
             .remove(&root);
     }
 
-    /// The native overlay for `path`: the nearest folder's, or the default.
     pub fn overlay_for(&self, path: &Path) -> Option<Arc<ConfigOverlay>> {
         let path = normalize(path);
         let root = {
@@ -365,10 +324,6 @@ impl SettingsStore {
         }
     }
 
-    /// The overlay for an exact workspace root, falling back to the default.
-    ///
-    /// A root with no native settings keeps an empty barrier overlay so it can
-    /// inherit the default without inheriting a parent folder's overlay.
     pub fn overlay_for_root(&self, root: &Path) -> Option<Arc<ConfigOverlay>> {
         let root = normalize(root);
         self.folder_overlays
@@ -404,11 +359,6 @@ impl SettingsStore {
         self.remove_folder_overlay(&root);
     }
 
-    /// Replaces the default from a full pull response; returns whether it changed.
-    ///
-    /// A pull response is fully resolved: absent keys revert to the built-in
-    /// default rather than keeping a value from an older pull. This also clears
-    /// the native overlay when the client removes a generated setting.
     pub fn configure_default(&self, value: &Value) -> bool {
         if value.is_null() {
             return false;
@@ -424,7 +374,6 @@ impl SettingsStore {
         changed
     }
 
-    /// Applies a partial `didChangeConfiguration` payload to the default.
     pub fn apply_default(&self, value: &Value) -> bool {
         let mut default = self
             .default
@@ -435,12 +384,6 @@ impl SettingsStore {
         *default != before
     }
 
-    /// Replaces one folder configuration from a full pull response.
-    ///
-    /// Like [`SettingsStore::configure_default`], absent keys revert to the
-    /// built-in default so a removed setting is never kept stale. Partial
-    /// payloads (push configuration, initialization options) use
-    /// [`Settings::apply`] instead.
     pub fn configure_folder(&self, root: &Path, value: &Value) -> bool {
         if value.is_null() {
             return false;

@@ -1,4 +1,3 @@
-//! Minimal line edits between a buffer and its formatted replacement.
 
 use std::ops::Range;
 
@@ -26,7 +25,6 @@ impl ByteEdit {
     }
 }
 
-/// A contiguous line replacement, before formatting it into UTF-16 ranges.
 pub fn minimal(before: &str, after: &str) -> Vec<ByteEdit> {
     if before == after {
         return Vec::new();
@@ -85,9 +83,6 @@ fn push(edits: &mut Vec<ByteEdit>, starts: &[usize], len: usize, hunk: Hunk) {
     if start == end && hunk.text.is_empty() {
         return;
     }
-    // Adjacent changed lines are one diff hunk. Split every multi-line hunk so
-    // a requested range only receives the lines it contains and cannot
-    // silently rewrite neighbouring statements.
     let added: Vec<&str> = hunk.text.split_inclusive('\n').collect();
     if hunk.removed > 1 || added.len() > 1 {
         let paired = hunk.removed.min(added.len());
@@ -126,18 +121,10 @@ fn line_starts(text: &str) -> Vec<usize> {
     starts
 }
 
-/// Replaces the requested original ranges with the corresponding formatted
-/// text. A range-scoped request must not be built by filtering a whole-file
-/// line diff: when formatting changes the line count, a filtered hunk no
-/// longer denotes the selected statement.
-///
 pub fn ranged(before: &str, after: &str, ranges: &[Range<usize>]) -> Vec<ByteEdit> {
     if before == after || ranges.is_empty() {
         return Vec::new();
     }
-    // Character diffing makes the original -> formatted offset mapping robust
-    // across inserted and removed lines. Keep a bound so a range request on a
-    // huge generated file cannot turn into an expensive quadratic diff.
     let map = LineMap::new(before, after);
     let mut edits = Vec::new();
     for requested in merge_ranges(ranges) {
@@ -227,7 +214,6 @@ impl<'a> LineMap<'a> {
             )?;
             return Some(new_start + map.map(local)?);
         }
-        // A selection exactly at EOF belongs to the final op's new end.
         (offset == self.before.len()).then_some(self.after.len())
     }
 }
@@ -339,7 +325,6 @@ fn expanded_lines(text: &str, start: usize, end: usize) -> Range<usize> {
     start..end
 }
 
-/// Converts fixes from the dotfmt analysis pass into UTF-16 text edits.
 pub fn fix_text_edits(document: &Document, edits: &[Edit]) -> Vec<TextEdit> {
     let mut edits: Vec<TextEdit> = edits
         .iter()
@@ -374,7 +359,6 @@ pub fn text_edits(document: &Document, edits: &[ByteEdit]) -> Vec<TextEdit> {
         .collect()
 }
 
-/// The full-document replacement for a new buffer, or no edit when unchanged.
 pub fn whole(document: &Document, text: &str) -> Vec<TextEdit> {
     if text == document.text() {
         return Vec::new();

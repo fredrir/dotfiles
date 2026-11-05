@@ -20,10 +20,6 @@ pub fn cuts(source: &[u8], out: &Out, aggressive: bool) -> Vec<Cut> {
                 .iter()
                 .all(|earlier| earlier.sole_text.is_some())
             {
-                // A leading run of string-only statements is docstring
-                // material. Handling the whole run in one pass stops a later
-                // string from becoming the module docstring only after an
-                // earlier one has been removed.
                 None
             } else {
                 continue;
@@ -49,9 +45,6 @@ pub fn cuts(source: &[u8], out: &Out, aggressive: bool) -> Vec<Cut> {
         } else {
             None
         };
-        // A docstring that is already only its first sentence would otherwise
-        // be rewritten to the same bytes forever: no cut means a second purge
-        // is `Untouched` rather than a no-op `Changed`.
         if let Some(replacement) = &with {
             let target = crate::edit::whole_lines(source, &span).unwrap_or_else(|| span.clone());
             if replacement.as_bytes() == &source[target] {
@@ -83,9 +76,6 @@ fn opens_a_body(source: &[u8], out: &Out, line: &Logical) -> bool {
     head.starts_with("def ") || head.starts_with("async def ") || head.starts_with("class ")
 }
 
-/// The quote run the string actually opened with: a Python docstring may use
-/// `'''` even though its descriptor names `"""`. The body span starts just
-/// after the opener, so the bytes immediately before it are the delimiter.
 fn delimiter(source: &[u8], out: &Out, span: &Range<usize>) -> &'static str {
     for text in &out.texts {
         if text.body.start < span.start || text.body.end > span.end {
@@ -113,9 +103,6 @@ fn delimiter(source: &[u8], out: &Out, span: &Range<usize>) -> &'static str {
     "\"\"\""
 }
 
-/// The line terminator `edit::apply` will swallow when it widens this doc cut to
-/// whole lines, or nothing when the string is not alone on its line or the file
-/// ends without one.
 fn line_ending(source: &[u8], span: &Range<usize>) -> &'static str {
     let Some(widened) = crate::edit::whole_lines(source, span) else {
         return "";

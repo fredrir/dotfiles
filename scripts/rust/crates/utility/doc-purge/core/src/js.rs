@@ -1,15 +1,13 @@
 use crate::scan::{Bail, Out, char_width, starts_with};
 use crate::syntax::Syntax;
 
-/// What the JS/TS lexer does differently per dialect. Keyed by descriptor name so
-/// the engine never names a language variant; a new script language is one table row.
 #[derive(Clone, Copy)]
 struct Caps {
-    markup: bool,             // JSX/Tsx element tracking
-    html_comments: bool,      // `<!-- -->` is a line comment (Annex B)
-    typescript: bool,         // generics vs JSX disambiguation
-    flow_cast: bool,          // `<Foo>x` casts (NOT typescript)
-    generic_parameters: bool, // `<T>(x: T) => …` generic arrow heuristic
+    markup: bool,
+    html_comments: bool,
+    typescript: bool,
+    flow_cast: bool,
+    generic_parameters: bool,
 }
 
 const CAPS: &[(&str, Caps)] = &[
@@ -89,10 +87,7 @@ const BOM: &[u8] = b"\xef\xbb\xbf";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Prev {
-    /// A value (identifier, literal, closing delimiter) just ended, so `/`
-    /// starts division.
     Value,
-    /// An expression may start here, so `/` starts a regular expression.
     Operator,
 }
 

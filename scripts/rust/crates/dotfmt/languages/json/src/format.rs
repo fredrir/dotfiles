@@ -14,8 +14,6 @@ pub struct Formatted {
     pub repairs: Repairs,
 }
 
-/// `Dialect::Auto` resolves from the path, and a `.json` file found to hold
-/// comments is then formatted as JSONC so repairs keep them.
 pub fn format(
     path: &Path,
     input: &[u8],
@@ -57,10 +55,6 @@ fn shape(
     };
     let parsed = parse::parse(input, options).map_err(|problem| syntax(path, problem))?;
     let Some(value) = parsed.value else {
-        // jq makes nothing of an empty input, so nothing is what an empty file
-        // becomes. Anything else that holds no value is refused instead: a file
-        // of comments is a file somebody wrote, and a formatter that answered
-        // it with zero bytes is one nobody could leave on save.
         if input.is_empty() {
             return Ok(Formatted {
                 text: String::new(),
@@ -88,7 +82,6 @@ fn lines(
         commented: false,
     };
     let streamed = parse::stream(input, options).map_err(|problem| syntax(path, problem))?;
-    // Blank lines hold no record, but a file of only comments still refuses.
     if streamed.values.is_empty() && !input.trim_ascii().is_empty() {
         return Err(Diagnostic::new(DiagnosticKind::Syntax, "expected a value")
             .with_path(path)
@@ -106,7 +99,6 @@ fn syntax(path: &Path, problem: parse::Problem) -> Diagnostic {
         .with_location(problem.line, Some(problem.column))
 }
 
-/// Validate output in its dialect and require a stable second formatting pass.
 fn guard(path: &Path, text: &str, config: &Config, dialect: Dialect) -> Result<(), Diagnostic> {
     let again = shape(path, text.as_bytes(), config, false, dialect)?;
     if again.text != text {

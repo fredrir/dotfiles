@@ -20,95 +20,164 @@
   "oxc.fixKind": "all",
   "python.terminal.useEnvFile": true,
   "[python]": {
-    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.defaultFormatter": "charliermarsh.ruff"
   },
   "[javascript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[javascriptreact]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[typescript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[typescriptreact]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[css]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[tailwindcss]": {
-    "editor.defaultFormatter": "fredrir.dotfmt",
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[html]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[json]": {
-    "editor.defaultFormatter": "fredrir.dotfmt",
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[jsonc]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[jsonl]": {
-    "editor.defaultFormatter": "fredrir.dotfmt",
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[lua]": {
     "editor.quickSuggestions": {
       "other": true,
       "comments": true,
-      "strings": true,
+      "strings": true
     },
     "editor.tabCompletion": "on",
     "editor.quickSuggestionsDelay": 1,
     "editor.suggest.snippetsPreventQuickSuggestions": false,
     "editor.formatOnSave": true,
-    "editor.defaultFormatter": "fredrir.dotfmt",
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[toml]": {
-    "editor.defaultFormatter": "fredrir.dotfmt",
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[rust]": {
-    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
   },
   "[go]": {},
   "[markdown]": {
-    "editor.defaultFormatter": "fredrir.dotfmt",
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[skill][chatagent][instructions][prompt]": {
-    "editor.defaultFormatter": "fredrir.dotfmt",
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[nix]": {
     "editor.insertSpaces": true,
-    "editor.tabSize": 2,
+    "editor.tabSize": 2
   },
   "customLocalFormatters.formatters": [
     {
       "command": "sqlfluff format -",
-      "languages": ["sql"],
+      "languages": [
+        "sql"
+      ]
     },
+    {
+      "command": "dotfmt -l bib -eq --stdin \"${file}\"",
+      "languages": [
+        "bibtex",
+        "bib"
+      ]
+    },
+    {
+      "command": "dotfmt -l json -eq --stdin \"${file}\"",
+      "languages": [
+        "json"
+      ]
+    },
+    {
+      "command": "dotfmt -l json -eq --dialect jsonc --stdin \"${file}\"",
+      "languages": [
+        "jsonc"
+      ]
+    },
+    {
+      "command": "dotfmt -l json -eq --dialect jsonl --stdin \"${file}\"",
+      "languages": [
+        "jsonl",
+        "ndjson"
+      ]
+    },
+    {
+      "command": "dotfmt -l conf -eq --stdin \"${file}\"",
+      "languages": [
+        "properties"
+      ]
+    },
+    {
+      "command": "dotfmt -l latex -eq --stdin \"${file}\"",
+      "languages": [
+        "latex",
+        "tex",
+        "plaintex",
+        "context"
+      ]
+    },
+    {
+      "command": "dotfmt -l lua -eq --stdin \"${file}\"",
+      "languages": [
+        "lua"
+      ]
+    },
+    {
+      "command": "dotfmt -l markdown -eq --stdin \"${file}\"",
+      "languages": [
+        "markdown",
+        "skill",
+        "chatagent",
+        "instructions",
+        "prompt"
+      ]
+    },
+    {
+      "command": "dotfmt -l yaml -eq --stdin \"${file}\"",
+      "languages": [
+        "yaml"
+      ]
+    },
+    {
+      "command": "dotfmt -l toml -eq --stdin \"${file}\"",
+      "languages": [
+        "toml"
+      ]
+    }
   ],
   "[latex]": {
-    "editor.defaultFormatter": "fredrir.dotfmt",
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[bibtex]": {
-    "editor.defaultFormatter": "fredrir.dotfmt",
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "[yaml]": {
-    "editor.defaultFormatter": "fredrir.dotfmt",
-  },
-  "[sql]": {
     "editor.defaultFormatter": "jkillian.custom-local-formatters",
   },
-  "[properties]": {
-    "editor.defaultFormatter": "fredrir.dotfmt",
+  "[sql]": {
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
-  "[tex][ini][dotenv][ignore][dotfile][dockercompose]": {
-    "editor.defaultFormatter": "fredrir.dotfmt",
+  "[properties]": {
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
   },
   "files.associations": {
     "*.hujson": "jsonc",
     "*.lua": "lua",
     "*.jsonlines": "jsonl",
+    "*.dotfile": "properties",
     "*.ctx": "latex",
     "*.mkii": "latex",
     "*.mkiv": "latex",
@@ -122,9 +191,20 @@
     "Cargo.lock": "properties",
     "uv.lock": "properties",
     "*.just": "just",
-    "*.toml": "toml",
+    "*.toml": "toml"
   },
-  "tailwindCSS.classFunctions": ["cn", "cva", "clsx", "twMerge"],
+  "tailwindCSS.classFunctions": [
+    "cn",
+    "cva",
+    "clsx",
+    "twMerge"
+  ],
+  "tailwindCSS.experimental.classRegex": [
+    [
+      "(?:const|let)\\s+\\w+_CLASS\\b[^;]*",
+      "\"([^\"]*)\""
+    ],
+  ],
   "js/ts.updateImportsOnFileMove.enabled": "always",
   "json.schemaDownload.trustedDomains": {
     "https://biomejs.dev": true,
@@ -144,14 +224,18 @@
   },
   "json.schemas": [
     {
-      "fileMatch": ["*.hujson"],
+      "fileMatch": [
+        "*.hujson"
+      ],
       "schema": {
         "allowTrailingCommas": true,
       },
     },
   ],
   "yaml.schemas": {
-    "./schemas/openai.schema.json": ["**/openai.yaml"],
+    "./schemas/openai.schema.json": [
+      "**/openai.yaml"
+    ],
   },
   "evenBetterToml.schema.associations": {
     "(^|/)\\prettierrc\\.toml$": "https://www.schemastore.org/prettierrc.json",
@@ -174,7 +258,9 @@
     "*.copilotmd": "vscode.markdown.preview.editor",
     "*.md": "default",
   },
-  "settingsSync.ignoredExtensions": ["github.copilot-chat"],
+  "settingsSync.ignoredExtensions": [
+    "github.copilot-chat"
+  ],
   "extensions.ignoreRecommendations": true,
   "security.workspace.trust.untrustedFiles": "open",
   "terminal.integrated.enableNotifications": false,
@@ -338,7 +424,10 @@
   },
   "litellm-vscode-chat.inlineCompletions.languageFilter": {
     "mode": "block",
-    "languages": ["markdown", "json"],
+    "languages": [
+      "markdown",
+      "json"
+    ],
   },
   "litellm-vscode-chat.commitGeneration.enabled": false,
   "redhat.telemetry.enabled": false,
@@ -349,16 +438,22 @@
   "terminal.integrated.profiles.osx": {
     "bash": {
       "path": "bash",
-      "args": ["-l"],
+      "args": [
+        "-l"
+      ],
       "icon": "terminal-bash",
     },
     "zsh": {
       "path": "/bin/zsh",
-      "args": ["-l"],
+      "args": [
+        "-l"
+      ],
     },
     "fish": {
       "path": "fish",
-      "args": ["-l"],
+      "args": [
+        "-l"
+      ],
     },
     "tmux": {
       "path": "tmux",
@@ -397,6 +492,4 @@
   "oxc.enable.oxfmt": true,
   "js/ts.preferences.autoImportEntrypointDirectorySearch": true,
   "js/ts.server.goMemLimit": "8GiB",
-
-  
 }

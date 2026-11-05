@@ -1,14 +1,8 @@
-//! Cheap class candidates for building a project order table.
-//!
-//! This deliberately over-collects: the bridge treats unknown strings as
-//! unknown classes, so false positives only widen the cached order table. It is
-//! not used to decide *where* classes are sorted; oxc/markup/css own that.
 
 use std::collections::BTreeSet;
 
 use crate::sorter::split_classes;
 
-/// Collect candidate class tokens from TypeScript, CSS or markup source.
 pub fn candidates(source: &str) -> Vec<String> {
     let mut found = BTreeSet::new();
     for text in quoted_text(source) {
@@ -31,7 +25,6 @@ pub fn candidates(source: &str) -> Vec<String> {
     found.into_iter().collect()
 }
 
-/// Contents of single, double and backtick strings, with escapes respected.
 fn quoted_text(source: &str) -> Vec<String> {
     let mut texts = Vec::new();
     let mut chars = source.char_indices().peekable();

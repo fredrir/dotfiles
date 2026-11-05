@@ -1,8 +1,3 @@
-//! `doc-purge.dotfile` parsing and resolution.
-//!
-//! The grammar is the one `dotfmt.dotfile` uses: a global `{ ... }` block,
-//! `key = value` settings, per-language blocks, and `included_files` /
-//! `excluded_files` blocks whose lines are gitignore patterns.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display};
@@ -15,13 +10,10 @@ use doc_purge_core::lang;
 
 pub const CONFIG_NAME: &str = "doc-purge.dotfile";
 
-/// What to do with generated files.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Generated {
-    /// Leave generated files alone.
     #[default]
     Skip,
-    /// Purge generated files like any other source.
     Purge,
 }
 
@@ -52,8 +44,6 @@ pub struct Config {
     pub languages: BTreeMap<String, LanguageConfig>,
     pub includes: Option<Arc<Patterns>>,
     pub excludes: Option<Arc<Patterns>>,
-    /// Non-fatal notes, such as a language block the current registry does not
-    /// know yet.
     pub warnings: Vec<String>,
 }
 
@@ -74,7 +64,6 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Global `included_files` / `excluded_files`, applied to every candidate.
     pub fn allows_path(&self, path: &Path) -> bool {
         if self
             .includes
@@ -93,7 +82,6 @@ impl Config {
         true
     }
 
-    /// A language block's `enabled` flag and file patterns.
     pub fn language_enabled(&self, name: &str, path: &Path) -> bool {
         let Some(language) = self.languages.get(name) else {
             return true;
@@ -126,9 +114,6 @@ pub struct Patterns {
 }
 
 impl Patterns {
-    /// `excluded` asks whether the path itself is ignored; includes ask whether
-    /// it is whitelisted. Parent directories are checked too, so a negated file
-    /// cannot reopen an excluded directory.
     fn matches(&self, path: &Path, excluded: bool) -> Option<bool> {
         let mut matched = None;
         for (depth, candidate) in path.ancestors().enumerate() {
@@ -150,7 +135,6 @@ impl Patterns {
                 if !excluded || found {
                     return Some(found);
                 }
-                // A whitelist below an excluded parent can reopen the path.
                 matched = Some(false);
             }
         }
@@ -200,10 +184,6 @@ impl Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
-/// Finds the configuration that applies to a target.
-///
-/// Resolution is: the nearest `doc-purge.dotfile` at or above the target, then
-/// `$XDG_CONFIG_HOME/doc-purge/doc-purge.dotfile`, then built-in defaults.
 pub struct Resolver {
     cwd: PathBuf,
     global: Option<PathBuf>,
@@ -250,16 +230,12 @@ impl Resolver {
         if let Some(global) = &self.global
             && global.is_file()
         {
-            // Global patterns are written against the working tree, as
-            // dotfmt's global layer is, not against the config's own directory.
             return read(global, &self.cwd);
         }
         Ok(Config::default())
     }
 }
 
-/// Resolves relative and parent components the way configuration discovery
-/// does, without following ordinary symlink targets.
 fn absolute(cwd: &Path, path: &Path) -> PathBuf {
     let supplied = if path.is_absolute() {
         path.to_path_buf()
@@ -271,7 +247,6 @@ fn absolute(cwd: &Path, path: &Path) -> PathBuf {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                // A symlink followed by `..` names the physical target's parent.
                 if std::fs::symlink_metadata(&normalized)
                     .is_ok_and(|metadata| metadata.file_type().is_symlink())
                     && let Ok(target) = std::fs::canonicalize(&normalized)

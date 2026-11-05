@@ -26,7 +26,6 @@ use walk::{Found, Wanted};
 
 const PROGRAM: &str = "doc-purge";
 
-/// The three kinds `--only` accepts.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum Only {
     Comments,
@@ -56,95 +55,66 @@ Exit codes:
   doc-purge . --only comments  Purge comments, leaving doc strings and glyphs"
 )]
 struct Cli {
-    /// Files and directories to purge.
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]
     targets: Vec<PathBuf>,
 
-    /// Limit the walk to one file type, named by extension or language; repeat
-    /// or pass a comma-separated list for several.
     #[arg(short = 't', long = "type", value_name = "TYPE", value_delimiter = ',')]
     types: Vec<String>,
 
-    /// Check whether anything would change; write nothing and exit 1 when it would.
     #[arg(long)]
     check: bool,
 
-    /// Print a unified diff with three lines of context; write nothing.
     #[arg(long, conflicts_with_all = ["json"])]
     diff: bool,
 
-    /// Read standard input as the named file and write the purged result to
-    /// standard output; never writes files.
     #[arg(long, value_name = "FILENAME", value_hint = ValueHint::FilePath, conflicts_with_all = ["targets", "json", "stats", "explain", "owns", "watch", "uncovered", "list_types"])]
     stdin: Option<PathBuf>,
 
-    /// Report only failures.
     #[arg(short, long)]
     quiet: bool,
 
-    /// Emit one JSON object per file and a summary object, one per line; write nothing.
     #[arg(long, conflicts_with_all = ["diff", "stats", "explain"])]
     json: bool,
 
-    /// Print a per-extension breakdown; write nothing.
     #[arg(long)]
     stats: bool,
 
-    /// Limit purging to the named, comma-separated kinds: comments, docs,
-    /// glyphs. Overrides --no-glyphs and --keep-docstrings.
     #[arg(long, value_name = "KINDS", value_delimiter = ',')]
     only: Vec<Only>,
 
-    /// Leave typographic glyphs alone. Ignored when --only is given.
     #[arg(long)]
     no_glyphs: bool,
 
-    /// Report kept comments and the marker that kept each one; write nothing.
     #[arg(long, conflicts_with_all = ["json", "diff", "stats"])]
     explain: bool,
 
-    /// List the file types doc-purge reads and exit.
     #[arg(long, exclusive = true)]
     list_types: bool,
 
-    /// Remove doc strings entirely instead of keeping their first sentence.
-    /// Only applies when doc strings are being purged.
     #[arg(long, conflicts_with = "keep_docstrings")]
     aggressive: bool,
 
-    /// Leave doc strings alone. Ignored when --only is given.
     #[arg(long)]
     keep_docstrings: bool,
 
-    /// Filter standard input as one file; on any error pass it through unchanged
-    /// and exit 0. Takes one TARGET or --stdin FILENAME.
     #[arg(long, conflicts_with_all = ["owns", "watch", "uncovered", "list_types", "diff", "json", "stats", "explain"])]
     editor: bool,
 
-    /// Read NUL-separated filenames from standard input and print the ones
-    /// doc-purge claims, one per line.
     #[arg(long, conflicts_with_all = ["targets", "stdin", "check", "watch", "uncovered", "list_types", "diff", "json", "stats", "explain", "editor"])]
     owns: bool,
 
-    /// Re-run whenever a file below the targets changes; polls modification
-    /// times every 300ms. Stop with Ctrl-C.
     #[arg(long, conflicts_with_all = ["stdin", "editor", "owns", "uncovered", "list_types"])]
     watch: bool,
 
-    /// List extensions and extensionless filenames below the targets that no
-    /// language descriptor claims, most frequent first.
     #[arg(long, conflicts_with_all = ["stdin", "editor", "owns", "watch", "list_types", "diff", "json", "stats", "explain", "check"])]
     uncovered: bool,
 
-    /// Show what would go and change nothing.
     #[arg(long)]
     dry: bool,
 
-    /// Run without asking for confirmation.
     #[arg(short, long)]
     yes: bool,
 
-    /// List every row instead of truncating sections after 12 rows.
     #[arg(short, long)]
     verbose: bool,
 
@@ -158,14 +128,10 @@ impl Completable for Cli {
     }
 }
 
-/// The process exit contract from the specification.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Code {
-    /// Nothing to purge, a successful purge, or `--check` found everything clean.
     Clean,
-    /// `--check` found at least one file that would change.
     Unclean,
-    /// An unreadable target, a bad flag, or a configuration error.
     Failure,
 }
 
@@ -179,10 +145,6 @@ impl Code {
     }
 }
 
-/// Build the core purge options from the CLI's per-kind flags.
-///
-/// `--only` names the complete set, so it overrides `--no-glyphs` and
-/// `--keep-docstrings`; `--aggressive` matters only while doc strings are on.
 fn purge_options(cli: &Cli) -> PurgeOptions {
     let mut options = PurgeOptions::default();
     if cli.only.is_empty() {
@@ -613,8 +575,6 @@ fn owns(wanted: &Wanted, quiet: bool) -> Result<Code, String> {
         .filter(|name| !name.is_empty())
     {
         let path = path_from_bytes(bytes)?;
-        // A path an editor is about to save may not exist yet; only an
-        // existing non-file (a directory or a symlink) is not ours to claim.
         if fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_file()) {
             continue;
         }
@@ -883,7 +843,6 @@ fn kept(done: &[Done], style: &Style) -> Vec<Row> {
         .collect()
 }
 
-/// The distinct markers that kept this file's comments, in source order.
 fn markers(saved: &Saved) -> Vec<&'static str> {
     let mut markers: Vec<&'static str> = Vec::new();
     for (_, marker) in &saved.markers {

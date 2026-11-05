@@ -8,9 +8,6 @@ struct Replacement {
     value: String,
 }
 
-/// Sorts class lists in markup attributes after the markup printer has laid
-/// the document out. The scanner only edits the inside of quoted attribute
-/// values; everything else is copied byte-for-byte.
 pub(crate) fn sort_class_attributes(
     markup: &str,
     sorter: &Sorter,
@@ -165,8 +162,6 @@ fn start_tag(
                         }
                         offset = value_end + 1;
                     } else {
-                        // Unquoted values are left alone. Braced expressions are
-                        // skipped as a unit so a `>` inside them cannot end the tag.
                         while offset < markup.len()
                             && !bytes[offset].is_ascii_whitespace()
                             && bytes[offset] != b'>'

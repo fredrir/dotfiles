@@ -8,7 +8,6 @@ mod verify;
 use config::{Config, LineEndings};
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 
-/// Format a BibTeX or BibLaTeX bibliography without changing any value bytes.
 pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {
     let (bom, input) = match input.strip_prefix('\u{feff}') {
         Some(input) => (true, input),
@@ -16,9 +15,6 @@ pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {
     };
     let text = input.replace("\r\n", "\n").replace('\r', "\n");
     let mut output = if text.trim().is_empty() {
-        // Whitespace-only input has no blocks to format; keeping it avoids emptying a
-        // non-empty file. A configured final newline is not appended, so the result is
-        // a fixed point.
         text
     } else {
         format_once(&text, config)?

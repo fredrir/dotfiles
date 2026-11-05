@@ -28,7 +28,6 @@ pub fn format(
         }
         if let NodeValue::CodeBlock(_) | NodeValue::HtmlBlock(_) = data.value {
             let mut end = pos.end.line;
-            // Indented code ends at its last nonblank line.
             if matches!(&data.value, NodeValue::CodeBlock(code) if !code.fenced) {
                 while end > pos.start.line && quote_depth(&lines[end - 1]).is_some() {
                     end -= 1;
@@ -43,8 +42,6 @@ pub fn format(
                     && code.literal.ends_with('\n')
                     && pos.end.line == lines.len() =>
             {
-                // Closing an unfinished fence keeps code's terminal newlines
-                // inside the block when final_newline=false trims the file end.
                 let prefix = lines[pos.start.line - 1]
                     .get(..pos.start.column.saturating_sub(1))
                     .unwrap_or("")
@@ -61,9 +58,6 @@ pub fn format(
             NodeValue::Table(table) => {
                 let start = pos.start.line - 1;
                 let end = pos.end.line;
-                // Comrak reports the header's column for some continuation
-                // rows even when their indentation differs. Read each actual
-                // continuation prefix rather than slicing at that column.
                 let mut columns: Vec<_> = lines[start..end]
                     .iter()
                     .map(|line| line.len() - line.trim_start_matches([' ', '\t', '>']).len())
@@ -78,8 +72,6 @@ pub fn format(
                 )?;
             }
             NodeValue::List(list) => {
-                // Different markers can deliberately separate adjacent lists.
-                // Keep them instead of merging lists or injecting HTML comments.
                 let adjacent_list = [node.previous_sibling(), node.next_sibling()]
                     .into_iter()
                     .flatten()
@@ -118,8 +110,6 @@ pub fn format(
             _ => {}
         }
     }
-    // Only merge blank lines of the same quote depth, so separate block quotes
-    // never join. Trailing blank lines follow trim_trailing_blank_lines.
     let content_end = lines
         .iter()
         .rposition(|line| !line.trim_matches([' ', '\t']).is_empty())
@@ -207,9 +197,6 @@ fn simple_list<'a>(node: &'a AstNode<'a>) -> bool {
     })
 }
 
-// All replacements retain their byte length, so the original AST positions
-// remain valid for subsequent table and block edits. Reparse only when inline
-// edits were proposed; ambiguous delimiter combinations retain their source.
 fn normalize_inlines<'a>(
     root: &'a AstNode<'a>,
     lines: &mut Vec<String>,
@@ -229,8 +216,6 @@ fn normalize_inlines<'a>(
                     && let Some((line, start, end)) = span(&mut candidate, pos)
                 {
                     let text = &line[start..end];
-                    // Only normalize explicitly quoted inline titles. References
-                    // and their definitions stay exactly where the author put them.
                     if text.ends_with("')")
                         && let Some(open) = text.rfind(" '")
                         && !text[open + 2..text.len() - 2].contains(['"', '\\'])

@@ -7,11 +7,6 @@ use crate::order::OrderTable;
 
 static RUST_FALLBACK: LazyLock<PatternSorter> = LazyLock::new(PatternSorter::new);
 
-/// Splits a class list on whitespace that is not escaped or inside `[]`, `()`,
-/// `{}`, or quotes.
-///
-/// The class strings are returned exactly as written; only separators are
-/// consumed. This keeps arbitrary values such as `bg-[url('/a b.svg')]` intact.
 pub fn split_classes(list: &str) -> Vec<&str> {
     let mut classes = Vec::new();
     let mut start = None;
@@ -63,11 +58,6 @@ pub fn split_classes(list: &str) -> Vec<&str> {
     classes
 }
 
-/// Sorts one class list, keeping unknown classes first and `...` last.
-///
-/// When the table is empty the Rust pattern sorter is used as a fallback.
-/// Deduplication only removes repeated known classes; duplicate unknown
-/// classes are preserved so custom classes do not disappear.
 pub fn sort_class_list(list: &str, table: &OrderTable, dedupe: bool) -> String {
     sort_tokens(&split_classes(list), table, dedupe)
 }
@@ -77,9 +67,6 @@ pub(crate) fn sort_tokens(tokens: &[&str], table: &OrderTable, dedupe: bool) -> 
         return String::new();
     }
     if table.is_empty() {
-        // rustywind 0.7 slices class tokens by byte index and panics on
-        // non-ASCII input. Keep custom classes untouched; for ASCII, contain
-        // any other parser panic rather than taking down a formatter.
         if tokens.iter().any(|class| !class.is_ascii()) {
             return tokens.join(" ");
         }

@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use crate::config::Config;
 
-/// A project-specific class order, or the Rust fallback when empty.
 #[derive(Clone, Debug, Default)]
 pub struct OrderTable {
     orders: HashMap<String, Option<i64>>,
@@ -75,7 +74,6 @@ impl Sorter {
         }
     }
 
-    /// Enables the optional Node `tailwind-merge` bridge for conflict merging.
     pub fn with_project_root(mut self, root: impl Into<PathBuf>) -> Self {
         self.project_root = Some(root.into());
         self

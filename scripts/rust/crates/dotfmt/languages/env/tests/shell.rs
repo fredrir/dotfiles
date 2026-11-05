@@ -11,8 +11,6 @@ use dotfmt_env::format;
 
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
-/// Files a shell can source and whose assignments must not change when the
-/// dotenv layout is normalized.
 const SHELL_COMPATIBLE: &[&str] = &[
     "LONG_NAME= \"=.bc#:X/XX\"\n",
     "LONG_NAME= \"=.bc#:X/XX\"\nA=1\n",
@@ -111,8 +109,6 @@ fn formatting_keeps_shell_assignments_identical() {
 
 #[test]
 fn a_comment_backslash_before_trailing_space_does_not_swallow_the_next_line() {
-    // In a shell, `#foo\ ` (backslash then space) does not continue the line;
-    // trimming the space would expose the backslash and swallow `B=2`.
     let input = "#foo\\ \nB=2\n";
     let output = dotfmt_env::format(input, &Config::default()).unwrap();
     assert_eq!(output, input);

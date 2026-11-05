@@ -2,8 +2,6 @@ use std::collections::BTreeMap;
 
 use crate::model::{Content, Document, Element, Node, NodeKind};
 
-/// What a document means, independent of its layout: raw text bytes, element
-/// order, duplicate-key shadowing, attributes and every comment.
 pub(crate) struct Fingerprint {
     root: NodeFp,
     comments: Vec<String>,
@@ -28,7 +26,6 @@ enum NodeFp {
         name: String,
         attributes: String,
         children: Vec<NodeFp>,
-        /// Present for `<dict>`: the value each key would resolve to.
         last_wins: Option<BTreeMap<String, NodeFp>>,
     },
 }

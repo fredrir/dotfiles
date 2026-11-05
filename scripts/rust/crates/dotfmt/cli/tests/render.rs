@@ -95,8 +95,6 @@ fn findings_and_clean_counts_track_files_not_provider_rows() {
     );
 }
 
-// ------------------------------------------------------------- the summary
-
 fn summary(done: &[Row], mode: Mode) -> Vec<String> {
     render::summary(done, mode, &workstation::Style::plain())
 }

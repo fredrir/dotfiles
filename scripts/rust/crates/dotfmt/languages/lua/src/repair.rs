@@ -2,9 +2,7 @@ use dotfmt_core::repair::{Edit, Failure, Repair, Repaired, Repairs, separator, s
 
 use crate::dialect::Dialect;
 
-/// Commas missing between the fields of a table constructor.
 pub fn repair(input: &str, dialect: Dialect) -> Repaired {
-    // full_moon panics on backticks outside Luau, so those inputs are left alone.
     if !matches!(dialect, Dialect::Luau | Dialect::All) && input.contains('`') {
         return Repaired {
             text: input.to_string(),

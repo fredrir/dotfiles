@@ -115,7 +115,6 @@ fn format_file(job: &Job, check: bool, clean: bool, fixes: bool) -> FileOutcome 
     let result = (|| {
         let input = fs::read(&job.absolute)
             .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
-        // `--check` and editor range/paste paths must report layout only.
         let formatted = if check || !fixes {
             job.engine
                 .format_text(&job.path, &job.absolute, &input, job.markdown, clean)?

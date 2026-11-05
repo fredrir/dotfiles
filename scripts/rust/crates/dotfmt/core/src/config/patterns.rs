@@ -12,9 +12,6 @@ pub(super) struct PatternLayer {
     pub(super) matcher: Gitignore,
 }
 
-/// Adds a gitignore-style pattern. globset also implements shell brace
-/// alternatives; gitignore treats braces literally, including an unmatched
-/// opening brace.
 pub(super) fn add_pattern(
     builder: &mut GitignoreBuilder,
     source: &Path,
@@ -59,9 +56,6 @@ impl Patterns {
 
     pub(super) fn matches(&self, path: &Path, excluded: bool) -> Option<bool> {
         let mut matched = None;
-        // A negated file cannot reopen an excluded parent directory. Match
-        // parent directories too, with the most local rule winning at each
-        // path. Walking explicitly also avoids ignore's outside-root panic.
         for (depth, candidate) in path.ancestors().enumerate() {
             if candidate.parent().is_none() {
                 break;

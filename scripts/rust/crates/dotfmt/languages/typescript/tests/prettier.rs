@@ -1,8 +1,3 @@
-//! A small Prettier 3.9 conformance corpus.
-//!
-//! Expected files were produced with `prettier --no-config --parser typescript`
-//! (3.9.10). Tailwind sorting is disabled here so the comparison is about
-//! layout, not class order.
 
 use std::path::Path;
 

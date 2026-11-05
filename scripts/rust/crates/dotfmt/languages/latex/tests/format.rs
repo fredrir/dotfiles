@@ -252,8 +252,6 @@ fn plain_tex_and_bom_inputs_are_safe() {
 fn formatting_preserves_the_non_whitespace_token_stream() {
     let input = "\\documentclass{article}\n\\begin{document}\n\\begin{center}\\textbf{x}\\end{center}\n\\begin{itemize}\n\\item one with \\emph{two}\n\\end{itemize}\n\\[\n\\left\\{ a \\right.\n\\]\n\\begin{verbatim}\n  raw  text\n\\end{verbatim}\n\\end{document}";
     let output = default(input);
-    // The split guard writes a line-final `%` so the inserted newline is not a
-    // space token; it is part of the layout, not of the token stream.
     let strip = |text: &str| {
         text.replace("%\n", "\n")
             .chars()
@@ -415,12 +413,9 @@ fn table_alignment_does_not_panic_on_a_multibyte_row_start() {
         wrap: false,
         ..Config::default()
     };
-    // A leading `(` is protected as a private-use token, which is multi-byte
-    // for tex-fmt as well.
     for input in [
         "\\begin{tabular}{cc}\n\u{2603} & b\\\\ c\nx & y\\\\\n\\end{tabular}",
         "\\begin{tabular}{cc}\n(a) & b\\\\ c\nx & y\\\\\n\\end{tabular}",
-        // The panic also fires on a row produced by an earlier `\\ ` split.
         "\\begin{tabular}{cc}\na & b\\\\(c) & d\\\\ e\n\\end{tabular}",
         "\\begin{tabular}{cc}\na & b\\\\ \u{2603} c\\\\ d\n\\end{tabular}",
     ] {

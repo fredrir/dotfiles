@@ -34,8 +34,6 @@ pub fn format_with_dialect(
         output.truncate(output.trim_end_matches(['\r', '\n']).len());
     }
     if config.verify {
-        // StyLua's AST comparison panics on valid hex floats and rejects its
-        // own require sorting. Validate the exact emitted text instead.
         full_moon::parse_fallible(&output, style.syntax.into())
             .into_result()
             .map_err(|errors| diagnostic(stylua_lib::Error::VerificationAstError(errors)))?;
@@ -47,9 +45,6 @@ pub fn format_with_dialect(
 }
 
 fn reject_interpolated_strings(input: &str) -> Result<(), Diagnostic> {
-    // full_moon 2.2 panics on backtick tokens outside Luau. Lex only inputs
-    // containing backticks with all lexical extensions first, so strings and comments
-    // containing literal backticks are still accepted without a custom scanner.
     let tokens = match Lexer::new(input, full_moon::LuaVersion::new()).collect() {
         LexerResult::Ok(tokens) => tokens,
         LexerResult::Fatal(errors) | LexerResult::Recovered(_, errors) => {

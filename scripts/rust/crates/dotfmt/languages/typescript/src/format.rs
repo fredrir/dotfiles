@@ -11,15 +11,8 @@ use crate::config::{Config, LineEndings};
 use crate::dialect::Dialect;
 use crate::source::syntax_diagnostic;
 
-/// The formatter's layout should be stable after one pass, but a few oxc
-/// member-chain decisions depend on the input line breaks. Settle those before
-/// returning, without hiding a genuinely oscillating result from the verifier.
 const MAX_FORMAT_PASSES: usize = 3;
 
-/// Formats TypeScript/TSX/JavaScript/JSX.
-///
-/// A BOM and the configured line ending are preserved. Syntax errors are
-/// reported as [`DiagnosticKind::Syntax`]; the caller keeps the original file.
 pub fn format(
     path: &Path,
     input: &str,
@@ -139,11 +132,6 @@ fn normalize_line_endings(input: &str) -> String {
     output
 }
 
-/// Format CSS-in-JS tagged templates (`css`/`styled.*`/`createGlobalStyle`).
-///
-/// Interpolated expressions are masked with identifier placeholders while the
-/// CSS is formatted, then restored byte-for-byte. Templates whose formatting or
-/// restoration is not exact are left untouched.
 fn format_css_in_js(input: &str, config: &Config, source_type: SourceType) -> String {
     use oxc_ast::ast::{Expression, TaggedTemplateExpression, TemplateLiteral};
     use oxc_ast_visit::Visit;
@@ -170,9 +158,6 @@ fn format_css_in_js(input: &str, config: &Config, source_type: SourceType) -> St
                         self.edits.push((start + 1, end - 1, replacement));
                     }
                 }
-                // The quasi body is replaced as a unit, so expressions inside its
-                // interpolations must stay byte-for-byte intact. Only the tag can
-                // contain another independently formatted template.
                 self.visit_expression(&expression.tag);
                 if let Some(type_arguments) = &expression.type_arguments {
                     self.visit_ts_type_parameter_instantiation(type_arguments);
@@ -198,9 +183,6 @@ fn format_css_in_js(input: &str, config: &Config, source_type: SourceType) -> St
         restore_interpolations(&formatted, &interpolations)
     }
 
-    /// Replaces each `${...}` with a unique identifier and records its exact
-    /// source text. Quasi spans locate the braces; the expression span verifies
-    /// that the AST and recorded bytes describe the same interpolation.
     fn mask_interpolations(
         source: &str,
         quasi: &TemplateLiteral<'_>,

@@ -320,7 +320,6 @@ fn explain(
     Ok(ExitCode::SUCCESS)
 }
 
-/// Editor mode keeps syntax errors quiet; anything else is dotfmt's own failure.
 fn unexpected(outcome: &Result<Outcome, Vec<Diagnostic>>) -> Vec<&Diagnostic> {
     let errors: Vec<&Diagnostic> = match outcome {
         Err(errors) => errors.iter().collect(),

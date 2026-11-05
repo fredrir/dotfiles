@@ -3,12 +3,6 @@ use dotfmt_tailwind::Sorter;
 use crate::config::{IGNORE_COMMENT_DIRECTIVE, IGNORE_FILE_COMMENT_DIRECTIVE};
 use crate::dialect::Dialect;
 
-/// Sorts class lists in `@apply` at-rules after the CSS printer has laid them out.
-///
-/// The scanner only rewrites an `@apply` prelude when the whole prelude is a
-/// plain class list (plus an optional trailing `!important` and trailing
-/// comments). Interpolation, variables, interior comments, and other constructs
-/// whose class expansion is unknown are left exactly as the printer wrote them.
 pub(crate) fn sort_apply(css: &str, sorter: &Sorter, dialect: Dialect) -> String {
     if file_is_ignored(css, dialect) {
         return css.to_owned();
@@ -218,7 +212,6 @@ fn interpolation_end(css: &str, start: usize) -> usize {
     css.len()
 }
 
-/// Finds the end of an at-rule prelude and returns it without its terminator.
 fn apply_prelude(css: &str, start: usize, dialect: Dialect) -> (usize, &str) {
     let mut cursor = start;
     let mut parentheses = 0usize;
@@ -351,9 +344,6 @@ fn is_uncertain(prelude: &str, dialect: Dialect) -> bool {
     false
 }
 
-/// Splits a prelude into class text and trailing comments.
-///
-/// Any comment before the end of the class text makes the prelude ambiguous.
 fn split_trailing_comments(prelude: &str, dialect: Dialect) -> Option<(&str, Option<&str>)> {
     let mut cursor = 0;
     let mut parentheses = 0usize;

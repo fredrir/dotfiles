@@ -17,9 +17,7 @@ pub struct Row {
     pub missing: Vec<&'static str>,
     pub findings: bool,
     pub failed: bool,
-    /// Files that would reformat or did reformat in a check.
     pub found: usize,
-    /// Files that failed individually.
     pub failed_files: usize,
     pub ran: usize,
     pub note: Option<String>,
@@ -123,10 +121,6 @@ pub fn summary(done: &[Row], mode: Mode, style: &Style) -> Vec<String> {
 
 fn culprits(ran: &Row, style: &Style) -> Vec<String> {
     if ran.blamed.is_empty() {
-        // Nothing in the output looked like one of the files this row was
-        // given — a tool that failed before it opened one, or that names them
-        // in some way this does not read. Its first word is more use than
-        // silence.
         return ran
             .output
             .lines()
@@ -208,8 +202,6 @@ fn status(ran: &Row, mode: Mode, style: &Style) -> String {
     if let Some(note) = &ran.note {
         return with(&style.dim(note), &missing, style);
     }
-    // Nothing ran at all, so the missing tools are the whole story rather
-    // than a footnote to it.
     if ran.ran == 0 {
         return style.dim(&missing);
     }

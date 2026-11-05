@@ -42,8 +42,6 @@ pub(crate) fn analyze<'a, 'p>(context: &Context<'a, 'p>) -> ImportAnalysis {
     analysis
 }
 
-/// Reports unused `import x = require("y")` aliases (tsc TS6133). Import-equals
-/// has no safe rewrite, so this stays report-only.
 fn analyze_import_equals<'a, 'p>(
     context: &Context<'a, 'p>,
     declaration: &'p TSImportEqualsDeclaration<'a>,
@@ -333,10 +331,6 @@ fn analyze_declaration<'a, 'p>(
     });
 }
 
-/// Whether an import specifier resolves to a TypeScript declaration file.
-///
-/// TypeScript elides imports that only refer to declaration files at emit time;
-/// preserving a bare runtime import there would introduce module evaluation.
 fn source_is_declaration_module(
     context: &Context<'_, '_>,
     declaration: &ImportDeclaration<'_>,

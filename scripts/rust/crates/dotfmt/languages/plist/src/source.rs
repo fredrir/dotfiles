@@ -1,4 +1,3 @@
-/// One-based line and column for a byte offset.
 pub(crate) fn line_column(bytes: &[u8], offset: usize) -> (usize, usize) {
     let before = &bytes[..offset.min(bytes.len())];
     let line = before.iter().filter(|byte| **byte == b'\n').count() + 1;

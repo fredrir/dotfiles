@@ -1,10 +1,3 @@
-//! Protect constructs the line formatter must not inspect, and translate
-//! ConTeXt environment syntax into the LaTeX form the formatter understands.
-//!
-//! Every replacement is a private-use token that contains no whitespace,
-//! braces, backslashes, or percent signs, so it cannot start an environment,
-//! open a group, become a comment, or be wrapped. Tokens are restored after
-//! layout, which makes verbatim and inline verbatim byte-preserving.
 
 use std::collections::HashMap;
 
@@ -31,17 +24,12 @@ impl Prepared {
         &self.context
     }
 
-    /// Whether `text` still contains an internal token marker, which means a
-    /// replacement was mangled by layout and could not be restored.
     pub fn has_placeholder(&self, text: &str) -> bool {
         text.contains(self.prefix)
     }
 
     pub fn restore(&self, formatted: &str) -> String {
         let mut text = formatted.to_owned();
-        // A restored replacement may itself contain a token from an earlier
-        // pass (an off region inside a verbatim body, inline verbatim inside a
-        // frozen split line, ...), so restore until no marker is left.
         for _ in 0..8 {
             if !text.contains(self.prefix) {
                 break;
@@ -141,8 +129,6 @@ fn make_token(prefix: char, kind: char, index: usize) -> String {
     format!("{prefix}{kind}{index}{prefix}")
 }
 
-/// A private-use character that the input does not contain, so a token cannot
-/// collide with the user's own text.
 fn choose_prefix(input: &str) -> Option<char> {
     let mut used = [false; (PRIVATE_USE_END - PRIVATE_USE_START + 1) as usize];
     for character in input.chars() {
@@ -189,7 +175,6 @@ fn protect_inline(input: &str, prefix: char, replacements: &mut Vec<Replacement>
     output
 }
 
-/// End of an inline construct that must stay byte-identical, starting at `i`.
 fn inline_end(input: &str, i: usize) -> Option<usize> {
     if input[i..].starts_with("\\verb") {
         let mut j = i + "\\verb".len();
@@ -354,11 +339,6 @@ fn skip_spaces(input: &str, mut j: usize) -> usize {
     j
 }
 
-/// Lines covered by `% tex-fmt: skip`, `% tex-fmt: off` and `% tex-fmt: on`.
-///
-/// The transformations in this module run before the layout pass that honours
-/// those markers, so they consult this map instead of rewriting an ignored
-/// region.
 struct SkipRegions {
     lines: Vec<bool>,
     starts: Vec<usize>,
@@ -397,9 +377,6 @@ impl SkipRegions {
     }
 }
 
-/// Regions delimited by `% tex-fmt: off` and `% tex-fmt: on` (or to the end of
-/// the input) are replaced by a token and restored byte-for-byte, so neither
-/// this adapter nor the layout engine can normalize them.
 fn protect_off_regions(
     input: &str,
     prefix: char,
@@ -455,8 +432,6 @@ fn protect_off_regions(
     output
 }
 
-/// Byte ranges of verbatim-like environments in the raw input, used to keep
-/// `% tex-fmt: off` text inside such a body from opening a format region.
 fn verbatim_ranges(input: &str, dialect: Dialect, verbatims: &[String]) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
     let bytes = input.as_bytes();
@@ -653,12 +628,6 @@ fn read_context_name(input: &str, from: usize) -> &str {
     &input[from..end]
 }
 
-/// Translate a matched pair of `\[`/`\]` display-math delimiters into an
-/// environment so the layout engine indents the body.
-///
-/// Only delimiters that are the first token of their line are considered: a
-/// control symbol in the middle of a line is a character constant such as
-/// ``\catcode`\[`` and must stay where it is.
 fn translate_display_math(
     input: &str,
     prefix: char,
@@ -769,9 +738,6 @@ fn translate_context(
     output
 }
 
-/// Replace non-ASCII whitespace with an inline token so the layout pass cannot
-/// trim, re-indent or wrap it. TeX treats such a character as an ordinary
-/// character, so it is content, not layout.
 fn protect_unicode_whitespace(
     input: &str,
     prefix: char,
@@ -836,13 +802,6 @@ fn guard_linebreak_comments(
     output
 }
 
-/// Put every command that must begin a line on its own line, so the layout
-/// engine never splits a shared line itself: a newline it inserts without a
-/// guard would become a space token.
-///
-/// The command set mirrors tex-fmt's own splitting patterns. When the text
-/// before the split point does not already end in whitespace, it is terminated
-/// with `%` so the newline is swallowed and the token stream is unchanged.
 fn split_commands(input: &str) -> String {
     let skipped = SkipRegions::new(input);
     let mut output = String::with_capacity(input.len() + input.len() / 16);
@@ -875,10 +834,6 @@ fn split_commands(input: &str) -> String {
     output
 }
 
-/// Freeze splitter text that is not a command because it follows an
-/// even-length backslash run (for example `text\\item` is a line break and the
-/// letters `item`). tex-fmt matches those bytes as a splitter anyway, so the
-/// rest of the code line is replaced by a token and restored unchanged.
 fn protect_escaped_splitters(
     input: &str,
     prefix: char,
@@ -899,8 +854,6 @@ fn protect_escaped_splitters(
         let Some(run_start) = escaped_splitter_start(code) else {
             continue;
         };
-        // Keep a real splitter later on the line visible to the layout pass so
-        // environment and list indentation still sees it.
         let end = next_own_line_command(code, run_start + 1).unwrap_or(comment);
         let token = make_token(prefix, 's', replacements.len());
         output.push_str(&input[last..start + run_start]);
@@ -927,8 +880,6 @@ fn next_own_line_command(code: &str, from: usize) -> Option<usize> {
     None
 }
 
-/// Start of the backslash run of a splitter-looking command that is not a
-/// command because the run has an even length.
 fn escaped_splitter_start(code: &str) -> Option<usize> {
     let bytes = code.as_bytes();
     let mut i = 0;
@@ -963,8 +914,6 @@ fn split_positions(code: &str) -> Vec<usize> {
     positions
 }
 
-/// The commands in tex-fmt's splitting set: environments, `\item`, and the
-/// sectioning commands.
 fn requires_own_line(code: &str, position: usize) -> bool {
     if environment_command(code, position) {
         return true;
@@ -1149,8 +1098,6 @@ fn restore_tokens(input: &str, prefix: char, replacements: &HashMap<String, Stri
         let start = i + offset;
         output.push_str(&input[i..start]);
         let Some(close) = input[start + prefix.len_utf8()..].find(prefix) else {
-            // An unpaired marker cannot be a token; keep it and keep scanning so
-            // one damaged marker does not leave the rest of the file tokenised.
             output.push(prefix);
             i = start + prefix.len_utf8();
             continue;

@@ -6,7 +6,6 @@ use serde_json::{Map, Value};
 
 use crate::args::Cli;
 
-/// Prints a dotfmt.dotfile derived from a Prettier config.
 pub fn run(cli: &Cli, source: &str) -> Result<ExitCode, String> {
     if source != "prettier" {
         return Err(format!("unsupported migration source: {source}"));

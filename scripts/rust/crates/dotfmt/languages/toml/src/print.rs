@@ -20,7 +20,6 @@ pub(crate) fn print(document: &Document<'_>, config: &Config) -> String {
     printer.output
 }
 
-/// One entry while it waits for the alignment of its group.
 struct Row<'a> {
     lead: &'a Trivia<'a>,
     path: &'a [&'a str],
@@ -30,7 +29,6 @@ struct Row<'a> {
     level: usize,
 }
 
-/// A rendered element with the comment that follows it.
 struct Rendered {
     body: String,
     comment: Option<String>,
@@ -40,10 +38,7 @@ struct Printer<'a> {
     config: &'a Config,
     output: String,
     rows: Vec<Row<'a>>,
-    /// Indentation level used for entries.
     level: usize,
-    /// Level of every printed header, by decoded path, so a subtable indents
-    /// under a parent even when other sections were printed in between.
     headers: HashMap<Vec<&'a str>, usize>,
 }
 
@@ -53,7 +48,6 @@ impl<'a> Printer<'a> {
             if section.visible {
                 self.flush();
                 let level = self.section_level(section);
-                // `indent_entries` indents a header's contents, not the header.
                 let indent = if self.config.indent_tables {
                     level.saturating_sub(usize::from(self.config.indent_entries))
                 } else {
@@ -105,7 +99,6 @@ impl<'a> Printer<'a> {
         }));
     }
 
-    /// Writes the buffered entries, aligning each contiguous group.
     fn flush(&mut self) {
         if self.rows.is_empty() {
             return;
@@ -122,10 +115,6 @@ impl<'a> Printer<'a> {
         self.group(&mut group);
     }
 
-    /// Whether this trivia will emit a blank line or a comment after the
-    /// configured blank-line limit is applied. Alignment groups must follow
-    /// the emitted layout, not the source layout, or collapsing a blank line
-    /// would merge two groups that were already aligned separately.
     fn separates(&self, trivia: &Trivia<'_>) -> bool {
         trivia.has_comments() || trivia.blank.min(self.config.allowed_blank_lines) > 0
     }
@@ -151,7 +140,6 @@ impl<'a> Printer<'a> {
             }
             rendered.push((key, value));
         }
-        // A row spanning lines has no single column to align against.
         let alignable = rendered
             .iter()
             .all(|(key, value)| !key.contains('\n') && !value.contains('\n'));
@@ -200,7 +188,6 @@ impl<'a> Printer<'a> {
         group.clear();
     }
 
-    /// Whether a value can trade line width for several lines.
     fn expandable(&self, value: &Value<'_>) -> bool {
         match value {
             Value::Array(array) => self.config.array_auto_expand && !array.items.is_empty(),
@@ -237,8 +224,6 @@ impl<'a> Printer<'a> {
         }
     }
 
-    /// `force` expands a container even where it would fit, `expand` allows the
-    /// configured width to expand it at all.
     fn value(
         &self,
         value: &Value<'_>,
@@ -284,8 +269,6 @@ impl<'a> Printer<'a> {
         for (index, item) in array.items.iter().enumerate() {
             let comma = index + 1 < array.items.len() || self.config.array_trailing_comma;
             let mut body = self.value(&item.value, level + 1, column, false, true);
-            // An inline table has no line of its own to overflow, so only a
-            // nested array can absorb the excess width inside an array item.
             if matches!(item.value, Value::InlineTable(_))
                 && self.config.inline_table_expand
                 && !fits(column, &body, usize::from(comma), self.config.width)
@@ -311,7 +294,6 @@ impl<'a> Printer<'a> {
         out
     }
 
-    /// Writes `items[start..end]`, aligning their comments as one group.
     fn array_items(
         &self,
         out: &mut String,
@@ -451,7 +433,6 @@ impl<'a> Printer<'a> {
         level * self.config.indent
     }
 
-    /// A line break with the blank lines before it and an optional comment.
     fn break_line(&self, out: &mut String, level: usize, blank: usize, comment: &str) {
         out.push('\n');
         for _ in 0..blank.min(self.config.allowed_blank_lines) {
@@ -469,8 +450,6 @@ impl<'a> Printer<'a> {
     }
 }
 
-/// Splits array items where an own-line comment or a blank line separates them,
-/// so that comment alignment stays local, returning the end of each run.
 fn runs(array: &Array<'_>, allowed_blank_lines: usize) -> Vec<usize> {
     let mut runs = Vec::new();
     for (index, item) in array.items.iter().enumerate() {
@@ -490,8 +469,6 @@ fn runs(array: &Array<'_>, allowed_blank_lines: usize) -> Vec<usize> {
     runs
 }
 
-/// Copies a written header path, dropping the whitespace TOML allows around
-/// dots while keeping quoted keys byte for byte.
 fn push_header(out: &mut String, raw: &str) {
     let mut state = 0u8;
     let mut characters = raw.chars();
@@ -531,8 +508,6 @@ fn push_header(out: &mut String, raw: &str) {
     }
 }
 
-/// Width is measured on the first line: content after a line break is a
-/// literal or an already laid out value that expanding cannot shorten.
 fn fits(column: usize, text: &str, reserve: usize, limit: usize) -> bool {
     let first = text.split('\n').next().unwrap_or("");
     column + width(first) + reserve <= limit

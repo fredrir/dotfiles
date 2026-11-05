@@ -1,4 +1,3 @@
-//! Calls into the dotfmt library for one buffer at a time.
 
 use std::path::{Path, PathBuf};
 
@@ -12,7 +11,6 @@ use lsp_types::Uri;
 
 use crate::uri;
 
-/// The dotfmt language for an editor language id.
 pub fn language_for(language_id: &str) -> Option<Language> {
     match language_id {
         "bibtex" => Some(Language::Bib),
@@ -34,7 +32,6 @@ pub fn language_for(language_id: &str) -> Option<Language> {
     }
 }
 
-/// Forced languages for buffers whose filename cannot carry the language.
 pub fn forced(path: &Path, uri: &Uri, language_id: &str) -> Vec<Language> {
     if !crate::uri::is_file(uri) || Language::for_path(path).is_none() {
         language_for(language_id).into_iter().collect()
@@ -43,12 +40,10 @@ pub fn forced(path: &Path, uri: &Uri, language_id: &str) -> Vec<Language> {
     }
 }
 
-/// The path a buffer is formatted as; untitled buffers get a stable stdin name.
 pub fn buffer_path(uri: &Uri, language_id: &str) -> Option<PathBuf> {
     uri::path(uri).or_else(|| stdin_path(language_id))
 }
 
-/// The stable stdin name for a language id, preserving its dialect.
 pub fn stdin_path(language_id: &str) -> Option<PathBuf> {
     let path = match language_id {
         "typescriptreact" => Path::new("stdin.tsx"),
@@ -66,7 +61,6 @@ pub fn stdin_path(language_id: &str) -> Option<PathBuf> {
     Some(path.to_path_buf())
 }
 
-/// Whether a path is a TypeScript or JavaScript source file.
 pub fn is_typescript(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
@@ -74,12 +68,6 @@ pub fn is_typescript(path: &Path) -> bool {
     )
 }
 
-/// Formats one buffer.
-///
-/// `fixes` selects whether configured `dotfmt.dotfile` fixes run before the
-/// formatter. Only full-document formatting and `willSaveWaitUntil` pass
-/// `true`; ranges, on-type, code actions, organize imports and paste formatting
-/// are always format-only.
 #[allow(clippy::collapsible_match)]
 pub fn format(
     session: &mut Session,
@@ -111,8 +99,6 @@ pub fn format(
     }
 }
 
-/// The LSP publishes project `tsc` diagnostics from its own worker; the
-/// language-crate findings with a `tsc-` code would duplicate them.
 fn drop_tsc_findings(mut inspection: Inspection) -> Inspection {
     inspection
         .findings
@@ -127,10 +113,6 @@ fn formatted(outcome: dotfmt::app::BufferOutcome) -> Result<String, Vec<Diagnost
         .map_err(|error| vec![error])
 }
 
-/// Inspection policy for the diagnostics worker: no fixes, no project analysis,
-/// no `tsc` (the dedicated worker owns compiler diagnostics), and only
-/// `Severity::Error` findings. dotfmt is a formatter; lint findings are code
-/// actions and `--diagnose` output, never editor diagnostics.
 pub fn inspect_errors(
     session: &mut Session,
     path: &Path,
@@ -145,7 +127,6 @@ pub fn inspect_errors(
         .collect())
 }
 
-/// Applies the safe `source.organizeImports.dotfmt` fixes, then formats.
 pub fn organize(
     session: &mut Session,
     path: &Path,
@@ -183,11 +164,6 @@ pub fn inspect(
     inspect_with_project(session, path, text, languages, fix, false)
 }
 
-/// Inspects one buffer, optionally with project-wide analysis.
-///
-/// Diagnostics keep `project_analysis` off: unused exports are not published as
-/// editor diagnostics. Code actions opt in to project analysis so an unsafe
-/// unused-export fix can be offered for a saved buffer.
 #[allow(clippy::collapsible_match, clippy::too_many_arguments)]
 pub fn inspect_with_project(
     session: &mut Session,
@@ -207,7 +183,6 @@ pub fn inspect_with_project(
             fix,
             diff: false,
             json: false,
-            // The LSP publishes project tsc diagnostics from its own worker.
             type_aware: Some(false),
             project_analysis,
         },

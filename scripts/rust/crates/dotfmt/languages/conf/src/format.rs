@@ -16,10 +16,6 @@ pub fn format(path: &Path, input: &[u8], config: &Config) -> Result<String, Diag
     format_with_context(path, path, input, config)
 }
 
-/// Format with a separate display path and path used to infer filename-dependent
-/// behavior. The display path keeps diagnostics relative to the invocation; the
-/// context path keeps `hypr`/`plain` selection stable when the target is `.` in
-/// a nested directory.
 pub fn format_with_context(
     path: &Path,
     context: &Path,

@@ -7,7 +7,6 @@ pub fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let permissions = fs::metadata(path)?.permissions();
     let parent = path.parent().filter(|at| !at.as_os_str().is_empty());
     let parent = parent.unwrap_or(Path::new("."));
-    // A bounded name also works when the target already reaches NAME_MAX.
     let mut temporary = tempfile::Builder::new()
         .prefix(".dotfmt-")
         .tempfile_in(parent)?;

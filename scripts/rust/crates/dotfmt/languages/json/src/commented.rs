@@ -1,4 +1,3 @@
-//! Lossless tokens for JSON with comments and trailing commas.
 
 use dotfmt_core::repair::{Repairs, apply};
 
@@ -30,7 +29,6 @@ struct Token<'a> {
     new_line: bool,
 }
 
-/// Repairs run only once the input is refused, applied as edits to its text.
 pub fn format(input: &[u8], layout: Layout, repair: bool) -> Result<(String, Repairs), Problem> {
     match lossless(input, layout) {
         Err(refused) if repair => {
@@ -165,7 +163,6 @@ fn tokenize(text: &str) -> Result<Vec<Token<'_>>, Problem> {
 }
 
 fn validate(input: &[u8], tokens: &[Token<'_>]) -> Result<(), Problem> {
-    // Keep byte offsets intact so diagnostics still point into the source.
     let mut json = input.to_vec();
     let mut previous = None;
     let mut comma = None;

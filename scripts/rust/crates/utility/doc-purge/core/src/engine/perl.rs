@@ -1,18 +1,3 @@
-//! Perl: a dedicated scanner, because four Perl forms all look like a `#`
-//! comment to a table-driven lexer.
-//!
-//! * `$#array` and `$#{$ref}` are the last-index sigil, not a comment.
-//! * POD (`=pod`, `=head1`, …) is a comment from a directive at column 0 to the
-//!   `=cut` line, inclusive. `=pod` inside a string is text.
-//! * `__END__` and `__DATA__` at column 0 end Perl; a `#` after them is data
-//!   and must survive.
-//! * Quote-like operators (`q qq qw qr m s tr y`) and heredocs own their body,
-//!   so a `#` there is text. `s`, `tr` and `y` take two delimiter pairs.
-//!
-//! The only ambiguous byte is `/`. It opens a regex exactly where the task's
-//! allow-list says an expression may start; everywhere else it is division.
-//! Bare regexes are kept to one line: an unclosed one falls back to division
-//! rather than eating the rest of the file.
 
 use std::ops::Range;
 
@@ -21,46 +6,29 @@ use crate::syntax::Syntax;
 
 const BOM: &[u8] = b"\xef\xbb\xbf";
 
-/// Lex `source` with Perl's descriptor.
 pub fn scan(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
     match syntax.name {
         "perl" => Perl::new(source).run(),
-        // `Engine::Perl` is only reached through this descriptor. Anything else
-        // is a wiring bug, and an empty scan would hide it.
         _ => Err(Bail("perl engine has no scanner for this descriptor")),
     }
 }
 
-/// The previous token, reduced to what decides regex versus division.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Prior {
-    /// The start of the file: a statement may start here.
     Start,
-    /// `=~` or `!~`.
     RegexBinding,
-    /// `=>`.
     FatArrow,
-    /// A plain assignment `=`.
     Assign,
-    /// `(`, `,`, `{` or `;`: an expression may start after it.
     Open,
-    /// `return`, `and`, `or`, `not`, `if`, `unless`, `while`, `until`,
-    /// `split`, `grep`, `map`.
     Keyword,
-    /// A value: a following `/` is division.
     Value,
-    /// `}`: a block may end here, so a `/` at the next line's head may be a
-    /// statement-opening regex.
     CloseBrace,
-    /// Anything else.
     Other,
 }
 
 struct Here {
     tag: Vec<u8>,
-    /// `<<~`: the terminator may be indented.
     indent: bool,
-    /// A double-quoted or unquoted heredoc interpolates and escapes.
     escapes: bool,
 }
 
@@ -70,7 +38,6 @@ struct Perl<'a> {
     out: Out,
     heredocs: Vec<Here>,
     prior: Prior,
-    /// Only whitespace has been seen on this line so far.
     line_head: bool,
 }
 
@@ -98,8 +65,6 @@ impl<'a> Perl<'a> {
         while self.at < self.source.len() {
             if self.line_start() {
                 if self.end_marker() {
-                    // Everything from here on is data, not Perl. Emitting no
-                    // comment past this point is the whole reason for the check.
                     return Ok(self.out);
                 }
                 if pod_start(self.source, self.at) {
@@ -154,7 +119,6 @@ impl<'a> Perl<'a> {
             self.token(byte);
         }
         if !self.heredocs.is_empty() {
-            // A `<<EOF` with no following line never reaches the newline path.
             self.take_heredocs()?;
         }
         Ok(self.out)
@@ -166,8 +130,6 @@ impl<'a> Perl<'a> {
             || ends_line(self.source[self.at - 1])
     }
 
-    /// `__END__` or `__DATA__` as a word at column 0. `__END__foo` is an
-    /// ordinary bareword; anything after the marker is the data section.
     fn end_marker(&self) -> bool {
         [b"__END__".as_slice(), b"__DATA__".as_slice()]
             .iter()
@@ -180,7 +142,6 @@ impl<'a> Perl<'a> {
             })
     }
 
-    /// A POD block: the directive line through the `=cut` line, inclusive.
     fn pod(&mut self) -> Result<(), Bail> {
         let start = self.at;
         let mut line = start;
@@ -199,7 +160,6 @@ impl<'a> Perl<'a> {
         }
     }
 
-    /// `#` is a comment everywhere except the `$#` sigil.
     fn comment_allowed(&self) -> bool {
         self.at == 0 || self.source[self.at - 1] != b'$'
     }
@@ -235,7 +195,6 @@ impl<'a> Perl<'a> {
         Err(Bail("unterminated string"))
     }
 
-    /// A quote-like operator whose delimiter starts immediately after the word.
     fn quote_like_at(&self) -> Option<QuoteLike> {
         if self.at > 0 {
             let prev = self.source[self.at - 1];
@@ -288,8 +247,6 @@ impl<'a> Perl<'a> {
                 }
                 (open, first.end + 1)
             } else {
-                // `s/a/b/` and `tr/ab/cd/`: the middle delimiter both closes
-                // the first body and opens the second.
                 (first.open, first.end)
             };
             self.chunk_from(open, start, false)?.end
@@ -314,8 +271,6 @@ impl<'a> Perl<'a> {
         self.chunk_from(open, open_at + 1, regex)
     }
 
-    /// Scan one delimited body. Bracket pairs nest; a backslash escapes the
-    /// next byte. For a `/`-delimited regex, `/` inside `[...]` does not close.
     fn chunk_from(&self, open: u8, start: usize, regex: bool) -> Result<Chunk, Bail> {
         let close = closing(open);
         let bracketed = close != open;
@@ -376,7 +331,6 @@ impl<'a> Perl<'a> {
         Err(Bail("unterminated quote-like literal"))
     }
 
-    /// `<<TAG`, `<<"TAG"`, `<<'TAG'` and `<<~TAG`.
     fn heredoc_head(&mut self) -> Result<bool, Bail> {
         let mut cursor = self.at + 2;
         let indent = self.byte(cursor) == b'~';
@@ -419,8 +373,6 @@ impl<'a> Perl<'a> {
         Ok(true)
     }
 
-    /// Consume the bodies of every heredoc opened on the line just ended, in
-    /// opening order. The next body starts after the previous terminator line.
     fn take_heredocs(&mut self) -> Result<(), Bail> {
         let queued = std::mem::take(&mut self.heredocs);
         for here in queued {
@@ -465,8 +417,6 @@ impl<'a> Perl<'a> {
         ) || (self.line_head && self.prior == Prior::CloseBrace)
     }
 
-    /// A bare `/…/`. Returns `false` without consuming anything when the line
-    /// ends first, so the caller can read the same `/` as division.
     fn regex(&mut self) -> bool {
         let start = self.at + 1;
         let mut cursor = start;
@@ -581,17 +531,14 @@ impl QuoteLike {
         }
     }
 
-    /// `s`, `tr` and `y` carry two delimited bodies.
     fn two(self) -> bool {
         matches!(self, QuoteLike::S | QuoteLike::Tr | QuoteLike::Y)
     }
 
-    /// The first body is a pattern: `/` in a class does not close it.
     fn regex(self) -> bool {
         matches!(self, QuoteLike::Qr | QuoteLike::M | QuoteLike::S)
     }
 
-    /// `q`, `qq` and `qw` are strings for glyph sweeping; regex forms are not.
     fn text(self) -> bool {
         matches!(self, QuoteLike::Q | QuoteLike::Qq | QuoteLike::Qw)
     }
@@ -611,7 +558,6 @@ fn tag_start(byte: u8) -> bool {
     byte.is_ascii_alphabetic() || byte == b'_' || byte >= 0x80
 }
 
-/// `=word` at column 0 starts POD.
 fn pod_start(source: &[u8], at: usize) -> bool {
     source.get(at) == Some(&b'=')
         && source
@@ -619,7 +565,6 @@ fn pod_start(source: &[u8], at: usize) -> bool {
             .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
 }
 
-/// `=cut` at column 0, ending at a non-word byte.
 fn pod_cut(source: &[u8], line: usize) -> bool {
     starts_with(source, line, b"=cut")
         && source
@@ -644,7 +589,6 @@ fn regex_keyword(word: &[u8]) -> bool {
     )
 }
 
-/// The byte just past the line terminator starting at `end`.
 fn past_line(source: &[u8], end: usize) -> usize {
     if end >= source.len() {
         return end;

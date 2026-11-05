@@ -142,8 +142,6 @@ fn organize_run<'a, 'p>(
         }
     }
 
-    // Sort only runs between side-effect/ignored imports. Moving a normal import
-    // across a side-effect import would change module evaluation order.
     let mut order = slots.clone();
     let mut start = 0;
     while start < slots.len() {

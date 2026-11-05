@@ -162,8 +162,6 @@ fn choice<T: Copy>(key: &str, value: &str, choices: &[(&str, T)]) -> Result<T, S
         })
 }
 
-/// Clamps a shared-global number into what this engine can represent; invalid
-/// native values are ignored like other unsupported globals.
 fn clamped(value: &str, minimum: usize, maximum: usize) -> Option<usize> {
     value
         .parse::<usize>()

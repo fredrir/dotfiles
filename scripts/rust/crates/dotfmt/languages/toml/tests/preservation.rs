@@ -23,13 +23,9 @@ fn keeps_literals_of_every_kind() {
 
 #[test]
 fn keeps_multi_line_strings_verbatim() {
-    // Indentation inside a multi-line string is part of its value, so the
-    // printer must never touch it, even where it looks misplaced.
     unchanged("text = \"\"\"\n  first\n    second  \n\"\"\"\nraw = '''\nback\\slash\n  '''\n");
     unchanged("inline = \"\"\"one\ntwo\"\"\"\n");
     unchanged("nested = [\"\"\"\nline  spaced  \n  \"\"\", 2]\n");
-    // A multi-line string never gets trimmed or re-indented, but the array
-    // around it is laid out.
     assert_eq!(
         format("nested = [\"\"\"a\nb\"\"\", 2]\n", &Config::default()).unwrap(),
         "nested = [\"\"\"a\nb\"\"\", 2]\n"
@@ -42,7 +38,6 @@ fn keeps_keys_as_written() {
         "bare = 1\n\"quoted key\" = 2\n'literal key' = 3\nsite.\"google.com\" = true\n\
          a.b.c = 1\n\"dotted.header\".x = 2\n'quoted'.\"dotted\" = 3\n",
     );
-    // Padding around dots is layout, so it is dropped; the spelling stays.
     assert_eq!(
         format("[ \"a.b\" . 'c' ]\nd = 1\n", &Config::default()).unwrap(),
         "[\"a.b\".'c']\nd = 1\n"
@@ -51,8 +46,6 @@ fn keeps_keys_as_written() {
         format("'quoted' . \"dotted\" = 1\n", &Config::default()).unwrap(),
         "'quoted'.\"dotted\" = 1\n"
     );
-    // A later header keeps its own quoting for a segment that an earlier
-    // header wrote with different quotes.
     unchanged("[\"a b\"]\nx = 1\n[other]\ny = 2\n['a b'.child]\nz = 3\n");
     unchanged("['a b']\nx = 1\n[\"a b\".child]\ny = 2\n");
     unchanged("[[\"a b\"]]\nx = 1\n['a b'.child]\ny = 2\n");
@@ -101,8 +94,6 @@ fn handles_bom_and_line_endings() {
         format("\u{feff}a = 1\n", &windows).unwrap(),
         "\u{feff}a = 1\r\n"
     );
-    // CRLF inside a multi-line string is a line ending, not part of the value,
-    // so the windows output can be read back with either setting.
     let multi = "a = \"\"\"x\ny\"\"\"\n";
     let crlf = format(multi, &windows).unwrap();
     assert_eq!(crlf, "a = \"\"\"x\r\ny\"\"\"\r\n");
@@ -124,7 +115,6 @@ fn keeps_values_of_unusual_shapes() {
     unchanged("nested = [[1, 2], [{ a = 1 }]]\n");
     unchanged("inline = { a.b = 1, \"c d\" = 2 }\n");
     unchanged("mixed = [{ b = 1 }, { c = [1, 2] }]\n");
-    // A dotted key keeps the comment that precedes its first component.
     unchanged("# c\n\na.b.c = 1\n");
     assert_eq!(
         format("[t]\n  # c\n  a.b = 1\n", &Config::default()).unwrap(),

@@ -1,7 +1,6 @@
 use dotfmt_core::repair::{Edit, Failure, Repair, Repaired, separator, settle};
 use toml_edit::ImDocument;
 
-/// Commas an array or inline table is missing, or has one too many of.
 pub fn repair(input: &str) -> Repaired {
     settle(input, failure, fix)
 }

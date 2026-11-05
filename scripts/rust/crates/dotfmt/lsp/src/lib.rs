@@ -1,6 +1,4 @@
 #![forbid(unsafe_code)]
-// LSP URIs and lsp-types values are immutable in practice; clippy sees the
-// interior mutability of their internals and would reject every map key.
 #![allow(clippy::mutable_key_type)]
 
 mod actions;

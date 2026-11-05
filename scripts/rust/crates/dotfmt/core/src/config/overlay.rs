@@ -10,19 +10,12 @@ use crate::language::Language;
 use super::patterns::add_pattern;
 use super::{Layer, Local, PatternLayer, Setting, Settings};
 
-/// Native editor configuration applied after every `dotfmt.dotfile` layer.
 #[derive(Clone, Debug)]
 pub struct ConfigOverlay {
     pub(super) layer: Layer,
 }
 
 impl ConfigOverlay {
-    /// Parses a VS Code `dotfmt.format` object for the workspace at `root`.
-    ///
-    /// Values are converted to the same string settings used by
-    /// `dotfmt.dotfile`; `null` and empty scalar values leave the corresponding
-    /// value inherited. Native editors serialize unset generated string settings
-    /// as `""`, since those settings contribute no VS Code default.
     pub fn from_json(value: &Value, root: &Path) -> Result<Self, Diagnostic> {
         let source = root.join(".vscode").join("settings.json");
         let mut layer = Layer {
@@ -179,8 +172,6 @@ fn scalar(key: &str, value: &Value, source: &Path) -> Result<Option<String>, Dia
         Value::Null => None,
         Value::Bool(value) => Some(value.to_string()),
         Value::Number(value) => Some(value.to_string()),
-        // Generated native string settings have no VS Code default, so the
-        // editor sends `""` for an unset string; it means inherit, not a value.
         Value::String(value) => (!value.is_empty()).then(|| value.clone()),
         Value::Array(values) => {
             let mut parts = Vec::with_capacity(values.len());

@@ -12,23 +12,12 @@ use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 
 const BOM: &[u8] = b"\xef\xbb\xbf";
 
-/// The result of formatting a property list.
 #[derive(Debug)]
 pub enum Output {
-    /// Formatted XML, still to be written by the caller.
     Text(String),
-    /// The input was not an XML property list (binary, OpenStep ASCII or empty);
-    /// the caller must leave it untouched.
     Verbatim,
 }
 
-/// Formats an XML property list, preserving comments, CDATA, entity spellings,
-/// text bytes and key order.
-///
-/// Fails with [`DiagnosticKind::Syntax`] when the input is XML but does not
-/// parse or is not a property list, and with [`DiagnosticKind::Internal`] when
-/// the formatted text would no longer mean the same thing as its input; in both
-/// cases the caller keeps the file.
 pub fn format(input: &[u8], config: &Config) -> Result<Output, Diagnostic> {
     let (bom, input) = match input.strip_prefix(BOM) {
         Some(input) => (true, input),
@@ -58,8 +47,6 @@ pub fn format(input: &[u8], config: &Config) -> Result<Output, Diagnostic> {
     Ok(Output::Text(output))
 }
 
-/// A layout bug must never reach the file it would corrupt, so a mismatch is
-/// reported as an internal failure and the input is left alone.
 fn compare(expected: &verify::Fingerprint, actual: &verify::Fingerprint) -> Result<(), Diagnostic> {
     if !expected.matches(actual) {
         return Err(internal("formatting would change values"));
@@ -70,8 +57,6 @@ fn compare(expected: &verify::Fingerprint, actual: &verify::Fingerprint) -> Resu
     Ok(())
 }
 
-/// Binary (`bplist00`), OpenStep ASCII and empty inputs are not XML. Anything
-/// that does not start with `<` is left alone rather than guessed at.
 fn verbatim(input: &[u8]) -> bool {
     if input.starts_with(b"bplist") {
         return true;

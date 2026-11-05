@@ -30,8 +30,6 @@ pub enum FixMode {
     Unsafe,
 }
 
-/// Fix categories enabled while formatting. `safe` and `unsafe` summarize the
-/// selected categories; the category flags decide which fixes are applied.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FixSelection {
     pub safe: bool,
@@ -58,9 +56,6 @@ impl FixSelection {
                 selection.remove_unused_imports = true;
                 selection.convert_type_only_imports = true;
                 selection.organize_imports = true;
-                // Export removal changes public API and is never implied by a
-                // mode; it must be requested explicitly with
-                // `remove_unused_exports = true`.
                 selection.remove_unused_locals = true;
             }
         }
@@ -79,7 +74,6 @@ impl FixSelection {
         self
     }
 
-    /// Whether a fix belongs to an enabled category.
     pub fn selects(&self, code: Option<&str>, kind: &str) -> bool {
         if kind.contains("organizeImports") {
             return self.organize_imports;
@@ -94,7 +88,6 @@ impl FixSelection {
         }
     }
 
-    /// Whether `fix` belongs to an enabled category.
     pub fn selects_fix(&self, fix: &Fix) -> bool {
         self.selects(
             fix.finding.as_ref().map(|finding| finding.code.as_str()),
@@ -119,7 +112,6 @@ impl From<CoreFixMode> for FixMode {
     }
 }
 
-/// Layout and feature choices for TypeScript, TSX, JavaScript and JSX.
 #[derive(Clone, Debug)]
 pub struct Config {
     pub indent: usize,
@@ -152,18 +144,13 @@ pub struct Config {
     pub remove_unused_imports: bool,
     pub remove_unused_exports: bool,
     pub remove_unused_locals: bool,
-    /// Remove unused locals whose initializer may have side effects. This is
-    /// separate from `fixes`: pure locals still need an unsafe mode.
     pub remove_impure_locals: bool,
     pub remove_unused_parameters: bool,
     pub convert_type_only_imports: bool,
     pub organize_imports: bool,
     pub type_aware: bool,
-    /// Verify that formatting did not remove code.
     pub verify: bool,
-    /// Dialect override from the engine; `Auto` resolves from the path.
     pub dialect: Dialect,
-    /// Project order prepared by the LSP/CLI. `None` uses the Rust fallback.
     pub tailwind_sorter: Option<dotfmt_tailwind::Sorter>,
 }
 
@@ -509,7 +496,6 @@ impl Config {
         options
     }
 
-    /// Import options with project path aliases added as internal prefixes.
     pub fn js_options_for_path(&self, path: &std::path::Path) -> oxc_formatter::JsFormatOptions {
         let mut options = self.js_options();
         if let Some(sort) = &mut options.sort_imports
@@ -528,23 +514,10 @@ impl Config {
         !matches!(self.tailwind.mode, dotfmt_tailwind::Mode::Off)
     }
 
-    /// Fixes to apply before formatting a TypeScript or JavaScript document.
-    ///
-    /// `fixes = off` selects nothing on its own; `safe` enables imports and
-    /// type-only conversion; `unsafe` adds unused locals. Export removal is
-    /// never implied by a mode and must be requested explicitly. Impure local
-    /// removal additionally needs `remove_impure_locals = true`. Parameter
-    /// removal is diagnose-only: there is no safe parameter-removal fix.
     pub fn format_fix_selection(&self) -> Option<FixSelection> {
         self.fix_selection(self.fixes)
     }
 
-    /// Categories for an explicit CLI `--fix`/`--fix-unsafe` request.
-    ///
-    /// The requested mode supplies the preset; explicit options still add
-    /// their categories. Applicability is intersected separately, so a
-    /// category selected here is not applied by a safe mode unless the fix
-    /// itself is safe.
     pub fn requested_fix_selection(&self, mode: CoreFixMode) -> Option<FixSelection> {
         self.fix_selection(mode.into())
     }
@@ -555,8 +528,6 @@ impl Config {
     }
 }
 
-/// A local setting is relative to its declaring config file; globals are
-/// relative to the workspace root and therefore have no base here.
 fn setting_base(global: bool, source: &std::path::Path) -> Option<std::path::PathBuf> {
     (!global).then(|| {
         source
@@ -574,8 +545,6 @@ fn flag(key: &str, value: &str) -> Result<bool, String> {
     }
 }
 
-/// Clamps a shared-global number into what this engine can represent; invalid
-/// native values are ignored like other unsupported globals.
 fn clamped(value: &str, minimum: usize, maximum: usize) -> Option<usize> {
     value
         .parse::<usize>()

@@ -17,9 +17,7 @@ pub enum LineEndings {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     pub dialect: Dialect,
-    /// Spaces per indentation level. `None` uses the dialect default.
     pub indent: Option<usize>,
-    /// Explicit indentation character; `None` emits spaces.
     pub indent_type: Option<IndentType>,
     pub line_endings: LineEndings,
     pub final_newline: bool,
@@ -51,8 +49,6 @@ impl Config {
         for (key, setting) in settings {
             if setting.global {
                 match key.as_str() {
-                    // Through the shared block these reach every language; INI has no
-                    // use for either.
                     "width" | "quote_style" => continue,
                     "indent" => {
                         config.indent = Some(

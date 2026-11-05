@@ -1,14 +1,3 @@
-//! The template engine: host text plus `{{ }}` / `{% %}` / `{# #}` regions.
-//!
-//! Host text is not scanned for comments unless the descriptor declares
-//! `line`/`block` markers (Pug/Haml/Slim do; Jinja/Twig/Liquid/Handlebars do
-//! not). Region bodies are lexed by the engine the region names; a `Verbatim`
-//! region emits nothing at all, which is what makes `{% raw %}` and
-//! `{{{{raw}}}}` opaque.
-//!
-//! The longest match wins across line comments, block comments and region
-//! openers, so `{{!--` beats `{{!` beats `{{`, `{% comment %}` beats `{%`, and
-//! Liquid's inline `{% #` beats the generic `{%` region.
 
 use std::ops::Range;
 
@@ -18,11 +7,8 @@ use crate::syntax::{At, BlockComment, Engine, LineComment, Region, Syntax};
 
 const BOM: &[u8] = b"\xef\xbb\xbf";
 
-/// A guard against a pathological nesting depth turning the recursive region
-/// scan into a stack overflow.
 const MAX_DEPTH: usize = 64;
 
-/// Bytes a template dialect may insert next to a whitespace-control delimiter.
 const TRIM: &[u8] = b"-~";
 
 pub fn scan(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
@@ -122,8 +108,6 @@ fn matching_region(
 ) -> Option<(&'static Region, usize)> {
     let mut best: Option<(&'static Region, usize)> = None;
     for region in syntax.regions {
-        // `once` is also the start-of-file anchor: `Region` has no separate
-        // open anchor, and Astro frontmatter is the only user.
         if region.once && at != content_start {
             continue;
         }
@@ -131,8 +115,6 @@ fn matching_region(
             continue;
         };
         let len = end - at;
-        // Template regions are delimiters, not tags; no descriptor in this
-        // family carries `needs_attr`.
         if region.needs_attr.is_some() {
             continue;
         }
@@ -214,7 +196,6 @@ fn block_end(source: &[u8], block: &BlockComment, open_end: usize) -> Result<Blo
 struct Hit {
     region: &'static Region,
     start: usize,
-    /// Bytes of `region.open` that matched, trim byte included.
     open_len: usize,
 }
 
@@ -236,10 +217,6 @@ fn enter_region(
     let resolved = resolve(region.engine)?;
     let mut search = body_start;
     while let Some((close_start, close_end)) = next_close(source, region, search, content_start) {
-        // Letting the embedded engine decide makes the close string-aware and
-        // gives it precedence over a line comment: a close inside a string or
-        // block comment leaves the body scan "unterminated", a close after a
-        // line-comment marker leaves it complete at the slice end.
         match scan_embedded(
             &source[body_start..close_start],
             region.engine,
@@ -276,8 +253,6 @@ fn next_close(
     None
 }
 
-/// Literal match, or one whitespace-control byte either side of the delimited
-/// body (`{%- raw -%}` against `{% raw %}`).
 fn needle_at(source: &[u8], at: usize, needle: &[u8]) -> Option<usize> {
     if starts_with(source, at, needle) {
         return Some(at + needle.len());
@@ -320,9 +295,6 @@ fn trimmed_needle_end(source: &[u8], at: usize, needle: &[u8]) -> Option<usize> 
     Some(cursor + TRAIL)
 }
 
-/// The descriptor an embedded engine needs. `Engine::Template` nests with the
-/// host descriptor; the three `SPEC-DELTA-1` resolvers are looked up by
-/// descriptor name so this file does not depend on `lang.rs` variant spellings.
 fn resolve(engine: Engine) -> Result<Option<&'static Syntax>, Bail> {
     match engine {
         Engine::Verbatim | Engine::Generic | Engine::Curly | Engine::Dash | Engine::Template => {
@@ -330,9 +302,6 @@ fn resolve(engine: Engine) -> Result<Option<&'static Syntax>, Bail> {
         }
         Engine::Markup => Err(Bail("engine dispatch needs the dialect")),
         Engine::Elixir => Ok(Some(named("elixir")?)),
-        // The indented template dialects (Pug/Haml/Slim) are not regions; this
-        // arm keeps the engine total if one ever opens an `Engine::Indented`
-        // body, whose only descriptor user is the Elixir in HEEx/EEX.
         Engine::Indented => Ok(Some(named("elixir")?)),
         Engine::Script => Ok(Some(named("javascript")?)),
         Engine::Style => Ok(Some(named("css")?)),
@@ -429,8 +398,6 @@ fn line_comment_end(source: &[u8], line: &LineComment, at: usize) -> usize {
     end
 }
 
-/// The end of the last line under the marker whose indent is greater than the
-/// marker line's indent. Blank lines inside the block are transparent.
 fn indent_block_end(source: &[u8], at: usize, marker_line_end: usize) -> usize {
     let start = line_start(source, at);
     let indent = indent_width(source, start, at);

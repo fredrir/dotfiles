@@ -42,8 +42,6 @@ impl<'a, 'p> Context<'a, 'p> {
     ) -> Self {
         let exported_spans = exported_spans(program);
         let has_eval = has_eval(semantic);
-        // `source_type_for_path` only marks `.d.ts`; `SourceType::from_path`
-        // also recognizes `.d.mts` and `.d.cts` declaration names.
         let is_declaration = source_type.is_typescript_definition()
             || SourceType::from_path(path)
                 .is_ok_and(|source_type| source_type.is_typescript_definition());
@@ -180,8 +178,6 @@ impl<'a, 'p> Context<'a, 'p> {
             .map_or(self.text.len(), |index| offset + index)
     }
 
-    /// The byte range that removes a whole statement without touching other
-    /// statements that share its line.
     pub(crate) fn statement_edit(&self, start: usize, end: usize) -> (usize, usize) {
         let line_start = self.line_start(start);
         let start = if self.text[line_start..start].trim().is_empty() {
@@ -255,8 +251,6 @@ fn collect_exported_spans(statements: &[Statement<'_>], spans: &mut Vec<Span>) {
                     }
                 }
             },
-            // Members exported from a non-exported namespace are still part of
-            // the namespace's public surface and are not unused locals.
             Statement::TSNamespaceDeclaration(namespace) => {
                 collect_namespace_spans(&namespace.body, spans);
             }

@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""Regenerate `core/src/lang.rs` from the descriptor tables in `core/src/syntax/`.
-
-`lang.rs` is generated, not written: `Dialect`, `Dialect::ALL`, `LANGUAGES` and
-`Dialect::syntax()` all come from one parse of `syntax/*.rs`, so they cannot
-disagree with each other or with the tables. Adding a language is one `Syntax`
-static in one table plus one `ORDER`/`VARIANT` line here, then:
-
-    python3 scripts/rust/crates/utility/doc-purge/core/generate-lang.py
-
-The output is rustfmt-clean by construction (extension lists are pre-wrapped),
-so `cargo fmt -p doc-purge-core -- --check` stays green after a regeneration.
-
-It fails loudly rather than guessing: an unknown descriptor name, a name missing
-from `ORDER`, or a duplicate name each abort with the offending name.
-"""
 
 import re
 import pathlib
@@ -55,9 +40,6 @@ VARIANT = {
     "sugarss": "Sugarss",
 }
 
-# Extension-less files and shebangs live in the descriptors; order in LANGUAGES
-# decides for_path precedence, so the most common claimant of a shared
-# extension goes first.
 ORDER = [
     "rust", "go", "c", "cpp", "java", "csharp", "kotlin", "swift", "zig", "dart",
     "scala", "groovy", "solidity", "objective-c", "vala", "d", "haxe", "verilog",
@@ -80,7 +62,6 @@ ORDER = [
 
 
 def wrap(items, indent, tail):
-    """One wrapped row per ~92 columns, so rustfmt has nothing to change."""
     lines, current = [], ""
     for item in items:
         candidate = f"{current}{item}, " if current else f"{indent}{item}, "
@@ -102,7 +83,6 @@ def strip_comments(text):
 
 
 def parse(path):
-    """Yield (STATIC, name, extensions, filenames, shebangs) per static."""
     text = path.read_text()
     found = {}
     for m in re.finditer(r"^pub static ([A-Z_0-9]+): Syntax = Syntax \{(.*?)^\};",
@@ -447,8 +427,6 @@ pub fn known() -> String {
 
     target = SRC / "lang.rs"
     target.write_text("\n".join(lines) + "\n")
-    # rustfmt is not part of `dotfile dev lint`, so format here: the generated
-    # file must not reintroduce formatting drift every time it is rebuilt.
     import subprocess
     subprocess.run(
         ["rustfmt", "--edition", "2024", str(target)],

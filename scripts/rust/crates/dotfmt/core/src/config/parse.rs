@@ -293,9 +293,6 @@ impl Parser<'_> {
             let line = self.line;
             let mut separator = false;
             let mut previous_space = true;
-            // A structural closing brace ends the block after a pattern or a
-            // separator. A same-line brace group stays literal pattern data,
-            // so `*.min.js}` closes the block while `file{a,b}` does not.
             let mut braces = 0usize;
             for token in scan(&self.source[start..], QuoteMode::Start) {
                 let ch = token.character;

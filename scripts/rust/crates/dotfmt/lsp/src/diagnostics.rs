@@ -1,13 +1,3 @@
-//! Debounced diagnostics and the per-URI view the editor receives.
-//!
-//! dotfmt reports errors only. The worker drops every non-`Error` finding
-//! from [`crate::analysis::inspect_errors`]; lint findings stay available to
-//! code actions and `dotfmt --diagnose`. Syntax/config errors are buffer
-//! derived, `tsc` entries describe disk files and are therefore versionless.
-//!
-//! Clients with pull diagnostics never receive `publishDiagnostics`; the
-//! store is the single source of truth, `workspace/diagnostic/refresh` asks
-//! the client to pull again, and identical sets are suppressed.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -34,11 +24,9 @@ use crate::settings::{Settings, SettingsStore};
 use crate::uri::{self, Key};
 use crate::workspace::Workspace;
 
-/// A merged dotfmt + tsc view for one URI, with a stable result id.
 #[derive(Debug, PartialEq)]
 pub struct Merged {
     pub diagnostics: Vec<Diagnostic>,
-    /// Configuration diagnostics that explain errors in the requested source.
     pub related_documents: Vec<(Uri, Vec<Diagnostic>)>,
     pub result_id: String,
 }
@@ -117,11 +105,6 @@ impl Diagnostics {
         }
     }
 
-    /// Schedules one buffer with the settings of the folder that contains it.
-    ///
-    /// The path is canonicalised once here so every later root comparison
-    /// (`clear_under`, settings and session lookup) uses the same spelling as
-    /// the canonicalised workspace roots.
     pub fn schedule(&self, document: &Document, path: PathBuf, uri: Uri) {
         let path = crate::workspace::normalize(&path);
         let settings = self.settings.settings_for(&path);
@@ -148,14 +131,10 @@ impl Diagnostics {
         let _ = self.pending.send(Job::ClearAll);
     }
 
-    /// Drops every dotfmt and tsc entry for one workspace folder.
     pub fn clear_under(&self, root: PathBuf) {
         let _ = self.pending.send(Job::ClearRoot(root));
     }
 
-    /// Removes one workspace folder: discards its debounced jobs and clears
-    /// its diagnostics. Later events for the folder cannot revive them because
-    /// the removal epoch only moves forward.
     pub fn remove_root(&self, root: PathBuf) {
         let root = crate::workspace::normalize(&root);
         {
@@ -168,12 +147,10 @@ impl Diagnostics {
         let _ = self.pending.send(Job::RemoveRoot(root));
     }
 
-    /// Drops disk-derived `tsc` entries for one URI, for example after an edit.
     pub fn clear_tsc_uri(&self, uri: Uri) {
         let _ = self.pending.send(Job::ClearTscUri(uri));
     }
 
-    /// Drops disk-derived `tsc` entries for one workspace folder.
     pub fn clear_tsc_under(&self, root: PathBuf) {
         let _ = self.pending.send(Job::ClearTscRoot(root));
     }
@@ -203,10 +180,6 @@ impl Diagnostics {
         published.clear_tsc(&self.client);
     }
 
-    /// The merged dotfmt + tsc view for a pull request.
-    ///
-    /// `version` is the current buffer version; buffer diagnostics produced
-    /// for an older revision are dropped rather than reported as current.
     pub fn merged(&self, uri: &Uri, version: Option<i32>) -> Merged {
         self.published
             .lock()
@@ -214,7 +187,6 @@ impl Diagnostics {
             .merged(uri, version)
     }
 
-    /// Logs to the editor's output channel; syntax failures never use popups.
     pub fn log(&self, message: impl Into<String>) {
         let _ = self
             .client
@@ -339,8 +311,6 @@ fn inspect(
     if current != Some(job.version) {
         return None;
     }
-    // A configuration change reschedules every affected document. Drop a
-    // result that was produced from a snapshot the user has already replaced.
     if settings.settings_for(&job.path) != job.settings {
         return None;
     }
@@ -364,10 +334,6 @@ fn inspect(
     }
 }
 
-/// Converts findings in one buffer to LSP diagnostics for code actions.
-///
-/// The diagnostics publish path filters findings to [`Severity::Error`] before
-/// calling this. Hints are never mapped to `DiagnosticSeverity::HINT`.
 pub fn findings(uri: &Uri, text: &str, findings: &[Finding]) -> Vec<Diagnostic> {
     let index = LineIndex::new(text);
     findings
@@ -421,7 +387,6 @@ pub fn findings(uri: &Uri, text: &str, findings: &[Finding]) -> Vec<Diagnostic> 
         .collect()
 }
 
-/// Converts fatal parse/configuration errors, keeping their line and byte column.
 pub fn fatal(_uri: &Uri, text: &str, error: &Fatal) -> Diagnostic {
     let start = clamp(
         text,
@@ -517,7 +482,6 @@ fn next_position(text: &str, start: usize) -> usize {
 }
 
 struct Entry {
-    /// `Some` only when every diagnostic in the entry is buffer derived.
     version: Option<i32>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -530,14 +494,10 @@ struct Sent {
 }
 
 struct Published {
-    /// Pull clients re-request diagnostics; pushing would duplicate the set.
     pull: bool,
     dotfmt: HashMap<Key, Entry>,
     owners: HashMap<Key, Vec<Key>>,
-    /// One compiler result per project. Projects may overlap on a path, so the
-    /// published view merges every project that reports it.
     projects: BTreeMap<PathBuf, TscProject>,
-    /// The last set sent to (or pulled by) the client, for diff suppression.
     last: HashMap<Key, Sent>,
     workspace: Arc<Workspace>,
     documents: Arc<Mutex<Documents>>,
@@ -590,9 +550,6 @@ impl Published {
             return;
         }
         let old_aliases = self.owners.remove(&owner).unwrap_or_default();
-        // Another owner may still report one of these aliases (two open files
-        // can both carry the same `dotfmt.dotfile` configuration error). Only
-        // drop an alias when this publish is its last reference.
         let referenced = self.referenced_by_others(&owner);
         let mut affected = Vec::new();
         for key in old_aliases {
@@ -650,10 +607,6 @@ impl Published {
         self.publish(&affected, client);
     }
 
-    /// Every key another owner still reports.
-    ///
-    /// Aliases are owned per buffer, so an alias entry is only stale when no
-    /// other owner lists it any more.
     fn referenced_by_others(&self, owner: &Key) -> HashSet<Key> {
         self.owners
             .iter()
@@ -811,8 +764,6 @@ impl Published {
         serde_json::to_string(&diagnostics)
             .unwrap_or_default()
             .hash(&mut hasher);
-        // A configuration error can change without changing the source's own
-        // diagnostics, so the related set is part of the result identity.
         for (related_key, diagnostics) in &related {
             related_key.hash(&mut hasher);
             serde_json::to_string(diagnostics)
@@ -829,10 +780,6 @@ impl Published {
         }
     }
 
-    /// Configuration diagnostics attached to one source, with the source
-    /// itself excluded. Dotfmt configuration errors are aliases of the buffer
-    /// that produced them; tsc configuration errors belong to the project's
-    /// `TscProject.config`.
     fn related_for(&self, key: &Key) -> BTreeMap<Key, Vec<Diagnostic>> {
         let mut related = BTreeMap::new();
         if let Some(aliases) = self.owners.get(key) {
@@ -906,8 +853,6 @@ impl Published {
         related
     }
 
-    /// The client spelling of a key: an open document's URI when one exists,
-    /// otherwise the canonical encoding of its normalized path.
     fn display_uri(&self, key: &Key) -> Uri {
         self.documents
             .lock()
@@ -916,8 +861,6 @@ impl Published {
             .unwrap_or_else(|| key.uri())
     }
 
-    /// Sends one notification per URI whose set changed, or asks a pull client
-    /// to refresh when any merged set changed.
     fn publish(&mut self, affected: &[Key], client: &Client) {
         let mut seen = HashSet::new();
         let mut changed = false;
@@ -934,8 +877,6 @@ impl Published {
                 .unwrap_or_default();
             let has_tsc = !tsc.is_empty();
             diagnostics.extend(tsc);
-            // `tsc` results describe the file on disk and carry no document
-            // version. Never stamp the merged notification with a buffer version.
             let version = match (dotfmt_entry, has_tsc) {
                 (Some(entry), false) => entry.version,
                 _ => None,
@@ -982,8 +923,6 @@ impl Published {
 }
 
 impl Published {
-    /// Every project's compiler errors for one path identity, merged in a
-    /// stable order.
     fn tsc_for(&self, key: &Key) -> Vec<Diagnostic> {
         let mut diagnostics: Vec<Diagnostic> = self
             .projects
@@ -1150,8 +1089,6 @@ mod tests {
         }
     }
 
-    /// The old allowlist encoder, kept to simulate clients that still spell
-    /// route-group punctuation with percent escapes.
     fn legacy_uri(path: &Path) -> Uri {
         let text = path.to_string_lossy();
         let mut encoded = String::from("file://");
@@ -1319,7 +1256,6 @@ mod tests {
             vec![(b.clone(), Vec::new()), (dotfile.clone(), config_error())],
             &client,
         );
-        // Editing `a` no longer reports the shared config error; `b` still does.
         published.set_dotfmt(&a, 2, vec![(a.clone(), Vec::new())], &client);
         assert_eq!(
             published.merged(&dotfile, None).diagnostics,
@@ -1501,7 +1437,6 @@ mod tests {
             vec!["TS1001", "TS1002"]
         );
 
-        // Replacing one project must not clear the other project's entries.
         published.set_tsc(Path::new("/work/pkg-a"), 2, Vec::new(), &client);
         assert_eq!(
             published.merged(&uri, None).diagnostics,

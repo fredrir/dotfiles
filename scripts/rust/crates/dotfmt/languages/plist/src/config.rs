@@ -25,28 +25,17 @@ pub enum EmptyStyle {
     Never,
 }
 
-/// Layout choices for [`format`][crate::format].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
-    /// Spaces per indentation level when `indent_type` is [`IndentType::Spaces`].
     pub indent: usize,
-    /// Unit used for one indentation level.
     pub indent_type: IndentType,
-    /// Target line width; accepted from the shared global block, unused in v1.
     pub width: usize,
     pub final_newline: bool,
     pub line_endings: LineEndings,
-    /// Maximum consecutive blank lines kept between elements.
     pub blank_lines: usize,
-    /// Re-wrap `<data>` base64 at this width; `0` preserves the original bytes.
     pub data_width: usize,
-    /// Keep the XML declaration, DOCTYPE and prolog comments exactly as written,
-    /// or replace the declaration and DOCTYPE with Apple's canonical spelling.
     pub prolog: PrologStyle,
-    /// Print empty elements self-closed, paired, or exactly as written.
     pub self_closing: EmptyStyle,
-    /// Reordering dictionary keys changes duplicate-key shadowing, so v1 accepts
-    /// only `false`.
     pub sort_keys: bool,
 }
 
@@ -71,8 +60,6 @@ impl Config {
     pub fn from_settings(settings: &dotfmt_core::config::Settings) -> Result<Self, Diagnostic> {
         let mut config = Self::default();
         for (key, setting) in settings {
-            // Through the shared block this reaches every language; plists never
-            // choose a quote style.
             if setting.global && key == "quote_style" {
                 continue;
             }
@@ -169,8 +156,6 @@ fn choice<T: Copy>(key: &str, value: &str, choices: &[(&str, T)]) -> Result<T, S
         })
 }
 
-/// Clamps a shared-global number into what this engine can represent; invalid
-/// native values are ignored like other unsupported globals.
 fn clamped(value: &str, minimum: usize, maximum: usize) -> Option<usize> {
     value
         .parse::<usize>()

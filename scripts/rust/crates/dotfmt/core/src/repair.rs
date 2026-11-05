@@ -1,4 +1,3 @@
-//! Fixes made to input that nearly parses, each kept with where it was made.
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Repair {
@@ -41,7 +40,6 @@ impl Repair {
     ];
 }
 
-/// One fix; `line` and `column` are 1-based, and `column` counts bytes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Fix {
     pub repair: Repair,
@@ -90,7 +88,6 @@ impl Extend<Fix> for Repairs {
     }
 }
 
-/// Replaces `start..end` of a source with `text`; equal bounds insert.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Edit {
     pub start: usize,
@@ -116,8 +113,6 @@ impl Edit {
     }
 }
 
-/// Edits made against one source, applied in offset order; insertions at one
-/// offset keep the order they were made in and land before a replacement there.
 pub fn apply(source: &[u8], edits: &[Edit]) -> Vec<u8> {
     let mut ordered: Vec<&Edit> = edits.iter().collect();
     ordered.sort_by_key(|edit| (edit.start, edit.end));
@@ -133,7 +128,6 @@ pub fn apply(source: &[u8], edits: &[Edit]) -> Vec<u8> {
     output
 }
 
-/// Byte offsets to lines and columns, walking forward from the last answer.
 pub struct Locator<'a> {
     source: &'a [u8],
     at: usize,
@@ -183,14 +177,11 @@ pub struct Repaired {
 
 const ATTEMPTS: usize = 256;
 
-/// Where a parse stopped, as a byte offset, and what it said.
 pub struct Failure {
     pub at: usize,
     pub message: String,
 }
 
-/// Where a separator missing before the token at `at` goes: after the token
-/// before it, or right before `at` when a comment could sit between the two.
 pub fn separator(text: &str, at: usize, comment: &str) -> usize {
     let end = text[..at].trim_end().len();
     let line = text[..end].rfind('\n').map_or(0, |newline| newline + 1);
@@ -200,9 +191,6 @@ pub fn separator(text: &str, at: usize, comment: &str) -> usize {
     end
 }
 
-/// Parses, fixes what the error points at, and parses again until the source
-/// reads or the next fixes fail to move the error forward. The text answered
-/// is the furthest that read.
 pub fn settle(
     source: &str,
     mut parse: impl FnMut(&str) -> Option<Failure>,

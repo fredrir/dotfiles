@@ -3,11 +3,6 @@ use std::collections::HashSet;
 use crate::order::OrderTable;
 use crate::sorter::is_known;
 
-/// Utility prefixes whose members always target the same CSS property family.
-///
-/// This is deliberately a small, conservative subset. Prefixes that mix
-/// different properties (`text-*`, `border-*`, `bg-*`, `font-*`, ...) are
-/// omitted rather than guessed at.
 const FAMILIES: &[&str] = &[
     "border-spacing-x",
     "border-spacing-y",
@@ -99,8 +94,6 @@ const FAMILIES: &[&str] = &[
     "inset",
 ];
 
-/// Removes conflicting known utilities that share the same variant chain and
-/// utility family, keeping the rightmost occurrence.
 pub(crate) fn merge_tokens<'a>(classes: &[&'a str], table: &OrderTable) -> Vec<&'a str> {
     if classes.len() < 2 {
         return classes.to_vec();
@@ -154,8 +147,6 @@ fn strip_importance(class: &str) -> (bool, &str) {
     (important, class)
 }
 
-/// Returns the variant chain and the utility portion after the last top-level
-/// colon. Colons inside brackets, quotes, or escapes are part of the variant.
 fn split_variant(class: &str) -> (&str, &str) {
     let mut depth = 0usize;
     let mut quote = None;

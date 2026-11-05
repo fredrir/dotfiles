@@ -44,8 +44,6 @@ fn run(input: &str, dialect: Dialect) -> String {
 
 #[test]
 fn an_unstable_second_pass_keeps_the_normalized_input() {
-    // Malva rewrites the backtick tail differently on each pass; keeping the
-    // input is safer than returning a non-idempotent first pass.
     let input = "@ꬰ``\n";
     assert_eq!(run_with(&Config::default(), input, Dialect::Less), input);
 }

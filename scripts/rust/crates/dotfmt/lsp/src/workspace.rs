@@ -1,7 +1,3 @@
-//! One formatting session per workspace root.
-//!
-//! A session caches configuration and validated engines, so it is discarded
-//! whenever `dotfmt.dotfile` files or editor settings change.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -14,9 +10,7 @@ use crate::settings::SettingsStore;
 pub struct Workspace {
     roots: Mutex<Vec<PathBuf>>,
     sessions: Mutex<HashMap<PathBuf, Arc<Mutex<Session>>>>,
-    /// When present, sessions apply the native `dotfmt.format` overlay of their root.
     settings: Option<Arc<SettingsStore>>,
-    /// The client-resolved global config path; falls back to the process environment.
     global: Option<PathBuf>,
 }
 
@@ -30,7 +24,6 @@ impl Workspace {
         }
     }
 
-    /// Creates sessions that apply the settings store's native overlay.
     pub fn with_settings(
         roots: Vec<PathBuf>,
         settings: Arc<SettingsStore>,
@@ -56,23 +49,15 @@ impl Workspace {
             .clone()
     }
 
-    /// The nearest workspace root containing `path`, without a fallback.
     pub fn containing_root(&self, path: &Path) -> Option<PathBuf> {
         let path = normalize(path);
         nearest_root(&self.roots(), &path).cloned()
     }
 
-    /// Whether `path` belongs to `root` as its *nearest* workspace root.
-    ///
-    /// A path inside a nested workspace root never belongs to the parent root.
-    /// Removed workspace folders still own their old subtree so cached state
-    /// can be dropped, but a nested root that remains registered is never
-    /// claimed by its former parent.
     pub fn in_root(&self, path: &Path, root: &Path) -> bool {
         belongs_to(&self.roots(), &normalize(path), &normalize(root))
     }
 
-    /// The nearest workspace root containing `path`, or its directory outside one.
     pub fn root_for(&self, path: &Path) -> PathBuf {
         let path = normalize(path);
         self.containing_root(&path)
@@ -90,9 +75,6 @@ impl Workspace {
             .sessions
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        // Resolve the overlay under the sessions lock: a concurrent settings
-        // change invalidates this map, and an overlay read before that
-        // invalidation must not be inserted afterwards.
         let overlay = self
             .settings
             .as_ref()
@@ -106,7 +88,6 @@ impl Workspace {
         }))
     }
 
-    /// Drops every cached session; in-flight requests keep their old snapshot.
     pub fn invalidate(&self) {
         self.sessions
             .lock()
@@ -114,9 +95,6 @@ impl Workspace {
             .clear();
     }
 
-    /// Drops the sessions whose nearest workspace root is exactly `root`.
-    ///
-    /// Sessions for nested workspace roots keep their cached configuration.
     pub fn invalidate_root(&self, root: &Path) {
         let root = normalize(root);
         let roots = self.roots();
@@ -127,7 +105,6 @@ impl Workspace {
     }
 }
 
-/// The same global configuration precedence as the CLI.
 pub fn global_config() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|value| !value.is_empty())
@@ -162,8 +139,6 @@ fn normalized(roots: Vec<PathBuf>) -> Vec<PathBuf> {
     roots
 }
 
-/// Canonicalises existing paths, then the nearest existing parent, and
-/// otherwise removes `.`/`..` components.
 pub(crate) fn normalize(path: &Path) -> PathBuf {
     if let Ok(path) = std::fs::canonicalize(path) {
         return path;

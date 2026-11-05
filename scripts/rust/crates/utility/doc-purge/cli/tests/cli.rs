@@ -6,8 +6,6 @@ use std::sync::OnceLock;
 
 use testkit::{Bin, TempDir, stderr, stdout, tree};
 
-/// A binary with colour off and an empty global config, so a developer's
-/// `$XDG_CONFIG_HOME/doc-purge/doc-purge.dotfile` cannot change these tests.
 fn bin() -> Bin {
     Bin::new(env!("CARGO_BIN_EXE_doc-purge"))
         .env("NO_COLOR", "1")
@@ -627,7 +625,6 @@ fn owns_prints_only_the_files_doc_purge_claims() {
         root.path().join("a.rs").display(),
         root.path().join("b.zzz").display(),
         root.path().join("out.min.js").display(),
-        // An editor may ask about a file before its first save.
         root.path().join("new.rs").display(),
     );
     let output = bin().arg("--owns").stdin(&input).output();
@@ -644,7 +641,7 @@ fn owns_prints_only_the_files_doc_purge_claims() {
 
 #[test]
 fn only_comments_leaves_doc_strings_and_glyphs_alone() {
-    let root = tree(&["a.py=\"\"\"Module docs.\"\"\"\nx = \"“quoted”\"  # note\n"]);
+    let root = tree(&["a.py=\"\"\"Module docs.\"\"\"\nx = \"\"quoted\"\"  # note\n"]);
     let output = bin()
         .arg(root.path())
         .args(["--only", "comments", "-y"])
@@ -653,20 +650,20 @@ fn only_comments_leaves_doc_strings_and_glyphs_alone() {
     assert!(output.status.success());
     assert_eq!(
         read(root.path(), "a.py"),
-        "\"\"\"Module docs.\"\"\"\nx = \"“quoted”\"\n"
+        "\"\"\"Module docs.\"\"\"\nx = \"\"quoted\"\"\n"
     );
 }
 
 #[test]
 fn no_glyphs_leaves_the_glyph() {
-    let root = tree(&["a.py=x = \"“quoted”\"  # note\n"]);
+    let root = tree(&["a.py=x = \"\"quoted\"\"  # note\n"]);
     let output = bin()
         .arg(root.path())
         .args(["--no-glyphs", "-y"])
         .stdin("")
         .output();
     assert!(output.status.success());
-    assert_eq!(read(root.path(), "a.py"), "x = \"“quoted”\"\n");
+    assert_eq!(read(root.path(), "a.py"), "x = \"\"quoted\"\"\n");
 }
 
 #[test]

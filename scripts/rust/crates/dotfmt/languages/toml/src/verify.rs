@@ -4,8 +4,6 @@ use crate::config::Config;
 use crate::model::{Document, Entry, Section, Value};
 use crate::trivia::{Trivia, format_comment};
 
-/// What a document means, independent of its layout: every value addressed by
-/// its decoded key path, plus every comment in written order.
 pub(crate) struct Fingerprint {
     values: Vec<(String, String)>,
     comments: Vec<String>,
@@ -22,7 +20,6 @@ impl Fingerprint {
         fingerprint.trivia(&document.trailing, config);
         fingerprint.values.sort();
         if config.reorder_keys {
-            // Sorting entries reorders the comments that travel with them.
             fingerprint.comments.sort();
         }
         fingerprint
@@ -87,7 +84,6 @@ impl Fingerprint {
                 push(out, raw);
             }
             Value::Float { raw, value } => {
-                // Bit patterns compare NaN with NaN and keep signed zero apart.
                 out.push('F');
                 push(out, &format!("{:016x}", value.to_bits()));
                 push(out, raw);
@@ -118,7 +114,6 @@ impl Fingerprint {
                 out.push(']');
             }
             Value::InlineTable(table) => {
-                // Inline tables are maps: entry order carries no meaning.
                 let mut entries = Vec::with_capacity(table.entries.len());
                 for entry in &table.entries {
                     let mut rendered = String::new();
@@ -151,7 +146,6 @@ impl Fingerprint {
     }
 }
 
-/// Length-prefixes `text` so that concatenated fields stay unambiguous.
 fn push(out: &mut String, text: &str) {
     out.push_str(&text.len().to_string());
     out.push(':');

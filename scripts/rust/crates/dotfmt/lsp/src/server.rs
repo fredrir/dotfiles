@@ -1,4 +1,3 @@
-//! The dotfmt language server.
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -75,7 +74,6 @@ const COMMANDS: &[&str] = &[
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
-/// LSP 3.18 `textDocument/rangesFormatting`, absent from lsp-types 0.97.
 pub enum RangesFormatting {}
 
 #[derive(Clone, Debug, Deserialize, serde::Serialize)]
@@ -107,9 +105,6 @@ pub fn run(connection: &Connection) -> Result<()> {
     let server = Arc::new(Server::new(connection.sender.clone(), &params));
     server.start();
     connection.initialize_finish(id, server.initialization_result())?;
-    // `initialize_finish` consumes the `initialized` notification, so dynamic
-    // registration happens immediately afterwards; a duplicate `initialized`
-    // later is guarded by `watchers_registered`.
     server.register_watchers();
     let trust = server.settings.trusted();
     server.log(format!(
@@ -156,10 +151,6 @@ pub fn run(connection: &Connection) -> Result<()> {
             Message::Response(response) => server.client.response(response),
         }
     }
-    // Wake configuration pulls first: they hold `Arc<Server>` and `Arc<Client>`
-    // while waiting for a response, and the writer thread waits for every
-    // `Client` clone to drop. Then kill an in-flight compiler, which holds the
-    // other long-lived `Client` clone through `Diagnostics`.
     server.client.shutdown();
     server.tsc.shutdown();
     Ok(())
@@ -172,16 +163,11 @@ pub struct Server {
     client: Arc<Client>,
     diagnostics: Arc<Diagnostics>,
     tsc: Arc<Tsc>,
-    /// The client advertises `textDocument/diagnostic`; pull owns publication.
     pull: bool,
     supports_configuration: bool,
-    /// Folders with a `workspace/configuration` request in flight.
     folder_requests: Mutex<HashSet<PathBuf>>,
-    /// Orders overlapping settings pulls; older responses are discarded.
     settings_epoch: AtomicU64,
-    /// The client-resolved global config path, preferred over the process env.
     global_config: Option<PathBuf>,
-    /// Configuration errors already reported to the output channel, per root.
     logged_configuration_errors: Mutex<HashMap<PathBuf, HashSet<String>>>,
     capabilities: EditCapabilities,
     in_flight: Mutex<HashMap<RequestId, Arc<RequestState>>>,
@@ -251,15 +237,11 @@ impl Server {
         dotfmt_tailwind::bridge::set_trusted(trusted);
         let settings = Arc::new(SettingsStore::new(false, settings));
         settings.set_trusted(trusted);
-        // The first configuration pull re-parses with the folder root; an
-        // initialization option is already a best-effort overlay here.
         if let Some(value) = overlay_value(&settings.default_settings())
             && let Ok(overlay) = ConfigOverlay::from_json(&value, &default_root)
         {
             settings.set_default_overlay(Some(Arc::new(overlay)));
         }
-        // Every root starts with an empty barrier overlay: a folder without
-        // native settings inherits the default, never a parent folder's overlay.
         for root in &roots {
             settings.set_folder_overlay(root.clone(), Arc::new(empty_overlay(root)));
         }
@@ -343,7 +325,6 @@ impl Server {
         }
     }
 
-    /// Starts the bounded request worker pool. Called once by [`run`].
     pub fn start(self: &Arc<Self>) {
         for index in 0..REQUEST_WORKERS {
             let server = Arc::downgrade(self);
@@ -387,8 +368,6 @@ impl Server {
         self.settings.settings_for_root(root)
     }
 
-    /// The TypeScript/JavaScript configuration a formatting session uses for
-    /// this path, resolved with the same root, global file and native overlay.
     fn typescript_config(&self, path: &Path) -> Option<dotfmt_typescript::Config> {
         let language = Language::for_path(path)?;
         if !matches!(language, Language::TypeScript | Language::Javascript) {
@@ -404,8 +383,6 @@ impl Server {
         dotfmt_typescript::Config::from_settings(effective.settings(language)).ok()
     }
 
-    /// Formats a full document, applying only the configured fixes selected by
-    /// the shared fix selection. Unsafe categories are disabled untrusted.
     fn format_with_fixes(
         &self,
         session: &mut dotfmt::app::Session,
@@ -491,10 +468,6 @@ impl Server {
         self.diagnostics.log(message);
     }
 
-    /// Applies a push-only `didChangeConfiguration` payload to the default.
-    ///
-    /// Clients without `workspace/configuration` cannot scope values per
-    /// folder, so the payload is treated as the workspace default.
     fn configure_push(&self, value: &Value) {
         let changed = self.settings.apply_default(value);
         self.refresh_default_overlay();
@@ -503,7 +476,6 @@ impl Server {
         }
     }
 
-    /// Applies a full default configuration from `workspace/configuration`.
     fn configure_default(&self, value: &Value) -> bool {
         if value.is_null() {
             return false;
@@ -513,7 +485,6 @@ impl Server {
         changed
     }
 
-    /// Applies one folder's configuration and re-parses its native overlay.
     fn configure_folder(&self, root: &Path, value: &Value) -> bool {
         if value.is_null() {
             return false;
@@ -542,8 +513,6 @@ impl Server {
         self.settings.set_default_overlay(overlay);
     }
 
-    /// Parses an overlay, logging a bad setting and falling back to an empty
-    /// (no-op) overlay so editing one key cannot crash or disable formatting.
     fn parse_overlay(&self, value: Option<Value>, root: &Path) -> Option<Arc<ConfigOverlay>> {
         let value = value?;
         match ConfigOverlay::from_json(&value, root) {
@@ -557,10 +526,6 @@ impl Server {
         }
     }
 
-    /// Pulls the default and one configuration per workspace folder.
-    ///
-    /// A pull is only applied when no newer pull has started; only folders
-    /// whose settings changed are reloaded.
     fn pull_settings(self: &Arc<Self>) {
         if !self.supports_configuration {
             return;
@@ -596,8 +561,6 @@ impl Server {
                     let Some(settings) = value.get(index + 1) else {
                         continue;
                     };
-                    // A folder may have been removed while this pull was in
-                    // flight; do not resurrect its settings.
                     if !current_roots.iter().any(|current| current == root) {
                         continue;
                     }
@@ -622,7 +585,6 @@ impl Server {
         });
     }
 
-    /// Requests one folder's configuration after a `didOpen` beat the initial pull.
     fn request_folder(self: &Arc<Self>, root: PathBuf) {
         if !self.supports_configuration {
             return;
@@ -668,15 +630,12 @@ impl Server {
         });
     }
 
-    /// Rebuilds everything: trust, the default configuration or a global config file.
     fn reload_all(&self) {
         self.workspace.invalidate();
         self.clear_configuration_errors(None);
         dotfmt_typescript::project::clear_cache();
         self.diagnostics.clear_all();
         self.tsc.invalidate();
-        // Snapshot under the lock, then reschedule without holding it so
-        // request handlers and diagnostics are not blocked by the clone.
         let snapshot = self.document_snapshot(|_| true);
         for (uri, document) in snapshot.iter() {
             if !supported(uri, document.language()) {
@@ -689,8 +648,6 @@ impl Server {
         }
     }
 
-    /// Removes one workspace folder without snapshotting or rescheduling its
-    /// documents. The removal epoch discards jobs that were already debounced.
     fn remove_folder(&self, root: &Path) {
         let root = crate::workspace::normalize(root);
         dotfmt_typescript::project::invalidate_root(&root);
@@ -700,7 +657,6 @@ impl Server {
         self.tsc.invalidate_root(&root);
     }
 
-    /// Reloads one workspace folder without touching another folder's state.
     fn reload_folder(&self, root: &Path) {
         let root = crate::workspace::normalize(root);
         dotfmt_typescript::project::invalidate_root(&root);
@@ -720,10 +676,6 @@ impl Server {
         }
     }
 
-    /// Snapshots the open documents whose canonical path satisfies `keep`.
-    ///
-    /// Canonicalising here keeps symlinked workspace roots comparable with the
-    /// canonical roots used by `reload_folder` and the diagnostics store.
     fn document_snapshot(&self, keep: impl Fn(&Path) -> bool) -> Documents {
         let documents = self
             .documents
@@ -741,8 +693,6 @@ impl Server {
         snapshot
     }
 
-    /// Invalidates compiler results and rechecks the open documents of one
-    /// root, or every root when `root` is `None`.
     fn reschedule_tsc(&self, root: Option<&Path>) {
         let root = root.map(crate::workspace::normalize);
         let root = root.as_deref();
@@ -992,11 +942,6 @@ impl Server {
         }
     }
 
-    /// Pull diagnostics: the merged dotfmt + tsc error set for one URI.
-    ///
-    /// The report always contains both sources so a pull client never loses
-    /// tsc entries to a dotfmt-only response. Unsupported documents report an
-    /// empty full set rather than an error.
     fn diagnostic(&self, params: &Value) -> std::result::Result<Value, RpcError> {
         let params: DocumentDiagnosticParams = parse(params)?;
         let uri = params.text_document.uri;
@@ -1062,10 +1007,6 @@ impl Server {
         request_fixes: bool,
         state: Option<&RequestState>,
     ) -> std::result::Result<Vec<TextEdit>, RpcError> {
-        // Configured dotfmt.dotfile fixes are only for full-document formatting;
-        // range/on-type formatting never applies them. Safe categories run in
-        // untrusted workspaces; unsafe/export categories stay gated by the
-        // shared fix selection.
         let fixes = request_fixes && ranges.is_empty();
         let path = self.path(uri, document)?;
         if fixes && let Some(root) = dotfmt_typescript::project::discover_root(&path) {
@@ -1131,8 +1072,6 @@ impl Server {
             source = inspection.after;
             on_save_fixes = true;
         }
-        // `willSaveWaitUntil` is one of the two paths allowed to apply
-        // configured fixes. Untrusted workspaces never run them.
         if self.trusted()
             && let Some(root) = dotfmt_typescript::project::discover_root(&path)
         {
@@ -1152,7 +1091,6 @@ impl Server {
             }
         };
         if !on_save_fixes {
-            // `fixes.onSave = off` must not turn will-save into format-on-save.
             let plain =
                 match analysis::format(&mut session, &path, document.text(), languages, false) {
                     Ok(text) => text,
@@ -1189,9 +1127,6 @@ impl Server {
         let wants_fix_all = actions::wants(&only, actions::FIX_ALL);
         let wants_organize = actions::wants(&only, actions::ORGANIZE_IMPORTS);
         let wants_format = actions::wants(&only, actions::FORMAT);
-        // Project analysis is only needed when an unsafe unused-export quick
-        // fix can be returned. It is expensive, trusted-only, and never part of
-        // diagnostics or formatting.
         let settings = self.settings_for(&path);
         let project_analysis = analysis::is_typescript(&path)
             && settings.code_actions_unused_exports
@@ -1223,8 +1158,6 @@ impl Server {
                     },
                 )
             };
-            // Quickfixes are always the per-change fixes, even when organize
-            // imports covers the same declaration.
             if wants_quickfix {
                 state.check()?;
                 let analysis = match analyze(false) {
@@ -1239,8 +1172,6 @@ impl Server {
                     .cloned()
                     .collect();
             }
-            // Source actions use the organized plan so they never overlap the
-            // per-change fixes it covers.
             if wants_fix_all || wants_organize {
                 state.check()?;
                 let analysis = match analyze(true) {
@@ -1307,9 +1238,6 @@ impl Server {
                     }
                 }
             };
-            // Formatting-only requests must never carry fixes. Compute the
-            // plain format once and use it for every source action without
-            // selected fixes; only fix-all may include safe fix edits.
             let plain = formatted(document.text());
             if wants_format {
                 format = plain.clone();
@@ -1461,7 +1389,6 @@ impl Server {
         Ok(json!(text))
     }
 
-    /// Enabled dotfmt language names for a workspace folder.
     fn languages(&self, value: Value) -> std::result::Result<Value, RpcError> {
         let root = language_root(&self.workspace, &value);
         let overlay = self
@@ -1545,8 +1472,6 @@ impl Server {
                     self.diagnostics
                         .schedule(&document, path.clone(), item.uri.clone());
                     self.schedule_tsc(item.uri);
-                    // The initial pull may have raced this open, and a folder
-                    // may have been added after `initialized`.
                     if let Some(root) = self.workspace.containing_root(&path)
                         && (!self.settings.has_folder(&root)
                             || self
@@ -1614,8 +1539,6 @@ impl Server {
                             self.diagnostics.clear_tsc_uri(uri);
                         }
                         Some(Ok((snapshot, false))) => {
-                            // tsc entries describe the file on disk; an edit
-                            // invalidates them until the next save/open.
                             self.diagnostics.clear_tsc_uri(uri.clone());
                             if supported(&uri, snapshot.language())
                                 && let Some(path) = analysis::buffer_path(&uri, snapshot.language())
@@ -1677,8 +1600,6 @@ impl Server {
             }
             DidChangeConfiguration::METHOD => {
                 if self.supports_configuration {
-                    // Pull is authoritative; `params.settings` can be stale and
-                    // does not carry per-folder scopes.
                     self.pull_settings();
                 } else if let Ok(params) =
                     serde_json::from_value::<DidChangeConfigurationParams>(notification.params)
@@ -1733,9 +1654,6 @@ impl Server {
                         }
                     }
                     if !all_config {
-                        // Drop dependent caches across every root. The root
-                        // containing the event is reloaded below; an external
-                        // dependent keeps the queued check from this call.
                         for path in &tsc_paths {
                             let _ = self.tsc.invalidate_path(path);
                         }
@@ -1746,8 +1664,6 @@ impl Server {
                                 self.reschedule_tsc(Some(&root));
                             }
                         }
-                        // A config reload already dropped its own folder's
-                        // cache; invalidate only dependents in other folders.
                         for path in &config_paths {
                             self.tsc.invalidate_path_except(path, &config_roots);
                         }
@@ -1826,8 +1742,6 @@ impl Server {
             json!({ "globPattern": "**/tailwind.config.*" }),
         ];
         if let Some(global) = &self.global_config {
-            // A relative pattern keeps Windows separators out of the glob; the
-            // base URI also survives a local client talking to a remote server.
             match (global.parent(), global.file_name()) {
                 (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => {
                     watchers.push(json!({
@@ -1890,8 +1804,6 @@ impl Server {
         } else {
             self.diagnostics.clear(uri.clone());
         }
-        // A missing or broken configuration fails every format request from the
-        // same root; log its signature once until a reload changes the session.
         let root = uri::path(uri)
             .map_or_else(|| PathBuf::from("."), |path| self.workspace.root_for(&path));
         let mut messages = Vec::new();
@@ -1917,7 +1829,6 @@ impl Server {
         }
     }
 
-    /// Allows the next configuration failure of a rebuilt session to be logged.
     fn clear_configuration_errors(&self, root: Option<&Path>) {
         let mut logged = self
             .logged_configuration_errors
@@ -2004,7 +1915,6 @@ fn related_reports(merged: &Merged) -> Option<HashMap<Uri, DocumentDiagnosticRep
     })
 }
 
-/// The workspace folder a `dotfmt/languages` request scopes to.
 fn language_root(workspace: &Workspace, value: &Value) -> PathBuf {
     let scope = value
         .get("scopeUri")
@@ -2040,11 +1950,7 @@ fn settings_json(settings: &Settings) -> Value {
     })
 }
 
-/// The `dotfmt.format` and `dotfmt.formatExtra` objects merged with `format`
-/// winning wherever both set a key. Values are validated by [`ConfigOverlay`].
 fn overlay_value(settings: &Settings) -> Option<Value> {
-    // `dotfmt.formatExtra` has a `{}` default, so an empty object means the
-    // user set nothing and a folder must keep inheriting the default overlay.
     let extra = settings
         .format_extra
         .as_ref()
@@ -2135,8 +2041,6 @@ fn parse<T: DeserializeOwned>(value: &Value) -> std::result::Result<T, RpcError>
         .map_err(|error| RpcError::invalid_params(error.to_string()))
 }
 
-/// The queued format/on-type work a request supersedes. Only formatting
-/// families coalesce; will-save and code-action requests never do.
 fn coalesce_key(method: &str, params: &Value) -> Option<(Uri, &'static str)> {
     let family = match method {
         Formatting::METHOD | RangeFormatting::METHOD | RangesFormatting::METHOD => "format",
@@ -2276,8 +2180,6 @@ fn block(document: &Document, position: lsp_types::Position) -> Range {
     document.lsp_range(&document.line_range(first, last))
 }
 
-/// Expands each UTF-16 range to the enclosing TypeScript/JavaScript syntax
-/// node. Other languages keep the requested byte range.
 fn expanded_ranges(
     document: &Document,
     path: &Path,
@@ -2304,8 +2206,6 @@ fn expanded_ranges(
         .collect()
 }
 
-/// Drops fixes whose edits are identical to an earlier fix. Organize plans can
-/// be reported once per import run but the source action is still one edit.
 fn dedupe_identical_fixes(fixes: Vec<&Fix>) -> Vec<&Fix> {
     let mut unique: Vec<&Fix> = Vec::new();
     for fix in fixes {
@@ -2316,8 +2216,6 @@ fn dedupe_identical_fixes(fixes: Vec<&Fix>) -> Vec<&Fix> {
     unique
 }
 
-/// Removes fixes whose edits overlap an organize-imports edit. Applying both
-/// would be an ambiguous overlapping `WorkspaceEdit`.
 fn without_covered<'a>(fixes: Vec<&'a Fix>, coverage: &[&Fix]) -> Vec<&'a Fix> {
     let covered: Vec<(usize, usize)> = coverage
         .iter()
@@ -2335,9 +2233,6 @@ fn without_covered<'a>(fixes: Vec<&'a Fix>, coverage: &[&Fix]) -> Vec<&'a Fix> {
         .collect()
 }
 
-/// Range edits are line-oriented, so a syntax node or cursor selection expands
-/// to the whole lines it touches. This keeps every emitted edit contained in
-/// the range while never rewriting a statement outside it.
 fn full_lines(document: &Document, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
     let start = document.position(range.start);
     let end = document.position(range.end);
@@ -2352,8 +2247,6 @@ fn full_lines(document: &Document, range: std::ops::Range<usize>) -> std::ops::R
     start..end.max(start)
 }
 
-/// The syntax node for a zero-width on-type cursor, or the line block for
-/// languages without TypeScript syntax support.
 fn on_type_range(document: &Document, path: &Path, position: lsp_types::Position) -> Range {
     let Some(dialect) = dotfmt_typescript::Dialect::for_path(path) else {
         return block(document, position);
@@ -2775,8 +2668,6 @@ mod tests {
                 let session = server.workspace.session(&path);
                 let mut session = session.lock().unwrap();
                 let explanation = session.explain(&path, Vec::new(), None).unwrap();
-                // Pinning the source makes an environment global config
-                // incapable of masking a broken initialization option.
                 assert_eq!(explanation.sources, vec![global.clone()]);
             }
             let edits = server
@@ -3861,7 +3752,6 @@ mod tests {
         std::fs::set_permissions(&path, permissions).unwrap();
     }
 
-    /// A compiler that records its pid and then runs past any test deadline.
     #[cfg(unix)]
     fn write_hanging_tsc(root: &Path) {
         let directory = root.join("node_modules/.bin");
@@ -5015,8 +4905,6 @@ fi"#,
         let result_id = report["resultId"].as_str().unwrap().to_owned();
         assert_eq!(pull(Some(&result_id))["kind"], json!("unchanged"));
 
-        // The source is unchanged, but a different dotfmt configuration error
-        // must produce a new result id instead of an unchanged report.
         let config_error = dotfmt_core::diagnostic::Diagnostic::config(
             &dotfile_path,
             1,
@@ -5557,8 +5445,6 @@ fi"#,
                 )))
                 .unwrap();
             let doctor = receive_response(&client, &RequestId::from(50)).unwrap();
-            // The default pull carries the overlay; the folder pull is `{}`, so
-            // its own settings have no overlay and inherit the default one.
             if doctor["default"]["hasFormat"] == json!(true)
                 && doctor["folders"][0]["hasFormat"] == json!(false)
             {

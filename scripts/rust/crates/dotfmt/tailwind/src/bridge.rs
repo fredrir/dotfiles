@@ -1,9 +1,3 @@
-//! Project order discovery through the project's own Tailwind installation.
-//!
-//! The bridge is intentionally optional: a missing Node, Tailwind package, or
-//! project configuration is reported as a typed error so callers can fall back
-//! to the Rust pattern sorter. Node is always a subprocess; project JavaScript
-//! is never executed in this process.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
@@ -25,12 +19,10 @@ const BRIDGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 static TRUSTED: AtomicBool = AtomicBool::new(true);
 
-/// Set by the editor host before project Tailwind JavaScript may be executed.
 pub fn set_trusted(trusted: bool) {
     TRUSTED.store(trusted, Ordering::Relaxed);
 }
 
-/// Whether project-tailwind bridges are allowed in this process.
 pub fn trusted() -> bool {
     TRUSTED.load(Ordering::Relaxed)
 }
@@ -80,7 +72,6 @@ pub enum BridgeError {
     MissingConfig(PathBuf),
 }
 
-/// The deterministic Tailwind project selected for one source file.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Discovery {
     pub package_root: PathBuf,
@@ -89,25 +80,16 @@ pub struct Discovery {
     pub config: Option<PathBuf>,
     pub tailwind_version: Option<String>,
     pub plugin_version: Option<String>,
-    /// Non-fatal configuration choices (for example both path settings set).
     pub warnings: Vec<String>,
-    /// CSS entries imported by the selected stylesheet or the source file.
     pub dependencies: Vec<PathBuf>,
 }
 
-/// A resolved project order together with the discovery it came from.
 #[derive(Clone, Debug)]
 pub struct ProjectOrder {
     pub table: OrderTable,
     pub discovery: Discovery,
 }
 
-/// Resolve the project's authoritative class order for the given classes.
-///
-/// Results are cached per theme (discovery result, versions, mtimes, and a
-/// bounded dependency digest) and per exact candidate set. A cache miss sends
-/// the file's complete unique class list to Node; subset ranks are never merged
-/// into an existing table.
 pub fn project_order(
     root: &Path,
     stylesheet: Option<&Path>,
@@ -117,8 +99,6 @@ pub fn project_order(
     project_order_with_cache(root, stylesheet, config, classes, &default_cache_root())
 }
 
-/// Resolve the order for `source`, with explicit paths resolved against the
-/// configuration layer that declared them (`None` means the workspace root).
 pub fn project_order_for(
     root: &Path,
     source: Option<&Path>,
@@ -140,7 +120,6 @@ pub fn project_order_for(
     )
 }
 
-/// Discover the selected project without starting Node.
 pub fn discover_project(
     root: &Path,
     source: Option<&Path>,
@@ -159,7 +138,6 @@ pub fn discover_project(
     )
 }
 
-/// Clear process-local discovery and order caches after watched files change.
 pub fn invalidate_caches() {
     discovery_cache()
         .lock()
@@ -171,8 +149,6 @@ pub fn invalidate_caches() {
         .clear();
 }
 
-/// Merge conflicting utility classes through `tailwind-merge` when it is
-/// installed in the project or a global Bun/npm location.
 pub fn merge_class_list(
     root: &Path,
     stylesheet: Option<&Path>,
@@ -310,8 +286,6 @@ where
         return Ok(table);
     }
 
-    // getClassOrder ranks are relative to the queried list. Always ask for the
-    // file's complete candidate set and store only that complete result.
     let response = query(&project, unique.clone())?;
     let mut returned: HashMap<String, Option<i64>> = response.orders.into_iter().collect();
     let mut table = OrderTable::empty().with_source(project.source());
@@ -618,8 +592,6 @@ fn resolve_project_path(root: &Path, path: &Path) -> PathBuf {
     }
 }
 
-/// Resolve an explicit setting against its declaring config layer. A global
-/// setting has no base and resolves against the workspace root.
 fn resolve_declared_path(path: &Path, base: Option<&Path>, workspace_root: &Path) -> PathBuf {
     let resolved = if path.is_absolute() {
         path.to_path_buf()
@@ -727,8 +699,6 @@ fn discover_project_uncached(
     let plugin_version =
         package_version("prettier-plugin-tailwindcss", &package_root, &search_paths);
     let detected_major = tailwind_major(&tailwind_version);
-    // A project with a config but no readable tailwind package is treated as
-    // v3 so config-only projects keep working through the plugin.
     let major = detected_major.or_else(|| {
         find_config_between(&package_root, &workspace_root)
             .is_some()
@@ -1145,7 +1115,6 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// Package version from the project's own `node_modules` ancestry only.
 fn local_package_version(name: &str, root: &Path) -> Option<String> {
     let mut current = Some(root);
     while let Some(directory) = current {
@@ -1520,8 +1489,6 @@ fn run_helper(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if request.base.is_empty() {
-        // Keep the process rooted in a valid directory when the project root is
-        // unavailable; the helper still uses absolute paths from the request.
     } else if Path::new(&request.base).is_dir() {
         command.current_dir(&request.base);
     }
@@ -1789,9 +1756,6 @@ async function main() {
 main().catch((error) => fail("failed", error?.stack ?? error?.message ?? error));
 "#;
 
-/// Whether `root` belongs to a project that has Tailwind installed or configured.
-///
-/// This is a cheap filesystem check; it never starts Node.
 pub fn is_tailwind_project(root: &Path) -> bool {
     let project = Project::locate(root, None, None);
     if find_config(&project.root).is_some() {

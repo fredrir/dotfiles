@@ -14,7 +14,6 @@ pub struct Cut {
     pub lines: bool,
 }
 
-/// Replaces a byte range of the source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Change {
     pub range: Range<usize>,

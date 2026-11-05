@@ -62,14 +62,11 @@ fn an_empty_file_becomes_an_empty_file_rather_than_a_failure() {
 
 #[test]
 fn a_body_that_holds_no_value_is_refused_rather_than_emptied() {
-    // jq answers a file of whitespace with nothing, and a formatter that wrote
-    // nothing over a file somebody wrote is one nobody could leave on save.
     assert_eq!(refused("   \n\n"), "stdin:1:1: expected a value");
     assert_eq!(
         refused("// just a note\n"),
         "stdin:1:1: comments are not JSON"
     );
-    // Repaired, the comment goes, and what is left is the same nothing.
     assert_eq!(
         refused_with_repairs("// just a note\n"),
         "stdin:1:1: expected a value"
@@ -84,8 +81,6 @@ fn what_jq_refuses_is_refused_with_the_position_it_is_at() {
 
 #[test]
 fn what_no_repair_can_take_is_a_failure_with_nothing_on_stdout() {
-    // The other half of the editor contract: a body that cannot be read has to
-    // fail, so the buffer keeps what it had.
     assert_eq!(refused("{\"a\":}"), "stdin:1:6: unexpected }");
     assert_eq!(refused_with_repairs("{\"a\":}"), "stdin:1:6: unexpected }");
 }

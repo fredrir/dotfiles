@@ -95,7 +95,6 @@ fn comments_and_math_keep_literal_contents() {
         "Escaped \\[[literal]] and `%%not a comment%% $x$`",
     ] {
         let result = obsidian(input);
-        // Escaping normal Markdown may be canonicalized, but protected syntax must stay intact.
         if !input.starts_with("Escaped") {
             assert_eq!(result, input);
         }

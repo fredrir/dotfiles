@@ -237,7 +237,6 @@ fn trailing_comma_follows_the_setting_for_fieldless_entries_only() {
     };
     assert_eq!(formatted("@a{k}", &config), "@a{k,}");
     assert_eq!(formatted("@a(k)", &config), "@a(k,)");
-    // BibTeX rejects a comma after an @string value, so it is never added.
     assert_eq!(
         formatted("@string{foo = \"x\"}", &config),
         "@string{foo = \"x\"}"

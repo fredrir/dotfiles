@@ -8,27 +8,16 @@ pub enum LineEndings {
     Windows,
 }
 
-/// Layout choices for [`format`][crate::format] and
-/// [`format_with_dialect`][crate::format_with_dialect].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     pub dialect: Dialect,
     pub line_endings: LineEndings,
     pub final_newline: bool,
-    /// Maximum consecutive blank lines kept inside the file.
     pub blank_lines: usize,
-    /// Trim trailing whitespace that the selected dialect does not consider
-    /// part of a pattern.
     pub trim_trailing_whitespace: bool,
-    /// Drop leading whitespace from `.gitattributes` lines. Other dialects
-    /// treat leading whitespace as pattern data, so this is a no-op there.
     pub trim_leading_whitespace: bool,
-    /// Add one space after `#` on comment lines where that is safe.
     pub format_comments: bool,
-    /// Align the attribute column. `.gitattributes` only.
     pub align: bool,
-    /// Widest pattern to align; `0` means no cap. Longer patterns fall back
-    /// to a single separating space.
     pub align_max: usize,
 }
 
@@ -52,8 +41,6 @@ impl Config {
     pub fn from_settings(settings: &dotfmt_core::config::Settings) -> Result<Self, Diagnostic> {
         let mut config = Self::default();
         for (key, setting) in settings {
-            // Global layout settings reach every language. This engine has no
-            // line width, indentation or quoting choice to apply them to.
             if setting.global && matches!(key.as_str(), "width" | "indent" | "quote_style") {
                 continue;
             }

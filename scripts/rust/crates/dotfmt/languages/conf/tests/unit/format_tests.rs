@@ -5,8 +5,6 @@ fn config() -> Config {
     Config::default()
 }
 
-// ------------------------------------------------------------------- modes
-
 #[test]
 fn the_matcher_handles_the_rest_of_what_fnmatch_reads() {
     assert!(conf::matches("*", ""));
@@ -18,13 +16,10 @@ fn the_matcher_handles_the_rest_of_what_fnmatch_reads() {
     assert!(conf::matches("[!abc]at.conf", "dat.conf"));
     assert!(conf::matches("[a-z]at.conf", "hat.conf"));
     assert!(!conf::matches("[a-z]at.conf", "Hat.conf"));
-    // An unclosed bracket is a literal bracket, as it is in Python.
     assert!(conf::matches("[abc.conf", "[abc.conf"));
     assert!(conf::matches("colors*.conf", "colors.conf"));
     assert!(!conf::matches("colors*.conf", "color.conf"));
 }
-
-// ----------------------------------------------------------------- .conf
 
 fn plain(text: &str) -> String {
     conf::format(text, Mode::Plain, config().final_newline)
@@ -60,8 +55,6 @@ fn hypr_drops_the_blank_line_above_a_closing_brace() {
 
 #[test]
 fn a_crlf_hypr_config_still_finds_its_closing_brace() {
-    // Deviation 5. `rstrip(" \t")` leaves the `\r`, after which `line == "}"`
-    // never matches and the file re-indents from its first brace onwards.
     let out = hypr("general {\r\ngaps_in = 5\r\n}\r\nbind = SUPER, Q\r\n");
 
     assert_eq!(out, "general {\n    gaps_in = 5\n}\nbind = SUPER, Q");

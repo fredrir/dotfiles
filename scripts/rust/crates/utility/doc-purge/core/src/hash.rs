@@ -3,11 +3,6 @@ use std::ops::Range;
 use crate::scan::{Bail, Logical, Out, char_width, identifier_byte, line_end, starts_with};
 use crate::syntax::Syntax;
 
-/// Which hand-written lexer reads this descriptor.
-///
-/// Keyed by descriptor name, not by the language enum: the module must not
-/// depend on the language registry at all, and a new dialect in one of these
-/// shapes is one row.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Lexer {
     Python,
@@ -23,8 +18,6 @@ const LEXERS: &[(&str, Lexer)] = &[
     ("ruby", Lexer::Ruby),
 ];
 
-/// The lexer for `syntax`, or `None` when this module does not know the
-/// descriptor.
 pub fn lexer(syntax: &'static Syntax) -> Option<Lexer> {
     LEXERS
         .iter()
@@ -217,9 +210,6 @@ fn python_string(
     }
     Err(Bail("unterminated string"))
 }
-
-// TOML is served by Engine::Generic: its descriptor covers `#` and both
-// triple-quote forms, so this module no longer owns a TOML lexer.
 
 fn yaml(source: &[u8]) -> Result<Out, Bail> {
     let mut out = Out::default();
@@ -875,8 +865,6 @@ mod tests {
             if !hand_written(syntax.engine) {
                 continue;
             }
-            // Perl is the one dialect getting its own engine (engine/perl.rs),
-            // so it deliberately has no row here.
             if syntax.name == "perl" {
                 continue;
             }

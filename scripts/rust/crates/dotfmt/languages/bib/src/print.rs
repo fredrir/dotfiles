@@ -31,8 +31,6 @@ fn print_entry(entry: &Entry, text: &str, config: &Config) -> String {
     let kind = case(entry.kind.slice(text), config.entry_type_case);
     let key = entry.key.slice(text).trim();
     if entry.fields.is_empty() && entry.trailing.is_empty() {
-        // A fieldless entry has no last field, so `trailing_comma` decides whether the
-        // key keeps its comma.
         let comma = if config.trailing_comma { "," } else { "" };
         return format!(
             "@{kind}{}{key}{comma}{}",
@@ -55,9 +53,6 @@ fn print_entry(entry: &Entry, text: &str, config: &Config) -> String {
         0
     };
     let mut output = format!("@{kind}{}{key},\n", entry.open as char);
-    // The comma after the key is required as soon as the entry has a body: it is the
-    // separator the parser needs before fields and preserved comments, not a trailing
-    // comma after a last field.
     for (index, field) in entry.fields.iter().enumerate() {
         for comment in &field.leading {
             output.push_str(&indent);
@@ -121,7 +116,6 @@ fn print_assign(assign: &Assign, text: &str, config: &Config) -> String {
     output.push_str(&name);
     output.push_str(" = ");
     output.push_str(value);
-    // BibTeX rejects a comma after an @string value, so `trailing_comma` never adds one.
     output.push('\n');
     for comment in &assign.trailing {
         output.push_str(&indent);
@@ -173,8 +167,6 @@ fn wrap_value(raw: &str, start: usize, config: &Config, continuation: &str) -> S
             break;
         }
         let limit = config.width.saturating_sub(column).max(1);
-        // When no space fits before the limit, end the line after the first over-long
-        // token rather than leaving the rest of the value unwrapped.
         let Some((prefix, suffix)) =
             break_point(rest, limit, config.wrap_min()).or_else(|| first_break_point(rest))
         else {

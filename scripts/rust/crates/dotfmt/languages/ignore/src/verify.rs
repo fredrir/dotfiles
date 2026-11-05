@@ -2,9 +2,6 @@ use crate::dialect::Dialect;
 use crate::parse::{self, Document, Line};
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 
-/// A semantic snapshot of a document. Whitespace that a dialect ignores is
-/// excluded; pattern bytes, attribute bytes and line order are compared
-/// exactly.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fingerprint {
     items: Vec<Item>,
@@ -20,8 +17,6 @@ enum Item {
 }
 
 impl Fingerprint {
-    /// Fingerprint text after normalizing CRLF. Used by the guard and by
-    /// tests that need to prove which edits are semantic.
     pub fn of(input: &str, dialect: Dialect, blank_lines: usize) -> Self {
         let input = input.strip_prefix('\u{feff}').unwrap_or(input);
         let text = input.replace("\r\n", "\n");
@@ -59,9 +54,6 @@ impl Fingerprint {
                 }
             }
         }
-        // Leading and trailing blank lines are layout, not content: they may
-        // be added or removed by the printer. Internal runs are compared after
-        // clamping to the configured maximum.
         Fingerprint { items }
     }
 }
@@ -87,7 +79,6 @@ fn comment_key(body: &str) -> String {
     format!("#{}", rest.trim_matches([' ', '\t']))
 }
 
-/// Reject a layout that would change what the file matches.
 pub fn check(expected: &Fingerprint, actual: &Fingerprint) -> Result<(), Diagnostic> {
     if expected == actual {
         return Ok(());

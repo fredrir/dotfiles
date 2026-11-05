@@ -1,15 +1,9 @@
-//! File URI conversion without pulling in a URL crate.
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use lsp_types::Uri;
 
-/// A filesystem-independent map key for a URI.
-///
-/// File URIs use their normalized path identity, so every spelling of the same
-/// file (`%28`/`(`, `..`, symlinks) shares one entry. Non-file URIs fall back
-/// to their raw spelling.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Key {
     Path(PathBuf),
@@ -24,8 +18,6 @@ impl Key {
         }
     }
 
-    /// The canonical URI for this key. Open documents are resolved to their
-    /// client spelling by the diagnostics store before publication.
     pub fn uri(&self) -> Uri {
         match self {
             Self::Path(path) => from_path(path),
@@ -34,12 +26,10 @@ impl Key {
     }
 }
 
-/// Whether a URI addresses a file on disk.
 pub fn is_file(uri: &Uri) -> bool {
     uri.scheme().is_some_and(|scheme| scheme.as_str() == "file")
 }
 
-/// The filesystem path behind a `file:` URI.
 pub fn path(uri: &Uri) -> Option<PathBuf> {
     if !is_file(uri) {
         return None;
@@ -57,12 +47,10 @@ pub fn path(uri: &Uri) -> Option<PathBuf> {
     Some(PathBuf::from(decoded))
 }
 
-/// The normalized path identity behind a file URI.
 pub fn identity(uri: &Uri) -> Option<PathBuf> {
     path(uri).map(|path| crate::workspace::normalize(&path))
 }
 
-/// The identity key used by tsc groups, diagnostics and configuration errors.
 pub fn key(uri: &Uri) -> Key {
     match identity(uri) {
         Some(path) => Key::Path(path),
@@ -70,11 +58,6 @@ pub fn key(uri: &Uri) -> Key {
     }
 }
 
-/// A `file:` URI for an absolute path, encoded like Node's `pathToFileURL`.
-///
-/// The safe set is `encodeURI` minus `~`, `[` and `]`, and the URL parser's
-/// path escapes (`#`, `?`, quotes, braces and controls) are applied too. This
-/// leaves route-group parentheses and `@` literal, matching VS Code.
 pub fn from_path(path: &Path) -> Uri {
     #[cfg(windows)]
     let text = path.to_string_lossy().replace('\\', "/");

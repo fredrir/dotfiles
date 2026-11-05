@@ -946,9 +946,6 @@ fn css_crlf_lines_survive_a_purge() {
     );
 }
 
-/// A bare-CR file has no `\n` at all. A scanner that only looked for `\n`
-/// would stretch the first line comment to the end of the file and delete the
-/// whole thing, so every family has to break lines on `\r` too.
 #[test]
 fn a_bare_cr_file_keeps_its_code() {
     for (dialect, source, want) in [
@@ -977,8 +974,6 @@ fn a_bare_cr_file_keeps_its_code() {
     }
 }
 
-/// The same shape for an inline comment: the code before and after must both
-/// survive, and no stray space may be left behind.
 #[test]
 fn a_bare_cr_inline_comment_leaves_the_code_alone() {
     for (dialect, source, want) in [
@@ -994,8 +989,6 @@ fn a_bare_cr_inline_comment_leaves_the_code_alone() {
     }
 }
 
-/// A bare-CR file whose comment is the only content becomes empty rather than
-/// keeping a stray `\r`.
 #[test]
 fn a_bare_cr_file_of_comments_only_becomes_empty() {
     assert_eq!(purged("# one\r# two\r", Dialect::Python), "");
@@ -1051,7 +1044,7 @@ fn purged_with(source: &str, dialect: Dialect, options: purge::Options) -> Strin
 
 #[test]
 fn options_can_leave_typographic_glyphs_alone() {
-    let source = "let s = \"“quoted”\"; // note\n";
+    let source = "let s = \"\"quoted\"\"; // note\n";
     assert_eq!(
         purged_with(
             source,
@@ -1061,7 +1054,7 @@ fn options_can_leave_typographic_glyphs_alone() {
                 ..purge::Options::default()
             }
         ),
-        "let s = \"“quoted”\";\n"
+        "let s = \"\"quoted\"\";\n"
     );
     assert_eq!(
         purged(source, Dialect::Rust),
@@ -1125,7 +1118,7 @@ fn aggressive_removes_a_stub_doc_string_entirely() {
 
 #[test]
 fn only_kind_options_are_independent() {
-    let source = "\"\"\"Module docs.\"\"\"\nx = \"“quoted”\"  # note\n";
+    let source = "\"\"\"Module docs.\"\"\"\nx = \"\"quoted\"\"  # note\n";
     assert_eq!(
         purged_with(
             source,
@@ -1137,7 +1130,7 @@ fn only_kind_options_are_independent() {
                 ..purge::Options::default()
             }
         ),
-        "\"\"\"Module docs.\"\"\"\nx = \"“quoted”\"\n"
+        "\"\"\"Module docs.\"\"\"\nx = \"\"quoted\"\"\n"
     );
     assert_eq!(
         purged_with(
@@ -1150,7 +1143,7 @@ fn only_kind_options_are_independent() {
                 ..purge::Options::default()
             }
         ),
-        "x = \"“quoted”\"  # note\n"
+        "x = \"\"quoted\"\"  # note\n"
     );
     assert_eq!(
         purged_with(

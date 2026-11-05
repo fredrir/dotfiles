@@ -1,12 +1,5 @@
 #![forbid(unsafe_code)]
 
-//! The canonical behaviour matrix from SPEC §7.
-//!
-//! Each dialect gets one row per canonical cell. The rows are built from the
-//! dialect's descriptor ([`Dialect::syntax`]) at runtime, because the
-//! descriptor is what the matrix audits: a dialect that cannot express a cell
-//! says so on stderr instead of passing silently.
-
 #[path = "support/mod.rs"]
 mod support;
 
@@ -14,12 +7,10 @@ use doc_purge_core::lang::Dialect;
 
 pub use support::{CELLS, Case, Expect};
 
-/// The nine canonical cells a single dialect can express.
 pub fn cells(dialect: Dialect) -> Vec<Case> {
     support::cells(dialect)
 }
 
-/// Every row the harness runs: one [`cells`] set per dialect in `LANGUAGES`.
 pub fn cases() -> &'static [Case] {
     support::cases()
 }
@@ -81,10 +72,6 @@ fn unterminated() {
 fn idempotent() {
     let mut checked = 0usize;
     for case in cases().iter().filter(|case| case.cell == "idempotent") {
-        // A pending dialect has no purging pass to run twice: its placeholder
-        // row asserts the skip, which is the whole claim the cell can make while
-        // the scanner is missing, and `check` owns that assertion. Counting it
-        // out keeps `checked` meaning "rows that were really purged twice".
         if matches!(case.expect, Expect::Skipped(_)) {
             check(case);
             continue;
@@ -165,9 +152,6 @@ fn check(case: &Case) {
     assert_invariants_everywhere(case);
 }
 
-/// The invariants from SPEC §7 have to hold for every terminator the tool
-/// accepts, not only for `\n`, so each cell is replayed with CRLF, with bare
-/// CR and behind a byte order mark.
 fn assert_invariants_everywhere(case: &Case) {
     if matches!(case.expect, Expect::Skipped(_)) {
         return;

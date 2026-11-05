@@ -1,8 +1,3 @@
-//! A lossless BibTeX/BibLaTeX parser.
-//!
-//! The parser records byte spans rather than decoded values. The printer only
-//! writes separators, indentation, and case-normalised names around those
-//! spans, so a value can never be silently rewritten.
 
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 
@@ -156,8 +151,6 @@ impl Parser<'_> {
                 b'%' => self.pos = line_end(bytes, self.pos),
                 b'@' if self.looks_like_block(self.pos) => return Ok(Some(self.pos)),
                 b'@' => {
-                    // BibTeX reports both forms, so a stray `@` outside a block is
-                    // not prose that can be silently skipped.
                     let message = if self.block_ident(self.pos).is_some() {
                         "expected '{' or '(' after the block type"
                     } else {
@@ -171,7 +164,6 @@ impl Parser<'_> {
         Ok(None)
     }
 
-    /// The block type after the `@` at `at`, with the offset just past it.
     fn block_ident(&self, at: usize) -> Option<(usize, &str)> {
         let bytes = self.text.as_bytes();
         let mut i = at + 1;
@@ -213,9 +205,6 @@ impl Parser<'_> {
         let open = self.peek().filter(|byte| *byte == b'{' || *byte == b'(');
         if kind == "comment" {
             let Some(open) = open else {
-                // A brace-less @comment runs to the next `@`. The whitespace that
-                // separates it from the next block (or ends the file) is trivia, not
-                // comment text, so the printed separator cannot grow on every pass.
                 let end = self.text[self.pos..]
                     .find('@')
                     .map_or(self.text.len(), |offset| self.pos + offset);
@@ -449,11 +438,6 @@ impl Parser<'_> {
         }))
     }
 
-    /// Scan the entry key body; the caller trims the span.
-    ///
-    /// Braced entries stop at `,` or `}`, as BibTeX does. A parenthesised key may
-    /// contain `)`, so it ends at the first comma and only a comma-less entry ends at
-    /// its final `)`.
     fn scan_key(&mut self, open: u8, close: u8) {
         if open == b'{' {
             while self
@@ -539,9 +523,6 @@ impl Parser<'_> {
                 self.pos = after_part;
                 break;
             }
-            // BibTeX rejects a comment between concatenated parts; printing it once as
-            // a leading comment would move it, and keeping it in the value span would
-            // emit it twice.
             self.reject_concat_comments(&between)?;
             self.pos += 1;
             let mut after_hash = Vec::new();
@@ -565,8 +546,6 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// A comment between an `@preamble` value and its closing delimiter would swallow
-    /// that delimiter once printed without the newline that ended the comment.
     fn reject_preamble_comments(&self, comments: &[Comment]) -> Result<(), Diagnostic> {
         if let Some(comment) = comments.first() {
             return Err(self.error(

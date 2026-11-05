@@ -12,8 +12,6 @@ use std::sync::Arc;
 
 const REPAIR: &str = "repair";
 
-/// Export removal changes public API; the editor host clears process trust for
-/// untrusted workspaces and `DOTFMT_TRUSTED=0` does the same for the CLI.
 fn export_fixes_trusted() -> bool {
     dotfmt_tailwind::bridge::trusted()
         && std::env::var_os("DOTFMT_TRUSTED").is_none_or(|value| value != "0" && value != "false")
@@ -213,7 +211,6 @@ impl Engine {
         Ok(self)
     }
 
-    /// The dialect `format` would use; JSON reports `auto` while comments still decide it.
     pub fn dialect(
         &self,
         path: &Path,
@@ -264,9 +261,6 @@ impl Engine {
         }
     }
 
-    /// Format a document, applying configured fixes first for TypeScript and
-    /// JavaScript. A fix that cannot be analyzed or applied never fails the
-    /// format: the raw formatter result is returned instead.
     pub fn format(
         &self,
         path: &Path,
@@ -293,7 +287,6 @@ impl Engine {
         self.format_with_fixes(path, context, input, detected, clean, selection)
     }
 
-    /// Categories selected for an explicit CLI/LSP fix request.
     pub fn fix_selection(&self, mode: FixMode) -> Option<dotfmt_typescript::config::FixSelection> {
         match &self.kind {
             Kind::TypeScript(config, _) | Kind::Javascript(config, _) if mode != FixMode::None => {
@@ -376,7 +369,6 @@ impl Engine {
         }
     }
 
-    /// The language formatter without configured fixes.
     pub(super) fn format_text(
         &self,
         path: &Path,
@@ -527,11 +519,6 @@ impl Engine {
         }
     }
 
-    /// Resolve the project's Tailwind order once per format call.
-    ///
-    /// `Mode::Auto` only engages for projects that actually use Tailwind. A
-    /// missing Node/Tailwind falls back to the Rust pattern sorter; the
-    /// `tailwind_order = project` setting turns that into a diagnostic instead.
     fn prepare_tailwind(
         &self,
         path: &Path,
@@ -559,8 +546,6 @@ impl Engine {
             && std::env::var_os("DOTFMT_TRUSTED")
                 .is_none_or(|value| value != "0" && value != "false");
         if !trusted {
-            // Project Tailwind may run project JavaScript; untrusted editors
-            // get the deterministic Rust order and never the merge bridge.
             let mut safe = config.clone();
             safe.merge = false;
             *sorter = Some(
@@ -628,7 +613,6 @@ impl Engine {
         }
     }
 
-    /// Findings and explicit fixes for one document.
     #[allow(clippy::too_many_arguments)]
     pub fn analyze(
         &self,
@@ -677,7 +661,6 @@ impl Engine {
         }
     }
 
-    /// Repairs only once a syntax error refuses the input, so valid input parses once.
     fn settled(
         &self,
         input: &str,
@@ -729,8 +712,6 @@ impl Engines {
                     }
                     Ok(())
                 })();
-                // Prepared plans can come from another Session. Retain the
-                // configuration so its pointer cannot be reused as a cache key.
                 (Arc::clone(config), result)
             })
             .1

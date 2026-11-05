@@ -130,8 +130,6 @@ impl Language {
         }
     }
 
-    /// Exact file names that are not extensions because they begin with a dot
-    /// or are conventional config names.
     fn basenames(self) -> &'static [&'static str] {
         match self {
             Self::Env => &[".env", "env"],
@@ -154,7 +152,6 @@ impl Language {
         }
     }
 
-    /// File-name prefixes, matched after exact names and before extensions.
     fn prefixes(self) -> &'static [&'static str] {
         match self {
             Self::Env => &[".env."],
@@ -162,8 +159,6 @@ impl Language {
         }
     }
 
-    /// Path suffixes that identify a file by its parent directory as well as
-    /// its name.
     fn path_suffixes(self) -> &'static [&'static str] {
         match self {
             Self::Ignore => &[".git/info/exclude", ".git/info/attributes"],
@@ -172,7 +167,6 @@ impl Language {
         }
     }
 
-    /// Directory suffixes whose whole contents belong to one language.
     fn path_dirs(self) -> &'static [&'static str] {
         match self {
             Self::Ini => &[".ssh/config.d", "ssh/config.d"],
@@ -230,7 +224,6 @@ impl Language {
     }
 
     pub fn for_path(path: &Path) -> Option<Self> {
-        // A non-UTF-8 basename must not hide an extension that is valid UTF-8.
         let name = path.file_name().and_then(|name| name.to_str());
         if let Some(name) = name {
             if let Some(language) = Self::ALL

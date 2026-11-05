@@ -1,14 +1,4 @@
-//! jq's numbers.
-//!
-//! jq reads a literal with decNumber and writes it back with that library's
-//! `to-scientific-string`, which is neither the literal nor a float: `1e2` is
-//! `1E+2`, `10e-7` is `0.0000010`, `1.10` keeps its trailing zero, and a forty
-//! digit integer keeps every digit. Reformatting a repository with any other
-//! answer rewrites numbers nobody asked about, so the rule is reproduced here.
 
-/// jq's grammar is JSON's with the shape of a number relaxed: `+1`, `.5` and
-/// `01` all read, and nothing else does. Answers with the literal as jq would
-/// print it, or `None` when the text is not a number at all.
 pub fn canonical(literal: &str) -> Option<String> {
     let digits = Digits::read(literal)?;
     Some(digits.write())
@@ -16,10 +6,7 @@ pub fn canonical(literal: &str) -> Option<String> {
 
 struct Digits {
     negative: bool,
-    /// Coefficient digits, leading zeros dropped, never empty.
     digits: String,
-    /// Power of ten the coefficient is scaled by, once the fraction is folded
-    /// into it.
     exponent: i64,
 }
 
@@ -41,7 +28,6 @@ impl Digits {
 
         let whole = digits_at(literal, &mut at);
         let fraction = match bytes.get(at) {
-            // `1.` is a number jq reads, and writes back as `1`.
             Some(b'.') => {
                 at += 1;
                 digits_at(literal, &mut at)
@@ -79,8 +65,6 @@ impl Digits {
         digits.push_str(&fraction);
         let coefficient = digits.trim_start_matches('0');
         digits = if coefficient.is_empty() {
-            // Zero carries no coefficient, but its exponent still places the
-            // point: `0.000` is `0.000` and `0e5` is `0E+5`.
             "0".to_string()
         } else {
             coefficient.to_string()
@@ -93,15 +77,10 @@ impl Digits {
         })
     }
 
-    /// decNumber's `to-scientific-string`: plain notation while the point lands
-    /// within six places of the coefficient, scientific otherwise.
     fn write(&self) -> String {
         let sign = if self.negative { "-" } else { "" };
         let places = self.digits.len() as i64;
         let point = places + self.exponent;
-        // The exponent of the leading digit is what decNumber measures, which
-        // is why `1e-7` is scientific and `10e-7` — the same point, one more
-        // digit — is not.
         let adjusted = point - 1;
         if self.exponent <= 0 && adjusted >= -6 {
             if self.exponent == 0 {
@@ -126,7 +105,6 @@ impl Digits {
     }
 }
 
-/// Whether a literal is a number in JSON's own grammar rather than jq's.
 pub fn strict(mut bytes: &[u8]) -> bool {
     if bytes.first() == Some(&b'-') {
         bytes = &bytes[1..];
@@ -178,8 +156,6 @@ fn digits_at(literal: &str, at: &mut usize) -> String {
     literal[start..*at].to_string()
 }
 
-/// The exponent is read into an i64 whatever it takes: `1e-1000000` is a number
-/// jq answers, and there is nothing below it worth refusing a file over.
 fn power_of(digits: &str) -> i64 {
     let mut value: i64 = 0;
     for byte in digits.bytes() {

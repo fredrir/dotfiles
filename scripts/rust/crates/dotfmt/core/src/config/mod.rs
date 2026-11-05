@@ -48,12 +48,9 @@ pub struct Effective {
     excludes: Patterns,
     language_filters: BTreeMap<Language, (Patterns, Patterns)>,
     sources: Vec<PathBuf>,
-    /// Whether any layer declared a language block. A workspace with none gets
-    /// the shipped default language set instead of requiring configuration.
     has_language_blocks: bool,
 }
 
-/// Why a file is or is not formatted under an effective configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Selection {
     Language(Language),
@@ -93,7 +90,6 @@ impl Effective {
         &self.languages[&language].settings
     }
 
-    /// Configuration files applied to this configuration, outermost first.
     pub fn sources(&self) -> &[PathBuf] {
         &self.sources
     }
@@ -106,8 +102,6 @@ impl Effective {
         self.select_languages(path, &[], forced)
     }
 
-    /// Restricts ownership to the requested languages before detecting conflicts.
-    /// A forced language additionally permits an explicitly named unfamiliar file.
     pub fn select_languages(
         &self,
         path: &Path,
@@ -206,7 +200,6 @@ impl Effective {
         }
     }
 
-    /// Applies native editor settings after every configuration file layer.
     pub fn apply_overlay(&mut self, overlay: ConfigOverlay) {
         if overlay.is_empty() {
             return;
@@ -214,8 +207,6 @@ impl Effective {
         self.apply_layer(overlay.layer, false);
     }
 
-    /// Enables the shipped default language set when no layer declared a
-    /// language block. JavaScript remains opt-in, matching the shipped config.
     pub(super) fn enable_default_languages(&mut self) {
         if self.has_language_blocks {
             return;

@@ -1,14 +1,3 @@
-//! Reading JSON, and with `repair` on, reading what somebody meant.
-//!
-//! One parser does both jobs. Strict mode refuses everything JSON refuses.
-//! Repair mode records every fix it takes along with the source edit that
-//! makes it, so a commented dialect can apply the same fixes to its own text
-//! and keep its comments.
-//!
-//! Numbers are the one place where being strict is not enough: `1e2` is a
-//! literal jq rewrites as `1E+2`, and a formatter that answered `100` would
-//! rewrite numbers nobody asked about. `number::canonical` decides, here, so
-//! the value tree only ever holds the text jq would print.
 
 use dotfmt_core::repair::{Edit, Locator, Repair, Repairs};
 use indexmap::IndexMap;
@@ -17,8 +6,6 @@ use crate::number;
 use crate::render;
 use crate::value::Value;
 
-/// Deep enough for any file a person writes, shallow enough that a pathological
-/// one is a message rather than a stack overflow.
 const MAX_DEPTH: usize = 512;
 
 const QUOTES: [(&[u8], &[u8]); 7] = [
@@ -48,13 +35,10 @@ impl Problem {
 #[derive(Clone, Copy, Default)]
 pub struct Options {
     pub repair: bool,
-    /// Comments and trailing commas are part of the dialect, not repairs.
     pub commented: bool,
 }
 
 pub struct Parsed {
-    /// `None` for a body that holds no value at all, which is what jq makes of
-    /// an empty file: nothing to write, and nothing wrong.
     pub value: Option<Value>,
     pub repairs: Repairs,
     pub edits: Vec<Edit>,
@@ -74,15 +58,12 @@ pub fn parse(input: &[u8], options: Options) -> Result<Parsed, Problem> {
     let value = parser.value()?;
     parser.trivia()?;
     parser.stray_closers()?;
-    // jq reads `1 2` as a stream of two numbers. A formatter that did the same
-    // would write two values into one file, which is not a file anybody wants.
     if parser.at != input.len() {
         return Err(parser.problem("more than one value"));
     }
     Ok(parser.parsed(Some(value)))
 }
 
-/// Any run of values however they are spaced, as `jq -c` reads JSON Lines.
 pub fn stream(input: &[u8], options: Options) -> Result<Streamed, Problem> {
     let mut parser = Parser::new(input, options);
     let mut values = Vec::new();
@@ -107,7 +88,6 @@ struct Parser<'a> {
     fixes: Vec<(Repair, usize)>,
     edits: Vec<Edit>,
     depth: usize,
-    /// Where the last token ended: a missing comma or bracket goes here.
     end: usize,
 }
 
@@ -168,8 +148,6 @@ impl<'a> Parser<'a> {
         self.problem_at(self.at, message)
     }
 
-    /// Where the token starts rather than where it stopped being one: a reader
-    /// wants the cursor on the literal, not after it.
     fn problem_at(&self, at: usize, message: impl Into<String>) -> Problem {
         let (line, column) = Locator::new(self.input).locate(at);
         Problem {
@@ -190,9 +168,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Whitespace, and under `repair` the things left where whitespace goes:
-    /// comments, a byte order mark, code fences and the spaces a word
-    /// processor inserts.
     fn trivia(&mut self) -> Result<(), Problem> {
         loop {
             while self
@@ -230,9 +205,6 @@ impl<'a> Parser<'a> {
                     let Some((character, width)) = codepoint(&self.input[self.at..]) else {
                         return Err(self.problem("invalid UTF-8"));
                     };
-                    // U+FEFF is a byte order mark rather than a space, and it is
-                    // the thing most often found at the top of a file an editor is
-                    // asked to look at.
                     let bom = character == '\u{feff}';
                     if !bom && !character.is_whitespace() {
                         return Ok(());
@@ -280,7 +252,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// A Markdown code fence line around a pasted document.
     fn fence(&mut self) -> bool {
         let start = self.at;
         let line = self.input[..start]
@@ -299,7 +270,6 @@ impl<'a> Parser<'a> {
         true
     }
 
-    /// Closing brackets after the last value, which have nothing left to close.
     fn stray_closers(&mut self) -> Result<(), Problem> {
         while self.repair && matches!(self.peek(), Some(b'}' | b']')) {
             self.fixed(Repair::Bracket, self.at, Edit::delete(self.at, self.at + 1));
@@ -343,10 +313,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `true`, `false`, `null`, and under `repair` the names Python and
-    /// JavaScript give the same three things. `NaN`, `Infinity` and `undefined`
-    /// are not JSON at all, and jq answers the first two with `null`, so that
-    /// is what all three become.
     fn literal(&mut self) -> Result<Value, Problem> {
         let start = self.at;
         self.skip_word();
@@ -374,8 +340,6 @@ impl<'a> Parser<'a> {
         let start = self.at;
         if self.peek().is_some_and(|byte| matches!(byte, b'-' | b'+')) {
             self.at += 1;
-            // `-Infinity` names a value rather than a number, and it is the one
-            // name that arrives with a sign in front of it.
             if self.repair && self.peek().is_some_and(|byte| byte.is_ascii_alphabetic()) {
                 self.skip_word();
                 let word = String::from_utf8_lossy(&self.input[start + 1..self.at]).into_owned();
@@ -452,9 +416,6 @@ impl<'a> Parser<'a> {
         Ok(Value::Number(literal))
     }
 
-    /// A number stops where the number stops: `1abc` and `1.2.3` are mistakes,
-    /// and reading them as a number followed by something else would put a
-    /// value in the file that was never written.
     fn number_ends(&mut self, start: usize) -> Result<(), Problem> {
         if !self
             .peek()
@@ -486,8 +447,6 @@ impl<'a> Parser<'a> {
 
     fn object(&mut self) -> Result<Value, Problem> {
         let mut entries: IndexMap<String, Value> = IndexMap::new();
-        // The comma read after the last member, which a trailing comma leaves
-        // owed; repair mode also deletes it when the object closes.
         let mut comma = None;
         loop {
             self.trivia()?;
@@ -569,7 +528,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// A `,` between members, or under `repair` a `;` written for one.
     fn separator(&mut self) -> usize {
         let at = self.at;
         if self.peek() == Some(b';') {
@@ -584,7 +542,6 @@ impl<'a> Parser<'a> {
         self.fixed(Repair::MissingComma, self.end, Edit::insert(self.end, ","));
     }
 
-    /// A comma where a member should be: leading, or one of two in a row.
     fn stray_comma(&mut self) -> Result<(), Problem> {
         if !self.repair {
             return Err(self.problem("stray comma"));
@@ -594,7 +551,6 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// A comma right before the closing bracket, which only commented dialects allow.
     fn trailing(&mut self, comma: Option<usize>) -> Result<(), Problem> {
         if comma.is_some() && !self.commented && !self.repair {
             return Err(self.problem("stray comma"));
@@ -612,8 +568,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Under `repair`, closes a container whose bracket is the wrong one or
-    /// missing at the end of input. Answers whether it closed.
     fn close(&mut self, closer: u8, comma: Option<usize>) -> bool {
         if !self.repair {
             return false;
@@ -687,7 +641,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// A string at its opening quote, rewritten as JSON when it needed a fix.
     fn text(&mut self) -> Result<String, Problem> {
         let start = self.at;
         let (open, close) = quote(&self.input[start..]).unwrap_or(QUOTES[0]);
@@ -712,8 +665,6 @@ impl<'a> Parser<'a> {
         Ok(text)
     }
 
-    /// The opening quote has already been read and `close` ends the string, so
-    /// every quote style is read by one loop and the printer escapes the result.
     fn string(&mut self, close: &[u8], start: usize) -> Result<String, Problem> {
         let template = close == b"`";
         let mut text: Vec<u8> = Vec::new();
@@ -734,7 +685,6 @@ impl<'a> Parser<'a> {
                     if !self.repair {
                         return Err(self.problem("control character in a string"));
                     }
-                    // A template literal holds raw line breaks as text.
                     if !template {
                         self.fix(Repair::Control, self.at);
                     }
@@ -755,9 +705,6 @@ impl<'a> Parser<'a> {
         }
         match String::from_utf8(text) {
             Ok(text) => Ok(text),
-            // jq answers a byte it cannot read with U+FFFD rather than with an
-            // error, and under `repair` so does this: a file that is nearly
-            // text is worth opening, and the fix says the value changed.
             Err(error) if self.repair => {
                 self.fix(Repair::Utf8, start);
                 Ok(String::from_utf8_lossy(&error.into_bytes()).into_owned())
@@ -766,9 +713,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `close` ends the string this escape is in, because an escape means
-    /// different things in each quote style. An escaped apostrophe is only a
-    /// fix of its own in a double quoted string; elsewhere the quote was.
     fn escape(&mut self, close: &[u8], text: &mut Vec<u8>) -> Result<(), Problem> {
         let at = self.at;
         self.at += 1;
@@ -805,8 +749,6 @@ impl<'a> Parser<'a> {
         let at = self.at - 2;
         let first = self.hex4()?;
         let code = if (0xd800..=0xdbff).contains(&first) {
-            // A surrogate is half a character, and jq refuses half a character
-            // rather than writing one out.
             if !self.paired() {
                 return self.surrogate(at, text);
             }
@@ -856,7 +798,6 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// The opening and closing quote of a string starting at `bytes`.
 fn quote(bytes: &[u8]) -> Option<(&'static [u8], &'static [u8])> {
     QUOTES.into_iter().find(|(open, _)| bytes.starts_with(open))
 }
@@ -875,8 +816,6 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
-/// Decodes one character at the front of a slice, or answers nothing when those
-/// bytes are not a character at all.
 fn codepoint(bytes: &[u8]) -> Option<(char, usize)> {
     let width = match bytes.first()? {
         0x00..=0x7f => 1,

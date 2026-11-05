@@ -1,4 +1,3 @@
-//! LSP code actions and workspace edits for dotfmt findings and full-file modes.
 
 use std::collections::HashMap;
 
@@ -53,16 +52,12 @@ pub fn code_actions(context: &Context<'_>) -> Vec<CodeActionOrCommand> {
                 _ => false,
             };
             if source_handled {
-                // Source actions are computed as one whole-document edit below;
-                // emitting their individual fixes here duplicates them.
                 continue;
             }
             if !wants(&context.only, kind.as_str()) {
                 continue;
             }
             if !kind.as_str().starts_with(CodeActionKind::QUICKFIX.as_str()) {
-                // A source fix supplied without a computed whole-document text
-                // is still usable, but identical plans must not duplicate it.
                 if source_fixes
                     .iter()
                     .any(|(seen, edits)| seen == kind.as_str() && *edits == fix.edits)
@@ -169,7 +164,6 @@ fn source(
     }));
 }
 
-/// Fix kinds use the dotfmt-suffixed names the server advertises.
 fn fix_kind(kind: &str) -> CodeActionKind {
     match kind {
         "" | "quickfix" => CodeActionKind::QUICKFIX,
@@ -192,14 +186,11 @@ fn touches(finding: &Finding, selection: &std::ops::Range<usize>) -> bool {
     let start = finding.start;
     let end = finding.end.max(start.saturating_add(1));
     if selection.start == selection.end {
-        // A cursor exactly at the finding start touches it; the exclusive end
-        // remains exclusive so a cursor after the token does not.
         return selection.start >= start && selection.start < end;
     }
     start < selection.end && end > selection.start
 }
 
-/// Whether a request for `requested` includes an action of `kind`.
 pub fn wants(only: &[String], kind: &str) -> bool {
     only.is_empty()
         || only

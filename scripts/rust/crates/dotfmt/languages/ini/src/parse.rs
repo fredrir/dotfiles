@@ -31,9 +31,7 @@ pub struct Comment<'a> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Separator {
-    /// `key = value`, `key=value`, and the systemd separator.
     Equals,
-    /// The whitespace form used by SSH config.
     Space,
 }
 
@@ -41,9 +39,6 @@ pub enum Separator {
 pub struct Entry<'a> {
     pub key: &'a str,
     pub value: &'a str,
-    /// Layout bytes after the value. They are only emitted when the value ends
-    /// in a backslash, where dropping them would turn the next line into a
-    /// continuation.
     pub trailing: &'a str,
     pub separator: Separator,
 }
@@ -55,8 +50,6 @@ pub fn parse(text: &str, dialect: Dialect) -> Document<'_> {
     };
     let mut physical: Vec<&str> = text.split('\n').collect();
     if text.ends_with('\n') {
-        // A trailing newline after an odd backslash is escaped by a
-        // continuation, so the empty piece after it is still a physical line.
         let continued = physical.len() >= 2
             && supports_continuation(dialect)
             && continues(physical[physical.len() - 2]);
@@ -81,11 +74,6 @@ pub fn parse(text: &str, dialect: Dialect) -> Document<'_> {
             });
             continue;
         }
-        // Generic INI (configparser, tox, setup.cfg) uses indented lines as
-        // continuations of the previous value. They carry value bytes, not
-        // layout, so keep them raw and never reformat them as entries,
-        // comments or section headers. A shell test such as `    [ -f x ]`
-        // is a common continuation that looks like a section otherwise.
         if dialect == Dialect::Generic && raw.starts_with([' ', '\t']) {
             lines.push(Line {
                 kind: LineKind::Continuation(raw),
@@ -174,8 +162,6 @@ fn ssh_entry(raw: &str) -> Option<Entry<'_>> {
     let value = raw_value.trim_end_matches(LAYOUT);
     let trailing = &raw_value[value.len()..];
     if equals {
-        // `Keyword=` is the empty-value form and stays distinguishable from a
-        // bare keyword, which is not an entry at all.
         return Some(Entry {
             key,
             value,
@@ -188,7 +174,6 @@ fn ssh_entry(raw: &str) -> Option<Entry<'_>> {
         });
     }
     if value.is_empty() {
-        // Whitespace with no argument is layout, not an empty SSH value.
         return None;
     }
     Some(Entry {
@@ -244,8 +229,6 @@ pub fn trim_end_layout(text: &str) -> &str {
     text.trim_end_matches(LAYOUT)
 }
 
-/// Full-line comments keep their marker and interior bytes. Only the single
-/// separating space after the marker is optional formatting.
 pub fn comment_body(body: &str, format_comments: bool) -> String {
     let body = body.trim_end_matches(LAYOUT);
     let Some(first) = body.chars().next() else {

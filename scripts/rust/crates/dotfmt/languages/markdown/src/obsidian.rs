@@ -2,8 +2,6 @@ use std::ops::Range;
 
 use comrak::{Arena, Options, nodes::NodeValue, parse_document};
 
-// Keep syntax outside CommonMark opaque. Table alignment measures the restored
-// text, so token lengths cannot affect the layout.
 pub struct Protected {
     pub text: String,
     marker: char,
@@ -49,8 +47,6 @@ impl Protected {
                 | NodeValue::FrontMatter(_)
                 | NodeValue::Link(_)
                 | NodeValue::Image(_) => excluded.push(range),
-                // Obsidian callouts have arbitrary types, folding markers and
-                // titles. Preserve the entire container, including nested ones.
                 NodeValue::BlockQuote
                     if obsidian
                         && input[range.clone()].lines().next().is_some_and(|line| {

@@ -6,44 +6,26 @@ pub enum LineEndings {
     Windows,
 }
 
-/// Layout choices for [`format`][crate::format].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
-    /// Spaces per indentation level.
     pub indent: usize,
-    /// Target line width; arrays and inline tables expand beyond it.
     pub width: usize,
     pub final_newline: bool,
     pub line_endings: LineEndings,
-    /// Maximum consecutive blank lines kept between elements.
     pub allowed_blank_lines: usize,
-    /// Align `=` within contiguous groups of entries.
     pub align_entries: bool,
-    /// Align trailing comments within contiguous groups.
     pub align_comments: bool,
-    /// Also align a lone trailing comment in a group.
     pub align_single_comments: bool,
-    /// Write a trailing comma on multi-line arrays.
     pub array_trailing_comma: bool,
-    /// Expand arrays that do not fit the configured width.
     pub array_auto_expand: bool,
-    /// Collapse arrays that fit on one line.
     pub array_auto_collapse: bool,
-    /// Omit padding inside single-line arrays.
     pub compact_arrays: bool,
-    /// Omit padding inside inline tables.
     pub compact_inline_tables: bool,
-    /// Omit spaces around `=`.
     pub compact_entries: bool,
-    /// Expand values nested in inline tables that do not fit the width.
     pub inline_table_expand: bool,
-    /// Indent nested table headers and their contents by depth.
     pub indent_tables: bool,
-    /// Indent entries under a table header by one level.
     pub indent_entries: bool,
-    /// Sort direct entries within a contiguous group by key.
     pub reorder_keys: bool,
-    /// Add a space after `#` where one is missing.
     pub format_comments: bool,
 }
 
@@ -77,8 +59,6 @@ impl Config {
     pub fn from_settings(settings: &dotfmt_core::config::Settings) -> Result<Self, Diagnostic> {
         let mut config = Self::default();
         for (key, setting) in settings {
-            // Through the shared block this reaches every language; TOML keeps
-            // string literals verbatim and has nothing to apply it to.
             if setting.global && key == "quote_style" {
                 continue;
             }
@@ -152,8 +132,6 @@ fn choice<T: Copy>(key: &str, value: &str, choices: &[(&str, T)]) -> Result<T, S
         })
 }
 
-/// Clamps a shared-global number into what this engine can represent; invalid
-/// native values are ignored like other unsupported globals.
 fn clamped(value: &str, minimum: usize, maximum: usize) -> Option<usize> {
     value
         .parse::<usize>()

@@ -1,10 +1,3 @@
-//! The Curly-family reference scanner.
-//!
-//! Kept as a second, independent implementation of the descriptor rules that
-//! `engine/generic.rs` implements table-driven: `core/tests/equivalence.rs`
-//! asserts the two agree byte for byte over every Curly dialect, so sharing code
-//! between them would make the comparison vacuous. Everything language-specific
-//! is read from the [`Syntax`]; there is no `Dialect` left in this file.
 
 use std::ops::Range;
 
@@ -14,7 +7,6 @@ use crate::syntax::{At, BlockComment, Escape, LineComment, Quote, Syntax, TextGl
 
 const BOM: &[u8] = b"\xef\xbb\xbf";
 
-/// Longest C++ raw string delimiter tag, in bytes: `R"tag(… )tag"`.
 const RAW_TAG_LIMIT: usize = 16;
 
 pub fn scan(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
@@ -35,21 +27,15 @@ struct Curly<'a> {
     out: Out,
 }
 
-/// A quote that matched, and everything the close has to repeat.
 struct Hit {
     quote: &'static Quote,
-    /// Bytes from `at` to the end of the opening delimiter, prefixes included.
     open: usize,
     hashes: usize,
 }
 
-/// What a matched quote turned out to be.
 enum Shape {
-    /// `'a` in Rust: a tick, not a literal.
     Tick,
-    /// `R"tag(… )tag"`: the close is built from a tag read at the open.
     Tagged,
-    /// `"…"`, `"""…"""`, `r#"…"#`: an ordinary delimited literal.
     Quoted,
 }
 
@@ -91,7 +77,6 @@ impl Curly<'_> {
         }
     }
 
-    /// Byte 0, or the first byte after a BOM and an optional shebang line.
     fn content_start(&self) -> usize {
         let mut at = if self.source.starts_with(BOM) {
             BOM.len()
@@ -227,7 +212,6 @@ impl Curly<'_> {
         best
     }
 
-    /// Bytes from `at` to the end of `quote`'s opening, and the `#`s it consumed.
     fn opening_of(&self, quote: &'static Quote) -> Option<(usize, usize)> {
         let open = quote.open.as_bytes();
         if starts_with(self.source, self.at, open) {
@@ -242,8 +226,6 @@ impl Curly<'_> {
                 continue;
             }
             let mut at = self.at + prefix.len();
-            // The hashes may sit inside the prefix (`#` for Swift) or between the
-            // prefix and the delimiter (`r##` for Rust); both count.
             let mut hashes = prefix.iter().filter(|byte| **byte == b'#').count();
             if quote.hashes {
                 while self.byte(at) == b'#' {
@@ -272,13 +254,6 @@ impl Curly<'_> {
         Shape::Quoted
     }
 
-    /// Rust's `'a` lifetime is not a character literal.
-    ///
-    /// A single-quoted, single-line literal opens only when it is followed by a
-    /// backslash or when the character after that character is the closing
-    /// quote: `'x'` and `'\n'` are literals, `&'a str` is not. This is the rule
-    /// this file has always applied to Rust, and the only reading of `'` that
-    /// keeps lifetimes out of `Bail("unterminated string")`.
     fn ticks(&self, hit: &Hit) -> bool {
         let quote = hit.quote;
         if hit.hashes != 0
@@ -291,9 +266,6 @@ impl Curly<'_> {
             return false;
         }
         let next = self.byte(self.at + 1);
-        // Nothing that follows a line terminator can be a one-line literal, so a
-        // `'` before one is a tick too. Without this, `'a'\r'b'` reads as a
-        // literal spanning the `\r` and the whole file bails.
         if next == 0 || matches!(next, b'\n' | b'\r') {
             return true;
         }
@@ -336,7 +308,6 @@ impl Curly<'_> {
         Err(Bail(unterminated(quote)))
     }
 
-    /// Where the closing delimiter that starts at `at` ends, hashes included.
     fn closed_at(&self, at: usize, close: &'static str, hashes: usize) -> Option<usize> {
         let close = close.as_bytes();
         if !starts_with(self.source, at, close) {
@@ -360,8 +331,6 @@ impl Curly<'_> {
             tag_end += 1;
         }
         if self.byte(tag_end) != b'(' {
-            // `R` was an identifier after all: fall back to scanning it as one
-            // and let the quote after it open an ordinary string.
             return Ok(false);
         }
         let tag = &source[open_end..tag_end];
@@ -393,10 +362,6 @@ impl Curly<'_> {
     }
 }
 
-/// The reason an unterminated literal reports.
-///
-/// `Bail` is wire-visible through the LSP, so each form keeps the spelling it
-/// has always used instead of collapsing to one message.
 fn unterminated(quote: &Quote) -> &'static str {
     if quote.hashes || quote.raw_tag {
         "unterminated raw string"
@@ -411,13 +376,6 @@ fn unterminated(quote: &Quote) -> &'static str {
     }
 }
 
-/// The byte a folded typographic quote must not become inside this literal.
-///
-/// `TextGlyphs::delim` is the descriptor's answer, except for a hash-suffixed
-/// literal that carries no hashes: that one closes on the bare delimiter, so
-/// folding a typographic quote to the delimiter there would end the string
-/// early. Rust `r"..."` is that case; `r#"..."#` closes on `"#`, so folding
-/// stays safe and the descriptor's `delim` is kept.
 fn folding_delim(quote: &Quote, glyphs: TextGlyphs, hashes: usize) -> u8 {
     if quote.hashes && hashes == 0 {
         close_of(quote).as_bytes()[0]
@@ -426,7 +384,6 @@ fn folding_delim(quote: &Quote, glyphs: TextGlyphs, hashes: usize) -> u8 {
     }
 }
 
-/// The bytes that close `quote`; `close: ""` means "same as open".
 fn close_of(quote: &Quote) -> &'static str {
     if quote.close.is_empty() {
         quote.open

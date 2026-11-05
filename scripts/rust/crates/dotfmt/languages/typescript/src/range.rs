@@ -7,13 +7,6 @@ use oxc_span::{GetSpan, SourceType};
 
 use crate::dialect::Dialect;
 
-/// Expands a byte range to the smallest syntax node that is safe to format.
-///
-/// The returned range is always a contiguous byte range within `input`.
-/// Statements, JSX elements, fragments, object expressions, and array
-/// expressions are candidates. Selections outside those nodes return `None`
-/// so callers can use a bounded line block instead of the whole program.
-/// Parse failures and reversed ranges return `None`.
 pub fn expand_range(
     path: &Path,
     input: &str,

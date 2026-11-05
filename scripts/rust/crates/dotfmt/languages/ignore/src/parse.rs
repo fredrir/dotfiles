@@ -1,8 +1,3 @@
-//! A lossless line model for ignore files.
-//!
-//! A line is split into byte slices; pattern and attribute bytes are never
-//! decoded or rewritten. Trailing whitespace is kept separate because the
-//! dialect decides whether it belongs to the pattern.
 
 use crate::dialect::Dialect;
 
@@ -29,8 +24,6 @@ pub enum Line<'a> {
         attrs: Vec<&'a str>,
         trailing: &'a str,
     },
-    /// A line whose fields cannot be split safely. It is emitted byte for
-    /// byte and contributes an opaque fingerprint item.
     Opaque(&'a str),
 }
 
@@ -117,8 +110,6 @@ fn parse_attributes(line: &str) -> Line<'_> {
         Some(index) => (&rest[..index], &rest[index..]),
         None => (rest, ""),
     };
-    // Git's handling of backslashes inside a bare attribute pattern is not
-    // defined well enough to normalise the spacing after it.
     if pattern.ends_with('\\') {
         return Line::Opaque(line);
     }
@@ -138,9 +129,6 @@ fn blank_ignore_like(line: &str, dialect: Dialect) -> bool {
     }
 }
 
-/// `ignore` and Prettier trim tabs as well as spaces. Git only trims spaces;
-/// VS Code is treated as Git-like, so a line it may consider a pattern is
-/// never discarded.
 fn trims_tabs(dialect: Dialect) -> bool {
     matches!(dialect, Dialect::Ignore | Dialect::Prettier)
 }
@@ -179,8 +167,6 @@ pub(crate) enum Split<'a> {
         content: &'a str,
         trailing: &'a str,
     },
-    /// The trailing run is protected by a backslash. Removing it could change
-    /// the pattern in at least one dialect, so the line stays byte-exact.
     Escaped,
 }
 

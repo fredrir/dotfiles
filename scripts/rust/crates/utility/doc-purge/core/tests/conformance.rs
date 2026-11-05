@@ -1,8 +1,5 @@
 #![forbid(unsafe_code)]
 
-//! Conformance: every dialect and every extension must be reachable and tested
-//! (SPEC §7). Each failure names the dialect or extension that is missing.
-
 #[path = "support/mod.rs"]
 mod support;
 
@@ -43,8 +40,6 @@ fn every_extension_resolves() {
     for language in LANGUAGES {
         for extension in language.extensions {
             if extension.contains('.') {
-                // `for_path` is the extension-only fast path; compound suffixes
-                // such as `spec.ts` belong to `detect`, which sniffs content.
                 eprintln!(
                     "!!! conformance: {extension:?} is a suffix, not an extension; for_path cannot resolve it for {:?}",
                     language.dialect
@@ -94,7 +89,7 @@ fn no_dialect_is_untested() {
         let name = syntax.name;
         if !cases.iter().any(|case| case.dialect == dialect) {
             problems.push(format!(
-                "{name} ({dialect:?}) is in Dialect::ALL but has no row in CASES — is it missing from LANGUAGES?"
+                "{name} ({dialect:?}) is in Dialect::ALL but has no row in CASES is it missing from LANGUAGES?"
             ));
             continue;
         }

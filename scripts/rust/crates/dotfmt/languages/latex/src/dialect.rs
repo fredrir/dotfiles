@@ -57,7 +57,6 @@ impl Dialect {
             .ok_or_else(|| format!("invalid variant: {value}"))
     }
 
-    /// Select the dialect for an extension that names one, otherwise LaTeX.
     pub fn for_path(path: &Path) -> Option<Self> {
         Some(
             match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {

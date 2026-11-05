@@ -17,8 +17,6 @@ pub mod syntax;
 
 pub use edit::{Change, Edited};
 
-/// Test-only surface: `core/tests/equivalence.rs` compares the generic engine
-/// against the Curly reference, and neither module is otherwise reachable.
 #[doc(hidden)]
 pub mod bridge {
     pub use crate::curly::scan as curly_scan;

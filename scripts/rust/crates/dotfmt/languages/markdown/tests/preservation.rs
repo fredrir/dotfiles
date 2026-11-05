@@ -171,7 +171,6 @@ fn preservation_does_not_disable_formatting_elsewhere_in_a_document() {
     );
     assert!(output.contains("[id]: /url\n\n[^unused]: keep this"));
     assert!(output.contains("Literal \\%% visible \\%%"));
-    // The escaped comment does not terminate the visible text or swallow the table.
     assert!(output.contains("| a    | b   |"), "{output}");
 }
 

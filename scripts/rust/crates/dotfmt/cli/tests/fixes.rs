@@ -95,8 +95,6 @@ fn explicit_export_selection_is_still_safe_mode_gated() {
 
     let output = dotfmt(root.path()).args(["--fix-unsafe", "a.ts"]).run();
     assert!(output.success(), "{output:?}");
-    // Unsafe mode also selects unused locals, so the former export is removed
-    // on the next pass.
     assert_eq!(fs::read_to_string(root.path().join("a.ts")).unwrap(), "");
 }
 

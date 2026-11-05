@@ -16,11 +16,6 @@ use toml_edit::{ImDocument, TomlError};
 #[path = "../tests/unit/verify_tests.rs"]
 mod verify_tests;
 
-/// Formats a TOML document, preserving comments, literals and values.
-///
-/// Fails with [`DiagnosticKind::Syntax`] when the input does not parse, and with
-/// [`DiagnosticKind::Internal`] when the formatted text would no longer mean
-/// the same thing as its input; in both cases the caller keeps the file.
 pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {
     let (bom, input) = match input.strip_prefix('\u{feff}') {
         Some(input) => (true, input),
@@ -61,8 +56,6 @@ pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {
     Ok(output)
 }
 
-/// A layout bug must never reach the file it would corrupt, so a mismatch is
-/// reported as an internal failure and the input is left alone.
 fn compare(expected: &verify::Fingerprint, actual: &verify::Fingerprint) -> Result<(), Diagnostic> {
     if !expected.matches(actual) {
         return Err(internal("formatting would change values"));
@@ -109,8 +102,6 @@ fn internal(message: &str) -> Diagnostic {
     Diagnostic::new(DiagnosticKind::Internal, message)
 }
 
-/// A lone CR is not a TOML line ending; normalizing it would repair invalid
-/// input, so it is reported before the parser ever sees it.
 fn bare_carriage_return(text: &str) -> Option<usize> {
     let bytes = text.as_bytes();
     bytes.iter().enumerate().find_map(|(index, byte)| {

@@ -6,33 +6,20 @@ use toml_edit::{
 
 use crate::trivia::{Gap, Trivia};
 
-/// Levels accepted in one dimension before a document is rejected as too deep.
-///
-/// The embedded parser stops at 80 levels for arrays, inline tables, dotted
-/// keys and table headers, so 79 is the largest value it can hand back.
 pub(crate) const MAX_DEPTH: usize = 79;
 
-/// A lossless view of a parsed document: every element keeps the spans it was
-/// read from, so printing never re-serializes a key, literal or comment.
 pub(crate) struct Document<'a> {
     pub entries: Vec<Entry<'a>>,
     pub sections: Vec<Section<'a>>,
     pub trailing: Trivia<'a>,
 }
 
-/// A table header with the elements written under it.
 pub(crate) struct Section<'a> {
     pub lead: Trivia<'a>,
-    /// Header key components, spelled as written.
     pub path: Vec<&'a str>,
-    /// Header key components, decoded; used for indentation and sorting.
     pub decoded: Vec<&'a str>,
     pub array: bool,
-    /// The header's written key path, between the brackets, when available.
-    /// Keeping it per section preserves the spelling of a key that is shared
-    /// with an earlier header written with different quotes.
     pub header: Option<&'a str>,
-    /// False for tables that only exist because a deeper header named them.
     pub visible: bool,
     pub trailing: Option<&'a str>,
     pub entries: Vec<Entry<'a>>,
@@ -80,17 +67,12 @@ impl<'a> Value<'a> {
 
 pub(crate) struct Array<'a> {
     pub raw: &'a str,
-    /// Whether the array was written across several lines; line breaks inside
-    /// a multi-line string do not count.
     pub multiline: bool,
     pub items: Vec<ArrayItem<'a>>,
-    /// Comments between the last item and `]`; only used by empty arrays.
     pub trailing: Trivia<'a>,
 }
 
 impl Array<'_> {
-    /// Comments anywhere inside force the whole chain onto several lines,
-    /// because a comment ends the line it starts.
     pub(crate) fn has_comments(&self) -> bool {
         self.trailing.has_comments()
             || self.items.iter().any(|item| {
@@ -105,9 +87,7 @@ impl Array<'_> {
 pub(crate) struct ArrayItem<'a> {
     pub lead: Trivia<'a>,
     pub value: Value<'a>,
-    /// A comment on the line of the value.
     pub trailing: Option<&'a str>,
-    /// Comments between the value and the next item.
     pub after: Vec<Gap<'a>>,
 }
 
@@ -132,8 +112,6 @@ pub(crate) fn build<S: AsRef<str>>(document: &ImDocument<S>) -> Result<Document<
     let mut placed = Vec::new();
     let mut position = 0;
     reader.children(root, 0, &mut Heading::default(), &mut position, &mut placed)?;
-    // Headers are printed in the order they were written, as toml_edit does:
-    // implicit parents share the position of the header that created them.
     placed.sort_by_key(|(position, _)| *position);
     Ok(Document {
         entries: reader.entries(root, 0)?,
@@ -142,7 +120,6 @@ pub(crate) fn build<S: AsRef<str>>(document: &ImDocument<S>) -> Result<Document<
     })
 }
 
-/// The heading of the table currently being collected.
 #[derive(Default)]
 struct Heading<'a> {
     path: Vec<&'a str>,
@@ -176,8 +153,6 @@ impl<'a> Reader<'a> {
 
     fn entries(&self, table: &'a Table, depth: usize) -> Result<Vec<Entry<'a>>, Diagnostic> {
         let mut values = table.get_values();
-        // Dotted keys are flattened per first component; the leaf keys keep
-        // the spans they were written at, which restores the written order.
         values.sort_by_key(|(path, _)| leaf_start(path));
         let mut entries = Vec::new();
         for (path, value) in values {
@@ -197,8 +172,6 @@ impl<'a> Reader<'a> {
         let Some(leaf) = path.last() else {
             return Ok(None);
         };
-        // A dotted key nests tables, but the parser counts it separately from
-        // value containers, so both dimensions get their own budget.
         if path.len() > MAX_DEPTH {
             return Err(too_deep());
         }
@@ -261,8 +234,6 @@ impl<'a> Reader<'a> {
             let mut lead = self.trivia(decor.prefix());
             let suffix = self.trivia(decor.suffix());
             if let Some(previous) = items.last_mut() {
-                // A comment at the start of an item's decor trails the comma
-                // that introduced it, which belongs to the item before.
                 if let Some(inline) = lead.inline.take() {
                     match previous.trailing {
                         None => previous.trailing = Some(inline),
@@ -326,8 +297,6 @@ impl<'a> Reader<'a> {
         })
     }
 
-    /// Walks the tables written below `table`, emitting one section per header
-    /// in discovery order; the caller sorts them by their document position.
     fn children(
         &self,
         table: &'a Table,
@@ -343,8 +312,6 @@ impl<'a> Reader<'a> {
             heading.path.push(self.key_text(key));
             heading.decoded.push(key.get());
             let result = match item {
-                // Dotted keys nest tables, but each dotted path has its own
-                // parser budget and must not consume the header depth.
                 Item::Table(child) if child.is_dotted() => {
                     self.children(child, depth, heading, last_position, placed)
                 }
@@ -372,15 +339,12 @@ impl<'a> Reader<'a> {
         last_position: &mut usize,
         placed: &mut Vec<(usize, Section<'a>)>,
     ) -> Result<(), Diagnostic> {
-        // A dotted key's own entries are already flattened into the parent's
-        // entries; only tables below it need a header.
         if !table.is_dotted() {
             self.push_section(table, depth, false, heading, last_position, placed)?;
         }
         self.children(table, depth, heading, last_position, placed)
     }
 
-    /// The key path written in this table's own header, without brackets.
     fn header(&self, table: &'a Table, array: bool) -> Option<&'a str> {
         let text = self.text.get(table.span()?)?;
         let open = if array { "[[" } else { "[" };
@@ -450,7 +414,6 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// Where the last key of a (possibly dotted) entry was written.
 fn leaf_start(path: &[&Key]) -> usize {
     path.last()
         .and_then(|key| key.span())

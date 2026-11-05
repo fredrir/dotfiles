@@ -54,8 +54,6 @@ fn align_max_caps_the_aligned_column() {
         formatted(input, &fits),
         "*.enc   -text -merge diff=sops\n*.enc.* -text -merge diff=sops"
     );
-    // The widest pattern exceeds the cap, so the group falls back to one
-    // space, matching the alignment fallback used by other engines.
     let too_small = Config {
         align_max: 5,
         ..Config::default()
@@ -64,7 +62,6 @@ fn align_max_caps_the_aligned_column() {
         formatted(input, &too_small),
         "*.enc -text -merge diff=sops\n*.enc.* -text -merge diff=sops"
     );
-    // 0 removes the cap.
     let uncapped = Config {
         align_max: 0,
         ..Config::default()

@@ -7,16 +7,8 @@ use crate::apply::{block_comment_end, sort_apply, string_end};
 use crate::config::{Config, LineEndings};
 use crate::dialect::Dialect;
 
-/// Malva parses nested blocks and functions recursively. Keep the recursion
-/// well inside the default thread stack so adversarial input fails with a
-/// diagnostic instead of aborting the process.
 const MAX_NESTING_DEPTH: usize = 32;
 
-/// Formats CSS, SCSS, Sass, or Less source.
-///
-/// A leading BOM is preserved, CRLF input is normalized to the configured
-/// line ending, and the final newline follows [`Config::final_newline`].
-/// Configured Tailwind sorters rewrite `@apply` class lists after printing.
 pub fn format(
     path: &Path,
     input: &str,
@@ -51,10 +43,6 @@ pub fn format(
     }
     let first = format_text(&text, dialect.syntax(), &config.malva_options())
         .map_err(|error| syntax(&text, error))?;
-    // Malva has a few non-idempotent pretty-printer corners on malformed Less.
-    // An unstable result is worse than no formatting: keep the normalized input.
-    // The second pass is skipped for large stylesheets to avoid doubling an
-    // already expensive malva parse.
     let mut output = if dialect == Dialect::Less || text.len() <= 64 * 1024 {
         let second = format_text(&first, dialect.syntax(), &config.malva_options());
         second_pass(first, &text, second)?

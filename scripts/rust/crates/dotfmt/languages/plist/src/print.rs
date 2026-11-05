@@ -84,8 +84,6 @@ impl Printer<'_> {
             Content::Container(children) if children.is_empty() => self.empty(element, depth),
             Content::Container(children) => {
                 self.line(depth, &open(element));
-                // Apple writes the single property list value at column zero,
-                // directly under <plist>, rather than one level in.
                 let child_depth = if element.name == "plist" {
                     depth
                 } else {
@@ -114,9 +112,6 @@ impl Printer<'_> {
     fn empty(&mut self, element: &Element<'_>, depth: usize) {
         let self_closed = match self.config.self_closing {
             EmptyStyle::Preserve => element.self_closed,
-            // Apple's parser accepts `<data></data>` but rejects `<data/>`.
-            // Keep the paired form even when every other empty element is
-            // normalized to self-closing.
             EmptyStyle::Always => element.name != "data",
             EmptyStyle::Never => false,
         };

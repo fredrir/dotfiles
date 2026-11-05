@@ -69,8 +69,6 @@ pub fn parse(text: &str) -> Result<Vec<Line<'_>>, Problem> {
             } else {
                 trim(body)
             };
-            // Compact brace tokens may be data or configuration syntax. Keep
-            // their contents intact, including assignments and multiline spans.
             if compact {
                 let at = closing_brace(body, false, &mut compact_braces);
                 let (part, tail) = at.map_or((body, ""), |at| body.split_at(at));
@@ -162,8 +160,6 @@ pub fn parse(text: &str) -> Result<Vec<Line<'_>>, Problem> {
     Ok(found)
 }
 
-// Whitespace before an opener and a line-ending opener are structural.
-// Other brace-bearing tokens remain opaque: `lib{a,b}`, `${HOME}`, `json{}`.
 fn compact_token(text: &str) -> bool {
     let Some(at) = text.find('{') else {
         return false;
@@ -183,9 +179,6 @@ fn trailing_comment(tail: &str) -> (&str, &str) {
     }
 }
 
-// A structural close is outside quoted values and balanced literal braces.
-// Pattern blocks additionally require whitespace before an inline close,
-// preserving braces that are part of a filename and escaped trailing spaces.
 fn closing_brace(text: &str, patterns: bool, braces: &mut usize) -> Option<usize> {
     let mut separated = false;
     let quotes = if patterns {
@@ -216,9 +209,6 @@ fn closing_brace(text: &str, patterns: bool, braces: &mut usize) -> Option<usize
 
 pub fn format(text: &str, config: &Config) -> Result<String, Problem> {
     let parsed = parse(text)?;
-    // A file of nothing but blank lines is left exactly as it is. There is no
-    // layout to impose on it, and a formatter that can turn a file into zero
-    // bytes is a formatter nobody can leave on save.
     if parsed.iter().all(|line| line.class == Class::Blank) {
         return Ok(text.to_string());
     }
@@ -302,8 +292,6 @@ fn classify(body: &str) -> (Class, &str, &str) {
     if let Some(name) = body.strip_suffix('{') {
         return (Class::Open, trim(name), "");
     }
-    // Retain the original value here; assignment_parts separates only a
-    // whitespace-delimited, unquoted trailing comment when rendering.
     if let Some((key, value)) = body.split_once('=') {
         return (Class::Entry, trim(key), trim(value));
     }
@@ -315,15 +303,11 @@ fn arrange<'a>(parsed: &'a [Line<'a>], config: &Config) -> Vec<Item<'a>> {
     let mut pending = 0;
     for line in parsed {
         if line.class == Class::Blank {
-            // A blank with nothing above it separates nothing, so it is only
-            // counted once something has been written.
             if !out.is_empty() {
                 pending += 1;
             }
             continue;
         }
-        // The gap above a `}` is the gap at the end of a block, which is not a
-        // gap between two things.
         if line.class != Class::Close {
             for _ in 0..pending.min(config.blank_lines) {
                 out.push(Item::Blank);
@@ -361,8 +345,6 @@ fn columns(arranged: &[Item], config: &Config) -> Vec<Option<usize>> {
         while end < arranged.len() && groupable(&arranged[end]) {
             end += 1;
         }
-        // Only entries have a key, so only entries set the width — a group of
-        // bare lines is written out as it stands.
         let width = arranged[start..end]
             .iter()
             .filter_map(|item| match item {
@@ -405,16 +387,10 @@ fn render(item: &Item<'_>, width: Option<usize>, config: &Config) -> String {
         };
     }
     match line.class {
-        // Always the spaced form. `blocks.py` is read with `open_suffix="{"`
-        // everywhere except `packages.py`, which uses `" {"`, and `name {` is
-        // the only spelling both readers parse the same way.
         Class::Open if line.key.is_empty() => with_comment(format!("{indent}{{"), line.value),
         Class::Open => with_comment(format!("{indent}{} {{", line.key), line.value),
         Class::Close => with_comment(format!("{indent}}}"), line.value),
         Class::Entry => {
-            // The `=` sits two columns past the widest key in the group, and a
-            // key at or past the cap takes its one space and overflows rather
-            // than dragging the column out after it.
             let pad = match width {
                 Some(width) => (width + 2).saturating_sub(line.key.chars().count()).max(1),
                 None => 1,
@@ -422,8 +398,6 @@ fn render(item: &Item<'_>, width: Option<usize>, config: &Config) -> String {
             let mut text = format!("{indent}{}{}=", line.key, " ".repeat(pad));
             let (value, _) = assignment_parts(line);
             if !value.is_empty() {
-                // Inserting whitespace before an unseparated leading hash
-                // would turn its literal value into a trailing comment.
                 if !value.starts_with('#') {
                     text.push(' ');
                 }
@@ -431,9 +405,6 @@ fn render(item: &Item<'_>, width: Option<usize>, config: &Config) -> String {
             }
             text
         }
-        // Interior whitespace is never edited: `config/hosts.dotfile` holds
-        // values like `32 GB (2×16 GB) DDR5-6000 CL30`, and collapsing the
-        // runs in one would be editing data rather than laying it out.
         _ => format!("{indent}{}", line.body),
     }
 }
@@ -446,11 +417,6 @@ fn with_comment(mut text: String, comment: &str) -> String {
     text
 }
 
-// Inspect the untrimmed assignment tail so `key=#literal` stays data, while
-// `key= # comment` is recognized. Track only unescaped layout whitespace:
-// `value\  # comment` contains one escaped space that belongs to the value.
-// Require a gap after the marker too, keeping part numbers like `board #42`
-// and tags like `value #tag` literal even when whitespace precedes their hash.
 fn assignment_parts<'a>(line: &Line<'a>) -> (&'a str, &'a str) {
     let Some((_, tail)) = line.body.split_once('=') else {
         return (line.value, "");

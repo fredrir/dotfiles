@@ -50,9 +50,6 @@ fn leaves_canonical_entries_alone() {
 
 #[test]
 fn preserves_padding_around_the_equals_sign_unless_aligning() {
-    // Whitespace around `=` is a word boundary to a shell: `A = 1` and
-    // `A= 1` run a command, while `A=1` assigns. Only alignment may rewrite
-    // it, and alignment is opt-in.
     stable(
         "A  =   1\nB\t=\t2\n",
         "A  =   1\nB\t=\t2\n",

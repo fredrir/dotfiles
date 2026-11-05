@@ -15,9 +15,6 @@ pub fn print(document: &Document<'_>, config: &Config, dialect: Dialect) -> Stri
             continue;
         }
         if !output.is_empty() && pending_blank > 0 {
-            // Blank lines inside a configparser continuation are part of the
-            // value when empty_lines_in_values is enabled, so preserve their
-            // exact count there instead of applying the layout limit.
             let blanks =
                 if dialect == Dialect::Generic && matches!(line.kind, LineKind::Continuation(_)) {
                     pending_blank
@@ -77,7 +74,6 @@ fn alignment_widths(lines: &[Line<'_>], config: &Config, dialect: Dialect) -> Ve
                     }
                     next += 1;
                 }
-                // Dropped blank lines merge the entry groups they separated.
                 LineKind::Blank if config.blank_lines == 0 => next += 1,
                 _ => break,
             }
@@ -147,7 +143,6 @@ fn indent(dialect: Dialect, config: &Config, in_block: bool) -> String {
     let default = match dialect {
         Dialect::Git => 2,
         Dialect::Ssh => 4,
-        // Their entries always start at column zero, whatever the settings say.
         Dialect::Generic | Dialect::EditorConfig | Dialect::Systemd | Dialect::Auto => {
             return String::new();
         }

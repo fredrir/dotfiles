@@ -1,8 +1,3 @@
-//! Shared helpers for the doc-purge 2.0 tests (SPEC §7).
-//!
-//! `matrix.rs`, `conformance.rs`, `registry.rs` and `properties.rs` each pull
-//! this file in with `#[path = "support/mod.rs"] mod support;`, so the helpers
-//! — and the matrix table they build — cannot drift between test binaries.
 
 #![allow(dead_code)]
 
@@ -14,7 +9,6 @@ use doc_purge_core::purge::{self, Outcome};
 use doc_purge_core::syntax::{At, DocStyle};
 use doc_purge_core::{Change, Edited};
 
-/// The nine canonical cells, in SPEC §7 table order.
 pub const CELLS: [&str; 9] = [
     "line_alone",
     "line_inline",
@@ -85,16 +79,10 @@ pub fn left_alone(source: &str, dialect: Dialect) -> Option<&'static str> {
     }
 }
 
-/// What a matrix cell expects the purger to do with its source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Expect {
-    /// The file is purged and the result is exactly this text.
     Purged(&'static str),
-    /// The file is left byte-for-byte alone.
     Survives,
-    /// The file is skipped. Each engine names its own bail
-    /// (`unterminated block comment` generically, `unterminated long comment`
-    /// for Lua), so only the shared prefix is asserted.
     Skipped(&'static str),
 }
 
@@ -106,20 +94,7 @@ pub struct Case {
     pub expect: Expect,
 }
 
-/// Every canonical cell a single dialect can express.
-///
-/// A cell whose descriptor field is empty (`block: &[]`, `quotes: &[]`,
-/// `directives: &[]`, …) is *skipped with a note on stderr*, never silently
-/// passed: an empty descriptor is a hole in the dialect, and the note names it.
 pub fn cells(dialect: Dialect) -> Vec<Case> {
-    // A dialect whose engine has not been written yet answers with a skip, not
-    // an empty `Out`. Asserting the skip is what keeps the gap visible: the row
-    // fails the day the engine lands, which is the day the real rows must be
-    // written. Never add a dialect here to make a red row green.
-    //
-    // The placeholder covers every cell, `idempotent` included: with no scanner
-    // there is no purging pass to run twice, so the matrix checks that row's
-    // skip as its whole claim (`matrix::idempotent`).
     let syntax = dialect.syntax();
     let line = syntax.line.first();
     let block = syntax.block.first();
@@ -141,14 +116,6 @@ pub fn cells(dialect: Dialect) -> Vec<Case> {
 
     match line {
         Some(line) => {
-            // Only `Anywhere` and `WordStart` markers are comments in the
-            // middle of a line; a `LineStart`/`StartOfFile` marker is code
-            // there, and the cell asserts exactly that by demanding the file
-            // survive. The trap is a marker that is also a string delimiter
-            // (VimL `"`, which must stay at `LineStart`): mid-line it opens a
-            // string, and an unclosed one makes the scanner skip the file. Close
-            // the string again, so the row keeps asserting "no comment starts
-            // here" instead of the scanner's `unterminated string` bail.
             let inline = inline_marker(line.at);
             let closer = if inline {
                 ""
@@ -288,12 +255,6 @@ pub fn cells(dialect: Dialect) -> Vec<Case> {
 
     match block {
         Some(block) => {
-            // A dialect whose line-start comments own the indented block beneath
-            // them reads a `/*` at a line start the same way: as a comment that
-            // ends at EOF, not as an unterminated one. Open the block after a
-            // token, exactly as `css.rs`'s
-            // `css_an_unterminated_comment_skips_the_file` does, so the block
-            // really is unterminated.
             let owns_indent_block = line.is_some_and(|line| line.owns_indent_block);
             let source = if owns_indent_block {
                 eprintln!(
@@ -307,8 +268,6 @@ pub fn cells(dialect: Dialect) -> Vec<Case> {
                 format!("{}\nnote\n", block.open)
             };
             let expect = if block.to_eof_ok {
-                // Stylus: an unterminated block comment runs to EOF, so the
-                // whole file is the comment.
                 Expect::Purged("")
             } else {
                 Expect::Skipped("unterminated")
@@ -327,8 +286,6 @@ pub fn cells(dialect: Dialect) -> Vec<Case> {
         ),
     }
 
-    // SPEC §7: "any Purged case run twice". The first purging row is the
-    // canonical one, so the idempotence cell reuses exactly that source.
     let repeat = rows
         .iter()
         .find(|row| matches!(row.expect, Expect::Purged(_)))
@@ -346,7 +303,6 @@ pub fn cells(dialect: Dialect) -> Vec<Case> {
     rows
 }
 
-/// Every cell for every dialect `LANGUAGES` names, built once.
 pub fn cases() -> &'static [Case] {
     static CASES: OnceLock<Vec<Case>> = OnceLock::new();
     CASES.get_or_init(|| {
@@ -370,13 +326,10 @@ fn skipped(dialect: Dialect, cell: &'static str, why: &str) {
     );
 }
 
-/// Whether a marker may open in the middle of a line.
 pub fn inline_marker(at: At) -> bool {
     matches!(at, At::Anywhere | At::WordStart)
 }
 
-/// The delimiter that closes a string opened by `marker`, when the marker is
-/// also a quote opener (VimL `"`).
 fn quote_closer(dialect: Dialect, marker: &str) -> Option<&'static str> {
     dialect
         .syntax()
@@ -392,9 +345,6 @@ fn quote_closer(dialect: Dialect, marker: &str) -> Option<&'static str> {
         })
 }
 
-/// A `(quote open, quote close, marker)` triple that can share one line: the
-/// marker must not contain either delimiter, or the delimiter would close (or
-/// open) the string before the marker is reached.
 fn string_with_marker(dialect: Dialect) -> Option<(&'static str, &'static str, &'static str)> {
     let syntax = dialect.syntax();
     let markers: Vec<&'static str> = syntax
@@ -403,8 +353,6 @@ fn string_with_marker(dialect: Dialect) -> Option<(&'static str, &'static str, &
         .map(|line| line.marker)
         .chain(syntax.block.iter().map(|block| block.open))
         .collect();
-    // A plain `"…"` is the least surprising string in every family; raw and
-    // templated forms are covered by the dialect's own descriptor tests.
     let plain = syntax.quotes.iter().find(|quote| quote.open == "\"");
     for quote in plain.into_iter().chain(syntax.quotes) {
         let close = if quote.close.is_empty() {
@@ -423,10 +371,6 @@ fn string_with_marker(dialect: Dialect) -> Option<(&'static str, &'static str, &
     None
 }
 
-/// Assert every invariant from SPEC §7 for one dialect/source pair.
-///
-/// A source the purger skips has nothing to check; the skip is named on stderr
-/// so that a skipped case never looks like a passing one.
 pub fn assert_invariants(dialect: Dialect, source: &str) {
     let first = purge::purge(source.as_bytes(), dialect);
     let (purged_content, changes) = match first {
@@ -458,7 +402,6 @@ pub fn assert_invariants(dialect: Dialect, source: &str) {
     check_code_survives(dialect, source, &changes);
     check_terminators(dialect, source, &purged_content);
 
-    // 1. purge(purge(x)) == purge(x)  4. re-scanning the result is clean
     match purge::purge(purged_content.as_bytes(), dialect) {
         Outcome::Untouched(_) => {}
         Outcome::Changed(again, _) => panic!(
@@ -477,8 +420,6 @@ fn label(dialect: Dialect) -> String {
     format!("{} ({dialect:?})", dialect.syntax().name)
 }
 
-/// 2. Every `Change.range` is in bounds, ascending, non-overlapping and on
-///    character boundaries.
 fn check_ranges(dialect: Dialect, source: &str, changes: &[Change]) {
     let mut previous_end = 0usize;
     for (index, change) in changes.iter().enumerate() {
@@ -509,11 +450,6 @@ fn check_ranges(dialect: Dialect, source: &str, changes: &[Change]) {
     }
 }
 
-/// 3. `rebuilt(source, changes) == content` is asserted by [`content`] and by
-///    [`assert_invariants`]; this walks the same list gap by gap so that the
-///    failure names the change that went wrong.
-///
-/// 5. Bytes outside every `Change.range` are unchanged.
 fn check_gaps(dialect: Dialect, source: &str, content: &str, changes: &[Change]) {
     let before = source.as_bytes();
     let after = content.as_bytes();
@@ -551,15 +487,6 @@ fn check_gaps(dialect: Dialect, source: &str, content: &str, changes: &[Change])
     );
 }
 
-/// 6. Removing comment spans leaves every non-whitespace byte of the code
-///    intact.
-///
-///    The scanner's spans are private, so the harness checks what it can see.
-///    A change may only delete comment, doc or glyph material: its removed
-///    bytes must carry one of the dialect's markers or quote delimiters, be a
-///    non-ASCII glyph run, be part of a rewrite (`change.text` is non-empty),
-///    or belong to a dialect whose doc style rewrites string bodies. Anything
-///    else is a deletion of code bytes and is reported with the change.
 fn check_code_survives(dialect: Dialect, source: &str, changes: &[Change]) {
     let syntax = dialect.syntax();
     let markers: Vec<&str> = syntax
@@ -579,8 +506,6 @@ fn check_code_survives(dialect: Dialect, source: &str, changes: &[Change]) {
             continue;
         }
         if !change.text.is_empty() {
-            // A rewrite is declared by the change itself (glyph fold, first
-            // sentence kept, escaped quote).
             continue;
         }
         if markers.iter().any(|marker| removed.contains(marker)) {
@@ -590,24 +515,19 @@ fn check_code_survives(dialect: Dialect, source: &str, changes: &[Change]) {
             continue;
         }
         if removed.trim().chars().all(|letter| !letter.is_ascii()) {
-            // A run of typographic glyphs that the sweep removed.
             continue;
         }
         if doc_bodies {
-            // The docstring body is prose with no marker of its own.
             continue;
         }
         panic!(
-            "{}: change {index} deleted {:?}, which carries no comment marker, quote or glyph — code bytes must never be purged\n--- source ---\n{source:?}",
+            "{}: change {index} deleted {:?}, which carries no comment marker, quote or glyph code bytes must never be purged\n--- source ---\n{source:?}",
             label(dialect),
             removed
         );
     }
 }
 
-/// 7. BOM / CRLF / CR / U+2028 survive as terminators: purging may remove a
-///    terminator together with its line, but it may never invent a different
-///    one.
 fn check_terminators(dialect: Dialect, source: &str, content: &str) {
     if source.starts_with('\u{feff}') {
         assert!(

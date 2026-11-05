@@ -98,9 +98,6 @@ fn wrap_line(line: &str, config: &Config) -> Vec<String> {
     lines
 }
 
-/// Whether a comment line is a tooling directive that only works unbroken:
-/// a `%!TEX`/`% !BIB` magic comment, an `% arara:` recipe, or a `%&` format
-/// line.
 fn is_tooling_directive(comment: &str) -> bool {
     let trimmed = comment.trim_start();
     if trimmed.starts_with("%&") {

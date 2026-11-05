@@ -31,8 +31,6 @@ pub enum Operation {
         targets: Vec<PathBuf>,
         buffer: Option<Buffer>,
         check: bool,
-        /// Apply configured format-time fixes before formatting. Only the
-        /// editor's full-document and will-save paths set this.
         fixes: bool,
     },
     Owns {
@@ -44,9 +42,7 @@ pub enum Operation {
         fix: FixMode,
         diff: bool,
         json: bool,
-        /// Override the configured type-aware analysis (the LSP runs tsc itself).
         type_aware: Option<bool>,
-        /// Include project-wide unused-export findings and fixes.
         project_analysis: bool,
     },
 }
@@ -64,8 +60,6 @@ pub struct Options {
     pub workers: Option<usize>,
 }
 
-/// Caches configuration, validated engines, and directory context for its lifetime.
-/// Create a fresh session to observe configuration or Obsidian marker changes.
 pub struct Session {
     resolver: Resolver,
     engines: engine::Engines,
@@ -211,7 +205,6 @@ pub enum Outcome {
         fix: FixMode,
         diff: bool,
         json: bool,
-        /// Override the configured type-aware analysis (the LSP runs tsc itself).
         type_aware: Option<bool>,
     },
 }

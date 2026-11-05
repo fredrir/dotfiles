@@ -13,8 +13,6 @@ pub struct Saved {
     pub important: usize,
     pub directives: usize,
     pub licenses: usize,
-    /// `(byte offset, marker)` for every kept comment, filled only when
-    /// `Options::explain` asks for it so `--explain` can name the reason.
     pub markers: Vec<(usize, &'static str)>,
 }
 
@@ -32,15 +30,12 @@ impl Saved {
     }
 }
 
-/// What a purge is allowed to remove.
 #[derive(Clone, Copy, Debug)]
 pub struct Options {
     pub comments: bool,
     pub docs: bool,
     pub glyphs: bool,
-    /// Drop a doc string whole instead of keeping its first sentence.
     pub aggressive: bool,
-    /// Record the marker that kept each comment in `Saved::markers`.
     pub explain: bool,
 }
 
@@ -62,7 +57,6 @@ pub enum Outcome {
     Skipped(&'static str),
 }
 
-/// Largest source, in bytes, that doc-purge reads.
 pub const LIMIT: u64 = 8 * 1024 * 1024;
 
 pub const TOO_LARGE: &str = "larger than doc-purge reads";
@@ -76,11 +70,7 @@ fn leading(source: &[u8], comments: &[Comment], syntax: &Syntax) -> usize {
         0
     };
     match syntax.family {
-        // `@charset` is not a comment, but a banner sitting behind it is still
-        // the file's heading.
         Family::Css => cursor = cursor.max(after_charset(source)),
-        // Markup and templates have no header construct of their own: the leading
-        // comments are the heading from byte 0.
         Family::Curly
         | Family::Hash
         | Family::Dash
@@ -150,9 +140,6 @@ fn after_charset(source: &[u8]) -> usize {
     }
 }
 
-/// Whether a comment removed from the middle of a line has to leave a line break
-/// behind. Scripts are statement-oriented, so they need one; markup and template
-/// text does not, and joins like prose.
 fn scripty(syntax: &Syntax) -> bool {
     syntax.engine == Engine::Script
 }
@@ -235,7 +222,6 @@ pub fn purge(source: &[u8], dialect: Dialect) -> Outcome {
     purge_with(source, dialect, Options::default())
 }
 
-/// Purge under explicit [`Options`]; [`purge`] is this with the defaults.
 pub fn purge_with(source: &[u8], dialect: Dialect, options: Options) -> Outcome {
     if source.len() as u64 > LIMIT {
         return Outcome::Skipped(TOO_LARGE);
@@ -266,9 +252,6 @@ pub fn purge_with(source: &[u8], dialect: Dialect, options: Options) -> Outcome 
             Kept::Important => saved.important += 1,
             Kept::Directive => {
                 saved.directives += 1;
-                // Lua's `---@param x t description` lines carry prose after the
-                // type; the descriptor says so with `DocStyle::Ldoc`, so the
-                // orchestrator never names the language.
                 if options.comments
                     && matches!(syntax.doc, DocStyle::Ldoc)
                     && let Some(cut) = luadoc::description(source, comment)
@@ -304,8 +287,6 @@ pub fn purge_with(source: &[u8], dialect: Dialect, options: Options) -> Outcome 
     Outcome::Changed(Box::new(edited), saved)
 }
 
-/// The cut that removes one comment, widened to its whole line when nothing
-/// else shares it.
 fn comment_cut(source: &[u8], comment: &Comment, syntax: &Syntax) -> Cut {
     let (span, with) = match edit::whole_lines(source, &comment.span) {
         Some(widened) => (widened, None),

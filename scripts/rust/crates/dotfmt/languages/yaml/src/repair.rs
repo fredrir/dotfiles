@@ -1,7 +1,6 @@
 use dotfmt_core::repair::{Edit, Failure, Repair, Repaired, settle};
 use saphyr_parser::Parser;
 
-/// Tab indentation, when no indented line uses spaces to say otherwise.
 pub fn repair(input: &str) -> Repaired {
     settle(input, failure, fix)
 }
@@ -29,7 +28,6 @@ fn fix(text: &str, failure: &Failure) -> Vec<(Repair, Edit)> {
         let body = line.trim_start_matches([' ', '\t']);
         let indent = &line[..line.len() - body.len()];
         if !body.trim().is_empty() {
-            // Spaces anywhere in the indentation leave the width of a tab a guess.
             if indent.contains(' ') {
                 return Vec::new();
             }

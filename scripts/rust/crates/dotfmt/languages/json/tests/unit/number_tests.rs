@@ -4,10 +4,6 @@ fn written(literal: &str) -> String {
     canonical(literal).unwrap_or_else(|| panic!("{literal} is a number"))
 }
 
-// Every expectation below is what `jq .` answers for the same literal, taken
-// from jq 1.7.1: a formatter that disagreed with it would rewrite numbers
-// across a repository nobody had touched.
-
 #[test]
 fn a_coefficient_is_kept_exactly_as_it_was_written() {
     for (literal, expected) in [
@@ -32,8 +28,6 @@ fn a_coefficient_is_kept_exactly_as_it_was_written() {
 
 #[test]
 fn an_exponent_is_placed_the_way_decnumber_places_it() {
-    // Plain while the point lands within six places of the coefficient,
-    // scientific otherwise, with the sign of the exponent always written.
     for (literal, expected) in [
         ("1e2", "1E+2"),
         ("1E+2", "1E+2"),
@@ -79,8 +73,6 @@ fn zero_keeps_its_exponent_because_that_is_what_places_the_point() {
 
 #[test]
 fn jq_reads_a_number_json_would_not_and_normalises_it() {
-    // jq's grammar is JSON's with the shape of a number relaxed, so a file that
-    // read before this existed still has to read.
     for (literal, expected) in [
         ("01", "1"),
         (".5", "0.5"),

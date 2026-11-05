@@ -12,7 +12,6 @@ use config::{Config, LineEndings};
 use dialect::Dialect;
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 
-/// Formats an INI-family file selected from its path.
 pub fn format(path: &Path, input: &[u8], config: &Config) -> Result<String, Diagnostic> {
     let input = std::str::from_utf8(input).map_err(|_| {
         Diagnostic::new(DiagnosticKind::Syntax, "input is not valid UTF-8").with_path(path)
@@ -21,8 +20,6 @@ pub fn format(path: &Path, input: &[u8], config: &Config) -> Result<String, Diag
     format_with_dialect(input, config, dialect)
 }
 
-/// Formats text with an explicit dialect. `Auto` falls back to the configured
-/// dialect and then to [`Dialect::Generic`].
 pub fn format_with_dialect(
     input: &str,
     config: &Config,
@@ -40,8 +37,6 @@ pub fn format_with_dialect(
         None => (false, input),
     };
     if text.trim().is_empty() {
-        // An empty or whitespace-only file has no layout to normalize, and
-        // leaving it byte-for-byte alone keeps the result a fixed point.
         return Ok(input.to_owned());
     }
     let text = text.replace("\r\n", "\n");
@@ -51,9 +46,6 @@ pub fn format_with_dialect(
         && !output.ends_with('\n')
         && !output.ends_with('\r')
     {
-        // A lone CR at the end is content; appending a newline would turn it
-        // into a CRLF and lose the byte on the next pass. A trailing newline
-        // here is the separator before an empty final continuation line.
         output.push('\n');
     }
     if config.line_endings == LineEndings::Windows {
@@ -76,8 +68,6 @@ fn format_body(
     let expected = verify::Fingerprint::of(&document, config, dialect);
     let body = print::print(&document, config, dialect);
 
-    // The guard checks the exact text the final newline and line-ending
-    // settings will be applied to.
     let guarded = with_bom(bom, &body);
     let reparsed = parse::parse(&guarded, dialect);
     if expected != verify::Fingerprint::of(&reparsed, config, dialect) {

@@ -28,7 +28,6 @@ pub fn options(config: &Config) -> Options<'static> {
         options.extension.highlight = true;
         options.extension.inline_footnotes = true;
     }
-    // Width only selects table alignment. Never reflow prose or list contents.
     options.render.width = 0;
     options.render.list_style = config.list_marker;
     options.render.prefer_fenced = true;
@@ -39,8 +38,6 @@ pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {
     format_resolved(input, config).map_err(|error| Diagnostic::new(DiagnosticKind::Internal, error))
 }
 
-/// Render the document as plain text: formatting, list and link syntax are
-/// stripped to their content, while code, HTML and table cells keep their text.
 pub fn clean(input: &str, config: &Config) -> String {
     clean::clean(input, config)
 }
@@ -64,8 +61,6 @@ fn format_resolved(input: &str, config: &Config) -> Result<String, String> {
         Some(protected) => protected.restore(&formatted)?,
         None => formatted,
     });
-    // The source formatter terminates every emitted line. Remove its added
-    // terminator before deciding whether the original blank lines should stay.
     if !input.ends_with('\n') && output.ends_with('\n') {
         output.pop();
     }
@@ -82,8 +77,6 @@ fn finish(mut output: String, config: &Config) -> String {
     if config.trim_trailing_blank_lines {
         output.truncate(output.len() - trailing_blank_bytes);
     }
-    // Retained blank lines take precedence over removing the final newline;
-    // otherwise each formatting pass would remove another empty line.
     if config.trim_trailing_blank_lines || trailing_blank_bytes == 0 {
         output.truncate(output.trim_end_matches('\n').len());
     }
@@ -93,7 +86,6 @@ fn finish(mut output: String, config: &Config) -> String {
     output
 }
 
-// A document of only blank lines is left to the trailing blank line handling.
 fn without_leading_blank_lines(input: &str) -> &str {
     let mut start = 0;
     for line in input.split_inclusive('\n') {
@@ -105,8 +97,6 @@ fn without_leading_blank_lines(input: &str) -> &str {
     input
 }
 
-// Recognize metadata before Markdown parsing, including empty YAML blocks and
-// YAML's explicit document terminator. Keep every byte inside it untouched.
 fn split_frontmatter(input: &str) -> (&str, &str) {
     let mut lines = input.split_inclusive('\n');
     let Some(first) = lines.next() else {

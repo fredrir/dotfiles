@@ -106,7 +106,6 @@ fn frontmatter_is_preserved() {
         dialect: Dialect::Commonmark,
         ..Config::default()
     };
-    // Without frontmatter support the delimiters and body parse as content.
     assert_eq!(cleaned(input, &commonmark), "a: b\n\nTitle");
 }
 

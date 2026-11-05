@@ -4,11 +4,6 @@ use std::path::{Component, Path, PathBuf};
 use ignore::gitignore::GitignoreBuilder;
 use workstation::walk::{Policy, SKIP};
 
-/// The selection rules shared by discovery, `--explain` and `--owns`.
-///
-/// Skip names are relative to the scan root, so naming a skipped directory
-/// explicitly still formats it. `.prettierignore` rules are always relative to
-/// the directory that contains the ignore file.
 #[derive(Clone, Debug)]
 pub struct ScanPolicy {
     root: PathBuf,
@@ -46,10 +41,6 @@ impl ScanPolicy {
     }
 }
 
-/// Prettier compatibility: honor `.prettierignore` files from the nearest
-/// directory upward. Parent-aware matching makes `generated/` exclude files
-/// below it; the starts-with guard keeps a relative path from being matched
-/// against an unrelated ignore root.
 fn prettier_ignored(path: &Path) -> bool {
     let Some(parent) = path.parent() else {
         return false;

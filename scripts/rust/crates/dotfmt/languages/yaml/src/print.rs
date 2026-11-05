@@ -343,7 +343,6 @@ impl<'a> Printer<'a> {
         self.closed.push(level);
     }
 
-    /// Comments indented under an inline value stay under its key.
     fn below(&mut self, value: &Node, level: Level, output: usize) {
         if matches!(
             value.kind,
@@ -670,7 +669,6 @@ impl<'a> Printer<'a> {
             .is_some_and(|comment| comment.start < node.end)
     }
 
-    /// Ties prefer open levels, then the outermost closed level.
     fn comment_column(&self, column: usize) -> usize {
         self.closed
             .iter()
@@ -766,7 +764,6 @@ fn brackets(open: &str, close: &str, spacing: bool, inner: &str) -> String {
     }
 }
 
-/// Picks the quotes needing fewer escapes, or the forced ones; other escapes keep double quotes.
 fn quote(raw: &str, style: ScalarStyle, preference: QuoteStyle) -> String {
     let content = match style {
         ScalarStyle::SingleQuoted => raw[1..raw.len() - 1].replace("''", "'"),

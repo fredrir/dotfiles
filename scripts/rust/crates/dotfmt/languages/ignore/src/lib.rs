@@ -12,9 +12,6 @@ use config::{Config, LineEndings};
 use dialect::Dialect;
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 
-/// Format an ignore-family file without changing what it matches.
-///
-/// `path` selects the dialect unless the configured dialect is explicit.
 pub fn format(path: &Path, input: &[u8], config: &Config) -> Result<String, Diagnostic> {
     let text = std::str::from_utf8(input)
         .map_err(|_| Diagnostic::new(DiagnosticKind::Syntax, "not UTF-8").with_path(path))?;
@@ -28,10 +25,6 @@ pub fn format(path: &Path, input: &[u8], config: &Config) -> Result<String, Diag
     })
 }
 
-/// Format using an explicit dialect, for `--dialect` and unit tests.
-///
-/// `Dialect::Auto` falls back to the configured dialect and then to
-/// [`Dialect::Git`].
 pub fn format_with_dialect(
     input: &str,
     config: &Config,
@@ -56,8 +49,6 @@ fn run(input: &str, config: &Config, dialect: Dialect) -> Result<String, Diagnos
         Some(input) => (true, input),
         None => (false, input),
     };
-    // Only CRLF is a line ending here. A lone CR is pattern data in every
-    // dialect and is left where it is.
     let text = input.replace("\r\n", "\n");
     let blank_only = is_blank(&text);
     let mut output = if blank_only {
@@ -71,8 +62,6 @@ fn run(input: &str, config: &Config, dialect: Dialect) -> Result<String, Diagnos
         verify::check(&expected, &actual)?;
         output
     };
-    // Appending LF after a final lone CR would turn that CR into data-losing
-    // CRLF on the next pass. Preserving the pattern wins over the trailer.
     if !blank_only && config.final_newline && !output.is_empty() && !output.ends_with('\r') {
         output.push('\n');
     }

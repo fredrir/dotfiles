@@ -21,7 +21,6 @@ pub fn format(input: &str, config: &Config) -> Result<String, Diagnostic> {
     let source = Source::new(&text);
     let stream = syntax::parse(&source, &expected)?;
     let mut output = print::print(&source, &stream, config);
-    // The line break after a trailing block scalar is part of its value.
     if stream.ends_in_block_scalar() {
         if !text.ends_with('\n') {
             output.pop();

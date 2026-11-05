@@ -1,17 +1,3 @@
-//! The dash-family scanners whose run/terminator shapes are not table data.
-//!
-//! `Engine::Dash` is named by exactly the descriptors that need one of three
-//! rules the generic engine cannot express:
-//!
-//! * Lua long brackets: `--[=*[…]=*]` and `[=*[…]=*]`, where the `=` count in
-//!   the opener selects the closer.
-//! * Haskell's `--`: a comment only when the dash run cannot continue as an
-//!   operator, i.e. the byte after the run is not a Haskell symbol.
-//! * SQL dollar quoting: `$tag$ … $tag$`, where the tag in the opener selects
-//!   the closer.
-//!
-//! The marker and quote tables still decide *what* is a comment or a literal
-//! and which glyphs a body feeds to the sweep; only the run shape lives here.
 
 use std::ops::Range;
 
@@ -19,20 +5,15 @@ use crate::edit::line_start;
 use crate::scan::{Bail, Out, char_width, identifier_byte, line_end, starts_with};
 use crate::syntax::{At, BlockComment, Escape, LineComment, Quote, Syntax};
 
-/// Haskell 2010 §2.2 symbol characters. A `--` whose dash run is followed by
-/// one of these is part of a longer operator (`-->`, `|--`), not a comment.
 const SYMBOLS: &[u8] = b"!#$%&*+./<=>?@\\^|-~:";
 
 const BOM: &[u8] = b"\xef\xbb\xbf";
 
-/// Lex `source` with the dash engine named by `syntax`.
 pub fn scan(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
     match syntax.name {
         "lua" => lua(source, syntax),
         "haskell" => haskell(source, syntax),
         "sql" => sql(source, syntax),
-        // `Engine::Dash` is only reached through one of the descriptors above.
-        // Anything else is a wiring bug, and an empty scan would hide it.
         _ => Err(Bail("dash engine has no scanner for this descriptor")),
     }
 }
@@ -48,7 +29,6 @@ fn allowed(source: &[u8], at: usize, kind: At) -> bool {
     }
 }
 
-/// Byte 0, or the first byte after a BOM and an optional shebang line.
 fn content_start(source: &[u8]) -> usize {
     let mut at = if source.starts_with(BOM) {
         BOM.len()
@@ -165,8 +145,6 @@ fn block_comment(
     Err(Bail("unterminated block comment"))
 }
 
-/// The longest quote placed at `at`, with the byte just past its opener
-/// (prefixes included).
 fn matching_quote(
     source: &[u8],
     syntax: &'static Syntax,
@@ -200,10 +178,6 @@ fn opening(source: &[u8], at: usize, quote: &Quote) -> Option<usize> {
 }
 
 fn close_of(quote: &Quote) -> &'static str {
-    // `close: "''"` with `Escape::Doubling` is the descriptor shorthand for
-    // "the delimiter is one `'` and a doubled `''` continues" (SQL's string
-    // and quoted-name form). A literal two-byte closer would never match the
-    // single quote that ends such a literal.
     if quote.close.is_empty() || (quote.escape == Escape::Doubling && doubled_close(quote)) {
         quote.open
     } else {
@@ -248,9 +222,6 @@ fn quoted(
         cursor += char_width(source, cursor);
     }
     if quote.text.is_none() {
-        // SQL's `"…"` is a quoted identifier, not swept text. A missing
-        // closer leaves the rest as identifier bytes; keeping them is safer
-        // than refusing the file.
         return Ok(source.len());
     }
     Err(Bail("unterminated string"))
@@ -266,7 +237,6 @@ fn lua(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
     let mut out = Out::default();
     let mut at = 0usize;
     while at < source.len() {
-        // `--` followed by a long bracket, at the level the opener spells.
         if let Some(block) = syntax
             .block
             .iter()
@@ -303,8 +273,6 @@ fn lua(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
     Ok(out)
 }
 
-/// `[=*[ … ]=*]`: a long string. The descriptor's `[[` quote marks the form;
-/// the level is read from the opener by [`long_level`].
 fn lua_long_string(
     source: &[u8],
     syntax: &'static Syntax,
@@ -358,8 +326,6 @@ fn haskell(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
     let mut at = 0usize;
     while at < source.len() {
         if let Some(line) = matching_line(source, syntax, at) {
-            // `--` is a comment only when the run of dashes cannot be the
-            // prefix of a longer operator.
             let mut cursor = at;
             while source.get(cursor) == Some(&b'-') {
                 cursor += 1;
@@ -373,8 +339,6 @@ fn haskell(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
             continue;
         }
         if let Some(block) = matching_block(source, syntax, at) {
-            // `{-# … #-}` pragmas arrive here too. `keep.rs` retains them
-            // through `syntax.directives`, whose needles start with `#`.
             at = block_comment(source, at, block, &mut out)?;
             continue;
         }
@@ -383,9 +347,6 @@ fn haskell(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
             continue;
         }
         if source[at] == b'\'' && (at == 0 || !identifier_byte(source[at - 1])) {
-            // Not in `syntax.quotes`: `foo'` is a legal Haskell identifier, so
-            // a `'` quote would swallow every primed name. A char literal can
-            // never contain `--` or `{-`, so skipping it is safe for comments.
             let mut cursor = at + 1;
             loop {
                 if cursor >= source.len() || source[cursor] == b'\n' {
@@ -438,9 +399,6 @@ fn sql(source: &[u8], syntax: &'static Syntax) -> Result<Out, Bail> {
     Ok(out)
 }
 
-/// `$tag$ … $tag$`: the tag read from the opener selects the closer. Returns
-/// `(end of the literal, body range)`; `None` means this `$` does not open a
-/// dollar quote.
 fn dollar_quote(source: &[u8], at: usize) -> Result<Option<(usize, Range<usize>)>, Bail> {
     let mut cursor = at + 1;
     while cursor < source.len() && identifier_byte(source[cursor]) {

@@ -1,21 +1,13 @@
-//! Byte-range edits, findings, and explicit fixes shared by every language.
-//!
-//! Formatting never removes code. A language crate reports [`Fix`] values with
-//! an [`Applicability`]; the CLI or editor decides whether to apply them.
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// How safe a fix is to apply without reading its diff.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Applicability {
-    /// Preserves runtime behaviour under the documented preconditions.
     Safe,
-    /// Can change runtime behaviour or remove code; requires an explicit opt-in.
     Unsafe,
-    /// A hint or refactor that is never applied automatically.
     Suggestion,
 }
 
@@ -25,7 +17,6 @@ impl Applicability {
     }
 }
 
-/// How much applicability an explicit fix pass may apply.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FixMode {
     #[default]
@@ -35,7 +26,6 @@ pub enum FixMode {
 }
 
 impl FixMode {
-    /// Whether a fix with `applicability` may be applied in this mode.
     pub fn allows(self, applicability: Applicability) -> bool {
         match self {
             Self::None => false,
@@ -45,9 +35,7 @@ impl FixMode {
     }
 }
 
-/// The enabled fix categories for a pass.
 pub trait FixSelection {
-    /// Whether `fix` belongs to an enabled category.
     fn selects(&self, fix: &Fix) -> bool;
 }
 
@@ -75,7 +63,6 @@ pub struct Related {
     pub message: String,
 }
 
-/// A diagnostic that is independent of the formatter's fatal [`Diagnostic`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Finding {
@@ -120,7 +107,6 @@ impl Finding {
     }
 }
 
-/// A replacement of `source[start..end]` with `new_text`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Edit {
@@ -147,12 +133,10 @@ impl Edit {
     }
 }
 
-/// One user-visible action, optionally attached to a finding.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Fix {
     pub title: String,
-    /// A code-action kind, e.g. `quickfix`, `source.organizeImports.dotfmt`.
     pub kind: String,
     pub applicability: Applicability,
     pub edits: Vec<Edit>,
@@ -182,7 +166,6 @@ impl Fix {
     }
 }
 
-/// Findings and fixes produced by one analysis pass.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Analysis {
@@ -202,7 +185,6 @@ impl Analysis {
         self.fixes.extend(other.fixes);
     }
 
-    /// Fixes with the requested applicability.
     pub fn fixes_with(&self, applicability: Applicability) -> impl Iterator<Item = &Fix> {
         self.fixes
             .iter()
@@ -229,10 +211,6 @@ impl fmt::Display for EditError {
 
 impl std::error::Error for EditError {}
 
-/// Applies non-overlapping edits to `source`, validating every boundary.
-///
-/// Edits are applied from the end of the file backwards so earlier offsets stay
-/// valid. Adjacent edits are allowed; overlapping edits are rejected.
 pub fn apply(source: &str, edits: &[Edit]) -> Result<String, EditError> {
     let mut ordered = edits.to_vec();
     ordered.sort_by_key(|edit| (edit.start, edit.end));
@@ -256,10 +234,6 @@ pub fn apply(source: &str, edits: &[Edit]) -> Result<String, EditError> {
     Ok(output)
 }
 
-/// Selects fixes allowed by `mode` whose category `selection` enables.
-///
-/// Applicability and categories are independent: `Unsafe` widens applicability
-/// but never enables an unselected category.
 pub fn select_fixes<'a, S: FixSelection + ?Sized>(
     mode: FixMode,
     selection: &S,
@@ -271,7 +245,6 @@ pub fn select_fixes<'a, S: FixSelection + ?Sized>(
         .collect()
 }
 
-/// Applies every edit from every provided fix, rejecting overlaps.
 pub fn apply_fixes(source: &str, fixes: &[&Fix]) -> Result<String, EditError> {
     let edits: Vec<Edit> = fixes
         .iter()

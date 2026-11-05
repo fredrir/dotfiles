@@ -1,4 +1,3 @@
-//! UTF-16 line/character positions, matching the editor and LSP default.
 
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +27,6 @@ impl Range {
     }
 }
 
-/// Line starts for one immutable snapshot of a document.
 #[derive(Clone, Debug, Default)]
 pub struct LineIndex {
     line_starts: Vec<usize>,
@@ -57,7 +55,6 @@ impl LineIndex {
         self.len == 0
     }
 
-    /// UTF-16 position of a byte offset.
     pub fn position(&self, text: &str, offset: usize) -> Position {
         let offset = offset.min(self.len);
         let line = self
@@ -73,7 +70,6 @@ impl LineIndex {
         Position::new(line as u32, character as u32)
     }
 
-    /// Byte offset of a UTF-16 position, clamped to the line and its end.
     pub fn offset(&self, text: &str, position: Position) -> usize {
         let Some(&start) = self.line_starts.get(position.line as usize) else {
             return self.len;

@@ -40,7 +40,6 @@ pub struct Config {
     pub omit_number_leading_zero: bool,
     pub keyframe_selector_notation: Option<KeyframeSelectorNotation>,
     pub prefer_single_line: bool,
-    /// Declaration sorting is opt-in; `None` preserves source order.
     pub declaration_order: Option<DeclarationOrder>,
     pub tailwind: dotfmt_tailwind::Config,
     pub tailwind_sorter: Option<dotfmt_tailwind::Sorter>,
@@ -267,8 +266,6 @@ impl Config {
     }
 }
 
-/// A local setting is relative to its declaring config file; globals are
-/// relative to the workspace root and therefore have no base here.
 fn setting_base(global: bool, source: &std::path::Path) -> Option<std::path::PathBuf> {
     (!global).then(|| {
         source
@@ -303,8 +300,6 @@ fn choice<T: Clone>(key: &str, value: &str, choices: &[(&str, T)]) -> Result<T, 
         })
 }
 
-/// Clamps a shared-global number into what this engine can represent; invalid
-/// native values are ignored like other unsupported globals.
 fn clamped(value: &str, minimum: usize, maximum: usize) -> Option<usize> {
     value
         .parse::<usize>()

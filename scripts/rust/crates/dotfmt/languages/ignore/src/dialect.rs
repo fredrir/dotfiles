@@ -71,13 +71,8 @@ impl Dialect {
         }
     }
 
-    /// The dialect a path belongs to. Unknown paths are formatted as
-    /// `.gitignore` files, the most common member of the family.
     pub fn detect(path: &Path) -> Self {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-            // A non-UTF-8 basename can still have a UTF-8 suffix. Keep the
-            // dialect-specific formatting rather than defaulting a
-            // `.gitattributes` file to Git rules.
             return match path.extension().and_then(|extension| extension.to_str()) {
                 Some("gitattributes") => Self::Attributes,
                 Some("ignore") => Self::Ignore,

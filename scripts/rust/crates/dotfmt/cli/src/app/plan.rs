@@ -291,7 +291,6 @@ impl Session {
         })
     }
 
-    /// Resolves what editor mode would do with `path` without reading or formatting it.
     pub fn explain(
         &mut self,
         path: &Path,

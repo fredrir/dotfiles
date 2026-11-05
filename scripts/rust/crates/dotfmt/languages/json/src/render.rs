@@ -1,18 +1,10 @@
-//! Writing a value out the way jq writes one.
-//!
-//! Checked against `jq --indent 2 .` on every tracked `.json` file in this
-//! repository, and against `jq -c` for `indent = 0`: two spaces a level, `": "`
-//! between a key and its value, one member a line, `{}` and `[]` inline, and
-//! nothing escaped that jq would leave alone.
 
 use crate::value::Value;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Indent {
-    /// `indent = 0`, which is jq's `--indent 0`: one line, no spaces.
     Compact,
     Spaces(usize),
-    /// `indent = -1`, which is jq's.
     Tabs,
 }
 
@@ -40,7 +32,6 @@ pub fn write(value: &Value, layout: Layout) -> String {
     out
 }
 
-/// One compact value a line, as `jq -c` writes a stream.
 pub fn write_lines(values: &[Value], final_newline: bool) -> String {
     let compact = Layout {
         indent: Indent::Compact,
@@ -141,8 +132,6 @@ pub(crate) fn string(text: &str) -> String {
     out
 }
 
-/// jq escapes the quote, the backslash, the control characters a JSON string
-/// cannot hold raw, and DEL — which JSON allows and jq writes as `\u007f`.
 fn string_into(out: &mut String, text: &str) {
     out.push('"');
     let bytes = text.as_bytes();
@@ -176,8 +165,6 @@ fn write_escape(out: &mut String, byte: u8) {
     }
 }
 
-/// The scan behind `string_into` is a byte loop, so the answer it asks has to
-/// be a lookup rather than a comparison against four things.
 static ESCAPED: [bool; 256] = escaped();
 
 const fn escaped() -> [bool; 256] {

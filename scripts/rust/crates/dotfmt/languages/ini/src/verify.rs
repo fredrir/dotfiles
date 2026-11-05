@@ -53,9 +53,6 @@ impl Fingerprint {
             });
             pending_blank = 0;
         }
-        // A configured final newline can turn a file ending in a backslash
-        // into an empty continuation on reparse. The empty line carries no
-        // bytes, so it is not part of the semantic fingerprint.
         while matches!(
             items.last(),
             Some(Item {

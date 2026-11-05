@@ -24,8 +24,6 @@ fn entries(text: &str) -> Vec<(Class, String, String, String)> {
     block::signature(text).expect("the body parses")
 }
 
-// ---------------------------------------------------------------- .dotfile
-
 #[test]
 fn entries_carry_their_block_and_line_number() {
     let parsed = block::parse("host {\n  a = 1\n\n  b = 2\n}\n").expect("the body parses");
@@ -40,9 +38,6 @@ fn entries_carry_their_block_and_line_number() {
 
 #[test]
 fn a_comment_is_kept_rather_than_stripped() {
-    // Inverted from `test_comments_are_stripped_by_default`. `blocks.scan`
-    // drops comments because its callers want values; a formatter that
-    // dropped them would delete the header of every file in `config/`.
     let out = laid_out("# leading\nhost {\n  a = 1 # trailing\n}\n");
 
     assert_eq!(out, "# leading\nhost {\n  a  = 1 # trailing\n}");
@@ -73,9 +68,6 @@ fn a_line_without_an_equals_keeps_the_whole_line() {
 
 #[test]
 fn an_entry_at_top_level_is_legal() {
-    // Inverted from the `OUTSIDE` case. `config/targets.dotfile` has no blocks
-    // at all, so a grammar that rejected a top-level entry would reject the
-    // file `dotfile link` is driven by.
     let out = laid_out("shared/starship = ~/.config\n");
 
     assert_eq!(out, "shared/starship = ~/.config");
@@ -100,8 +92,6 @@ fn a_block_left_open_is_reported_at_the_last_line() {
 fn a_block_left_open_is_named_in_the_diagnostic() {
     assert_eq!(refused("archie {\n  a = 1\n"), "2: missing } for archie");
 }
-
-// ------------------------------------------------------------- .dotfile layout
 
 #[test]
 fn the_equals_sits_two_columns_past_the_widest_key() {
@@ -153,9 +143,6 @@ fn a_key_exactly_at_the_cap_still_lands_on_the_column() {
 
 #[test]
 fn top_level_entries_are_normalised_but_never_aligned() {
-    // `add.py:targets_has_line` tests `config/targets.dotfile` for the exact
-    // string `src = dst`. Pad that line and `dotfile add` appends a duplicate
-    // mapping every single time it is run.
     let out = laid_out("a/very/long/source   =   ~/dest\nb = ~/other\n");
 
     assert_eq!(out, "a/very/long/source = ~/dest\nb = ~/other");
@@ -170,9 +157,6 @@ fn an_entry_with_no_value_gets_no_trailing_space() {
 
 #[test]
 fn a_block_header_is_always_re_emitted_with_one_space() {
-    // `blocks.py` is read with `open_suffix="{"` everywhere except
-    // `packages.py`, which uses `" {"`. `name {` is the only spelling both
-    // readers parse the same way.
     let out = laid_out("name{\n  a = 1\n}\n");
 
     assert_eq!(out, "name {\n  a  = 1\n}");
@@ -204,8 +188,6 @@ fn a_file_of_only_comments_keeps_them_and_adds_no_newline() {
 
 #[test]
 fn a_file_of_only_blank_lines_is_left_exactly_as_it_is() {
-    // `format.py:format_text` truncates this to zero bytes, which is deviation
-    // six: a formatter that can empty a file is one nobody can leave on save.
     assert_eq!(laid_out("\n\n\n"), "\n\n\n");
     assert_eq!(laid_out("   \n \t\n"), "   \n \t\n");
     assert_eq!(laid_out(""), "");

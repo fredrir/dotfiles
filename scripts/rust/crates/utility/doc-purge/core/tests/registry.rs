@@ -1,9 +1,5 @@
 #![forbid(unsafe_code)]
 
-//! The registry invariants from SPEC §7: `Dialect::ALL`, `LANGUAGES` and
-//! `Dialect::syntax()` have to describe the same set of languages, and every
-//! descriptor has to be lexable at all.
-
 use std::collections::BTreeMap;
 
 use doc_purge_core::lang::{Dialect, LANGUAGES};

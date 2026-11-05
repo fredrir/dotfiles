@@ -81,7 +81,6 @@ fn nesting_limits_are_consistent_across_container_kinds() {
         }
         format!("a = {value}\n")
     };
-    // 79 inline tables are the most the embedded parser accepts.
     assert!(format(&inline(79), &Config::default()).is_ok());
     let error = format(&inline(80), &Config::default()).unwrap_err();
     assert_eq!(error.kind, DiagnosticKind::Syntax, "{error}");
@@ -95,8 +94,6 @@ fn nesting_limits_are_consistent_across_container_kinds() {
 
 #[test]
 fn extending_an_implicit_table_with_a_dotted_key_is_a_syntax_error() {
-    // The printer never invents a header for such a table, because the input
-    // cannot exist: a dotted key cannot extend an implicit table.
     let error = format("[t.a.c]\nd = 1\n[t]\na.b = 1\n", &Config::default()).unwrap_err();
     assert_eq!(error.kind, DiagnosticKind::Syntax);
     assert!(error.message.contains("duplicate key"), "{error}");
