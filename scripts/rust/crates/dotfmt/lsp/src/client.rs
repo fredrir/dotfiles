@@ -63,6 +63,22 @@ impl Client {
             .remove(id);
     }
 
+    /// Sends a server-initiated request without waiting for its response.
+    /// Used for notifications that are requests in the protocol, such as
+    /// `client/registerCapability`.
+    pub fn send_request(&self, method: &str, params: impl Serialize) -> Result<RequestId, String> {
+        let params = serde_json::to_value(params).map_err(|error| error.to_string())?;
+        let id = RequestId::from(self.next.fetch_add(1, Ordering::Relaxed));
+        self.sender
+            .send(Message::Request(Request {
+                id: id.clone(),
+                method: method.into(),
+                params,
+            }))
+            .map_err(|error| error.to_string())?;
+        Ok(id)
+    }
+
     /// Completes a request previously sent through [`Client::request`].
     pub fn response(&self, response: Response) {
         let Some(sender) = self

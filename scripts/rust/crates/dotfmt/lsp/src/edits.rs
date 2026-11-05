@@ -85,15 +85,30 @@ fn push(edits: &mut Vec<ByteEdit>, starts: &[usize], len: usize, hunk: Hunk) {
     if start == end && hunk.text.is_empty() {
         return;
     }
-    // Adjacent changed lines are one diff hunk. Split equal-length line
-    // replacements so a requested range only receives its own line and cannot
-    // silently rewrite the next statement.
+    // Adjacent changed lines are one diff hunk. Split every multi-line hunk so
+    // a requested range only receives the lines it contains and cannot
+    // silently rewrite neighbouring statements.
     let added: Vec<&str> = hunk.text.split_inclusive('\n').collect();
-    if hunk.removed == added.len() && hunk.removed > 1 {
-        for (index, line) in added.into_iter().enumerate() {
+    if hunk.removed > 1 || added.len() > 1 {
+        let paired = hunk.removed.min(added.len());
+        for (index, line) in added.iter().take(paired).enumerate() {
             let line_start = starts.get(hunk.start + index).copied().unwrap_or(len);
             let line_end = starts.get(hunk.start + index + 1).copied().unwrap_or(len);
-            edits.push(ByteEdit::new(line_start, line_end, line.to_owned()));
+            edits.push(ByteEdit::new(line_start, line_end, (*line).to_owned()));
+        }
+        for index in paired..hunk.removed {
+            let line_start = starts.get(hunk.start + index).copied().unwrap_or(len);
+            let line_end = starts.get(hunk.start + index + 1).copied().unwrap_or(len);
+            edits.push(ByteEdit::new(line_start, line_end, String::new()));
+        }
+        if added.len() > paired {
+            let insert_at = starts
+                .get(hunk.start + hunk.removed)
+                .copied()
+                .unwrap_or(len);
+            for line in &added[paired..] {
+                edits.push(ByteEdit::new(insert_at, insert_at, (*line).to_owned()));
+            }
         }
     } else {
         edits.push(ByteEdit::new(start, end, hunk.text));
@@ -111,19 +126,23 @@ fn line_starts(text: &str) -> Vec<usize> {
     starts
 }
 
-/// Keeps the edits that touch at least one requested byte range.
+/// Keeps the edits fully contained in at least one requested byte range.
+///
+/// Range formatting must never rewrite bytes outside the selection, so an edit
+/// that merely touches a range boundary is discarded until [`minimal`] has
+/// split the hunk small enough to fit.
 pub fn filter(edits: Vec<ByteEdit>, ranges: &[Range<usize>]) -> Vec<ByteEdit> {
     edits
         .into_iter()
-        .filter(|edit| ranges.iter().any(|range| touches(edit, range)))
+        .filter(|edit| ranges.iter().any(|range| contains(edit, range)))
         .collect()
 }
 
-fn touches(edit: &ByteEdit, range: &Range<usize>) -> bool {
+fn contains(edit: &ByteEdit, range: &Range<usize>) -> bool {
     if edit.start == edit.end {
         range.start <= edit.start && edit.start <= range.end
     } else {
-        edit.start < range.end && edit.end > range.start
+        range.start <= edit.start && edit.end <= range.end
     }
 }
 
@@ -202,10 +221,62 @@ mod tests {
     #[test]
     fn filtering_a_split_edit_does_not_touch_the_next_statement() {
         let edits = minimal("a\nb\n", "A\nB\n");
-        let range = 0usize..1;
+        let range = 0usize..2;
         let filtered = filter(edits, std::slice::from_ref(&range));
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0], ByteEdit::new(0, 2, "A\n".to_owned()));
+    }
+
+    #[test]
+    fn every_multiline_replacement_becomes_one_edit_per_line() {
+        let edits = minimal("one\ntwo\nthree\n", "ONE\nTWO\nTHREE\n");
+        assert_eq!(
+            edits,
+            vec![
+                ByteEdit::new(0, 4, "ONE\n".to_owned()),
+                ByteEdit::new(4, 8, "TWO\n".to_owned()),
+                ByteEdit::new(8, 14, "THREE\n".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn unequal_multiline_hunks_split_into_line_edits() {
+        assert_eq!(
+            minimal("one\ntwo\n", "ONE\nTWO\nTHREE\n"),
+            vec![
+                ByteEdit::new(0, 4, "ONE\n".to_owned()),
+                ByteEdit::new(4, 8, "TWO\n".to_owned()),
+                ByteEdit::new(8, 8, "THREE\n".to_owned()),
+            ]
+        );
+        assert_eq!(
+            minimal("one\ntwo\nthree\n", "ONE\nTWO\n"),
+            vec![
+                ByteEdit::new(0, 4, "ONE\n".to_owned()),
+                ByteEdit::new(4, 8, "TWO\n".to_owned()),
+                ByteEdit::new(8, 14, String::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_range_inside_a_multiline_hunk_keeps_only_its_own_line() {
+        let edits = minimal("one\ntwo\nthree\n", "ONE\nTWO\nTHREE\n");
+        let range = 4..8;
+        let filtered = filter(edits, std::slice::from_ref(&range));
+        assert_eq!(filtered, vec![ByteEdit::new(4, 8, "TWO\n".to_owned())]);
+    }
+
+    #[test]
+    fn partially_overlapping_edits_are_not_kept() {
+        let edits = || vec![ByteEdit::new(4, 8, "TWO\n".to_owned())];
+        let partial = 5..7;
+        let clipped = 4..7;
+        let whole = 4..8;
+        assert!(filter(edits(), std::slice::from_ref(&partial)).is_empty());
+        assert!(filter(edits(), std::slice::from_ref(&clipped)).is_empty());
+        assert_eq!(filter(edits(), std::slice::from_ref(&whole)).len(), 1);
     }
 
     #[test]

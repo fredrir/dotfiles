@@ -1,13 +1,16 @@
 //! The dotfmt language server.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::error::Error;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::thread;
 
 use dotfmt::app::{FixMode, Selection};
+use dotfmt_core::edit::{Applicability, Fix, apply_fixes};
+use dotfmt_core::language::Language;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidChangeWatchedFiles,
@@ -52,6 +55,7 @@ pub const RELOAD_CONFIG: &str = "dotfmt/reloadConfig";
 
 const EXPLAIN_REQUEST: &str = "dotfmt/explain";
 const FORMAT_TEXT_REQUEST: &str = "dotfmt/formatText";
+const REQUEST_WORKERS: usize = 4;
 
 const COMMANDS: &[&str] = &[
     FIX_ALL,
@@ -99,7 +103,17 @@ pub fn run(connection: &Connection) -> Result<()> {
         .and_then(|workspace| workspace.configuration)
         .unwrap_or(false);
     let server = Arc::new(Server::new(connection.sender.clone(), &params));
+    server.start();
     connection.initialize_finish(id, server.initialization_result())?;
+    // `initialize_finish` consumes the `initialized` notification, so dynamic
+    // registration happens immediately afterwards; a duplicate `initialized`
+    // later is guarded by `watchers_registered`.
+    server.register_watchers();
+    let trust = server.settings().trusted;
+    server.log(format!(
+        "dotfmt trust: {}",
+        if trust { "trusted" } else { "untrusted" }
+    ));
 
     if supports_configuration {
         let client = Arc::clone(&server.client);
@@ -130,7 +144,9 @@ pub fn run(connection: &Connection) -> Result<()> {
             }
             Message::Request(request) if request.method == "shutdown" => {
                 shutting_down = true;
-                let _ = connection.sender.send(Response::new_ok(request.id, ()).into());
+                let _ = connection
+                    .sender
+                    .send(Response::new_ok(request.id, ()).into());
             }
             Message::Request(request) => server.dispatch(request),
             Message::Notification(notification) if notification.method == "exit" => break,
@@ -159,7 +175,49 @@ pub struct Server {
     diagnostics: Arc<Diagnostics>,
     tsc: Arc<Tsc>,
     capabilities: EditCapabilities,
-    cancelled: Mutex<HashSet<RequestId>>,
+    in_flight: Mutex<HashMap<RequestId, Arc<RequestState>>>,
+    queued: Mutex<HashMap<(Uri, &'static str), RequestId>>,
+    requests: crossbeam_channel::Sender<RequestJob>,
+    request_jobs: crossbeam_channel::Receiver<RequestJob>,
+    watchers_registered: AtomicBool,
+}
+
+#[derive(Default)]
+struct RequestState {
+    cancelled: AtomicBool,
+    superseded: AtomicBool,
+}
+
+impl RequestState {
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+    }
+
+    fn supersede(&self) {
+        self.superseded.store(true, Ordering::Relaxed);
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+    }
+
+    fn is_superseded(&self) -> bool {
+        self.superseded.load(Ordering::Relaxed)
+    }
+
+    fn check(&self) -> std::result::Result<(), RpcError> {
+        if self.is_cancelled() {
+            Err(RpcError::request_cancelled())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+struct RequestJob {
+    request: Request,
+    state: Arc<RequestState>,
+    queued: Option<(Uri, &'static str)>,
 }
 
 impl Server {
@@ -177,6 +235,7 @@ impl Server {
         if let Some(options) = &params.initialization_options {
             settings.apply(options);
         }
+        settings.apply_environment();
         dotfmt_tailwind::bridge::set_trusted(settings.trusted);
         let workspace_edit = params
             .capabilities
@@ -191,6 +250,7 @@ impl Server {
                 .and_then(|edit| edit.change_annotation_support.as_ref())
                 .is_some(),
         };
+        let (requests, request_jobs) = crossbeam_channel::unbounded();
         Self {
             documents,
             workspace,
@@ -199,7 +259,29 @@ impl Server {
             diagnostics,
             tsc,
             capabilities,
-            cancelled: Mutex::new(HashSet::new()),
+            in_flight: Mutex::new(HashMap::new()),
+            queued: Mutex::new(HashMap::new()),
+            requests,
+            request_jobs,
+            watchers_registered: AtomicBool::new(false),
+        }
+    }
+
+    /// Starts the bounded request worker pool. Called once by [`run`].
+    pub fn start(self: &Arc<Self>) {
+        for index in 0..REQUEST_WORKERS {
+            let server = Arc::downgrade(self);
+            let jobs = self.request_jobs.clone();
+            let _ = thread::Builder::new()
+                .name(format!("dotfmt-lsp-request-{index}"))
+                .spawn(move || {
+                    while let Ok(job) = jobs.recv() {
+                        let Some(server) = Weak::upgrade(&server) else {
+                            break;
+                        };
+                        server.run_request(job);
+                    }
+                });
         }
     }
 
@@ -225,10 +307,14 @@ impl Server {
     }
 
     fn configure(&self, value: &Value) {
-        self.settings
-            .write()
-            .unwrap_or_else(|error| error.into_inner())
-            .apply(value);
+        {
+            let mut settings = self
+                .settings
+                .write()
+                .unwrap_or_else(|error| error.into_inner());
+            settings.apply(value);
+            settings.apply_environment();
+        }
         dotfmt_tailwind::bridge::set_trusted(self.settings().trusted);
         self.reload();
     }
@@ -237,41 +323,53 @@ impl Server {
         self.workspace.invalidate();
         self.diagnostics.clear_all();
         self.tsc.invalidate();
-        let documents = self
-            .documents
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        self.diagnostics.schedule_all(&documents);
-        for (uri, _) in documents.iter() {
+        // Snapshot under the lock, then reschedule without holding it so
+        // request handlers and diagnostics are not blocked by the clone.
+        let snapshot = {
+            let documents = self
+                .documents
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let mut snapshot = Documents::default();
+            for (uri, document) in documents.iter() {
+                snapshot.open(uri.clone(), document.clone());
+            }
+            snapshot
+        };
+        self.diagnostics.schedule_all(&snapshot);
+        for (uri, _) in snapshot.iter() {
             self.schedule_tsc(uri.clone());
         }
     }
 
     fn document(&self, uri: &Uri) -> std::result::Result<Document, RpcError> {
-        self.documents
+        let documents = self
+            .documents
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .get(uri)
-            .cloned()
-            .ok_or_else(|| RpcError::invalid_params(format!("document not open: {}", uri.as_str())))
-    }
-
-    fn current_version(&self, uri: &Uri) -> Option<i32> {
-        self.documents
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .get(uri)
-            .map(|document| document.version)
+            .unwrap_or_else(|error| error.into_inner());
+        let document = documents.get(uri).ok_or_else(|| {
+            RpcError::invalid_params(format!("document not open: {}", uri.as_str()))
+        })?;
+        if document.is_desynchronised() {
+            return Err(RpcError::content_modified(
+                "document is desynchronised; reopen it before formatting",
+            ));
+        }
+        Ok(document.clone())
     }
 
     fn ensure_current(&self, uri: &Uri, version: i32) -> std::result::Result<(), RpcError> {
-        if self.current_version(uri) == Some(version) {
-            Ok(())
-        } else {
-            Err(RpcError {
-                code: ErrorCode::ContentModified as i32,
-                message: "document changed while formatting".into(),
-            })
+        let documents = self
+            .documents
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        match documents.get(uri) {
+            Some(document) if !document.is_desynchronised() && document.version == version => {
+                Ok(())
+            }
+            _ => Err(RpcError::content_modified(
+                "document changed while formatting",
+            )),
         }
     }
 
@@ -282,69 +380,100 @@ impl Server {
 
     fn dispatch(self: &Arc<Self>, request: Request) {
         let id = request.id.clone();
-        let server = Arc::clone(self);
-        let method = request.method.clone();
-        let params = request.params.clone();
-        let sender = self.client_sender();
-        let id_for_thread = id.clone();
-        let spawned = thread::Builder::new()
-            .name("dotfmt-lsp-request".into())
-            .spawn(move || {
-                let result = catch_unwind(AssertUnwindSafe(|| {
-                    server.handle(&method, &params, &id_for_thread)
-                }));
-                let result = match result {
-                    Ok(Ok(_)) if server.cancelled(&id_for_thread) => Ok(Err(RpcError {
-                        code: ErrorCode::RequestCanceled as i32,
-                        message: "request cancelled".into(),
-                    })),
-                    result => result,
-                };
-                let response = match result {
-                    Ok(Ok(value)) => Response::new_ok(id_for_thread.clone(), value),
-                    Ok(Err(error)) => {
-                        Response::new_err(id_for_thread.clone(), error.code, error.message)
-                    }
-                    Err(_) => {
-                        server.workspace.invalidate();
-                        server.log(format!("request {method} panicked"));
-                        Response::new_err(
-                            id_for_thread.clone(),
-                            ErrorCode::InternalError as i32,
-                            "dotfmt internal error".into(),
-                        )
-                    }
-                };
-                server.finish(&id_for_thread);
-                let _ = sender.send(Message::Response(response));
-            });
-        if spawned.is_err() {
+        let state = Arc::new(RequestState::default());
+        self.in_flight
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(id.clone(), Arc::clone(&state));
+        let uri = coalesce_key(&request.method, &request.params);
+        if let Some(uri) = &uri {
+            let previous = self
+                .queued
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(uri.clone(), id.clone());
+            if let Some(previous) = previous.filter(|previous| previous != &id) {
+                let previous = self
+                    .in_flight
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .get(&previous)
+                    .cloned();
+                if let Some(previous) = previous {
+                    previous.supersede();
+                }
+            }
+        }
+        let job = RequestJob {
+            request,
+            state,
+            queued: uri.clone(),
+        };
+        if let Err(error) = self.requests.send(job) {
+            let id = error.0.request.id;
+            self.finish(&id, uri.as_ref());
             let _ = self
                 .client_sender()
                 .send(Message::Response(Response::new_err(
                     id,
                     ErrorCode::InternalError as i32,
-                    "could not start request worker".into(),
+                    "request worker pool is unavailable".into(),
                 )));
         }
+    }
+
+    fn run_request(&self, job: RequestJob) {
+        let RequestJob {
+            request,
+            state,
+            queued,
+        } = job;
+        let method = request.method;
+        let params = request.params;
+        let id = request.id;
+        let result = if state.is_superseded() {
+            Ok(Value::Null)
+        } else {
+            match catch_unwind(AssertUnwindSafe(|| self.handle(&method, &params, &state))) {
+                Ok(Ok(_)) if state.is_superseded() => Ok(Value::Null),
+                Ok(Ok(_)) if state.is_cancelled() => Err(RpcError::request_cancelled()),
+                Ok(result) => result,
+                Err(_) => {
+                    self.workspace.invalidate();
+                    self.log(format!("request {method} panicked"));
+                    Err(RpcError {
+                        code: ErrorCode::InternalError as i32,
+                        message: "dotfmt internal error".into(),
+                    })
+                }
+            }
+        };
+        let response = match result {
+            Ok(value) => Response::new_ok(id.clone(), value),
+            Err(error) => Response::new_err(id.clone(), error.code, error.message),
+        };
+        self.finish(&id, queued.as_ref());
+        let _ = self.client_sender().send(Message::Response(response));
     }
 
     fn client_sender(&self) -> crossbeam_channel::Sender<Message> {
         self.client.sender()
     }
 
-    fn cancelled(&self, id: &RequestId) -> bool {
-        self.cancelled
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .contains(id)
-    }
-
-    fn finish(&self, id: &RequestId) {
-        self.cancelled
+    fn finish(&self, id: &RequestId, queued: Option<&(Uri, &'static str)>) {
+        self.in_flight
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .remove(id);
+        if let Some(queued) = queued {
+            let mut pending = self
+                .queued
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if pending.get(queued) == Some(id) {
+                pending.remove(queued);
+            }
+        }
     }
 
     fn cancel(&self, params: &Value) {
@@ -355,36 +484,41 @@ impl Server {
             NumberOrString::Number(id) => RequestId::from(id),
             NumberOrString::String(id) => RequestId::from(id),
         };
-        self.cancelled
+        let state = self
+            .in_flight
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .insert(id);
+            .get(&id)
+            .cloned();
+        if let Some(state) = state {
+            state.cancel();
+        }
     }
 
     fn handle(
         &self,
         method: &str,
         params: &Value,
-        id: &RequestId,
+        state: &RequestState,
     ) -> std::result::Result<Value, RpcError> {
-        if self.cancelled(id) {
-            return Err(RpcError {
-                code: ErrorCode::RequestCanceled as i32,
-                message: "request cancelled".into(),
-            });
-        }
+        state.check()?;
         match method {
             Formatting::METHOD => {
                 let params: DocumentFormattingParams = parse(params)?;
                 let document = self.document(&params.text_document.uri)?;
-                let edits = self.format_document(&params.text_document.uri, &document, &[])?;
+                let edits =
+                    self.format_document(&params.text_document.uri, &document, &[], Some(state))?;
                 Ok(json!(Some(edits)))
             }
             RangeFormatting::METHOD => {
                 let params: DocumentRangeFormattingParams = parse(params)?;
                 let document = self.document(&params.text_document.uri)?;
-                let edits =
-                    self.format_document(&params.text_document.uri, &document, &[params.range])?;
+                let edits = self.format_document(
+                    &params.text_document.uri,
+                    &document,
+                    &[params.range],
+                    Some(state),
+                )?;
                 Ok(json!(Some(edits)))
             }
             WillSaveWaitUntil::METHOD => {
@@ -396,8 +530,12 @@ impl Server {
             RangesFormatting::METHOD => {
                 let params: RangesFormattingParams = parse(params)?;
                 let document = self.document(&params.text_document.uri)?;
-                let edits =
-                    self.format_document(&params.text_document.uri, &document, &params.ranges)?;
+                let edits = self.format_document(
+                    &params.text_document.uri,
+                    &document,
+                    &params.ranges,
+                    Some(state),
+                )?;
                 Ok(json!(Some(edits)))
             }
             OnTypeFormatting::METHOD => {
@@ -406,16 +544,16 @@ impl Server {
                 let document = self.document(&uri)?;
                 let path = self.path(&uri, &document)?;
                 let range = on_type_range(&document, &path, params.text_document_position.position);
-                let edits = self.format_document(&uri, &document, &[range])?;
+                let edits = self.format_document(&uri, &document, &[range], Some(state))?;
                 Ok(json!(Some(edits)))
             }
             CodeActionRequest::METHOD => {
                 let params: CodeActionParams = parse(params)?;
-                Ok(json!(self.code_actions(params)?))
+                Ok(json!(self.code_actions(params, state)?))
             }
             ExecuteCommand::METHOD => {
                 let params: ExecuteCommandParams = parse(params)?;
-                self.execute(params)
+                self.execute(params, state)
             }
             EXPLAIN_REQUEST => self.explain(params.clone()),
             FORMAT_TEXT_REQUEST => self.format_text(params.clone()),
@@ -431,6 +569,7 @@ impl Server {
         uri: &Uri,
         document: &Document,
         ranges: &[Range],
+        state: Option<&RequestState>,
     ) -> std::result::Result<Vec<TextEdit>, RpcError> {
         let path = self.path(uri, document)?;
         let languages = analysis::forced(&path, uri, document.language());
@@ -447,6 +586,9 @@ impl Server {
                 return Ok(Vec::new());
             }
         };
+        if let Some(state) = state {
+            state.check()?;
+        }
         self.ensure_current(uri, document.version)?;
         let edits = edits::minimal(document.text(), &output);
         let edits = if ranges.is_empty() {
@@ -493,6 +635,7 @@ impl Server {
     fn code_actions(
         &self,
         params: CodeActionParams,
+        state: &RequestState,
     ) -> std::result::Result<Vec<CodeActionOrCommand>, RpcError> {
         let uri = params.text_document.uri;
         let document = self.document(&uri)?;
@@ -507,54 +650,85 @@ impl Server {
             .collect();
         let session = self.workspace.session(&path);
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
-        let mut fixes = Vec::new();
+        state.check()?;
+        // One inspection supplies quickfixes and the safe fix set for both
+        // fix-all and organize-imports; formatting then runs exactly once.
+        let inspection = match analysis::inspect(
+            &mut session,
+            &path,
+            document.text(),
+            languages.clone(),
+            FixMode::Unsafe,
+        ) {
+            Ok(inspection) => inspection,
+            Err(errors) => {
+                self.diagnostics
+                    .publish_fatal(uri.clone(), document.text(), &errors);
+                for error in errors {
+                    self.log(error.to_string());
+                }
+                return Ok(Vec::new());
+            }
+        };
+        let fixes = inspection.fixes;
+        let wants_fix_all = actions::wants(&only, actions::FIX_ALL);
+        let wants_organize = actions::wants(&only, actions::ORGANIZE_IMPORTS);
+        let wants_format = actions::wants(&only, actions::FORMAT);
         let mut format = None;
         let mut fix_all = None;
         let mut organize = None;
-        let mut failure = None;
-        if actions::wants(&only, CodeActionKind::QUICKFIX.as_str()) {
-            match analysis::inspect(
-                &mut session,
-                &path,
-                document.text(),
-                languages.clone(),
-                FixMode::Unsafe,
-            ) {
-                Ok(inspection) => fixes = inspection.fixes,
-                Err(errors) => failure = Some(errors),
+        if wants_fix_all || wants_organize || wants_format {
+            state.check()?;
+            let safe_fixes: Vec<&Fix> = fixes
+                .iter()
+                .filter(|fix| fix.applicability == Applicability::Safe)
+                .collect();
+            let organize_fixes: Vec<&Fix> = safe_fixes
+                .iter()
+                .copied()
+                .filter(|fix| fix.kind.contains("organizeImports"))
+                .collect();
+            let selected: Vec<&Fix> = if wants_fix_all {
+                safe_fixes
+            } else if wants_organize {
+                organize_fixes
+            } else {
+                Vec::new()
+            };
+            let source = if selected.is_empty() {
+                document.text().to_owned()
+            } else {
+                match apply_fixes(document.text(), &selected) {
+                    Ok(text) => text,
+                    Err(error) => {
+                        self.log(format!("apply fixes: {error}"));
+                        document.text().to_owned()
+                    }
+                }
+            };
+            match analysis::format(&mut session, &path, &source, languages) {
+                Ok(text) => {
+                    if wants_fix_all {
+                        fix_all = Some(text.clone());
+                    }
+                    if wants_organize {
+                        organize = Some(text.clone());
+                    }
+                    if wants_format {
+                        format = Some(text);
+                    }
+                }
+                Err(errors) => {
+                    self.diagnostics
+                        .publish_fatal(uri.clone(), document.text(), &errors);
+                    for error in errors {
+                        self.log(error.to_string());
+                    }
+                }
             }
         }
-        if actions::wants(&only, actions::FORMAT) {
-            match analysis::format(&mut session, &path, document.text(), languages.clone()) {
-                Ok(text) => format = Some(text),
-                Err(errors) => failure = Some(errors),
-            }
-        }
-        if actions::wants(&only, actions::FIX_ALL) {
-            match analysis::inspect(
-                &mut session,
-                &path,
-                document.text(),
-                languages.clone(),
-                FixMode::Safe,
-            ) {
-                Ok(inspection) => fix_all = Some(inspection.after),
-                Err(errors) => failure = Some(errors),
-            }
-        }
-        if actions::wants(&only, actions::ORGANIZE_IMPORTS) {
-            match analysis::organize(&mut session, &path, document.text(), languages) {
-                Ok(text) => organize = Some(text),
-                Err(errors) => failure = Some(errors),
-            }
-        }
-        if let Some(errors) = failure {
-            self.diagnostics
-                .publish_fatal(uri.clone(), document.text(), &errors);
-            for error in errors {
-                self.log(error.to_string());
-            }
-        }
+        state.check()?;
+        self.ensure_current(&uri, document.version)?;
         Ok(actions::code_actions(&actions::Context {
             document: &document,
             uri: &uri,
@@ -569,7 +743,11 @@ impl Server {
         }))
     }
 
-    fn execute(&self, params: ExecuteCommandParams) -> std::result::Result<Value, RpcError> {
+    fn execute(
+        &self,
+        params: ExecuteCommandParams,
+        state: &RequestState,
+    ) -> std::result::Result<Value, RpcError> {
         let command = params.command.as_str();
         if command == RELOAD_CONFIG {
             self.reload();
@@ -628,6 +806,9 @@ impl Server {
                 .collect::<Vec<_>>()
                 .join("\n"),
         })?;
+        drop(session);
+        state.check()?;
+        self.ensure_current(&uri, document.version)?;
         let edit =
             actions::workspace_edit_text(&document, &uri, &text, command, false, self.capabilities);
         self.client
@@ -710,16 +891,22 @@ impl Server {
 
     fn notify(&self, notification: Notification) {
         match notification.method.as_str() {
+            "initialized" => self.register_watchers(),
             DidOpenTextDocument::METHOD => {
                 if let Ok(params) =
                     serde_json::from_value::<DidOpenTextDocumentParams>(notification.params)
                 {
                     let item = params.text_document;
-                    let document = Document::new(item.text, item.language_id, item.version);
+                    let is_supported = supported(&item.uri, &item.language_id);
+                    let language = item.language_id;
+                    let document = Document::new(item.text, language, item.version);
                     self.documents
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .open(item.uri.clone(), document.clone());
+                    if !is_supported {
+                        return;
+                    }
                     self.diagnostics.schedule(
                         &document,
                         self.document_path(&item.uri, &document),
@@ -732,31 +919,51 @@ impl Server {
                 if let Ok(params) =
                     serde_json::from_value::<DidChangeTextDocumentParams>(notification.params)
                 {
-                    let snapshot = {
+                    let uri = params.text_document.uri;
+                    let version = params.text_document.version;
+                    let outcome = {
                         let mut documents = self
                             .documents
                             .lock()
                             .unwrap_or_else(|error| error.into_inner());
-                        let Some(document) = documents.get_mut(&params.text_document.uri) else {
-                            return;
-                        };
-                        if params.text_document.version <= document.version {
-                            return;
+                        match documents.get_mut(&uri) {
+                            None => None,
+                            Some(document) if version <= document.version => {
+                                Some(Err(document.version))
+                            }
+                            Some(document) => {
+                                document.version = version;
+                                let mut failed = false;
+                                for change in params.content_changes {
+                                    if !document.change(change) {
+                                        failed = true;
+                                        break;
+                                    }
+                                }
+                                Some(Ok((document.clone(), failed)))
+                            }
                         }
-                        document.version = params.text_document.version;
-                        for change in params.content_changes {
-                            document.change(change);
-                        }
-                        document.clone()
                     };
-                    if let Some(path) =
-                        analysis::buffer_path(&params.text_document.uri, snapshot.language())
-                    {
-                        self.diagnostics.schedule(
-                            &snapshot,
-                            path,
-                            params.text_document.uri.clone(),
-                        );
+                    match outcome {
+                        None => {}
+                        Some(Err(current)) => {
+                            self.log(format!(
+                                "ignoring out-of-order didChange for {} version {version} (current version {current})",
+                                uri.as_str()
+                            ));
+                            self.diagnostics.clear(uri);
+                        }
+                        Some(Ok((_, true))) => self.log(format!(
+                            "incremental didChange for {} could not be applied; document is desynchronised until reopen",
+                            uri.as_str()
+                        )),
+                        Some(Ok((snapshot, false))) => {
+                            if supported(&uri, snapshot.language())
+                                && let Some(path) = analysis::buffer_path(&uri, snapshot.language())
+                            {
+                                self.diagnostics.schedule(&snapshot, path, uri);
+                            }
+                        }
                     }
                 }
             }
@@ -784,9 +991,7 @@ impl Server {
                         let Some(document) = documents.get_mut(&uri) else {
                             return;
                         };
-                        if let Some(text) = params.text
-                            && text != document.text()
-                        {
+                        if let Some(text) = params.text {
                             document.change(lsp_types::TextDocumentContentChangeEvent {
                                 range: None,
                                 range_length: None,
@@ -795,7 +1000,9 @@ impl Server {
                         }
                         document.clone()
                     };
-                    if let Some(path) = analysis::buffer_path(&uri, snapshot.language()) {
+                    if supported(&uri, snapshot.language())
+                        && let Some(path) = analysis::buffer_path(&uri, snapshot.language())
+                    {
                         self.diagnostics.schedule(&snapshot, path, uri.clone());
                     }
                     self.schedule_tsc(uri);
@@ -813,8 +1020,7 @@ impl Server {
                     serde_json::from_value::<DidChangeWatchedFilesParams>(notification.params)
                 {
                     let config = params.changes.iter().any(|change| {
-                        uri::path(&change.uri)
-                            .is_some_and(|path| path.file_name() == Some("dotfmt.dotfile".as_ref()))
+                        uri::path(&change.uri).is_some_and(|path| is_config_file(&path))
                     });
                     if config {
                         self.reload();
@@ -843,6 +1049,34 @@ impl Server {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn register_watchers(&self) {
+        if self.watchers_registered.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let mut watchers = vec![
+            json!({ "globPattern": "**/dotfmt.dotfile" }),
+            json!({ "globPattern": "**/.prettierignore" }),
+            json!({ "globPattern": "**/tsconfig*.json" }),
+            json!({ "globPattern": "**/jsconfig*.json" }),
+        ];
+        if let Some(global) = crate::workspace::global_config() {
+            watchers.push(json!({ "globPattern": global.display().to_string() }));
+        }
+        let params = json!({
+            "registrations": [{
+                "id": "dotfmt-watched-files",
+                "method": "workspace/didChangeWatchedFiles",
+                "registerOptions": { "watchers": watchers },
+            }]
+        });
+        if let Err(error) = self
+            .client
+            .send_request("client/registerCapability", params)
+        {
+            self.log(format!("register file watchers: {error}"));
         }
     }
 
@@ -886,6 +1120,7 @@ struct CancelParams {
     id: NumberOrString,
 }
 
+#[derive(Debug)]
 struct RpcError {
     code: i32,
     message: String,
@@ -898,11 +1133,55 @@ impl RpcError {
             message: message.into(),
         }
     }
+
+    fn content_modified(message: impl Into<String>) -> Self {
+        Self {
+            code: ErrorCode::ContentModified as i32,
+            message: message.into(),
+        }
+    }
+
+    fn request_cancelled() -> Self {
+        Self {
+            code: ErrorCode::RequestCanceled as i32,
+            message: "request cancelled".into(),
+        }
+    }
 }
 
 fn parse<T: DeserializeOwned>(value: &Value) -> std::result::Result<T, RpcError> {
     serde_json::from_value(value.clone())
         .map_err(|error| RpcError::invalid_params(error.to_string()))
+}
+
+/// The queued format/on-type work a request supersedes. Only formatting
+/// families coalesce; will-save and code-action requests never do.
+fn coalesce_key(method: &str, params: &Value) -> Option<(Uri, &'static str)> {
+    let family = match method {
+        Formatting::METHOD | RangeFormatting::METHOD | RangesFormatting::METHOD => "format",
+        OnTypeFormatting::METHOD => "onType",
+        _ => return None,
+    };
+    let uri = params
+        .get("textDocument")
+        .and_then(|document| document.get("uri"))
+        .and_then(Value::as_str)
+        .and_then(|uri| uri.parse().ok())?;
+    Some((uri, family))
+}
+
+fn supported(uri: &Uri, language_id: &str) -> bool {
+    uri::path(uri)
+        .and_then(|path| Language::for_path(&path))
+        .is_some()
+        || analysis::language_for(language_id).is_some()
+}
+
+fn is_config_file(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some("dotfmt.dotfile" | ".prettierignore")
+    )
 }
 
 fn capabilities() -> ServerCapabilities {
@@ -997,7 +1276,7 @@ fn expanded_ranges(
         .iter()
         .filter_map(|range| {
             let range = document.range(*range)?;
-            Some(match dialect {
+            let range = match dialect {
                 Some(dialect) => dotfmt_typescript::expand_range(
                     path,
                     document.text(),
@@ -1007,9 +1286,27 @@ fn expanded_ranges(
                 )
                 .map_or(range, |(start, end)| start..end),
                 None => range,
-            })
+            };
+            Some(full_lines(document, range))
         })
         .collect()
+}
+
+/// Range edits are line-oriented, so a syntax node or cursor selection expands
+/// to the whole lines it touches. This keeps every emitted edit contained in
+/// the range while never rewriting a statement outside it.
+fn full_lines(document: &Document, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+    let start = document.position(range.start);
+    let end = document.position(range.end);
+    let first = start.line as usize;
+    let last = end.line as usize;
+    let start = document.line_start(first);
+    let end = if end.character == 0 && last > first {
+        document.line_start(last)
+    } else {
+        document.line_start(last.saturating_add(1))
+    };
+    start..end.max(start)
 }
 
 /// The syntax node for a zero-width on-type cursor, or the line block for
@@ -1031,7 +1328,7 @@ fn on_type_range(document: &Document, path: &Path, position: lsp_types::Position
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use lsp_server::{Connection, Message, Notification, Request, RequestId};
     use serde_json::json;
@@ -1051,21 +1348,42 @@ mod tests {
                 Message::Response(response) if response.id == *id => {
                     return response.response_result;
                 }
-                Message::Response(_) | Message::Notification(_) => continue,
-                Message::Request(request) => panic!("unexpected request: {request:?}"),
+                Message::Response(_) | Message::Notification(_) | Message::Request(_) => continue,
             }
         }
     }
 
-    fn test_server(root: &Path) -> Server {
-        let (sender, _receiver) = crossbeam_channel::unbounded();
-        let params: InitializeParams = serde_json::from_value(json!({
+    fn server_with_options(
+        root: &Path,
+        options: Value,
+    ) -> (Server, crossbeam_channel::Receiver<Message>) {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut value = json!({
             "processId": null,
             "rootUri": uri::from_path(root),
             "capabilities": {},
-        }))
-        .unwrap();
-        Server::new(sender, &params)
+        });
+        if !options.is_null() {
+            value["initializationOptions"] = options;
+        }
+        let params: InitializeParams = serde_json::from_value(value).unwrap();
+        (Server::new(sender, &params), receiver)
+    }
+
+    fn test_server(root: &Path) -> Server {
+        server_with_options(root, Value::Null).0
+    }
+
+    fn receive_notification(client: &Connection, method: &str) -> Option<lsp_server::Notification> {
+        loop {
+            let message = client.receiver.recv_timeout(Duration::from_secs(5)).ok()?;
+            match message {
+                Message::Notification(notification) if notification.method == method => {
+                    return Some(notification);
+                }
+                Message::Response(_) | Message::Notification(_) | Message::Request(_) => continue,
+            }
+        }
     }
 
     fn apply_edits(text: &str, edits: &[TextEdit]) -> String {
@@ -1187,7 +1505,12 @@ mod tests {
         let formatted = receive_response(&client, &RequestId::from(3)).unwrap();
         let edits = formatted.as_array().expect("formatting edits");
         assert!(!edits.is_empty());
-        assert!(edits[0]["newText"].as_str().unwrap().contains("\"a\": 1"));
+        assert!(
+            edits.iter().any(|edit| edit["newText"]
+                .as_str()
+                .is_some_and(|text| text.contains("\"a\": 1"))),
+            "{edits:?}"
+        );
 
         client
             .sender
@@ -1253,7 +1576,11 @@ mod tests {
             )))
             .unwrap();
         let configuration = loop {
-            match client.receiver.recv_timeout(Duration::from_secs(5)).unwrap() {
+            match client
+                .receiver
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+            {
                 Message::Request(request) if request.method == "workspace/configuration" => {
                     break request;
                 }
@@ -1316,7 +1643,7 @@ mod tests {
         let range = document.lsp_range(&(start..start + "world".len()));
 
         let edits = server
-            .format_document(&uri, &document, &[range])
+            .format_document(&uri, &document, &[range], None)
             .unwrap_or_else(|error| panic!("formatting failed: {}", error.message));
         assert!(!edits.is_empty());
         assert!(
@@ -1350,7 +1677,7 @@ mod tests {
         let range = document.lsp_range(&(start..start + "one".len()));
 
         let edits = server
-            .format_document(&uri, &document, &[range])
+            .format_document(&uri, &document, &[range], None)
             .unwrap_or_else(|error| panic!("formatting failed: {}", error.message));
         assert!(!edits.is_empty());
         assert!(
@@ -1398,7 +1725,7 @@ mod tests {
                     "ch": ";",
                     "options": { "tabSize": 2, "insertSpaces": true }
                 }),
-                &RequestId::from(9),
+                &RequestState::default(),
             )
             .unwrap_or_else(|error| panic!("on-type formatting failed: {}", error.message));
         let edits: Vec<TextEdit> = serde_json::from_value(result).unwrap();
@@ -1431,5 +1758,677 @@ mod tests {
             on_type_range(&document, path, position),
             block(&document, position)
         );
+    }
+
+    #[test]
+    fn defaults_to_untrusted_and_accepts_explicit_initialization_trust() {
+        let temporary = tempfile::tempdir().unwrap();
+        let server = test_server(temporary.path());
+        assert!(!server.settings().trusted);
+        let (server, _) = server_with_options(temporary.path(), json!({ "trusted": true }));
+        assert!(server.settings().trusted);
+        let (server, _) =
+            server_with_options(temporary.path(), json!({ "dotfmt": { "trusted": true } }));
+        assert!(server.settings().trusted);
+    }
+
+    #[test]
+    fn configuration_can_enable_trust() {
+        let temporary = tempfile::tempdir().unwrap();
+        let server = test_server(temporary.path());
+        assert!(!server.settings().trusted);
+        server.configure(&json!({ "dotfmt.trusted": true }));
+        assert!(server.settings().trusted);
+    }
+
+    #[test]
+    fn initialize_logs_the_effective_trust_level_once() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "rootUri": uri::from_path(temporary.path()),
+                    "capabilities": {},
+                }),
+            )))
+            .unwrap();
+        receive_response(&client, &RequestId::from(1)).unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        let log = receive_notification(&client, "window/logMessage").expect("trust log");
+        let message = log.params["message"].as_str().unwrap();
+        assert!(message.contains("dotfmt trust: untrusted"), "{message}");
+        let deadline = Instant::now() + Duration::from_millis(250);
+        while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            match client.receiver.recv_timeout(remaining) {
+                Ok(Message::Notification(notification))
+                    if notification.method == "window/logMessage"
+                        && notification.params["message"]
+                            .as_str()
+                            .is_some_and(|message| message.contains("dotfmt trust")) =>
+                {
+                    panic!("trust was logged more than once");
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(2),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(2));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn out_of_range_change_desynchronises_and_did_open_recovers() {
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::write(temporary.path().join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let path = temporary.path().join("a.ts");
+        let text = "const value=1;\n";
+        std::fs::write(&path, text).unwrap();
+        let server = test_server(temporary.path());
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        server.documents.lock().unwrap().open(uri.clone(), document);
+        server.notify(Notification::new(
+            DidChangeTextDocument::METHOD.into(),
+            json!({
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{
+                    "range": {
+                        "start": { "line": 99, "character": 0 },
+                        "end": { "line": 99, "character": 1 }
+                    },
+                    "text": "x"
+                }]
+            }),
+        ));
+        assert_eq!(
+            server.document(&uri).unwrap_err().code,
+            ErrorCode::ContentModified as i32
+        );
+        let error = server
+            .handle(
+                Formatting::METHOD,
+                &json!({
+                    "textDocument": { "uri": uri },
+                    "options": { "tabSize": 2, "insertSpaces": true }
+                }),
+                &RequestState::default(),
+            )
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::ContentModified as i32);
+
+        server.notify(Notification::new(
+            DidOpenTextDocument::METHOD.into(),
+            json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "typescript",
+                    "version": 3,
+                    "text": text
+                }
+            }),
+        ));
+        assert!(!server.document(&uri).unwrap().is_desynchronised());
+        let formatted = server
+            .handle(
+                Formatting::METHOD,
+                &json!({
+                    "textDocument": { "uri": uri },
+                    "options": { "tabSize": 2, "insertSpaces": true }
+                }),
+                &RequestState::default(),
+            )
+            .unwrap();
+        assert!(!formatted.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn full_text_change_clears_desynchronisation() {
+        let temporary = tempfile::tempdir().unwrap();
+        let server = test_server(temporary.path());
+        let path = temporary.path().join("a.json");
+        let uri = uri::from_path(&path);
+        server.documents.lock().unwrap().open(
+            uri.clone(),
+            Document::new("{\"a\":1}\n".into(), "json".into(), 1),
+        );
+        server.notify(Notification::new(
+            DidChangeTextDocument::METHOD.into(),
+            json!({
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{
+                    "range": {
+                        "start": { "line": 99, "character": 0 },
+                        "end": { "line": 99, "character": 1 }
+                    },
+                    "text": "x"
+                }]
+            }),
+        ));
+        assert!(server.document(&uri).is_err());
+        server.notify(Notification::new(
+            DidChangeTextDocument::METHOD.into(),
+            json!({
+                "textDocument": { "uri": uri, "version": 3 },
+                "contentChanges": [{ "text": "{\"b\":2}\n" }]
+            }),
+        ));
+        let document = server.document(&uri).unwrap();
+        assert!(!document.is_desynchronised());
+        assert_eq!(document.text(), "{\"b\":2}\n");
+    }
+
+    #[test]
+    fn unknown_cancel_does_not_create_in_flight_state() {
+        let temporary = tempfile::tempdir().unwrap();
+        let server = test_server(temporary.path());
+        server.cancel(&json!({ "id": 41 }));
+        assert!(server.in_flight.lock().unwrap().is_empty());
+        assert!(server.queued.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn cancelling_an_in_flight_request_returns_request_canceled() {
+        let temporary = tempfile::tempdir().unwrap();
+        let server = test_server(temporary.path());
+        let state = RequestState::default();
+        state.cancel();
+        let error = server
+            .handle(Formatting::METHOD, &json!(null), &state)
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::RequestCanceled as i32);
+    }
+
+    #[test]
+    fn coalescing_is_per_uri_and_method_family() {
+        let temporary = tempfile::tempdir().unwrap();
+        let server = Arc::new(test_server(temporary.path()));
+        let first = uri::from_path(&temporary.path().join("a.ts"));
+        let second = uri::from_path(&temporary.path().join("b.ts"));
+        let formatting = |id: i32, uri: &Uri| {
+            Request::new(
+                RequestId::from(id),
+                Formatting::METHOD.into(),
+                json!({
+                    "textDocument": { "uri": uri },
+                    "options": { "tabSize": 2, "insertSpaces": true }
+                }),
+            )
+        };
+        server.dispatch(formatting(1, &first));
+        server.dispatch(formatting(2, &second));
+        let superseded = |id: i32| {
+            server
+                .in_flight
+                .lock()
+                .unwrap()
+                .get(&RequestId::from(id))
+                .expect("in-flight request")
+                .is_superseded()
+        };
+        assert!(!superseded(1));
+        assert!(!superseded(2));
+        server.dispatch(formatting(3, &first));
+        assert!(superseded(1));
+        assert!(!superseded(2));
+        assert!(!superseded(3));
+
+        server.dispatch(Request::new(
+            RequestId::from(4),
+            OnTypeFormatting::METHOD.into(),
+            json!({
+                "textDocument": { "uri": first },
+                "position": { "line": 0, "character": 0 },
+                "ch": ";",
+                "options": { "tabSize": 2, "insertSpaces": true }
+            }),
+        ));
+        assert!(!superseded(3));
+
+        let queued = server.queued.lock().unwrap().len();
+        server.dispatch(Request::new(
+            RequestId::from(5),
+            WillSaveWaitUntil::METHOD.into(),
+            json!({ "textDocument": { "uri": first }, "reason": 1 }),
+        ));
+        assert_eq!(server.queued.lock().unwrap().len(), queued);
+    }
+
+    #[test]
+    fn a_burst_of_on_type_requests_is_bounded_and_coalesced() {
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::write(temporary.path().join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let path = temporary.path().join("a.ts");
+        let text = "const value=1;\n";
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "rootUri": uri::from_path(temporary.path()),
+                    "capabilities": {},
+                }),
+            )))
+            .unwrap();
+        receive_response(&client, &RequestId::from(1)).unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                DidOpenTextDocument::METHOD.into(),
+                json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "typescript",
+                        "version": 1,
+                        "text": text
+                    }
+                }),
+            )))
+            .unwrap();
+        let started = Instant::now();
+        for id in 100..150 {
+            client
+                .sender
+                .send(Message::Request(Request::new(
+                    RequestId::from(id),
+                    OnTypeFormatting::METHOD.into(),
+                    json!({
+                        "textDocument": { "uri": uri },
+                        "position": { "line": 0, "character": 15 },
+                        "ch": ";",
+                        "options": { "tabSize": 2, "insertSpaces": true }
+                    }),
+                )))
+                .unwrap();
+        }
+        let mut coalesced = 0;
+        let mut analyzed = 0;
+        for _ in 0..50 {
+            let message = client
+                .receiver
+                .recv_timeout(Duration::from_secs(20))
+                .expect("burst response");
+            let Message::Response(response) = message else {
+                continue;
+            };
+            let result = response.response_result.expect("burst response result");
+            if result.is_null() {
+                coalesced += 1;
+            } else {
+                analyzed += 1;
+            }
+        }
+        assert!(coalesced >= 40, "coalesced={coalesced} analyzed={analyzed}");
+        assert!(analyzed <= 10, "coalesced={coalesced} analyzed={analyzed}");
+        assert!(started.elapsed() < Duration::from_secs(10));
+
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(2),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(2));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn initialized_registers_watched_files_once() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "rootUri": uri::from_path(temporary.path()),
+                    "capabilities": {},
+                }),
+            )))
+            .unwrap();
+        receive_response(&client, &RequestId::from(1)).unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        let registration = loop {
+            let message = client
+                .receiver
+                .recv_timeout(Duration::from_secs(5))
+                .expect("registration request");
+            match message {
+                Message::Request(request) if request.method == "client/registerCapability" => {
+                    break request;
+                }
+                _ => continue,
+            }
+        };
+        let watchers = registration.params["registrations"][0]["registerOptions"]["watchers"]
+            .as_array()
+            .expect("watchers");
+        let globs: Vec<&str> = watchers
+            .iter()
+            .filter_map(|watcher| watcher["globPattern"].as_str())
+            .collect();
+        for expected in [
+            "**/dotfmt.dotfile",
+            "**/.prettierignore",
+            "**/tsconfig*.json",
+            "**/jsconfig*.json",
+        ] {
+            assert!(globs.contains(&expected), "{globs:?}");
+        }
+        assert!(
+            globs
+                .iter()
+                .any(|glob| glob.ends_with("dotfmt/dotfmt.dotfile")),
+            "{globs:?}"
+        );
+
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_millis(250);
+        while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            match client.receiver.recv_timeout(remaining) {
+                Ok(Message::Request(request)) if request.method == "client/registerCapability" => {
+                    panic!("watchers registered twice");
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(2),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(2));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn prettierignore_changes_invalidate_sessions_like_config_changes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let server = test_server(temporary.path());
+        let path = temporary.path().join("a.ts");
+        let before = server.workspace.session(&path);
+        server.notify(Notification::new(
+            DidChangeWatchedFiles::METHOD.into(),
+            json!({
+                "changes": [{
+                    "uri": uri::from_path(&temporary.path().join(".prettierignore")),
+                    "type": 2
+                }]
+            }),
+        ));
+        let after = server.workspace.session(&path);
+        assert!(!Arc::ptr_eq(&before, &after));
+    }
+
+    #[test]
+    fn unsupported_documents_do_not_publish_diagnostics() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("notes.txt");
+        let uri = uri::from_path(&path);
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "rootUri": uri::from_path(temporary.path()),
+                    "capabilities": {},
+                }),
+            )))
+            .unwrap();
+        receive_response(&client, &RequestId::from(1)).unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                DidOpenTextDocument::METHOD.into(),
+                json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "plaintext",
+                        "version": 1,
+                        "text": "hello\n"
+                    }
+                }),
+            )))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_millis(600);
+        while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            match client.receiver.recv_timeout(remaining) {
+                Ok(Message::Notification(notification))
+                    if notification.method == "textDocument/publishDiagnostics" =>
+                {
+                    assert_ne!(
+                        notification.params["uri"].as_str(),
+                        Some(uri.as_str()),
+                        "unsupported document received diagnostics"
+                    );
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(2),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(2));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn out_of_order_change_is_logged() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (server, receiver) = server_with_options(temporary.path(), Value::Null);
+        let path = temporary.path().join("a.json");
+        let uri = uri::from_path(&path);
+        server.documents.lock().unwrap().open(
+            uri.clone(),
+            Document::new("{\"a\":1}\n".into(), "json".into(), 5),
+        );
+        server.notify(Notification::new(
+            DidChangeTextDocument::METHOD.into(),
+            json!({
+                "textDocument": { "uri": uri, "version": 4 },
+                "contentChanges": [{ "text": "{\"b\":2}\n" }]
+            }),
+        ));
+        assert_eq!(server.document(&uri).unwrap().text(), "{\"a\":1}\n");
+        loop {
+            let message = receiver
+                .recv_timeout(Duration::from_secs(2))
+                .expect("out-of-order log");
+            if let Message::Notification(notification) = message
+                && notification.method == "window/logMessage"
+                && notification.params["message"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("out-of-order didChange"))
+            {
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn range_formatting_stays_inside_a_multiline_hunk() {
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::write(temporary.path().join("dotfmt.dotfile"), "json {}\n").unwrap();
+        let path = temporary.path().join("a.json");
+        let text = "{\n\"a\":1,\n\"b\":2,\n\"c\":3\n}\n";
+        std::fs::write(&path, text).unwrap();
+        let server = test_server(temporary.path());
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "json".into(), 1);
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let range = document.line_range(2, 2);
+        let range = document.lsp_range(&range);
+        let edits = server
+            .format_document(&uri, &document, &[range], None)
+            .unwrap_or_else(|error| panic!("formatting failed: {}", error.message));
+        assert!(!edits.is_empty());
+        assert!(
+            edits
+                .iter()
+                .all(|edit| edit.range.start.line >= 2 && edit.range.end.line <= 3),
+            "{edits:?}"
+        );
+        let formatted = apply_edits(text, &edits);
+        let before: Vec<&str> = text.lines().collect();
+        let after: Vec<&str> = formatted.lines().collect();
+        assert_eq!(after[1], before[1]);
+        assert_eq!(after[3], before[3]);
+        assert_eq!(after[2], "  \"b\": 2,");
+    }
+
+    #[test]
+    fn code_actions_keep_the_existing_action_shape() {
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::write(temporary.path().join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let path = temporary.path().join("a.ts");
+        let text = "const value=1;\n";
+        std::fs::write(&path, text).unwrap();
+        let server = test_server(temporary.path());
+        let uri = uri::from_path(&path);
+        server.documents.lock().unwrap().open(
+            uri.clone(),
+            Document::new(text.into(), "typescript".into(), 1),
+        );
+        let result = server
+            .handle(
+                CodeActionRequest::METHOD,
+                &json!({
+                    "textDocument": { "uri": uri },
+                    "range": {
+                        "start": { "line": 0, "character": 0 },
+                        "end": { "line": 0, "character": 0 }
+                    },
+                    "context": { "diagnostics": [], "only": null }
+                }),
+                &RequestState::default(),
+            )
+            .unwrap();
+        let actions: Vec<CodeActionOrCommand> = serde_json::from_value(result).unwrap();
+        assert!(!actions.is_empty());
+        let kinds: Vec<&str> = actions
+            .iter()
+            .filter_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action) => {
+                    action.kind.as_ref().map(CodeActionKind::as_str)
+                }
+                CodeActionOrCommand::Command(_) => None,
+            })
+            .collect();
+        assert!(kinds.contains(&actions::FORMAT), "{kinds:?}");
+        let mut seen = std::collections::HashSet::new();
+        for action in &actions {
+            let CodeActionOrCommand::CodeAction(action) = action else {
+                panic!("unexpected command action");
+            };
+            assert!(seen.insert(action.title.clone()), "duplicate action title");
+            assert!(
+                action.edit.is_some(),
+                "action without edit: {}",
+                action.title
+            );
+        }
     }
 }
