@@ -200,6 +200,9 @@ In VS Code, the extension uses LSP for document/range/ranges formatting, `;`/`}`
 | `dotfmt.diagnostics.debounceMs` | `250` | resource | Diagnostic debounce, 50–2000 ms |
 | `dotfmt.typescript.tsdk` | `""` | resource | TypeScript install used for `tsc`; empty discovers the project's compiler |
 | `dotfmt.fixes.onSave` | `"off"` | resource | Run the selected `off`/`safe`/`unsafe` fix mode through `textDocument/willSaveWaitUntil`, before writing |
+| `dotfmt.format.*` | unset | resource | Native overlay for every generated formatting option; unset inherits `dotfmt.dotfile` |
+| `dotfmt.formatExtra` | `{}` | resource | Free-form overlay using the dotfile shape; lower precedence than `dotfmt.format.*` |
+| `dotfmt.codeActions.unusedExports` | `true` | resource | Offer the unsafe unused-export quick fix from project analysis in trusted workspaces |
 | `dotfmt.server.path` | `""` | machine-overridable | Language server binary; empty uses the bundled one |
 | `dotfmt.path` | `""` | machine-overridable | CLI binary for manual checks and `dotfmt.doctor`; empty uses the bundled one |
 | `dotfmt.trace.server` | `"off"` | window | `off`/`messages`/`verbose` LSP trace in its own output channel |

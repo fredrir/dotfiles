@@ -13,7 +13,9 @@
   "scripts": {
     "build": "bun build.ts",
     "deploy": "bun deploy.ts",
-    "test": "bun test"
+    "test": "bun test && bun generate-settings.ts --check",
+    "settings": "bun generate-settings.ts",
+    "settings:check": "bun generate-settings.ts --check"
   },
   "dependencies": {
     "vscode-languageclient": "^11.0.0"
