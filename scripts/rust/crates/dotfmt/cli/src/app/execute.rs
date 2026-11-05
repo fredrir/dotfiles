@@ -47,7 +47,7 @@ impl Session {
                 check,
                 clean,
             } => {
-                let buffer = buffer.map(|buffer| format_buffer(buffer, clean));
+                let buffer = buffer.map(|buffer| format_buffer(buffer, check, clean));
                 let files = if parallel {
                     files
                         .par_iter()
@@ -143,13 +143,17 @@ fn format_file(job: &Job, check: bool, clean: bool) -> FileOutcome {
     }
 }
 
-fn format_buffer(job: BufferJob, clean: bool) -> BufferOutcome {
+fn format_buffer(job: BufferJob, check: bool, clean: bool) -> BufferOutcome {
     let input = job.input;
     let absolute = job.absolute;
     let result = match job.engine {
-        Some(engine) => engine
-            .format(&input.path, &absolute, &input.input, job.markdown, clean)
-            .map(|formatted| match formatted {
+        Some(engine) => {
+            let formatted = if check {
+                engine.format_text(&input.path, &absolute, &input.input, job.markdown, clean)
+            } else {
+                engine.format(&input.path, &absolute, &input.input, job.markdown, clean)
+            };
+            formatted.map(|formatted| match formatted {
                 Formatted::Text { text, repairs } => {
                     let output = text.into_bytes();
                     BufferChange {
@@ -167,7 +171,8 @@ fn format_buffer(job: BufferJob, clean: bool) -> BufferOutcome {
                         repairs: Repairs::default(),
                     },
                 },
-            }),
+            })
+        }
         None => Ok(BufferChange {
             output: input.input,
             change: Change {
