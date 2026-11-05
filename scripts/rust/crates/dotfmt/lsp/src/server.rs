@@ -10,6 +10,7 @@ use std::thread;
 
 use dotfmt::app::{FixMode, Selection};
 use dotfmt_core::config::ConfigOverlay;
+use dotfmt_core::diagnostic::DiagnosticKind;
 use dotfmt_core::edit::{Applicability, Fix, apply_fixes};
 use dotfmt_core::language::Language;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
@@ -176,6 +177,8 @@ pub struct Server {
     settings_epoch: AtomicU64,
     /// The client-resolved global config path, preferred over the process env.
     global_config: Option<PathBuf>,
+    /// Configuration errors already reported to the output channel, per root.
+    logged_configuration_errors: Mutex<HashMap<PathBuf, HashSet<String>>>,
     capabilities: EditCapabilities,
     in_flight: Mutex<HashMap<RequestId, Arc<RequestState>>>,
     queued: Mutex<HashMap<(Uri, &'static str), RequestId>>,
@@ -326,6 +329,7 @@ impl Server {
             folder_requests: Mutex::new(HashSet::new()),
             settings_epoch: AtomicU64::new(0),
             global_config,
+            logged_configuration_errors: Mutex::new(HashMap::new()),
             capabilities,
             in_flight: Mutex::new(HashMap::new()),
             queued: Mutex::new(HashMap::new()),
@@ -563,6 +567,7 @@ impl Server {
     /// Rebuilds everything: trust, the default configuration or a global config file.
     fn reload_all(&self) {
         self.workspace.invalidate();
+        self.clear_configuration_errors(None);
         dotfmt_typescript::project::clear_cache();
         self.diagnostics.clear_all();
         self.tsc.invalidate();
@@ -585,6 +590,7 @@ impl Server {
         let root = crate::workspace::normalize(root);
         dotfmt_typescript::project::invalidate_root(&root);
         self.workspace.invalidate_root(&root);
+        self.clear_configuration_errors(Some(&root));
         self.diagnostics.clear_under(root.clone());
         self.tsc.invalidate_root(&root);
         let snapshot = self.document_snapshot(|path| path.starts_with(&root));
@@ -1592,7 +1598,19 @@ impl Server {
             json!({ "globPattern": "**/bun.lockb" }),
         ];
         if let Some(global) = &self.global_config {
-            watchers.push(json!({ "globPattern": global.display().to_string() }));
+            // A relative pattern keeps Windows separators out of the glob; the
+            // base URI also survives a local client talking to a remote server.
+            match (global.parent(), global.file_name()) {
+                (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => {
+                    watchers.push(json!({
+                        "globPattern": {
+                            "baseUri": uri::from_path(parent),
+                            "pattern": name.to_string_lossy(),
+                        }
+                    }));
+                }
+                _ => watchers.push(json!({ "globPattern": global.display().to_string() })),
+            }
         }
         let params = json!({
             "registrations": [{
@@ -1644,8 +1662,44 @@ impl Server {
         } else {
             self.diagnostics.clear(uri.clone());
         }
-        for error in errors {
-            self.log(error.to_string());
+        // A missing or broken configuration fails every format request from the
+        // same root; log its signature once until a reload changes the session.
+        let root = uri::path(uri)
+            .map_or_else(|| PathBuf::from("."), |path| self.workspace.root_for(&path));
+        let mut messages = Vec::new();
+        {
+            let mut logged = self
+                .logged_configuration_errors
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            for error in errors {
+                let message = error.to_string();
+                if error.kind != DiagnosticKind::Configuration
+                    || logged
+                        .entry(root.clone())
+                        .or_default()
+                        .insert(message.clone())
+                {
+                    messages.push(message);
+                }
+            }
+        }
+        for message in messages {
+            self.log(message);
+        }
+    }
+
+    /// Allows the next configuration failure of a rebuilt session to be logged.
+    fn clear_configuration_errors(&self, root: Option<&Path>) {
+        let mut logged = self
+            .logged_configuration_errors
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        match root {
+            Some(root) => {
+                logged.remove(&crate::workspace::normalize(root));
+            }
+            None => logged.clear(),
         }
     }
 
@@ -2015,6 +2069,13 @@ mod tests {
         }
     }
 
+    fn global_config_options(global: &Path) -> [Value; 2] {
+        [
+            json!({ "trusted": true, "globalConfig": global }),
+            json!({ "trusted": true, "dotfmt": { "globalConfig": global } }),
+        ]
+    }
+
     fn server_with_options(
         root: &Path,
         options: Value,
@@ -2316,11 +2377,109 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let global = temporary.path().join("dotfmt.dotfile");
         std::fs::write(&global, "typescript {}\n").unwrap();
-        let (server, _receiver) = server_with_options(
-            temporary.path(),
-            json!({ "trusted": true, "globalConfig": global }),
+        for options in global_config_options(&global) {
+            let (server, _receiver) = server_with_options(temporary.path(), options);
+            assert_eq!(server.global_config.as_deref(), Some(global.as_path()));
+        }
+    }
+
+    #[test]
+    fn initialization_global_config_formats_without_environment() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        let global = temporary.path().join("global/dotfmt.dotfile");
+        std::fs::create_dir_all(global.parent().unwrap()).unwrap();
+        std::fs::write(&global, "json {}\n").unwrap();
+        let text = "{\"a\":1}\n";
+        let path = root.join("a.json");
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "json".into(), 1);
+        for options in global_config_options(&global) {
+            let (server, _receiver) = server_with_options(&root, options);
+            server
+                .documents
+                .lock()
+                .unwrap()
+                .open(uri.clone(), document.clone());
+            {
+                let session = server.workspace.session(&path);
+                let mut session = session.lock().unwrap();
+                let explanation = session.explain(&path, Vec::new(), None).unwrap();
+                // Pinning the source makes an environment global config
+                // incapable of masking a broken initialization option.
+                assert_eq!(explanation.sources, vec![global.clone()]);
+            }
+            let edits = server
+                .format_document(&uri, &document, &[], false, None)
+                .unwrap();
+            assert!(!edits.is_empty(), "the global config did not enable json");
+            assert_eq!(apply_edits(text, &edits), "{\n  \"a\": 1\n}\n");
+        }
+    }
+
+    #[test]
+    fn configuration_errors_log_once_per_root_and_remain_in_explain() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root_a = temporary.path().join("a");
+        let root_b = temporary.path().join("b");
+        std::fs::create_dir_all(&root_a).unwrap();
+        std::fs::create_dir_all(&root_b).unwrap();
+        let missing = temporary.path().join("missing/dotfmt.dotfile");
+        let (server, receiver) = server_with_roots(
+            &[&root_a, &root_b],
+            json!({ "trusted": true, "globalConfig": missing }),
+            json!({}),
         );
-        assert_eq!(server.global_config.as_deref(), Some(global.as_path()));
+        let text = "{\"a\":1}\n";
+        let uri_a = uri::from_path(&root_a.join("a.json"));
+        let uri_b = uri::from_path(&root_b.join("b.json"));
+        let document = Document::new(text.into(), "json".into(), 1);
+        {
+            let mut documents = server.documents.lock().unwrap();
+            documents.open(uri_a.clone(), document.clone());
+            documents.open(uri_b.clone(), document.clone());
+        }
+        for _ in 0..2 {
+            for uri in [&uri_a, &uri_b] {
+                let edits = server
+                    .format_document(uri, &document, &[], false, None)
+                    .unwrap();
+                assert!(edits.is_empty(), "missing configuration produced edits");
+            }
+        }
+        let logs: Vec<String> = receiver
+            .try_iter()
+            .filter_map(|message| match message {
+                Message::Notification(notification)
+                    if notification.method == "window/logMessage" =>
+                {
+                    notification.params["message"]
+                        .as_str()
+                        .map(ToOwned::to_owned)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(logs.len(), 2, "{logs:?}");
+        assert!(
+            logs.iter()
+                .all(|log| log.contains("no configured languages")),
+            "{logs:?}"
+        );
+
+        let explanation = server
+            .explain(json!({
+                "textDocument": { "uri": uri_a },
+                "languageId": "json",
+            }))
+            .unwrap();
+        assert!(
+            explanation["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("no configured languages")),
+            "{explanation:?}"
+        );
     }
 
     #[test]
@@ -2901,6 +3060,7 @@ mod tests {
     #[test]
     fn initialized_registers_watched_files_once() {
         let temporary = tempfile::tempdir().unwrap();
+        let global = temporary.path().join("config/dotfmt/dotfmt.dotfile");
         let (server, client) = Connection::memory();
         let serving = std::thread::spawn(move || run(&server));
         client
@@ -2912,6 +3072,7 @@ mod tests {
                     "processId": null,
                     "rootUri": uri::from_path(temporary.path()),
                     "capabilities": {},
+                    "initializationOptions": { "globalConfig": global },
                 }),
             )))
             .unwrap();
@@ -2950,12 +3111,19 @@ mod tests {
         ] {
             assert!(globs.contains(&expected), "{globs:?}");
         }
-        assert!(
-            globs
-                .iter()
-                .any(|glob| glob.ends_with("dotfmt/dotfmt.dotfile")),
-            "{globs:?}"
+        let global_watcher = watchers
+            .iter()
+            .find_map(|watcher| {
+                watcher["globPattern"]
+                    .get("baseUri")
+                    .map(|_| &watcher["globPattern"])
+            })
+            .expect("global config watcher");
+        assert_eq!(
+            global_watcher["baseUri"],
+            json!(uri::from_path(global.parent().unwrap()))
         );
+        assert_eq!(global_watcher["pattern"], json!("dotfmt.dotfile"));
 
         client
             .sender
