@@ -135,7 +135,7 @@ local bindings = {
   keybind(go_to "CONFIG", MOD.SHIFT_RIGHT, "c"),
   keybind(go_to "DOTFILES", MOD.SHIFT_RIGHT, "d"),
   keybind(go_to "DOTFILES/shared/zsh", MOD.SHIFT_RIGHT, "z"),
-  keybind(go_to "DOTFILES/scripts/rust/crates", MOD.SHIFT_RIGHT, "t"),
+  keybind(go_to "DOTFILES/scripts/node", MOD.SHIFT_RIGHT, "t"),
   keybind(go_to "DOTFILES/scripts/rust/crates/git/dogit", MOD.SHIFT_RIGHT, "x"),
   keybind(go_to "HOME/infra", MOD.SHIFT_RIGHT, "i"),
   keybind(cd_git_root, MOD.SHIFT_RIGHT, "g"),

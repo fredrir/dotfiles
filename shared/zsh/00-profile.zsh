@@ -1,5 +1,4 @@
 # ~/.zprofile
-# zsh-build: omit
 ((${+_zsh_build_rcs})) && return
 
 [[ -x /opt/homebrew/bin/brew ]] && eval "$(/opt/homebrew/bin/brew shellenv zsh)"

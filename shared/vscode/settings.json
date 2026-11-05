@@ -38,7 +38,7 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode",
   },
   "[tailwindcss]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "[html]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
@@ -397,4 +397,6 @@
   "oxc.enable.oxfmt": true,
   "js/ts.preferences.autoImportEntrypointDirectorySearch": true,
   "js/ts.server.goMemLimit": "8GiB",
+
+  
 }
