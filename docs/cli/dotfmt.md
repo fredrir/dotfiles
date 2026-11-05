@@ -46,7 +46,7 @@ dialect  ssh
 config   ~/.config/dotfmt/dotfmt.dotfile
 ```
 
-The [VS Code extension](../../scripts/node/packages/dotfmt/README.md) runs the `dotfmt-lsp` language server for formatting, ranges, on-type formatting, diagnostics and code actions. Other editors can keep using editor mode (`--editor`) and `--explain`.
+The [VS Code extension](../../scripts/node/packages/dotfmt/README.md) runs the `dotfmt-lsp` language server for formatting, ranges, on-type formatting, error diagnostics and code actions. Other editors can keep using editor mode (`--editor`) and `--explain`.
 
 Selection uses filenames and `dotfmt.dotfile`, not the editor's filetype. A `.json` file with comments is formatted as JSONC, keeping its comments and trailing commas; `dialect = json` in the applicable `json` block drops them instead. Map extensionless names through that block's `include` rules.
 
@@ -166,13 +166,45 @@ Discovery honors the nearest `.prettierignore` for Prettier compatibility. Expli
 
 TypeScript/TSX, JavaScript/JSX, CSS/SCSS/Sass/Less and HTML/Vue/Svelte/Astro use the same configuration and selection rules as every other language. The formatter is quiet by design: syntax errors leave the file untouched, `--editor` passes the original buffer through and exits `0`, and only dotfmt's own configuration/I/O/internal failures are reported.
 
-Formatting never deletes code. `--fix` applies only `Safe` fixes; `--fix-unsafe` also applies `Unsafe` fixes and requires an explicit flag. `--diagnose` reports findings without editing and exits `1` when findings remain. Quick fixes cover unused imports (a bare `import "module"` preserves side effects), type-only import conversion, organize imports and a conservative unused-variable removal. Exported declarations, `.d.ts` files, classic JSX factory bindings, decorator metadata, impure initializers and files containing `eval`/`new Function` are protected. Fixes are applied as byte-range edits, then the result is formatted, reparsed and re-analyzed up to a bounded fixpoint. `--fix --diff` prints the exact change instead of writing it.
+dotfmt is a formatter, not a linter. In the editor it publishes errors only: syntax/configuration failures, plus project `tsc` errors when `dotfmt.typeAware` is on. Findings never become squiggles, and dotfmt publishes no Hint, Information or Warning diagnostics. `--diagnose`, `--fix`, `--fix-unsafe`, quick fixes and the `source.fixAll.dotfmt`/`source.organizeImports.dotfmt`/`source.format.dotfmt` code actions remain the lint and repair surface.
 
-`type_aware = true` runs the project's `tsc --noEmit` for project-wide diagnostics and builds an export/import graph for unused-export findings. TypeScript diagnostics with codes already covered by a dotfmt finding are collapsed, so an unused import or variable is reported once with its fix. Type information gates destructive fixes; it never blocks formatting.
+`--diagnose` reports findings without editing and exits `1` when findings remain. `--fix` applies only `Safe` fixes; `--fix-unsafe` also applies `Unsafe` fixes and requires an explicit flag. Quick fixes cover unused imports (a bare `import "module"` preserves side effects), type-only import conversion, organize imports and a conservative unused-variable removal. Exported declarations, `.d.ts` files, classic JSX factory bindings, decorator metadata, impure initializers and files containing `eval`/`new Function` are protected. Fixes are applied as byte-range edits, then the result is formatted, reparsed and re-analyzed up to a bounded fixpoint. `--fix --diff` prints the exact change instead of writing it.
+
+Formatting applies fixes too when `dotfmt.dotfile` enables them. All options default to off, so a plain format only changes layout:
+
+| TypeScript/JavaScript option | Default | Effect |
+| --- | --- | --- |
+| `fixes` | `off` | Preset for format-time fixes: `off`, `safe` or `unsafe` |
+| `remove_unused_imports` | `false` | Remove unused imports; a bare `import "module"` keeps its side effect |
+| `convert_type_only_imports` | `false` | Convert imports used only as types to `import type` |
+| `organize_imports` | `false` | Sort and group import runs, applying their import fixes |
+| `remove_unused_exports` | `false` | Remove unused exports (unsafe, needs project analysis) |
+| `remove_unused_locals` | `false` | Remove unused local variables (unsafe) |
+| `remove_unused_parameters` | `false` | Remove unused parameters (unsafe) |
+
+`fixes = safe` implies `remove_unused_imports`, `convert_type_only_imports` and `organize_imports`; `fixes = unsafe` implies those plus `remove_unused_exports`, `remove_unused_locals` and `remove_unused_parameters`. A `true` option applies even with `fixes = off`. Selected fixes run before the final format, at most 3 passes, and reformatting is idempotent. The destructive options delete code, so they run only when configured; unsafe fixes stay off in untrusted workspaces.
+
+`type_aware = true` (default) runs the project's `tsc --noEmit --pretty false --locale en --project <tsconfig>` once per project and keeps only errors. Unused-only codes 6133, 6192, 6196, 6198, 6199 and 6205 are filtered, so unused code is never an editor error; `--diagnose` reports it instead. `remove_unused_exports = true` lets formatting remove project-wide unused exports; `--diagnose` reports them without removing anything. Type information never blocks formatting.
+
+`tsc` discovery: `dotfmt.typescript.tsdk` when set, `DOTFMT_TSC`, the project's `node_modules/typescript/lib/tsc.js` under Node, `node_modules/.bin/tsc`, `@typescript/native-preview`/`tsgo`, then `tsc` on `PATH`; the resolved compiler and version are logged once per project.
 
 Tailwind sorting supports TSX `className`/`class`, `cn`/`clsx`/`cva`/`twMerge`, template literals, CSS `@apply`, and HTML/markup class attributes. `tailwind = auto` engages only when the file or project uses Tailwind; `tailwind_order = project` requires the project's own Tailwind and fails with a configuration diagnostic if it cannot be resolved. The project bridge runs the official `prettier-plugin-tailwindcss` sorter through Node, caches the class order under `${XDG_CACHE_HOME:-~/.cache}/dotfmt/tailwind`, and falls back to the Rust pattern sorter for `auto`/`rust`. `tailwind_merge` is opt-in because collapsing conflicting utilities can change rendering.
 
-In VS Code, the extension uses LSP for document/range/ranges formatting, `;`/`}` on-type formatting, diagnostics, quick fixes, `source.fixAll.dotfmt`, `source.organizeImports.dotfmt` and `source.format.dotfmt`. `dotfmt.fixes.onSave` is applied through `textDocument/willSaveWaitUntil`, before the file is written; it is off by default. Unsafe fixes are hidden in untrusted workspaces.
+In VS Code, the extension uses LSP for document/range/ranges formatting, `;`/`}` on-type formatting, error diagnostics, quick fixes, `source.fixAll.dotfmt`, `source.organizeImports.dotfmt` and `source.format.dotfmt`. Language settings are resource-scoped, so every folder in a multi-root workspace resolves its own configuration, compiler scope and fix mode:
+
+| VS Code setting | Default | Scope | Effect |
+| --- | --- | --- | --- |
+| `dotfmt.typeAware` | `true` | resource | Publish project `tsc` errors |
+| `dotfmt.diagnostics.syntax` | `true` | resource | Publish syntax and configuration errors; `false` disables them |
+| `dotfmt.diagnostics.tscScope` | `"open"` | resource | `open` publishes errors for open documents only; `project` publishes every project error |
+| `dotfmt.diagnostics.debounceMs` | `250` | resource | Diagnostic debounce, 50–2000 ms |
+| `dotfmt.typescript.tsdk` | `""` | resource | TypeScript install used for `tsc`; empty discovers the project's compiler |
+| `dotfmt.fixes.onSave` | `"off"` | resource | Run the selected `off`/`safe`/`unsafe` fix mode through `textDocument/willSaveWaitUntil`, before writing |
+| `dotfmt.server.path` | `""` | machine-overridable | Language server binary; empty uses the bundled one |
+| `dotfmt.path` | `""` | machine-overridable | CLI binary for manual checks and `dotfmt.doctor`; empty uses the bundled one |
+| `dotfmt.trace.server` | `"off"` | window | `off`/`messages`/`verbose` LSP trace in its own output channel |
+
+`dotfmt.doctor` prints the server and CLI paths and versions, the resolved configuration chain, the `tsc` compiler and version, workspace trust, and a copyable summary. Trust is explicit: the server starts untrusted, and project `tsc`, project JavaScript (Tailwind order) and unsafe fixes run only when the client or `DOTFMT_TRUSTED` grants trust.
 
 `--migrate prettier` reads `package.json#prettier` and JSON `.prettierrc` files and prints a starting configuration; JavaScript configs and unsupported plugins are reported, not guessed. The nearest `.prettierignore` is honored during discovery.
 
@@ -219,7 +251,7 @@ In VS Code, the extension uses LSP for document/range/ranges formatting, `;`/`}`
 | Plist | `indent`, `indent_type`, `line_endings`, `blank_lines`, `data_width`, `prolog`, `self_closing`, `sort_keys` (must be `false`) |
 | TOML | `line_endings`, `allowed_blank_lines`, `align_entries`, `align_comments`, `align_single_comments`, `array_trailing_comma`, `array_auto_expand`, `array_auto_collapse`, `compact_arrays`, `compact_inline_tables`, `compact_entries`, `inline_table_expand`, `indent_tables`, `indent_entries`, `reorder_keys`, `format_comments` |
 | YAML | `line_endings`, `indent_sequences`, `trailing_comma`, `brace_spacing`, `bracket_spacing`, `dash_spacing`, `prefer_single_line`, `format_comments` |
-| TypeScript | `dialect`, `indent_type`, `line_endings`, `quote_style`, `jsx_quote_style`, `quote_properties`, `semicolons`, `trailing_commas`, `arrow_parentheses`, `bracket_spacing`, `bracket_same_line`, `attribute_position`, `expand`, `jsdoc`, `embedded_css`, `sort_imports`, `import_order`, `import_internal`, `import_side_effects`, `import_newlines`, `import_partition_by_newline`, `import_partition_by_comment`, `type_aware`, `verify`, `tailwind`, `tailwind_order`, `tailwind_dedupe`, `tailwind_merge`, `tailwind_functions`, `tailwind_attributes`, `tailwind_stylesheet`, `tailwind_config` |
+| TypeScript | `dialect`, `indent_type`, `line_endings`, `quote_style`, `jsx_quote_style`, `quote_properties`, `semicolons`, `trailing_commas`, `arrow_parentheses`, `bracket_spacing`, `bracket_same_line`, `attribute_position`, `expand`, `jsdoc`, `embedded_css`, `sort_imports`, `import_order`, `import_internal`, `import_side_effects`, `import_newlines`, `import_partition_by_newline`, `import_partition_by_comment`, `type_aware`, `fixes`, `remove_unused_imports`, `remove_unused_exports`, `remove_unused_locals`, `remove_unused_parameters`, `convert_type_only_imports`, `organize_imports`, `verify`, `tailwind`, `tailwind_order`, `tailwind_dedupe`, `tailwind_merge`, `tailwind_functions`, `tailwind_attributes`, `tailwind_stylesheet`, `tailwind_config` |
 | JavaScript | Same settings as TypeScript; add `javascript {}` to opt in |
 | CSS | `dialect`, `indent_type`, `line_endings`, `hex_case`, `quotes`, `format_comments`, `align_comments`, `single_line_block_threshold`, `tailwind`, `tailwind_order`, `tailwind_dedupe`, `tailwind_merge`, `tailwind_stylesheet`, `tailwind_config` |
 | HTML | `dialect`, `indent_type`, `line_endings`, `quotes`, `format_comments`, `closing_bracket_same_line`, `max_attrs_per_line`, `script_indent`, `style_indent`, `tailwind`, `tailwind_dedupe`, `tailwind_stylesheet`, `tailwind_config` |
