@@ -23,6 +23,7 @@ use crate::diagnostics::Diagnostics;
 use crate::documents::Documents;
 use crate::settings::{Settings, TscScope};
 use crate::uri;
+use crate::workspace::Workspace;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
@@ -63,15 +64,15 @@ pub struct Tsc {
     /// One generation per workspace folder; a folder reload never cancels
     /// another folder's in-flight compiler run.
     generations: Arc<Mutex<HashMap<PathBuf, u64>>>,
-    /// Queued checks per project, with the documents that asked for them.
-    /// Duplicate schedules for the same project/document collapse into one job.
+    /// Configs waiting for a check, coalesced per workspace root. Every
+    /// schedule adds its nearest config; the worker drains the whole set in
+    /// one job before a new job is queued for that root.
     pending: Arc<Mutex<HashMap<PathBuf, HashSet<PathBuf>>>>,
+    workspace: Arc<Workspace>,
 }
 
 enum Job {
     Check {
-        project: PathBuf,
-        tsconfig: PathBuf,
         root: PathBuf,
         generation: u64,
         settings: Settings,
@@ -90,6 +91,12 @@ struct Cache {
 /// Compiler discovery depends on the folder's `tsdk`, so the cache key keeps it.
 type CompilerKey = (PathBuf, Option<PathBuf>);
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+enum GraphIssue {
+    Missing,
+    Cycle,
+}
+
 #[derive(Default)]
 struct State {
     compilers: HashMap<CompilerKey, Option<Compiler>>,
@@ -97,6 +104,7 @@ struct State {
     logged: HashSet<CompilerKey>,
     failures: HashMap<PathBuf, u32>,
     backoff_logged: HashSet<PathBuf>,
+    graph_logged: HashSet<(PathBuf, GraphIssue)>,
 }
 
 impl State {
@@ -106,19 +114,22 @@ impl State {
         self.logged.clear();
         self.failures.clear();
         self.backoff_logged.clear();
+        self.graph_logged.clear();
     }
 
-    fn retain_root(&mut self, root: &Path) {
+    fn retain_root(&mut self, workspace: &Workspace, root: &Path) {
         self.compilers
-            .retain(|(project, _), _| !project.starts_with(root));
+            .retain(|(project, _), _| !workspace.in_root(project, root));
         self.versions
-            .retain(|(project, _), _| !project.starts_with(root));
+            .retain(|(project, _), _| !workspace.in_root(project, root));
         self.logged
-            .retain(|(project, _)| !project.starts_with(root));
+            .retain(|(project, _)| !workspace.in_root(project, root));
         self.failures
-            .retain(|project, _| !project.starts_with(root));
+            .retain(|project, _| !workspace.in_root(project, root));
         self.backoff_logged
-            .retain(|project| !project.starts_with(root));
+            .retain(|project| !workspace.in_root(project, root));
+        self.graph_logged
+            .retain(|(path, _)| !workspace.in_root(path, root));
     }
 }
 
@@ -146,7 +157,10 @@ impl Compiler {
 }
 
 pub struct ProjectStatus {
+    /// The workspace folder that owns this config.
     pub root: PathBuf,
+    /// The directory `tsc -p` runs in.
+    pub project: PathBuf,
     pub tsconfig: Option<PathBuf>,
     pub compiler: Option<PathBuf>,
     pub version: Option<String>,
@@ -154,7 +168,11 @@ pub struct ProjectStatus {
 }
 
 impl Tsc {
-    pub fn new(diagnostics: Arc<Diagnostics>, documents: Arc<Mutex<Documents>>) -> Self {
+    pub fn new(
+        diagnostics: Arc<Diagnostics>,
+        documents: Arc<Mutex<Documents>>,
+        workspace: Arc<Workspace>,
+    ) -> Self {
         let (jobs, receiver) = crossbeam_channel::unbounded();
         let cache = Arc::new(Mutex::new(HashMap::new()));
         let state = Arc::new(Mutex::new(State::default()));
@@ -183,35 +201,34 @@ impl Tsc {
             state,
             generations,
             pending,
+            workspace,
         }
     }
 
+    /// Queues the config nearest to `path` for its workspace root.
+    ///
+    /// Every document of a root joins one pending job; the worker expands
+    /// project references and runs each config at most once per fingerprint.
     pub fn schedule(&self, path: PathBuf, root: PathBuf, settings: Settings) {
         let Some(tsconfig) = nearest_tsconfig(&path, &root) else {
             return;
         };
-        let project = tsconfig.parent().unwrap_or(&root).to_path_buf();
+        let tsconfig = crate::workspace::normalize(&tsconfig);
         let generation = self.generation_for(&root);
-        let queued = {
+        let first = {
             let mut pending = self
                 .pending
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            let documents = pending.entry(project.clone()).or_default();
-            // The same document never queues a second check while its
-            // project is pending, and a second document joins the one job.
-            let first = documents.is_empty();
-            if !documents.insert(path) {
-                return;
-            }
+            let configs = pending.entry(root.clone()).or_default();
+            let first = configs.is_empty();
+            configs.insert(tsconfig);
             first
         };
-        if !queued {
+        if !first {
             return;
         }
         let _ = self.jobs.send(Job::Check {
-            project,
-            tsconfig,
             root,
             generation,
             settings,
@@ -263,37 +280,62 @@ impl Tsc {
         let _ = self.jobs.send(Job::Invalidate);
     }
 
-    /// Invalidates one workspace folder's projects and compiler state.
+    /// Invalidates one workspace folder's configs and compiler state.
     ///
-    /// Other folders keep their caches, in-flight runs and diagnostics.
+    /// Configs that belong to a nested workspace root keep their cache, in
+    /// addition to every other folder's in-flight runs and diagnostics.
     pub fn invalidate_root(&self, root: &Path) {
         self.bump_generation(root);
         self.cache
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .retain(|project, _| !project.starts_with(root));
+            .retain(|config, _| !self.workspace.in_root(config, root));
         self.state
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .retain_root(root);
+            .retain_root(&self.workspace, root);
         self.pending
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .retain(|project, _| !project.starts_with(root));
+            .retain(|pending_root, _| pending_root != root);
         let _ = self.jobs.send(Job::InvalidateRoot(root.to_path_buf()));
     }
 
-    /// Resolved compiler state for `dotfmt/doctor`. May spawn `<tsc> --version`.
+    /// Resolved compiler state for `dotfmt/doctor`, one entry per config and
+    /// referenced config. May spawn `<tsc> --version` per project.
     pub fn status(&self, roots: &[(PathBuf, Settings)]) -> Vec<ProjectStatus> {
-        roots
-            .iter()
-            .map(|(root, settings)| {
-                let tsconfig = root_tsconfig(root);
-                let project = tsconfig
-                    .as_deref()
-                    .and_then(Path::parent)
-                    .unwrap_or(root)
-                    .to_path_buf();
+        let mut statuses = Vec::new();
+        let mut seen = HashSet::new();
+        for (root, settings) in roots {
+            let Some(tsconfig) = root_tsconfig(root) else {
+                let project = root.clone();
+                let compiler = self.compiler_for(&project, settings.tsdk.as_deref());
+                let version = compiler.as_ref().and_then(|compiler| {
+                    self.version_for(&project, settings.tsdk.as_deref(), compiler)
+                });
+                let state = if compiler.is_none() {
+                    "unavailable"
+                } else {
+                    "no-tsconfig"
+                };
+                statuses.push(ProjectStatus {
+                    root: root.clone(),
+                    project,
+                    tsconfig: None,
+                    compiler: compiler.map(|compiler| compiler.program),
+                    version,
+                    state,
+                });
+                continue;
+            };
+            for config in config_graph(&[tsconfig]).configs {
+                if !seen.insert(config.clone()) {
+                    continue;
+                }
+                let project = config
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| root.clone());
                 let compiler = self.compiler_for(&project, settings.tsdk.as_deref());
                 let version = compiler.as_ref().and_then(|compiler| {
                     self.version_for(&project, settings.tsdk.as_deref(), compiler)
@@ -302,20 +344,20 @@ impl Tsc {
                     "unavailable"
                 } else if self.backed_off(&project) {
                     "backoff"
-                } else if tsconfig.is_none() {
-                    "no-tsconfig"
                 } else {
                     "ok"
                 };
-                ProjectStatus {
+                statuses.push(ProjectStatus {
                     root: root.clone(),
-                    tsconfig,
+                    project,
+                    tsconfig: Some(config),
                     compiler: compiler.map(|compiler| compiler.program),
                     version,
                     state,
-                }
-            })
-            .collect()
+                });
+            }
+        }
+        statuses
     }
 
     fn compiler_for(&self, project: &Path, tsdk: Option<&Path>) -> Option<Compiler> {
@@ -381,30 +423,37 @@ fn run(
     while let Ok(job) = jobs.recv() {
         match job {
             Job::Check {
-                project,
-                tsconfig,
                 root,
                 generation: job_generation,
                 settings,
             } => {
-                pending
+                let anchors: Vec<PathBuf> = pending
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
-                    .remove(&project);
+                    .remove(&root)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect();
                 if job_generation != current_generation(&generations, &root) {
                     continue;
                 }
-                check_project(
-                    &project,
-                    &tsconfig,
-                    &root,
-                    &settings,
-                    &cache,
-                    &state,
-                    &generations,
-                    &documents,
-                    &diagnostics,
-                );
+                let graph = config_graph(&anchors);
+                log_graph_issues(&state, &diagnostics, &root, &graph);
+                for config in graph.configs {
+                    if job_generation != current_generation(&generations, &root) {
+                        break;
+                    }
+                    check_config(
+                        &config,
+                        &root,
+                        &settings,
+                        &cache,
+                        &state,
+                        &generations,
+                        &documents,
+                        &diagnostics,
+                    );
+                }
             }
             Job::Invalidate => {
                 diagnostics.clear_tsc();
@@ -427,9 +476,8 @@ fn current_generation(generations: &Mutex<HashMap<PathBuf, u64>>, root: &Path) -
 }
 
 #[allow(clippy::too_many_arguments)]
-fn check_project(
-    project: &Path,
-    tsconfig: &Path,
+fn check_config(
+    config: &Path,
     root: &Path,
     settings: &Settings,
     cache: &Mutex<HashMap<PathBuf, Cache>>,
@@ -438,6 +486,7 @@ fn check_project(
     documents: &Mutex<Documents>,
     diagnostics: &Diagnostics,
 ) {
+    let project = config.parent().unwrap_or(root);
     let generation_now = current_generation(generations, root);
     let compiler = {
         let mut state = state.lock().unwrap_or_else(|error| error.into_inner());
@@ -502,17 +551,17 @@ fn check_project(
             version.as_deref().unwrap_or("unknown version")
         ));
     }
-    let fingerprint = fingerprint(tsconfig, project, &compiler, settings.tsdk.as_deref());
+    let fingerprint = fingerprint(config, project, &compiler, settings.tsdk.as_deref());
     let cached = cache
         .lock()
         .unwrap_or_else(|error| error.into_inner())
-        .get(project)
+        .get(config)
         .filter(|entry| entry.fingerprint == fingerprint)
         .map(|entry| entry.diagnostics.clone());
     let entries = match cached {
         Some(entries) => entries,
         None => {
-            let Some(lines) = check(project, tsconfig, &compiler, state, diagnostics) else {
+            let Some(lines) = check(project, config, &compiler, state, diagnostics) else {
                 return;
             };
             state
@@ -526,7 +575,7 @@ fn check_project(
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .insert(
-                        project.to_path_buf(),
+                        config.to_path_buf(),
                         Cache {
                             fingerprint,
                             diagnostics: entries.clone(),
@@ -539,8 +588,139 @@ fn check_project(
     if current_generation(generations, root) != generation_now {
         return;
     }
-    let entries = scoped(tsconfig, entries, documents, settings.tsc_scope);
+    let entries = scoped(config, entries, documents, settings.tsc_scope);
     diagnostics.set_tsc(project, generation_now, entries);
+}
+
+/// Every config reachable from the scheduled anchors through `references`.
+#[derive(Default)]
+struct ConfigGraph {
+    configs: Vec<PathBuf>,
+    missing: Vec<PathBuf>,
+    cycles: Vec<PathBuf>,
+}
+
+fn config_graph(anchors: &[PathBuf]) -> ConfigGraph {
+    let mut graph = ConfigGraph::default();
+    let mut seen = HashSet::new();
+    let mut active = HashSet::new();
+    for anchor in anchors {
+        visit_config(anchor, &mut graph, &mut seen, &mut active);
+    }
+    graph
+}
+
+fn visit_config(
+    config: &Path,
+    graph: &mut ConfigGraph,
+    seen: &mut HashSet<PathBuf>,
+    active: &mut HashSet<PathBuf>,
+) {
+    let config = crate::workspace::normalize(config);
+    if active.contains(&config) {
+        if !graph.cycles.contains(&config) {
+            graph.cycles.push(config);
+        }
+        return;
+    }
+    if !seen.insert(config.clone()) {
+        return;
+    }
+    graph.configs.push(config.clone());
+    if !config.is_file() {
+        graph.missing.push(config);
+        return;
+    }
+    active.insert(config.clone());
+    for reference in reference_specs(&config) {
+        let path = reference_path(&config, &reference);
+        if path.is_file() {
+            visit_config(&path, graph, seen, active);
+        } else {
+            graph.missing.push(path);
+        }
+    }
+    active.remove(&config);
+}
+
+/// `references` entries are `{ "path": ... }` objects (and, leniently, strings).
+fn reference_specs(config: &Path) -> Vec<String> {
+    let Ok(text) = fs::read_to_string(config) else {
+        return Vec::new();
+    };
+    let Ok(Some(jsonc_parser::JsonValue::Object(object))) =
+        jsonc_parser::parse_to_value(&text, &Default::default())
+    else {
+        return Vec::new();
+    };
+    let Some(references) = object.get_array("references") else {
+        return Vec::new();
+    };
+    references
+        .iter()
+        .filter_map(|value| match value {
+            jsonc_parser::JsonValue::String(path) => Some(path.to_string()),
+            jsonc_parser::JsonValue::Object(reference) => {
+                reference.get_string("path").map(|path| path.to_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A reference may point at a tsconfig file or at its directory.
+fn reference_path(config: &Path, spec: &str) -> PathBuf {
+    let raw = Path::new(spec);
+    let directory = config.parent().unwrap_or(Path::new("."));
+    let candidate = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        directory.join(raw)
+    };
+    let resolved = if candidate.is_file() {
+        candidate
+    } else if candidate.extension().is_none() || candidate.join("tsconfig.json").is_file() {
+        candidate.join("tsconfig.json")
+    } else {
+        candidate
+    };
+    crate::workspace::normalize(&resolved)
+}
+
+fn log_graph_issues(
+    state: &Mutex<State>,
+    diagnostics: &Diagnostics,
+    root: &Path,
+    graph: &ConfigGraph,
+) {
+    let mut messages = Vec::new();
+    {
+        let mut state = state.lock().unwrap_or_else(|error| error.into_inner());
+        for path in &graph.missing {
+            if state
+                .graph_logged
+                .insert((path.clone(), GraphIssue::Missing))
+            {
+                messages.push(format!(
+                    "tsc: referenced config {} for {} is missing",
+                    path.display(),
+                    root.display()
+                ));
+            }
+        }
+        for path in &graph.cycles {
+            if state.graph_logged.insert((path.clone(), GraphIssue::Cycle)) {
+                messages.push(format!(
+                    "tsc: project reference cycle at {} for {}",
+                    path.display(),
+                    root.display()
+                ));
+            }
+        }
+    }
+    for message in messages {
+        diagnostics.log(message);
+    }
 }
 
 /// Logs `message` once per project and SDK; returns whether this call was the first.
@@ -630,7 +810,7 @@ fn check(
         .arg("false")
         .arg("--locale")
         .arg("en")
-        .arg("--project")
+        .arg("-p")
         .arg(tsconfig)
         .current_dir(project);
     match run_command(command, TIMEOUT) {
@@ -974,6 +1154,12 @@ fn config_chain(tsconfig: &Path) -> Vec<PathBuf> {
         let directory = path.parent().unwrap_or(Path::new("."));
         for extends in extends_values(&object) {
             if let Some(resolved) = resolve_extends(directory, &extends) {
+                stack.push((resolved, depth + 1));
+            }
+        }
+        for reference in reference_specs(&path) {
+            let resolved = reference_path(&path, &reference);
+            if resolved.is_file() {
                 stack.push((resolved, depth + 1));
             }
         }
@@ -1434,6 +1620,17 @@ mod tests {
         path
     }
 
+    /// Every config runs in its own project directory, so the fake compiler's
+    /// relative marker lands in the config's project.
+    #[cfg(unix)]
+    fn runs_in(root: &Path) -> usize {
+        ["marker.log", "app/marker.log"]
+            .into_iter()
+            .filter_map(|path| fs::read_to_string(root.join(path)).ok())
+            .map(|runs| runs.lines().count())
+            .sum()
+    }
+
     #[cfg(unix)]
     #[allow(clippy::type_complexity)]
     fn harness(
@@ -1458,13 +1655,17 @@ mod tests {
         let client = Arc::new(crate::client::Client::new(sender));
         let current = Arc::new(crate::settings::SettingsStore::new(true, settings.clone()));
         let diagnostics = Arc::new(Diagnostics::new(
-            workspace,
+            Arc::clone(&workspace),
             Arc::clone(&documents),
             client,
             current,
             false,
         ));
-        let tsc = Arc::new(Tsc::new(Arc::clone(&diagnostics), Arc::clone(&documents)));
+        let tsc = Arc::new(Tsc::new(
+            Arc::clone(&diagnostics),
+            Arc::clone(&documents),
+            workspace,
+        ));
         (tsc, diagnostics, documents, receiver, settings)
     }
 
@@ -1624,5 +1825,157 @@ mod tests {
         }
         assert!(seen.contains(&a), "{seen:?}");
         assert!(seen.contains(&b), "{seen:?}");
+    }
+
+    #[test]
+    fn reference_graph_resolves_directories_skips_duplicates_and_breaks_cycles() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        fs::write(
+            root.join("tsconfig.json"),
+            r#"{"files":[],"references":[{"path":"./app"},{"path":"./app/tsconfig.json"},{"path":"./missing"},{"path":"."}]}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::write(
+            root.join("app/tsconfig.json"),
+            r#"{"references":[{"path":".."}]}"#,
+        )
+        .unwrap();
+        let graph = config_graph(&[root.join("tsconfig.json")]);
+        assert_eq!(graph.configs.len(), 2, "{:?}", graph.configs);
+        assert_eq!(graph.missing.len(), 1, "{:?}", graph.missing);
+        assert_eq!(graph.cycles.len(), 1, "{:?}", graph.cycles);
+        assert!(graph.missing[0].ends_with("missing/tsconfig.json"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn project_references_run_each_config_once_and_merge_diagnostics() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        fs::write(
+            root.join("tsconfig.json"),
+            r#"{"files":[],"references":[{"path":"./app"},{"path":"./missing"},{"path":"."}]}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("app/src")).unwrap();
+        fs::write(root.join("app/tsconfig.json"), "{}").unwrap();
+        let app_source = root.join("app/src/a.ts");
+        fs::write(&app_source, "const value: number = 'x';\n").unwrap();
+        let main_source = root.join("src/main.ts");
+        fs::create_dir_all(main_source.parent().unwrap()).unwrap();
+        fs::write(&main_source, "export const main = 1;\n").unwrap();
+        fake_tsc(
+            root,
+            "case \"$*\" in\n\
+             *app/tsconfig.json*) echo \"src/a.ts(1,1): error TS2322: app error\" ;;\n\
+             esac",
+        );
+        let app_uri = uri::from_path(&app_source);
+        let (tsc, _diagnostics, _documents, receiver, settings) = harness(root, TscScope::Project);
+        tsc.schedule(main_source.clone(), root.to_path_buf(), settings.clone());
+        // Missing configs and reference cycles log once, not per document.
+        let mut missing = 0;
+        let mut cycles = 0;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let params = loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("timed out waiting for referenced diagnostics");
+            let message = receiver
+                .recv_timeout(remaining)
+                .expect("diagnostics message");
+            let lsp_server::Message::Notification(notification) = message else {
+                continue;
+            };
+            if notification.method == "window/logMessage" {
+                let params: lsp_types::LogMessageParams =
+                    serde_json::from_value(notification.params).unwrap();
+                missing += usize::from(params.message.contains("referenced config"));
+                cycles += usize::from(params.message.contains("project reference cycle"));
+                continue;
+            }
+            if notification.method != "textDocument/publishDiagnostics" {
+                continue;
+            }
+            let params: lsp_types::PublishDiagnosticsParams =
+                serde_json::from_value(notification.params).unwrap();
+            if params.uri == app_uri && !params.diagnostics.is_empty() {
+                break params;
+            }
+        };
+        assert_eq!(
+            params.diagnostics[0].code,
+            Some(NumberOrString::String("TS2322".into()))
+        );
+        assert_eq!((missing, cycles), (1, 1));
+        assert_eq!(
+            runs_in(root),
+            2,
+            "the root and referenced config must each run once"
+        );
+
+        // A later schedule of the referenced project reuses its cached run.
+        tsc.schedule(app_source, root.to_path_buf(), settings);
+        thread::sleep(Duration::from_millis(300));
+        assert_eq!(runs_in(root), 2, "a cached referenced config was run again");
+        let deadline = Instant::now() + Duration::from_millis(200);
+        while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            let Ok(lsp_server::Message::Notification(notification)) =
+                receiver.recv_timeout(remaining)
+            else {
+                continue;
+            };
+            assert!(
+                notification.method != "window/logMessage"
+                    || !notification
+                        .params
+                        .to_string()
+                        .contains("referenced config"),
+                "a missing reference was logged twice"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_lists_referenced_configs_and_their_compiler_state() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        fs::write(
+            root.join("tsconfig.json"),
+            r#"{"files":[],"references":[{"path":"./app"}]}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::write(root.join("app/tsconfig.json"), "{}").unwrap();
+        fake_tsc(root, "");
+        let (tsc, _diagnostics, _documents, _receiver, settings) = harness(root, TscScope::Project);
+        let statuses = tsc.status(&[(root.to_path_buf(), settings)]);
+        assert_eq!(statuses.len(), 2, "{:?}", statuses.len());
+        let configs: Vec<&Path> = statuses
+            .iter()
+            .filter_map(|status| status.tsconfig.as_deref())
+            .collect();
+        assert_eq!(
+            fs::canonicalize(configs[0]).unwrap(),
+            fs::canonicalize(root.join("tsconfig.json")).unwrap()
+        );
+        assert_eq!(
+            fs::canonicalize(configs[1]).unwrap(),
+            fs::canonicalize(root.join("app/tsconfig.json")).unwrap()
+        );
+        assert!(statuses.iter().all(|status| status.state == "ok"));
+        assert!(
+            statuses
+                .iter()
+                .all(|status| status.version.as_deref() == Some("9.9.9"))
+        );
+        assert!(
+            statuses
+                .iter()
+                .all(|status| status.compiler.as_deref().is_some())
+        );
     }
 }

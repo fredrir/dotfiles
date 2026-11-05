@@ -10,7 +10,7 @@
 //! the client to pull again, and identical sets are suppressed.
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -78,10 +78,7 @@ impl Diagnostics {
         pull: bool,
     ) -> Self {
         let (pending, jobs) = crossbeam_channel::unbounded();
-        let published = Arc::new(Mutex::new(Published {
-            pull,
-            ..Published::default()
-        }));
+        let published = Arc::new(Mutex::new(Published::new(pull, Arc::clone(&workspace))));
         let worker = {
             let published = Arc::clone(&published);
             let settings = Arc::clone(&settings);
@@ -464,24 +461,46 @@ struct Sent {
     diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Default)]
 struct Published {
     /// Pull clients re-request diagnostics; pushing would duplicate the set.
     pull: bool,
     dotfmt: HashMap<Uri, Entry>,
     owners: HashMap<Uri, Vec<Uri>>,
-    tsc: HashMap<Uri, Vec<Diagnostic>>,
-    projects: HashMap<PathBuf, TscProject>,
+    /// One compiler result per project. Projects may overlap on a URI, so the
+    /// published view merges every project that reports it.
+    projects: BTreeMap<PathBuf, TscProject>,
     /// The last set sent to (or pulled by) the client, for diff suppression.
     last: HashMap<Uri, Sent>,
+    workspace: Arc<Workspace>,
 }
 
 struct TscProject {
     generation: u64,
-    uris: Vec<Uri>,
+    diagnostics: HashMap<Uri, Vec<Diagnostic>>,
+}
+
+impl Default for Published {
+    fn default() -> Self {
+        Self {
+            pull: false,
+            dotfmt: HashMap::new(),
+            owners: HashMap::new(),
+            projects: BTreeMap::new(),
+            last: HashMap::new(),
+            workspace: Arc::new(Workspace::new(Vec::new())),
+        }
+    }
 }
 
 impl Published {
+    fn new(pull: bool, workspace: Arc<Workspace>) -> Self {
+        Self {
+            pull,
+            workspace,
+            ..Self::default()
+        }
+    }
+
     fn set_dotfmt(
         &mut self,
         owner: &Uri,
@@ -545,51 +564,45 @@ impl Published {
         let mut affected: Vec<Uri> = self.dotfmt.keys().cloned().collect();
         affected.extend(self.owners.keys().cloned());
         affected.extend(self.last.keys().cloned());
+        affected.extend(
+            self.projects
+                .values()
+                .flat_map(|project| project.diagnostics.keys().cloned()),
+        );
         self.dotfmt.clear();
         self.owners.clear();
-        self.tsc.clear();
         self.projects.clear();
         self.publish(&affected, client);
     }
 
     fn clear_under(&mut self, root: &Path, client: &Client) {
         let mut affected = Vec::new();
-        self.dotfmt.retain(|uri, _| {
-            let under = is_under(uri, root);
-            if under {
-                affected.push(uri.clone());
+        let owners: Vec<(Uri, Vec<Uri>)> = self
+            .owners
+            .iter()
+            .filter(|(owner, _)| uri_in_root(&self.workspace, owner, root))
+            .map(|(owner, aliases)| (owner.clone(), aliases.clone()))
+            .collect();
+        for (owner, aliases) in owners {
+            self.owners.remove(&owner);
+            self.dotfmt.remove(&owner);
+            affected.push(owner);
+            for alias in aliases {
+                self.dotfmt.remove(&alias);
+                affected.push(alias);
             }
-            !under
-        });
-        self.owners.retain(|owner, aliases| {
-            let under = is_under(owner, root);
-            if under {
-                affected.push(owner.clone());
-                affected.extend(aliases.iter().cloned());
+        }
+        let projects: Vec<PathBuf> = self
+            .projects
+            .keys()
+            .filter(|project| self.workspace.in_root(project, root))
+            .cloned()
+            .collect();
+        for project in projects {
+            if let Some(entry) = self.projects.remove(&project) {
+                affected.extend(entry.diagnostics.into_keys());
             }
-            !under
-        });
-        self.tsc.retain(|uri, _| {
-            let under = is_under(uri, root);
-            if under {
-                affected.push(uri.clone());
-            }
-            !under
-        });
-        self.projects.retain(|project, project_entries| {
-            let under = project.starts_with(root);
-            if under {
-                affected.extend(project_entries.uris.iter().cloned());
-            }
-            !under
-        });
-        self.last.retain(|uri, _| {
-            let under = is_under(uri, root);
-            if under {
-                affected.push(uri.clone());
-            }
-            !under
-        });
+        }
         self.publish(&affected, client);
     }
 
@@ -607,67 +620,57 @@ impl Published {
         {
             return;
         }
-        let mut affected = self
+        let mut affected: Vec<Uri> = self
             .projects
             .remove(project)
-            .map(|project| project.uris)
+            .map(|project| project.diagnostics.into_keys().collect())
             .unwrap_or_default();
-        for uri in &affected {
-            self.tsc.remove(uri);
-        }
-        let mut owned = Vec::new();
-        for (uri, diagnostics) in entries {
-            owned.push(uri.clone());
+        let mut diagnostics = HashMap::new();
+        for (uri, entries) in entries {
             affected.push(uri.clone());
-            if !diagnostics.is_empty() {
-                self.tsc.insert(uri, diagnostics);
+            if !entries.is_empty() {
+                diagnostics.insert(uri, entries);
             }
         }
         self.projects.insert(
             project.to_path_buf(),
             TscProject {
                 generation,
-                uris: owned,
+                diagnostics,
             },
         );
         self.publish(&affected, client);
     }
 
     fn clear_tsc_uri(&mut self, uri: &Uri, client: &Client) {
-        self.tsc.remove(uri);
         for project in self.projects.values_mut() {
-            project.uris.retain(|owned| owned != uri);
+            project.diagnostics.remove(uri);
         }
         self.publish(std::slice::from_ref(uri), client);
     }
 
     fn clear_tsc_under(&mut self, root: &Path, client: &Client) {
+        let projects: Vec<PathBuf> = self
+            .projects
+            .keys()
+            .filter(|project| self.workspace.in_root(project, root))
+            .cloned()
+            .collect();
         let mut affected = Vec::new();
-        self.tsc.retain(|uri, _| {
-            let under = is_under(uri, root);
-            if under {
-                affected.push(uri.clone());
+        for project in projects {
+            if let Some(entry) = self.projects.remove(&project) {
+                affected.extend(entry.diagnostics.into_keys());
             }
-            !under
-        });
-        self.projects.retain(|project, project_entries| {
-            let under = project.starts_with(root);
-            if under {
-                affected.extend(project_entries.uris.iter().cloned());
-            }
-            !under
-        });
+        }
         self.publish(&affected, client);
     }
 
     fn clear_tsc(&mut self, client: &Client) {
-        let mut affected: Vec<Uri> = self.tsc.keys().cloned().collect();
-        affected.extend(
-            self.projects
-                .values()
-                .flat_map(|project| project.uris.iter().cloned()),
-        );
-        self.tsc.clear();
+        let affected: Vec<Uri> = self
+            .projects
+            .values()
+            .flat_map(|project| project.diagnostics.keys().cloned())
+            .collect();
         self.projects.clear();
         self.publish(&affected, client);
     }
@@ -682,9 +685,7 @@ impl Published {
         let mut diagnostics = dotfmt_entry
             .map(|entry| entry.diagnostics.clone())
             .unwrap_or_default();
-        if let Some(tsc) = self.tsc.get(uri) {
-            diagnostics.extend(tsc.iter().cloned());
-        }
+        diagnostics.extend(self.tsc_for(uri));
         let mut hasher = DefaultHasher::new();
         serde_json::to_string(&diagnostics)
             .unwrap_or_default()
@@ -706,17 +707,16 @@ impl Published {
                 continue;
             }
             let dotfmt_entry = self.dotfmt.get(uri);
-            let tsc_entries = self.tsc.get(uri).filter(|entries| !entries.is_empty());
+            let tsc = self.tsc_for(uri);
             let mut diagnostics = dotfmt_entry
                 .map(|entry| entry.diagnostics.clone())
                 .unwrap_or_default();
-            if let Some(tsc) = tsc_entries {
-                diagnostics.extend(tsc.iter().cloned());
-            }
+            let has_tsc = !tsc.is_empty();
+            diagnostics.extend(tsc);
             // `tsc` results describe the file on disk and carry no document
             // version. Never stamp the merged notification with a buffer version.
-            let version = match (dotfmt_entry, tsc_entries) {
-                (Some(entry), None) => entry.version,
+            let version = match (dotfmt_entry, has_tsc) {
+                (Some(entry), false) => entry.version,
                 _ => None,
             };
             let sent = Sent {
@@ -747,8 +747,34 @@ impl Published {
     }
 }
 
-fn is_under(uri: &Uri, root: &Path) -> bool {
-    uri::path(uri).is_some_and(|path| path.starts_with(root))
+impl Published {
+    /// Every project's compiler errors for one URI, merged in a stable order.
+    fn tsc_for(&self, uri: &Uri) -> Vec<Diagnostic> {
+        let mut diagnostics: Vec<Diagnostic> = self
+            .projects
+            .values()
+            .filter_map(|project| project.diagnostics.get(uri))
+            .flatten()
+            .cloned()
+            .collect();
+        diagnostics.sort_by(|left, right| {
+            (
+                left.range.start.line,
+                left.range.start.character,
+                format!("{:?}", left.code),
+            )
+                .cmp(&(
+                    right.range.start.line,
+                    right.range.start.character,
+                    format!("{:?}", right.code),
+                ))
+        });
+        diagnostics
+    }
+}
+
+fn uri_in_root(workspace: &Workspace, uri: &Uri, root: &Path) -> bool {
+    uri::path(uri).is_some_and(|path| workspace.in_root(&path, root))
 }
 
 #[cfg(test)]
@@ -847,16 +873,34 @@ mod tests {
     }
 
     fn harness(pull: bool) -> (Published, Arc<Client>, crossbeam_channel::Receiver<Message>) {
+        harness_with_roots(pull, &[])
+    }
+
+    fn harness_with_roots(
+        pull: bool,
+        roots: &[&Path],
+    ) -> (Published, Arc<Client>, crossbeam_channel::Receiver<Message>) {
         let (sender, receiver) = crossbeam_channel::unbounded();
         let client = Arc::new(Client::new(sender));
+        let workspace = Arc::new(Workspace::new(
+            roots.iter().map(|root| root.to_path_buf()).collect(),
+        ));
         (
             Published {
                 pull,
+                workspace,
                 ..Published::default()
             },
             client,
             receiver,
         )
+    }
+
+    fn tsc(code: &str) -> Diagnostic {
+        Diagnostic {
+            code: Some(NumberOrString::String(code.into())),
+            ..Diagnostic::default()
+        }
     }
 
     #[test]
@@ -990,7 +1034,92 @@ mod tests {
             receiver.recv_timeout(Duration::from_millis(100)).is_err(),
             "clearing one root published for another"
         );
-        assert_eq!(published.tsc.get(&b).map(Vec::len), Some(1));
+        assert_eq!(
+            published.merged(&b, None).diagnostics,
+            vec![Diagnostic::default()]
+        );
+    }
+
+    #[test]
+    fn overlapping_projects_merge_and_replace_independently() {
+        let (mut published, client, _receiver) = harness(true);
+        let uri = Uri::from_str("file:///work/shared/a.ts").unwrap();
+        published.set_tsc(
+            Path::new("/work/pkg-a"),
+            1,
+            vec![(uri.clone(), vec![tsc("TS1001")])],
+            &client,
+        );
+        published.set_tsc(
+            Path::new("/work/pkg-b"),
+            1,
+            vec![(uri.clone(), vec![tsc("TS1002")])],
+            &client,
+        );
+        let merged = published.merged(&uri, None);
+        assert_eq!(
+            merged
+                .diagnostics
+                .iter()
+                .filter_map(|diagnostic| match &diagnostic.code {
+                    Some(NumberOrString::String(code)) => Some(code.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            vec!["TS1001", "TS1002"]
+        );
+
+        // Replacing one project must not clear the other project's entries.
+        published.set_tsc(Path::new("/work/pkg-a"), 2, Vec::new(), &client);
+        assert_eq!(
+            published.merged(&uri, None).diagnostics,
+            vec![tsc("TS1002")]
+        );
+        published.clear_tsc_uri(&uri, &client);
+        assert!(published.merged(&uri, None).diagnostics.is_empty());
+    }
+
+    #[test]
+    fn clearing_a_parent_root_keeps_nested_root_projects() {
+        let (mut published, client, _receiver) =
+            harness_with_roots(true, &[Path::new("/work"), Path::new("/work/app")]);
+        let outer = Uri::from_str("file:///work/pkg/a.ts").unwrap();
+        let nested = Uri::from_str("file:///work/app/pkg/a.ts").unwrap();
+        published.set_dotfmt(
+            &outer,
+            1,
+            vec![(outer.clone(), vec![tsc("syntax-outer")])],
+            &client,
+        );
+        published.set_dotfmt(
+            &nested,
+            1,
+            vec![(nested.clone(), vec![tsc("syntax-nested")])],
+            &client,
+        );
+        published.set_tsc(
+            Path::new("/work/pkg"),
+            1,
+            vec![(outer.clone(), vec![tsc("TS2001")])],
+            &client,
+        );
+        published.set_tsc(
+            Path::new("/work/app/pkg"),
+            1,
+            vec![(nested.clone(), vec![tsc("TS2002")])],
+            &client,
+        );
+        published.clear_under(Path::new("/work"), &client);
+        assert!(published.merged(&outer, None).diagnostics.is_empty());
+        assert_eq!(
+            published.merged(&nested, None).diagnostics,
+            vec![tsc("syntax-nested"), tsc("TS2002")]
+        );
+        published.clear_tsc_under(Path::new("/work/app"), &client);
+        assert_eq!(
+            published.merged(&nested, None).diagnostics,
+            vec![tsc("syntax-nested")]
+        );
     }
 
     #[test]
