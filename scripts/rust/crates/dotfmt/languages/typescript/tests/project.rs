@@ -406,6 +406,78 @@ fn import_meta_glob_keeps_matched_exports_alive() {
 }
 
 #[test]
+fn import_meta_glob_expands_brace_alternatives() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "tsconfig.json", "{}");
+    write(root, "src/a.ts", "export const a = 1;\n");
+    write(root, "src/b.ts", "export const b = 1;\n");
+    write(root, "src/c.ts", "export const c = 1;\n");
+    write(
+        root,
+        "src/use.ts",
+        "const modules = import.meta.glob(\"./{a,b}.ts\");\nconsole.log(modules);\n",
+    );
+
+    assert!(project::graph_complete(&root.join("src/a.ts")));
+    for file in ["src/a.ts", "src/b.ts"] {
+        assert_eq!(
+            unused_codes(&root.join(file)),
+            Vec::<String>::new(),
+            "{file}"
+        );
+    }
+    assert!(!unused_codes(&root.join("src/c.ts")).is_empty());
+}
+
+#[test]
+fn import_meta_glob_expands_brace_alternatives_with_wildcards() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "tsconfig.json", "{}");
+    write(root, "src/lib/home.ts", "export const home = 1;\n");
+    write(root, "src/lib/about.tsx", "export const about = 1;\n");
+    write(root, "src/lib/other.js", "export const other = 1;\n");
+    write(
+        root,
+        "src/use.ts",
+        "const modules = import.meta.glob(\"./lib/*.{ts,tsx}\");\nconsole.log(modules);\n",
+    );
+
+    assert!(project::graph_complete(&root.join("src/lib/home.ts")));
+    for file in ["src/lib/home.ts", "src/lib/about.tsx"] {
+        assert_eq!(
+            unused_codes(&root.join(file)),
+            Vec::<String>::new(),
+            "{file}"
+        );
+    }
+    assert!(!unused_codes(&root.join("src/lib/other.js")).is_empty());
+}
+
+#[test]
+fn negated_glob_patterns_block_project_fixes() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "package.json", r#"{"private":true}"#);
+    write(root, "tsconfig.json", "{}");
+    write(root, "src/lib/home.ts", "export const home = 1;\n");
+    write(
+        root,
+        "src/use.ts",
+        "const modules = import.meta.glob([\"./lib/*.ts\", \"!./lib/skip.ts\"]);\nconsole.log(modules);\n",
+    );
+
+    assert!(!project::graph_complete(&root.join("src/lib/home.ts")));
+    assert!(
+        project::unused_exports(&root.join("src/lib/home.ts"))
+            .unwrap()
+            .fixes
+            .is_empty()
+    );
+}
+
+#[test]
 fn gitignored_consumers_keep_exports_alive() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
@@ -451,7 +523,7 @@ fn unsupported_glob_patterns_block_project_fixes() {
     write(
         root,
         "src/use.ts",
-        "const modules = import.meta.glob(\"./lib/*.{ts,tsx}\");\nconsole.log(modules);\n",
+        "const modules = import.meta.glob(\"./lib/[ab].ts\");\nconsole.log(modules);\n",
     );
     assert!(!project::graph_complete(&root.join("src/lib/home.ts")));
     assert!(project::unused_exports(&root.join("src/lib/home.ts"))

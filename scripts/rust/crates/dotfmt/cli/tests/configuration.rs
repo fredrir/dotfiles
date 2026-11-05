@@ -64,6 +64,27 @@ fn global_quote_style_auto_variants_are_accepted_by_every_engine() {
 }
 
 #[test]
+fn global_layout_values_outside_an_engine_range_are_clamped() {
+    for (indent, width) in [("17", "321"), ("24", "10000"), ("30", "10000")] {
+        let config = format!(
+            "{{\n indent = {indent}\n width = {width}\n}}\n\
+             typescript {{}}\njson {{}}\ncss {{}}\nhtml {{}}\nenv {{}}\nplist {{}}\n\
+             latex {{}}\nlua {{}}\nyaml {{}}\n"
+        );
+        let root = tree_pairs(&[
+            ("dotfmt.dotfile", &config),
+            ("a.ts", "const x = 1;\nexport { x };\n"),
+            ("a.json", "{\"a\":1}"),
+        ]);
+        let output = dotfmt(root.path()).arg(".").run();
+        assert!(
+            output.success(),
+            "indent={indent} width={width}: {output:?}"
+        );
+    }
+}
+
+#[test]
 fn nearer_global_values_override_parent_language_values_and_local_language_wins() {
     let root = tree_pairs(&[
         (

@@ -77,6 +77,19 @@ fn lists_are_comma_separated_and_wrap_chars_always_keep_spaces() {
 }
 
 #[test]
+fn out_of_range_shared_globals_clamp_but_local_settings_stay_strict() {
+    for indent in 17..=24 {
+        let value = indent.to_string();
+        let config = Config::from_settings(&settings(&[("indent", &value, true)])).unwrap();
+        assert_eq!(config.indent, 16, "indent={indent}");
+    }
+    let width = Config::from_settings(&settings(&[("width", "10001", true)])).unwrap();
+    assert_eq!(width.width, 10_000);
+    assert!(Config::from_settings(&settings(&[("indent", "17", false)])).is_err());
+    assert!(Config::from_settings(&settings(&[("width", "10001", false)])).is_err());
+}
+
+#[test]
 fn invalid_settings_are_rejected_with_the_setting_name() {
     for (key, value, expected) in [
         ("indent", "0", "indent"),

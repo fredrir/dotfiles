@@ -68,7 +68,7 @@ async function setAsDefaultFormatter(
     : vscode.ConfigurationTarget.Global;
   const failures: string[] = [];
   await Promise.all(
-    Object.keys(LANGUAGES).map(async (language) => {
+    LANGUAGES.map(async (language) => {
       try {
         await vscode.workspace
           .getConfiguration("editor", { languageId: language })

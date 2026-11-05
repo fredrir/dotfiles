@@ -11,7 +11,7 @@ Formatting, range formatting, on-type formatting, errors, code actions and comma
 - **Format on type:** `;` and `}` trigger formatting of the surrounding block.
 - **Format on paste:** pasted text is formatted through the language server and offered as a paste edit; a snippet that does not parse keeps its original text. Paste formatting is format-only and never applies configured fixes.
 - **Binary:** `dotfmt.server.path` replaces the bundled language server. `dotfmt.path` names the CLI used by status and doctor. Workspace values are ignored in untrusted workspaces.
-- **Configuration:** the filename and `dotfmt.dotfile` decide the language and dialect, as in Neovim. Untitled buffers use their VS Code language. The nearest `dotfmt.dotfile` applies, with the user config directory as the final fallback.
+- **Configuration:** the filename and `dotfmt.dotfile` decide the language and dialect, as in Neovim. Untitled buffers use their VS Code language and the engine's default dialect; JSONC and JSONL need a filename extension because an untitled JSON buffer formats as plain JSON. The nearest `dotfmt.dotfile` applies, with the user config directory as the final fallback.
 - **Settings:** `dotfmt.dotfile` is the base formatting configuration and every option also has a native setting under `dotfmt.format.*`; VS Code's tab size and indentation settings are ignored. A native value overrides `dotfmt.dotfile`, so the editor can change width or quote style without editing a dotfile. A `line_endings` change also switches the document's line endings.
 - **Scope:** the dotfmt settings below are resource-scoped. In a multi-root workspace each folder resolves its own values from the nearest workspace folder, including its own type-aware scope and TypeScript SDK.
 - **Status:** the dotfmt language status item shows the resolved language, dialect and config, or why a file is skipped (`unmapped`, `excluded`, `disabled`). Its tooltip shows the extension version, server name and version, CLI path, tsc state, the resolved compiler when the server reports it, and the configuration chain. It turns red on errors.
@@ -177,12 +177,12 @@ bun run deploy                          # build linux-x64 + darwin-arm64, packag
 bun run deploy -- --host                # build only the current platform, package it with vsce --target
 bun run deploy -- --skip-build          # package/install existing bin/ and dist/ artifacts
 bun run deploy -- --target linux-x64    # build and package one target with vsce --target
-bun run deploy -- --remote archie       # also install on a Remote SSH host
+bun run deploy -- --remote archie       # also install on a Remote SSH host with a matching platform
 bun run build -- --host                 # build only the current machine
 bun run build -- --target linux-x64 --target darwin-arm64
 ```
 
-`build.ts` builds only `linux-x64` and `darwin-arm64` by default. `win32-x64` remains mapped for an explicit `--target` or `--host` on Windows; it is not part of the default build. `deploy.ts` detects the **remote** VS Code commit by running `ssh <host> code --version` and falling back to the host's `~/.vscode-server/cli/servers/lru.json`, so a remote install never uses the local desktop commit. `--skip-build` leaves the existing `bin/` and `dist/` untouched.
+`build.ts` builds only `linux-x64` and `darwin-arm64` by default. `win32-x64` remains mapped for an explicit `--target` or `--host` on Windows; it is not part of the default build. `deploy.ts` reads the **remote** host's `~/.vscode-server/cli/servers/lru.json` and prefers the directory whose commit matches `ssh <host> code --version`, so a remote install never uses the local desktop commit. Before uploading, it compares `ssh <host> uname -s -m` with the platforms in the packaged vsix and refuses when no matching server binary ships; use `--target` for one platform or the default universal package, which contains `linux-x64` and `darwin-arm64`. `--skip-build` leaves the existing `bin/` and `dist/` untouched.
 
 Run the client typecheck from `scripts/node`:
 

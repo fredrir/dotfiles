@@ -2,6 +2,7 @@
 
 use dotfmt_core::config::{Setting, Settings};
 use dotfmt_json::config::Config;
+use dotfmt_json::render::Indent;
 
 fn settings(key: &str, value: &str, global: bool) -> Settings {
     [(
@@ -46,6 +47,16 @@ fn invalid_settings_name_the_source_and_line() {
     );
     assert!(error.message.contains("true or false"), "{error}");
     assert!(Config::from_settings(&settings("typo", "1", false)).is_err());
+}
+
+#[test]
+fn out_of_range_shared_indent_clamps_but_local_settings_stay_strict() {
+    for indent in 8..=24 {
+        let value = indent.to_string();
+        let config = Config::from_settings(&settings("indent", &value, true)).unwrap();
+        assert_eq!(config.indent, Indent::Spaces(7), "indent={indent}");
+    }
+    assert!(Config::from_settings(&settings("indent", "8", false)).is_err());
 }
 
 #[test]

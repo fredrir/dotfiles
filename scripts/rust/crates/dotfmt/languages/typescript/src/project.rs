@@ -33,8 +33,8 @@ use oxc_span::{GetSpan, SourceType};
 use crate::TypeDiagnostic;
 use crate::dialect::Dialect;
 use crate::resolve::{
-    Resolver, SOURCE_EXTENSIONS, collect_export_strings, expand_glob, resolve_target,
-    wildcard_match,
+    Resolver, SOURCE_EXTENSIONS, collect_export_strings, expand_glob, glob_pattern_supported,
+    resolve_target, wildcard_match,
 };
 
 const AVOIDED_DIRECTORIES: &[&str] = &[
@@ -595,9 +595,12 @@ impl Graph {
             for edge in &module.edges {
                 if let EdgeKind::Glob(patterns) = &edge.kind {
                     for pattern in patterns {
-                        // Brace expansion and negated patterns are not modelled;
-                        // an unseen consumer must block project fixes.
-                        if pattern.contains('{') || pattern.trim_start().starts_with('!') {
+                        // Negated patterns and glob syntax this resolver does
+                        // not model (extglobs, character classes, broken
+                        // braces) may hide a consumer, so project fixes stay
+                        // disabled.
+                        if pattern.trim_start().starts_with('!') || !glob_pattern_supported(pattern)
+                        {
                             self.complete = false;
                         }
                         for target in expand_glob(root, &importer, pattern) {

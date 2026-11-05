@@ -33,6 +33,19 @@ fn final_newline_applies_from_global_and_local_settings() {
 }
 
 #[test]
+fn out_of_range_shared_globals_clamp_but_local_settings_stay_strict() {
+    for indent in 17..=24 {
+        let value = indent.to_string();
+        let config = Config::from_settings(&settings("indent", &value, true)).unwrap();
+        assert_eq!(config.style.indent_width, 16, "indent={indent}");
+    }
+    let width = Config::from_settings(&settings("width", "10001", true)).unwrap();
+    assert_eq!(width.style.column_width, 10_000);
+    assert!(Config::from_settings(&settings("indent", "17", false)).is_err());
+    assert!(Config::from_settings(&settings("width", "10001", false)).is_err());
+}
+
+#[test]
 fn invalid_settings_name_the_source_and_line() {
     let error = Config::from_settings(&settings("final_newline", "sometimes", false)).unwrap_err();
     assert_eq!(

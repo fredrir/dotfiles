@@ -80,6 +80,19 @@ fn shared_globals_apply_and_quote_style_is_ignored() {
 }
 
 #[test]
+fn out_of_range_shared_globals_clamp_but_local_settings_stay_strict() {
+    for indent in 17..=24 {
+        let value = indent.to_string();
+        let config = Config::from_settings(&settings(&[("indent", &value, true)])).unwrap();
+        assert_eq!(config.indent, 16, "indent={indent}");
+    }
+    let width = Config::from_settings(&settings(&[("width", "10001", true)])).unwrap();
+    assert_eq!(width.width, 10_000);
+    assert!(Config::from_settings(&local("indent", "17")).is_err());
+    assert!(Config::from_settings(&local("width", "10001")).is_err());
+}
+
+#[test]
 fn local_settings_win_over_shared_globals() {
     let config =
         Config::from_settings(&settings(&[("width", "100", true), ("width", "60", false)]))

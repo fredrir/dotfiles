@@ -30,6 +30,7 @@ const AVOIDED_DIRECTORIES: &[&str] = &[
     "target",
 ];
 const MAX_GLOB_RESULTS: usize = 10_000;
+const MAX_GLOB_EXPANSIONS: usize = 64;
 
 /// Resolves specifiers for one project build, reusing the loaded configs for
 /// each importer directory. A solution-style config contributes the union of
@@ -476,7 +477,39 @@ fn resolve_package_imports(importer: &Path, specifier: &str) -> Option<PathBuf> 
 }
 
 /// Expands a simple `import.meta.glob` pattern into the files it matches.
+///
+/// Brace alternation (`./{a,b}.ts`) becomes one pattern per alternative.
+/// Unsupported syntax returns no matches; callers consult
+/// [`glob_pattern_supported`] so an unmodelled pattern keeps the project graph
+/// incomplete instead of being mistaken for a pattern that matched nothing.
 pub(crate) fn expand_glob(root: &Path, importer: &Path, pattern: &str) -> Vec<PathBuf> {
+    let pattern = pattern.trim();
+    if pattern.is_empty() || pattern.starts_with('!') {
+        return Vec::new();
+    }
+    let Some(patterns) = brace_expand(pattern) else {
+        return Vec::new();
+    };
+    let mut files = Vec::new();
+    for pattern in patterns {
+        files.extend(expand_glob_pattern(root, importer, &pattern));
+        if files.len() >= MAX_GLOB_RESULTS {
+            break;
+        }
+    }
+    files.sort();
+    files.dedup();
+    files.truncate(MAX_GLOB_RESULTS);
+    files
+}
+
+/// Whether [`expand_glob`] models the pattern exactly.
+pub(crate) fn glob_pattern_supported(pattern: &str) -> bool {
+    let pattern = pattern.trim();
+    !pattern.is_empty() && !pattern.starts_with('!') && brace_expand(pattern).is_some()
+}
+
+fn expand_glob_pattern(root: &Path, importer: &Path, pattern: &str) -> Vec<PathBuf> {
     let pattern = pattern.trim();
     if pattern.is_empty() {
         return Vec::new();
@@ -546,6 +579,68 @@ pub(crate) fn expand_glob(root: &Path, importer: &Path, pattern: &str) -> Vec<Pa
 
 fn contains_glob(component: &str) -> bool {
     component.contains('*') || component.contains('?')
+}
+
+/// Expands one level of brace alternation, recursing into nested groups and
+/// into each alternative. Returns `None` for unsupported glob syntax.
+fn brace_expand(pattern: &str) -> Option<Vec<String>> {
+    if pattern.contains(['[', ']', '(', ')', '\\']) {
+        return None;
+    }
+    let Some(open) = pattern.find('{') else {
+        return Some(vec![pattern.to_owned()]);
+    };
+    let mut depth = 0usize;
+    let mut close = None;
+    for (index, ch) in pattern.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    close = Some(index);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close = close?;
+    let alternatives = split_alternatives(&pattern[open + 1..close]);
+    if alternatives.len() < 2 {
+        return None;
+    }
+    let prefix = &pattern[..open];
+    let suffix = &pattern[close + 1..];
+    let mut expanded = Vec::new();
+    for alternative in alternatives {
+        for pattern in brace_expand(&format!("{prefix}{alternative}{suffix}"))? {
+            expanded.push(pattern);
+            if expanded.len() > MAX_GLOB_EXPANSIONS {
+                return None;
+            }
+        }
+    }
+    Some(expanded)
+}
+
+fn split_alternatives(body: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    for (index, ch) in body.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(&body[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&body[start..]);
+    parts
 }
 
 fn avoided(entry: &DirEntry) -> bool {

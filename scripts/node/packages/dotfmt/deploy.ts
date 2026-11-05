@@ -1,3 +1,4 @@
+import { readdir, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -80,12 +81,16 @@ for (const cli of installers) {
 
 if (values.remote) {
   const host = values.remote;
-  const remote = await remoteServer(host);
+  const [remote, platform] = await Promise.all([
+    remoteServer(host),
+    remotePlatform(host),
+  ]);
   if (!remote) {
     throw new Error(
       `no VS Code server found on ${host}; connect with Remote SSH first`,
     );
   }
+  await checkRemotePlatform(host, platform, vsix, vsceTarget);
   const cli = `~/.vscode-server/cli/servers/${remote.directory}/server/bin/code-server`;
   const upload = `/tmp/dotfmt-${remote.commit}.vsix`;
   await $`scp -q ${vsix} ${host}:${upload}`;
@@ -95,6 +100,106 @@ if (values.remote) {
 interface RemoteServer {
   commit: string;
   directory: string;
+}
+
+interface RemotePlatform {
+  system: string;
+  machine: string;
+  target?: Platform;
+}
+
+/** Refuses a remote install when the packaged vsix has no binary for that host. */
+async function checkRemotePlatform(
+  host: string,
+  platform: RemotePlatform | undefined,
+  vsix: string,
+  requested: Platform | undefined,
+): Promise<void> {
+  const name = path.basename(vsix);
+  const label = platform
+    ? `${platform.system} ${platform.machine}`
+    : `\`uname -s -m\` on ${host}`;
+  if (!platform) {
+    throw new Error(
+      `cannot determine the platform of ${host}; check that \`ssh ${host} uname -s -m\` works`,
+    );
+  }
+  const shipped = await packagedPlatforms();
+  if (shipped.length === 0) {
+    throw new Error(
+      `refusing to install ${name} on ${host}: the vsix has no bundled server binaries; run bun run build first`,
+    );
+  }
+  if (!platform.target) {
+    throw new Error(
+      `refusing to install ${name} on ${host}: ${label} is not a dotfmt target (${Object.keys(
+        TARGETS,
+      ).join(", ")})`,
+    );
+  }
+  if (requested && requested !== platform.target) {
+    throw new Error(
+      `refusing to install ${name} on ${host}: it was packaged with --target ${requested}, but ${label} is ${platform.target}`,
+    );
+  }
+  if (!shipped.includes(platform.target)) {
+    throw new Error(
+      `refusing to install ${name} on ${host}: the vsix packages ${shipped.join(
+        ", ",
+      )}, not ${platform.target} for ${label}. Build with \`--target ${
+        platform.target
+      }\` or the default universal package.`,
+    );
+  }
+}
+
+async function remotePlatform(
+  host: string,
+): Promise<RemotePlatform | undefined> {
+  const result = await $`ssh ${host} uname -s -m`.quiet().nothrow();
+  if (result.exitCode !== 0) {
+    return undefined;
+  }
+  const [system, machine] = result.stdout.toString().trim().split(/\s+/);
+  if (!system || !machine) {
+    return undefined;
+  }
+  return { system, machine, target: remoteTarget(system, machine) };
+}
+
+function remoteTarget(system: string, machine: string): Platform | undefined {
+  const os = system.toLowerCase();
+  const arch = machine.toLowerCase();
+  if (arch === "x86_64" || arch === "amd64" || arch === "x64") {
+    if (os === "linux" || os === "gnu/linux") {
+      return "linux-x64";
+    }
+    if (
+      os.startsWith("mingw") ||
+      os.startsWith("msys") ||
+      os.startsWith("cygwin")
+    ) {
+      return "win32-x64";
+    }
+  }
+  if ((arch === "arm64" || arch === "aarch64") && os === "darwin") {
+    return "darwin-arm64";
+  }
+  return undefined;
+}
+
+/** Platforms with a bundled server under `bin/`, which is what the vsix ships. */
+async function packagedPlatforms(): Promise<Platform[]> {
+  let entries;
+  try {
+    entries = await readdir(path.join(root, "bin"), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((entry) => entry.isDirectory() && isPlatform(entry.name))
+    .map((entry) => entry.name as Platform)
+    .sort();
 }
 
 /** The remote VS Code server's own commit, not the local desktop commit. */
@@ -162,13 +267,52 @@ function commitFromVersion(output: string): string | undefined {
 async function localServer(): Promise<string | undefined> {
   const servers = path.join(os.homedir(), ".vscode-server", "cli", "servers");
   const lru = Bun.file(path.join(servers, "lru.json"));
-  if (!(await lru.exists())) {
-    return undefined;
+  if (await lru.exists()) {
+    try {
+      const parsed = z.array(z.string()).safeParse(await lru.json());
+      if (parsed.success) {
+        for (const directory of parsed.data.filter(isServerDirectory)) {
+          const cli = serverCli(servers, directory);
+          if (await Bun.file(cli).exists()) {
+            return cli;
+          }
+        }
+      }
+    } catch {
+      // Fall through to listing the server directory.
+    }
   }
-  const [latest] = z.array(z.string()).parse(await lru.json());
-  if (!latest) {
-    return undefined;
+  for (const directory of await recentServerDirectories(servers)) {
+    const cli = serverCli(servers, directory);
+    if (await Bun.file(cli).exists()) {
+      return cli;
+    }
   }
-  const cli = path.join(servers, latest, "server", "bin", "code-server");
-  return (await Bun.file(cli).exists()) ? cli : undefined;
+  return undefined;
+}
+
+function serverCli(servers: string, directory: string): string {
+  return path.join(servers, directory, "server", "bin", "code-server");
+}
+
+async function recentServerDirectories(servers: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(servers, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const directories = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && isServerDirectory(entry.name))
+      .map(async (entry) => ({
+        name: entry.name,
+        modified: await stat(path.join(servers, entry.name))
+          .then((stats) => stats.mtimeMs)
+          .catch(() => 0),
+      })),
+  );
+  return directories
+    .sort((left, right) => right.modified - left.modified)
+    .map((entry) => entry.name);
 }

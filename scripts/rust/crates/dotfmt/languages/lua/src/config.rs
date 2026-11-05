@@ -35,20 +35,30 @@ impl Config {
         let mut config = Self::default();
         for (key, setting) in settings {
             config
-                .set(key, &setting.value)
+                .set(key, &setting.value, setting.global)
                 .map_err(|error| setting.error(error))?;
         }
         Ok(config)
     }
 
-    fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
+    fn set(&mut self, key: &str, value: &str, global: bool) -> Result<(), String> {
         match key {
             "dialect" => {
                 self.dialect = value
                     .parse::<Dialect>()
                     .map_err(|error| error.to_string())?
             }
-            "width" => self.style.column_width = number(key, value, 1, 10000)?,
+            "width" if global => {
+                if let Some(width) = clamped(value, 1, 10_000) {
+                    self.style.column_width = width;
+                }
+            }
+            "width" => self.style.column_width = number(key, value, 1, 10_000)?,
+            "indent" if global => {
+                if let Some(indent) = clamped(value, 1, 16) {
+                    self.style.indent_width = indent;
+                }
+            }
             "indent" => self.style.indent_width = number(key, value, 1, 16)?,
             "indent_type" => {
                 self.style.indent_type = choice(
@@ -154,6 +164,16 @@ fn choice<T: Copy>(key: &str, value: &str, choices: &[(&str, T)]) -> Result<T, S
             )
         })
 }
+
+/// Clamps a shared-global number into what this engine can represent; invalid
+/// native values are ignored like other unsupported globals.
+fn clamped(value: &str, minimum: usize, maximum: usize) -> Option<usize> {
+    value
+        .parse::<usize>()
+        .ok()
+        .map(|number| number.clamp(minimum, maximum))
+}
+
 fn number(key: &str, value: &str, min: usize, max: usize) -> Result<usize, String> {
     value
         .parse::<usize>()

@@ -3,41 +3,41 @@ import type * as vscode from "vscode";
 export const SECTION = "dotfmt";
 export const CONFIG_NAME = "dotfmt.dotfile";
 
-/** Language ids dotfmt can format; untitled buffers use the language, files use their name. */
-export const LANGUAGES: Readonly<Record<string, readonly [string, string?]>> = {
-  astro: ["html"],
-  bibtex: ["bib"],
-  chatagent: ["markdown"],
-  css: ["css"],
-  dockercompose: ["yaml"],
-  dotenv: ["env"],
-  dotfile: ["conf"],
-  html: ["html"],
-  ignore: ["ignore"],
-  ini: ["ini"],
-  instructions: ["markdown"],
-  javascript: ["javascript"],
-  javascriptreact: ["javascript"],
-  json: ["json"],
-  jsonc: ["json", "jsonc"],
-  jsonl: ["json", "jsonl"],
-  latex: ["latex"],
-  less: ["css"],
-  lua: ["lua"],
-  markdown: ["markdown"],
-  prompt: ["markdown"],
-  properties: ["conf"],
-  sass: ["css"],
-  scss: ["css"],
-  skill: ["markdown"],
-  svelte: ["html"],
-  tex: ["latex"],
-  toml: ["toml"],
-  typescript: ["typescript"],
-  typescriptreact: ["typescript"],
-  vue: ["html"],
-  yaml: ["yaml"],
-};
+/** Language ids dotfmt can format; untitled buffers use their VS Code language. */
+export const LANGUAGES: readonly string[] = [
+  "astro",
+  "bibtex",
+  "chatagent",
+  "css",
+  "dockercompose",
+  "dotenv",
+  "dotfile",
+  "html",
+  "ignore",
+  "ini",
+  "instructions",
+  "javascript",
+  "javascriptreact",
+  "json",
+  "jsonc",
+  "jsonl",
+  "latex",
+  "less",
+  "lua",
+  "markdown",
+  "prompt",
+  "properties",
+  "sass",
+  "scss",
+  "skill",
+  "svelte",
+  "tex",
+  "toml",
+  "typescript",
+  "typescriptreact",
+  "vue",
+  "yaml",
+];
 
 // Mirrors Language::for_path in dotfmt-core, for files VS Code gives another language.
 const PATTERNS = [
@@ -49,7 +49,7 @@ const PATTERNS = [
 ];
 
 export const SELECTOR: vscode.DocumentFilter[] = [
-  ...Object.keys(LANGUAGES).flatMap((language) => [
+  ...LANGUAGES.flatMap((language) => [
     { scheme: "file", language },
     { scheme: "untitled", language },
   ]),

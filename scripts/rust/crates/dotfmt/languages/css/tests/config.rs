@@ -119,6 +119,43 @@ fn malva_options_map_every_supported_key() {
     );
 }
 
+fn global(key: &str, value: &str) -> Config {
+    Config::from_settings(
+        &[(
+            key.to_owned(),
+            Setting {
+                value: value.to_owned(),
+                source: "project/dotfmt.dotfile".into(),
+                line: 7,
+                global: true,
+            },
+        )]
+        .into(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn global_width_and_indent_clamp_but_local_settings_stay_strict() {
+    for width in [321, 400, 10_000] {
+        assert_eq!(global("width", &width.to_string()).width, 320, "{width}");
+    }
+    for indent in 17..=24 {
+        assert_eq!(
+            global("indent", &indent.to_string()).indent,
+            indent,
+            "{indent}"
+        );
+    }
+    assert_eq!(global("indent", "25").indent, 24);
+    for (key, value) in [("width", "321"), ("indent", "25")] {
+        assert!(
+            Config::from_settings(&settings(&[(key, value)])).is_err(),
+            "{key}={value}"
+        );
+    }
+}
+
 #[test]
 fn indent_and_indent_type_change_printed_indentation() {
     let spaces = config(&[("indent", "4")]);

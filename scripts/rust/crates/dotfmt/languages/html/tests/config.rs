@@ -91,6 +91,43 @@ fn markup_options_forward_every_html_specific_option() {
     );
 }
 
+fn global(key: &str, value: &str) -> Config {
+    Config::from_settings(
+        &[(
+            key.to_owned(),
+            Setting {
+                value: value.to_owned(),
+                source: PathBuf::from("project/dotfmt.dotfile"),
+                line: 7,
+                global: true,
+            },
+        )]
+        .into(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn global_width_and_indent_clamp_but_local_settings_stay_strict() {
+    for width in [321, 400, 10_000] {
+        assert_eq!(global("width", &width.to_string()).width, 320, "{width}");
+    }
+    for indent in 17..=24 {
+        assert_eq!(
+            global("indent", &indent.to_string()).indent,
+            indent,
+            "{indent}"
+        );
+    }
+    assert_eq!(global("indent", "25").indent, 24);
+    for (key, value) in [("width", "321"), ("indent", "25")] {
+        assert!(
+            Config::from_settings(&settings(&[(key, value)])).is_err(),
+            "{key}={value}"
+        );
+    }
+}
+
 #[test]
 fn settings_cover_layout_options_and_tailwind_attributes() {
     let config = Config::from_settings(&settings(&[

@@ -136,6 +136,22 @@ fn quote_style_auto_variants_resolve_for_global_and_local_settings() {
 }
 
 #[test]
+fn global_layout_values_clamp_but_local_settings_stay_strict() {
+    for indent in 25..=40 {
+        let value = indent.to_string();
+        let config = Config::from_settings(&settings("indent", &value, true)).unwrap();
+        assert_eq!(config.indent, 24, "indent={indent}");
+    }
+    for width in [321, 400, 10_000] {
+        let value = width.to_string();
+        let config = Config::from_settings(&settings("width", &value, true)).unwrap();
+        assert_eq!(config.width, 320, "width={width}");
+    }
+    assert!(Config::from_settings(&settings("indent", "25", false)).is_err());
+    assert!(Config::from_settings(&settings("width", "321", false)).is_err());
+}
+
+#[test]
 fn invalid_enum_values_are_rejected() {
     for (key, value) in [
         ("indent", "25"),

@@ -57,16 +57,26 @@ impl Config {
                 continue;
             }
             config
-                .set(key, &setting.value)
+                .set(key, &setting.value, setting.global)
                 .map_err(|error| setting.error(error))?;
         }
         Ok(config)
     }
 
-    fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
+    fn set(&mut self, key: &str, value: &str, global: bool) -> Result<(), String> {
         match key {
+            "indent" if global => {
+                if let Some(indent) = clamped(value, 1, 16) {
+                    self.indent = indent;
+                }
+            }
             "indent" => self.indent = number(key, value, 1, 16)?,
-            "width" => self.width = number(key, value, 1, 10000)?,
+            "width" if global => {
+                if let Some(width) = clamped(value, 1, 10_000) {
+                    self.width = width;
+                }
+            }
+            "width" => self.width = number(key, value, 1, 10_000)?,
             "final_newline" => self.final_newline = flag(key, value)?,
             "line_endings" => {
                 self.line_endings = choice(
@@ -104,6 +114,15 @@ fn choice<T: Copy>(key: &str, value: &str, choices: &[(&str, T)]) -> Result<T, S
                     .join(", ")
             )
         })
+}
+
+/// Clamps a shared-global number into what this engine can represent; invalid
+/// native values are ignored like other unsupported globals.
+fn clamped(value: &str, minimum: usize, maximum: usize) -> Option<usize> {
+    value
+        .parse::<usize>()
+        .ok()
+        .map(|number| number.clamp(minimum, maximum))
 }
 
 fn number(key: &str, value: &str, min: usize, max: usize) -> Result<usize, String> {

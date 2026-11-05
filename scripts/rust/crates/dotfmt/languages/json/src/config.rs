@@ -28,7 +28,7 @@ impl Config {
                 continue;
             }
             config
-                .set(key, &setting.value)
+                .set(key, &setting.value, setting.global)
                 .map_err(|error| setting.error(error))?;
         }
         Ok(config)
@@ -41,9 +41,14 @@ impl Config {
         }
     }
 
-    fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
+    fn set(&mut self, key: &str, value: &str, global: bool) -> Result<(), String> {
         match key {
             "dialect" => self.dialect = value.parse::<Dialect>()?,
+            "indent" if global => {
+                if let Some(indent) = clamped_indent(value) {
+                    self.indent = indent;
+                }
+            }
             "indent" => self.indent = indent(value)?,
             "final_newline" => self.final_newline = flag(key, value)?,
             // JSON always emits double quotes; the documented setting is
@@ -52,6 +57,18 @@ impl Config {
             other => return Err(format!("unknown setting: {other}")),
         }
         Ok(())
+    }
+}
+
+/// Clamps a shared-global indent into what JSON can render; invalid native
+/// values are ignored like other unsupported globals.
+fn clamped_indent(value: &str) -> Option<Indent> {
+    match value.parse::<i64>().ok()? {
+        -1 => Some(Indent::Tabs),
+        0 => Some(Indent::Compact),
+        width @ 1..=7 => Some(Indent::Spaces(width as usize)),
+        width if width > 7 => Some(Indent::Spaces(7)),
+        _ => None,
     }
 }
 

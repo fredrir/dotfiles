@@ -66,6 +66,19 @@ fn shared_quote_names_select_the_corresponding_yaml_style() {
 }
 
 #[test]
+fn out_of_range_shared_globals_clamp_but_local_settings_stay_strict() {
+    for indent in 17..=24 {
+        let value = indent.to_string();
+        let config = Config::from_settings(&settings("indent", &value, true)).unwrap();
+        assert_eq!(config.indent, 16, "indent={indent}");
+    }
+    let width = Config::from_settings(&settings("width", "10001", true)).unwrap();
+    assert_eq!(width.width, 10_000);
+    assert!(Config::from_settings(&settings("indent", "17", false)).is_err());
+    assert!(Config::from_settings(&settings("width", "10001", false)).is_err());
+}
+
+#[test]
 fn global_width_and_indent_apply() {
     let indent = Config::from_settings(&settings("indent", "4", true)).unwrap();
     assert_eq!(
