@@ -1,0 +1,2013 @@
+{
+  "$comment": "Source of truth for the dotfmt.format.* VS Code settings. Run `bun generate-settings.ts` after editing, and `bun generate-settings.ts --check` in CI. Rust `Config::default` and each language's `set` are the source of truth for types, ranges and defaults. `enum` names the canonical values, and the description mentions the common aliases that `set` also matches. `default` is the effective value when nothing sets the option and is rendered into the setting description, never into a VS Code default.",
+  "global": {
+    "width": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000,
+      "defaultDescription": "each language's own value — 80 everywhere except Lua, which uses 120",
+      "description": "Line width used where a language wraps: BibTeX and LaTeX prose, Lua lines, Markdown tables, YAML flow collections, TOML arrays and inline tables, and TypeScript, CSS and HTML output. Accepted and ignored by env, ignore, ini and plist; CSS, HTML and TypeScript cap it at 320."
+    },
+    "indent": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 24,
+      "defaultDescription": "each language's own value — 2 spaces, except ini, which keeps its dialect's indentation",
+      "description": "Spaces per indentation level. Most languages accept 1 to 16, CSS, HTML and TypeScript accept 0 to 24, and the JSON block also takes `-1` for tabs or `0` for compact JSON. Env, ignore and markdown ignore it."
+    },
+    "final_newline": {
+      "type": "boolean",
+      "defaultDescription": "each language's own value — `true` for JSON, TOML, YAML, plist, env, ini, CSS, HTML and TypeScript, and `false` for Bib, conf, ignore, LaTeX, Lua and Markdown",
+      "description": "Write a trailing newline at the end of every file."
+    },
+    "repair": {
+      "type": "boolean",
+      "default": true,
+      "description": "Repair near-valid input before formatting instead of reporting a syntax error. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged."
+    },
+    "quote_style": {
+      "type": "string",
+      "enum": [
+        "double",
+        "single",
+        "auto",
+        "auto-prefer-double",
+        "auto-prefer-single"
+      ],
+      "defaultDescription": "each language's own preference — `double` for TypeScript, CSS and HTML, and `auto-prefer-double` for Lua and YAML",
+      "description": "Quote character preference for the languages that rewrite quoting: Lua and YAML strings, plus TypeScript, CSS and HTML. JSON always emits double quotes, and bib, conf, env, ignore, ini, LaTeX, Markdown, plist and TOML preserve the source quoting."
+    }
+  },
+  "files": {
+    "included_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "defaultDescription": "no restriction",
+      "description": "Gitignore-style patterns that restrict which files are eligible, one pattern per entry. A nonempty list allows only matching files; an empty list allows every supported filename mapping. A language's `include` adds custom mappings instead of filtering."
+    },
+    "excluded_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "defaultDescription": "nothing excluded",
+      "description": "Gitignore-style patterns removed from formatting, one pattern per entry, after `included_files` is applied."
+    }
+  },
+  "common": {
+    "enabled": {
+      "type": "boolean",
+      "defaultDescription": "the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript",
+      "description": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults."
+    },
+    "include": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "defaultDescription": "no additional mappings",
+      "description": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings."
+    },
+    "exclude": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "defaultDescription": "nothing excluded",
+      "description": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns."
+    },
+    "repair": {
+      "type": "boolean",
+      "default": true,
+      "description": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged."
+    }
+  },
+  "languages": {
+    "bib": {
+      "width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "default": 80,
+        "description": "Wrap long field values at this width."
+      },
+      "indent": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 2,
+        "description": "Spaces per indentation level for wrapped values."
+      },
+      "indent_type": {
+        "type": "string",
+        "enum": [
+          "spaces",
+          "tabs"
+        ],
+        "default": "spaces",
+        "description": "Indentation character: `indent` spaces or a single tab."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "windows"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF)."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "blank_lines": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "default": 1,
+        "description": "Maximum consecutive blank lines kept between entries."
+      },
+      "align": {
+        "type": "boolean",
+        "default": true,
+        "description": "Align `=` across the fields of an entry. Field names wider than `align_max` fall back to one space."
+      },
+      "align_max": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000,
+        "default": 24,
+        "description": "Widest field name that alignment pads; `0` removes the cap."
+      },
+      "trailing_comma": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write a comma after an entry's last field. `@string` definitions never get one."
+      },
+      "wrap": {
+        "type": "boolean",
+        "default": false,
+        "description": "Break values wider than `width` at existing spaces. Values are never rewritten, only wrapped."
+      },
+      "wrap_min": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "defaultDescription": "computed as `width - 10`, at least 1",
+        "description": "Only wrap a value when its first line is longer than this."
+      },
+      "field_name_case": {
+        "type": "string",
+        "enum": [
+          "preserve",
+          "lower",
+          "lowercase",
+          "upper",
+          "uppercase"
+        ],
+        "default": "lower",
+        "description": "Case for field names and `@string` definition names; macro uses keep their spelling."
+      },
+      "entry_type_case": {
+        "type": "string",
+        "enum": [
+          "preserve",
+          "lower",
+          "lowercase",
+          "upper",
+          "uppercase"
+        ],
+        "default": "lower",
+        "description": "Case for entry types such as `@article`."
+      }
+    },
+    "conf": {
+      "indent": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 2,
+        "description": "Spaces per block indentation level."
+      },
+      "align": {
+        "type": "boolean",
+        "default": true,
+        "description": "Align keys, values and trailing comments within contiguous blocks."
+      },
+      "align_max": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 24,
+        "description": "Widest key column that alignment pads; longer keys fall back to one space."
+      },
+      "blank_lines": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 1,
+        "description": "Maximum consecutive blank lines kept between blocks."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write a trailing newline at the end of the file."
+      }
+    },
+    "css": {
+      "dialect": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "css",
+          "scss",
+          "sass",
+          "less"
+        ],
+        "default": "auto",
+        "description": "Stylesheet syntax; `auto` reads the extension, and `pcss` is accepted as an alias for `css`."
+      },
+      "indent": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 24,
+        "default": 2,
+        "description": "Spaces per indentation level."
+      },
+      "indent_type": {
+        "type": "string",
+        "enum": [
+          "spaces",
+          "tabs"
+        ],
+        "default": "spaces",
+        "description": "Indentation character: `indent` spaces or a single tab."
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 320,
+        "default": 80,
+        "description": "Target line width for declarations and selectors."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "lf",
+          "windows",
+          "crlf"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document."
+      },
+      "hex_case": {
+        "type": "string",
+        "enum": [
+          "ignore",
+          "lower",
+          "upper"
+        ],
+        "default": "lower",
+        "description": "Case for hex colors."
+      },
+      "quotes": {
+        "type": "string",
+        "enum": [
+          "double",
+          "always-double",
+          "single",
+          "always-single",
+          "prefer-double",
+          "prefer-single",
+          "preserve",
+          "auto"
+        ],
+        "default": "double",
+        "description": "Quotation style for strings and `url()` values; `preserve`/`auto` keep the source style, and `prefer-*` keep it unless the other quote needs fewer escapes."
+      },
+      "quote_style": {
+        "type": "string",
+        "enum": [
+          "double",
+          "always-double",
+          "single",
+          "always-single",
+          "prefer-double",
+          "prefer-single",
+          "preserve",
+          "auto"
+        ],
+        "default": "double",
+        "description": "Alias of `quotes`, so the shared `quote_style` setting applies to CSS."
+      },
+      "format_comments": {
+        "type": "boolean",
+        "default": false,
+        "description": "Rewrite comment text, not only its placement."
+      },
+      "align_comments": {
+        "type": "boolean",
+        "default": true,
+        "description": "Align trailing comments within a group of declarations."
+      },
+      "single_line_block_threshold": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "defaultDescription": "unset — blocks always expand",
+        "description": "Put a declaration block on one line when its content fits in this many characters."
+      },
+      "operator_linebreak": {
+        "type": "string",
+        "enum": [
+          "before",
+          "after"
+        ],
+        "default": "after",
+        "description": "Break before or after an operator when a value wraps."
+      },
+      "block_selector_linebreak": {
+        "type": "string",
+        "enum": [
+          "always",
+          "consistent",
+          "wrap"
+        ],
+        "default": "consistent",
+        "description": "Where `{` goes when a selector list does not fit: break before it always, follow what the first selector does, or break only when needed."
+      },
+      "omit_number_leading_zero": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write `.5` instead of `0.5`."
+      },
+      "keyframe_selector_notation": {
+        "type": "string",
+        "enum": [
+          "none",
+          "keyword",
+          "percentage"
+        ],
+        "defaultDescription": "unset — the source notation is preserved",
+        "description": "Rewrite keyframe selectors as `from`/`to` (`keyword`) or percentages; `none` preserves them."
+      },
+      "prefer_single_line": {
+        "type": "boolean",
+        "default": false,
+        "description": "Prefer keeping short constructs on one line."
+      },
+      "declaration_order": {
+        "type": "string",
+        "enum": [
+          "none",
+          "alphabetical"
+        ],
+        "defaultDescription": "unset — declarations keep their source order",
+        "description": "Sort declarations inside each block; `none` keeps the source order."
+      },
+      "tailwind": {
+        "type": "string",
+        "enum": [
+          "off",
+          "on",
+          "auto"
+        ],
+        "default": "auto",
+        "description": "Tailwind class sorting: `auto` engages only when the file or project uses Tailwind. `true` and `false` are accepted aliases for `on` and `off`."
+      },
+      "tailwind_order": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "project",
+          "rust"
+        ],
+        "default": "auto",
+        "description": "Where the class order comes from: the project's own Tailwind, the Rust pattern sorter, or `auto` (project when available, Rust otherwise)."
+      },
+      "tailwind_dedupe": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove duplicate classes from a class list."
+      },
+      "tailwind_merge": {
+        "type": "boolean",
+        "default": false,
+        "description": "Collapse conflicting utilities with `tailwind-merge`. Off by default because merging can change rendering."
+      },
+      "tailwind_stylesheet": {
+        "type": "string",
+        "defaultDescription": "unset — the project's stylesheet is discovered",
+        "description": "Stylesheet that declares the Tailwind theme used for ordering."
+      },
+      "tailwind_config": {
+        "type": "string",
+        "defaultDescription": "unset — the project's Tailwind config is discovered",
+        "description": "Tailwind config file used for ordering."
+      }
+    },
+    "env": {
+      "indent": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 2,
+        "description": "Accepted from the shared block and unused: dotenv has no nesting."
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "default": 80,
+        "description": "Accepted from the shared block and unused: dotenv values are never wrapped."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "windows"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF)."
+      },
+      "blank_lines": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "default": 1,
+        "description": "Maximum consecutive blank lines kept between items."
+      },
+      "align": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write `key = value` and align `=` within contiguous entry groups. Off by default because not every shell or container env-file reader accepts spaces around `=`."
+      },
+      "align_max": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000,
+        "default": 24,
+        "description": "Widest entry prefix that alignment pads; longer keys fall back to one space."
+      },
+      "format_comments": {
+        "type": "boolean",
+        "default": false,
+        "description": "Insert a space after `#` in comments where one is missing."
+      },
+      "trim_trailing_whitespace": {
+        "type": "boolean",
+        "default": true,
+        "description": "Trim whitespace that trails an item outside a quoted value; backslash-escaped whitespace is value content and stays."
+      }
+    },
+    "html": {
+      "dialect": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "html",
+          "vue",
+          "svelte",
+          "astro",
+          "angular",
+          "xml"
+        ],
+        "default": "auto",
+        "description": "Markup flavor; `auto` reads the extension. Aliases `htm` and `svg` are accepted."
+      },
+      "indent": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 24,
+        "default": 2,
+        "description": "Spaces per indentation level."
+      },
+      "indent_type": {
+        "type": "string",
+        "enum": [
+          "spaces",
+          "tabs"
+        ],
+        "default": "spaces",
+        "description": "Indentation character: `indent` spaces or a single tab."
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 320,
+        "default": 80,
+        "description": "Target line width for tags and attributes."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "lf",
+          "windows",
+          "crlf"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document."
+      },
+      "quotes": {
+        "type": "string",
+        "enum": [
+          "double",
+          "single"
+        ],
+        "default": "double",
+        "description": "Quote character for attribute values."
+      },
+      "quote_style": {
+        "type": "string",
+        "enum": [
+          "double",
+          "single"
+        ],
+        "default": "double",
+        "description": "Alias of `quotes`, so the shared `quote_style` setting applies to markup."
+      },
+      "format_comments": {
+        "type": "boolean",
+        "default": false,
+        "description": "Rewrite comment text, not only its placement."
+      },
+      "closing_bracket_same_line": {
+        "type": "boolean",
+        "default": false,
+        "description": "Put the closing `>` of a multi-line opening tag on the last attribute's line."
+      },
+      "closing_tag_line_break_for_empty": {
+        "type": "string",
+        "enum": [
+          "always",
+          "fit",
+          "never"
+        ],
+        "default": "fit",
+        "description": "Put an empty element's closing tag on its own line always, only when it does not fit, or never."
+      },
+      "max_attrs_per_line": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "defaultDescription": "unset — tags wrap only past `width`",
+        "description": "Write at most this many attributes on one line."
+      },
+      "prefer_attrs_single_line": {
+        "type": "boolean",
+        "default": false,
+        "description": "Keep all attributes on one line when they fit."
+      },
+      "single_attr_same_line": {
+        "type": "boolean",
+        "default": true,
+        "description": "Keep a single attribute on the same line as the tag name."
+      },
+      "script_indent": {
+        "type": "boolean",
+        "default": true,
+        "description": "Indent `<script>` contents with the surrounding markup."
+      },
+      "style_indent": {
+        "type": "boolean",
+        "default": true,
+        "description": "Indent `<style>` contents with the surrounding markup."
+      },
+      "tailwind": {
+        "type": "string",
+        "enum": [
+          "off",
+          "on",
+          "auto"
+        ],
+        "default": "auto",
+        "description": "Tailwind class sorting: `auto` engages only when the file or project uses Tailwind. `true` and `false` are accepted aliases for `on` and `off`."
+      },
+      "tailwind_order": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "project",
+          "rust"
+        ],
+        "default": "auto",
+        "description": "Where the class order comes from: the project's own Tailwind, the Rust pattern sorter, or `auto` (project when available, Rust otherwise)."
+      },
+      "tailwind_attributes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "defaultDescription": "`class` and `className`",
+        "description": "Attributes whose values hold class lists. Arrays are joined with commas."
+      },
+      "tailwind_dedupe": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove duplicate classes from a class list."
+      },
+      "tailwind_merge": {
+        "type": "boolean",
+        "default": false,
+        "description": "Collapse conflicting utilities with `tailwind-merge`. Off by default because merging can change rendering."
+      },
+      "tailwind_stylesheet": {
+        "type": "string",
+        "defaultDescription": "unset — the project's stylesheet is discovered",
+        "description": "Stylesheet that declares the Tailwind theme used for ordering."
+      },
+      "tailwind_config": {
+        "type": "string",
+        "defaultDescription": "unset — the project's Tailwind config is discovered",
+        "description": "Tailwind config file used for ordering."
+      }
+    },
+    "ignore": {
+      "dialect": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "git",
+          "ignore",
+          "prettier",
+          "vscode",
+          "attributes"
+        ],
+        "default": "auto",
+        "description": "Ignore-file syntax; `auto` detects it from the filename and path. Aliases `gitignore`, `ripgrep`, `prettierignore`, `vscodeignore` and `gitattributes` are accepted."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "windows"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF)."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "blank_lines": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "default": 1,
+        "description": "Maximum consecutive blank lines kept inside the file."
+      },
+      "trim_trailing_whitespace": {
+        "type": "boolean",
+        "default": true,
+        "description": "Trim trailing whitespace that the dialect does not consider part of a pattern."
+      },
+      "trim_leading_whitespace": {
+        "type": "boolean",
+        "default": false,
+        "description": "Drop leading whitespace from `.gitattributes` lines; other dialects treat leading whitespace as pattern data."
+      },
+      "format_comments": {
+        "type": "boolean",
+        "default": false,
+        "description": "Insert a space after `#` on comment lines where that is safe."
+      },
+      "align": {
+        "type": "boolean",
+        "default": true,
+        "description": "Align the `.gitattributes` attribute column; other dialects leave their patterns alone."
+      },
+      "align_max": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000,
+        "default": 24,
+        "description": "Widest pattern that alignment pads; `0` means no cap, and longer patterns fall back to one space."
+      }
+    },
+    "ini": {
+      "dialect": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "generic",
+          "git",
+          "editorconfig",
+          "systemd",
+          "ssh"
+        ],
+        "default": "auto",
+        "description": "Ini syntax; `auto` detects it from the filename and path. Aliases `ini`, `conf`, `gitconfig`, `editor-config`, `unit` and `ssh-config` are accepted."
+      },
+      "indent": {
+        "type": "integer",
+        "minimum": 0,
+        "defaultDescription": "the dialect's own indentation",
+        "description": "Spaces per indentation level."
+      },
+      "indent_type": {
+        "type": "string",
+        "enum": [
+          "spaces",
+          "tabs"
+        ],
+        "default": "spaces",
+        "description": "Indentation character at the start of a line."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "windows"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF)."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "blank_lines": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "default": 1,
+        "description": "Maximum consecutive blank lines kept between sections."
+      },
+      "align": {
+        "type": "boolean",
+        "default": true,
+        "description": "Align `=` within contiguous entry groups; systemd units keep their single spacing."
+      },
+      "align_max": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000,
+        "default": 24,
+        "description": "Widest entry prefix that alignment pads; wider groups fall back to one space."
+      },
+      "format_comments": {
+        "type": "boolean",
+        "default": false,
+        "description": "Insert a space after `#` in full-line comments where one is missing."
+      }
+    },
+    "json": {
+      "dialect": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "json",
+          "jsonc",
+          "hujson",
+          "jsonl"
+        ],
+        "default": "auto",
+        "description": "JSON syntax; `auto` lets comments decide between JSON and JSONC and the extension pick JSONL. Aliases `json-with-comments`, `jwcc`, `ndjson` and `jsonlines` are accepted."
+      },
+      "indent": {
+        "type": "integer",
+        "minimum": -1,
+        "maximum": 7,
+        "default": 2,
+        "description": "`-1` indents with tabs, `0` emits compact JSON like `jq -c`, and `1` to `7` indent with that many spaces. JSONL ignores it and writes one compact record per line."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "quote_style": {
+        "type": "string",
+        "enum": [
+          "double"
+        ],
+        "default": "double",
+        "description": "JSON always emits double quotes, so only `double` is accepted."
+      }
+    },
+    "javascript": {
+      "dialect": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "ts",
+          "tsx",
+          "js",
+          "jsx"
+        ],
+        "default": "auto",
+        "description": "Source dialect; `auto` reads the extension. Aliases `typescript` and `javascript` are accepted."
+      },
+      "indent": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 24,
+        "default": 2,
+        "description": "Spaces per indentation level."
+      },
+      "indent_type": {
+        "type": "string",
+        "enum": [
+          "spaces",
+          "tabs"
+        ],
+        "default": "spaces",
+        "description": "Indentation character: `indent` spaces or a single tab."
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 320,
+        "default": 80,
+        "description": "Target line width."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "lf",
+          "windows",
+          "crlf"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document."
+      },
+      "quote_style": {
+        "type": "string",
+        "enum": [
+          "double",
+          "single"
+        ],
+        "default": "double",
+        "description": "Quote character for string literals."
+      },
+      "jsx_quote_style": {
+        "type": "string",
+        "enum": [
+          "double",
+          "single"
+        ],
+        "default": "double",
+        "description": "Quote character for JSX attribute values."
+      },
+      "quote_properties": {
+        "type": "string",
+        "enum": [
+          "as-needed",
+          "as_needed",
+          "preserve",
+          "consistent"
+        ],
+        "default": "as-needed",
+        "description": "Object key quotes: only when needed, preserved from the source, or one style consistently."
+      },
+      "semicolons": {
+        "type": "string",
+        "enum": [
+          "always",
+          "as-needed",
+          "as_needed"
+        ],
+        "default": "always",
+        "description": "Write statement-terminating semicolons."
+      },
+      "trailing_commas": {
+        "type": "string",
+        "enum": [
+          "all",
+          "es5",
+          "none"
+        ],
+        "default": "all",
+        "description": "Where to write trailing commas in multi-line lists."
+      },
+      "arrow_parentheses": {
+        "type": "string",
+        "enum": [
+          "always",
+          "as-needed",
+          "as_needed"
+        ],
+        "default": "always",
+        "description": "Parenthesize single-parameter arrow functions."
+      },
+      "bracket_spacing": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write spaces inside `{ }`."
+      },
+      "bracket_same_line": {
+        "type": "boolean",
+        "default": false,
+        "description": "Put the closing `>` of a multi-line JSX tag on the last attribute's line."
+      },
+      "attribute_position": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "multiline"
+        ],
+        "default": "auto",
+        "description": "Attribute wrapping for JSX elements: `multiline` breaks every attribute once the tag breaks."
+      },
+      "expand": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "preserve",
+          "never",
+          "collapse"
+        ],
+        "default": "auto",
+        "description": "Object literals: `auto`/`preserve` keep an object multi-line when the source wrote a newline after `{`, and `never`/`collapse` also collapse it onto one line when it fits."
+      },
+      "object_wrap": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "preserve",
+          "never",
+          "collapse"
+        ],
+        "default": "auto",
+        "description": "Alias of `expand`, matching the Prettier `objectWrap` spelling."
+      },
+      "jsdoc": {
+        "type": "boolean",
+        "default": false,
+        "description": "Format JSDoc comment blocks."
+      },
+      "embedded_css": {
+        "type": "boolean",
+        "default": true,
+        "description": "Format CSS inside CSS-in-JS template literals with the CSS formatter."
+      },
+      "sort_imports": {
+        "type": "boolean",
+        "default": false,
+        "description": "Sort import statements."
+      },
+      "import_order": {
+        "type": "string",
+        "enum": [
+          "asc",
+          "ascending",
+          "desc",
+          "descending"
+        ],
+        "default": "asc",
+        "description": "Import sort direction."
+      },
+      "import_internal": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "defaultDescription": "`~/` and `@/`",
+        "description": "Module prefixes treated as internal imports when grouping. Arrays are joined with commas."
+      },
+      "import_side_effects": {
+        "type": "boolean",
+        "default": false,
+        "description": "Sort side-effect imports together with the other groups."
+      },
+      "import_newlines": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a blank line between import groups."
+      },
+      "import_partition_by_newline": {
+        "type": "boolean",
+        "default": false,
+        "description": "Keep the source's blank lines between import groups."
+      },
+      "import_partition_by_comment": {
+        "type": "boolean",
+        "default": false,
+        "description": "Keep the source's comments between import groups."
+      },
+      "import_groups": {
+        "type": "string",
+        "defaultDescription": "the built-in group order: builtin, external, internal/subpath, parent/sibling/index, style, then unknown",
+        "description": "Custom import groups: `|` separates groups and `+` joins entries in one group, for example `type+builtin | external | parent+sibling`. `default`, `perfectionist`, `biome` and `none` keep the built-in order."
+      },
+      "tailwind": {
+        "type": "string",
+        "enum": [
+          "off",
+          "on",
+          "auto"
+        ],
+        "default": "auto",
+        "description": "Tailwind class sorting: `auto` engages only when the file or project uses Tailwind. `true` and `false` are accepted aliases for `on` and `off`."
+      },
+      "tailwind_order": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "project",
+          "rust"
+        ],
+        "default": "auto",
+        "description": "Where the class order comes from: the project's own Tailwind, the Rust pattern sorter, or `auto` (project when available, Rust otherwise)."
+      },
+      "tailwind_functions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "defaultDescription": "the formatter's built-in function names",
+        "description": "Functions whose arguments hold class lists. Arrays are joined with commas."
+      },
+      "tailwind_attributes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "defaultDescription": "the formatter's built-in attribute names",
+        "description": "Attributes whose values hold class lists. Arrays are joined with commas."
+      },
+      "tailwind_dedupe": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove duplicate classes from a class list."
+      },
+      "tailwind_merge": {
+        "type": "boolean",
+        "default": false,
+        "description": "Collapse conflicting utilities with `tailwind-merge`. Off by default because merging can change rendering."
+      },
+      "tailwind_stylesheet": {
+        "type": "string",
+        "defaultDescription": "unset — the project's stylesheet is discovered",
+        "description": "Stylesheet that declares the Tailwind theme used for ordering."
+      },
+      "tailwind_config": {
+        "type": "string",
+        "defaultDescription": "unset — the project's Tailwind config is discovered",
+        "description": "Tailwind config file used for ordering."
+      },
+      "fixes": {
+        "type": "string",
+        "enum": [
+          "off",
+          "none",
+          "safe",
+          "unsafe",
+          "all"
+        ],
+        "default": "off",
+        "description": "Preset for format-time fixes: `off`, `safe` (unused imports, type-only conversion, organize imports) or `unsafe` (safe plus unused locals). `none` and `all` are aliases; export removal is never implied."
+      },
+      "remove_unused_imports": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove unused imports; a bare side-effect-only import keeps its side effect."
+      },
+      "remove_unused_exports": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove project-wide unused exports. Unsafe: needs project analysis and a trusted workspace."
+      },
+      "remove_unused_locals": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove unused local variables (unsafe)."
+      },
+      "remove_unused_parameters": {
+        "type": "boolean",
+        "default": false,
+        "description": "Diagnose-only: `--diagnose` reports unused parameters, and formatting never removes them."
+      },
+      "convert_type_only_imports": {
+        "type": "boolean",
+        "default": false,
+        "description": "Convert imports used only as types to `import type`."
+      },
+      "organize_imports": {
+        "type": "boolean",
+        "default": false,
+        "description": "Sort and group import runs, applying their import fixes."
+      },
+      "type_aware": {
+        "type": "boolean",
+        "default": true,
+        "description": "Run the project's `tsc --noEmit` once and keep errors only. Project checks require a trusted workspace."
+      },
+      "verify": {
+        "type": "boolean",
+        "default": true,
+        "description": "Fail when formatting would remove code compared with the input."
+      }
+    },
+    "latex": {
+      "dialect": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "latex",
+          "plain",
+          "context"
+        ],
+        "default": "auto",
+        "description": "TeX flavor; `auto` reads the extension, `plain` leaves environment syntax alone, and `context` maps `\\start`/`\\stop` environments onto the indentation engine. Aliases include `pdftex`, `xelatex`, `expl3`, `beamer`, `tikz`, `tex`, `optex`, `ctx`, `mkiv` and `lmtx`."
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "default": 80,
+        "description": "Wrap text and comments at this width."
+      },
+      "indent": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 2,
+        "description": "Spaces per indentation level."
+      },
+      "indent_type": {
+        "type": "string",
+        "enum": [
+          "spaces",
+          "tabs"
+        ],
+        "default": "spaces",
+        "description": "Indentation character: `indent` spaces or a single tab."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "windows"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF)."
+      },
+      "wrap": {
+        "type": "boolean",
+        "default": true,
+        "description": "Wrap lines longer than `width`; set `false` to keep long lines."
+      },
+      "wrap_min": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000,
+        "defaultDescription": "computed as `width - 10`, at least 1; `0` also means unset",
+        "description": "Only wrap a line when it is longer than this."
+      },
+      "wrap_chars": {
+        "type": "string",
+        "defaultDescription": "a space",
+        "description": "Characters that may end a wrapped line. A space is always added."
+      },
+      "format_tables": {
+        "type": "boolean",
+        "default": false,
+        "description": "Align `tabular` rows into columns."
+      },
+      "blank_lines": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "default": 1,
+        "description": "Maximum consecutive blank lines kept between paragraphs."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "verify": {
+        "type": "boolean",
+        "default": false,
+        "description": "Format a second time and fail when the result does not settle."
+      },
+      "lists": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "defaultDescription": "the dialect's built-in list environments",
+        "description": "Environment names formatted as lists, in addition to the dialect's built-in list. Arrays are joined with commas."
+      },
+      "verbatims": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "defaultDescription": "the dialect's built-in verbatim environments",
+        "description": "Environment names protected byte-for-byte, in addition to the dialect's built-in set. Arrays are joined with commas."
+      },
+      "no_indent_envs": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "defaultDescription": "the dialect's built-in no-indent environments",
+        "description": "Environment names whose contents are never indented. Arrays are joined with commas."
+      }
+    },
+    "lua": {
+      "dialect": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "all",
+          "lua51",
+          "lua52",
+          "lua53",
+          "lua54",
+          "luajit",
+          "luau"
+        ],
+        "default": "auto",
+        "description": "Lua syntax version; `auto` reads the extension and defaults to Lua 5.4."
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "default": 120,
+        "description": "Target line width."
+      },
+      "indent": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 2,
+        "description": "Spaces per indentation level."
+      },
+      "indent_type": {
+        "type": "string",
+        "enum": [
+          "spaces",
+          "tabs"
+        ],
+        "default": "spaces",
+        "description": "Indentation character: `indent` spaces or a single tab."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "windows"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF)."
+      },
+      "quote_style": {
+        "type": "string",
+        "enum": [
+          "auto-prefer-double",
+          "auto",
+          "auto-prefer-single",
+          "force-double",
+          "double",
+          "force-single",
+          "single"
+        ],
+        "default": "auto-prefer-double",
+        "description": "Quote style for strings: `auto-prefer-*` switch only when the other quote needs fewer escapes, while `force-*` always applies. `auto` means `auto-prefer-double`, and `double` and `single` force that quote."
+      },
+      "call_parentheses": {
+        "type": "string",
+        "enum": [
+          "always",
+          "no-single-string",
+          "no-single-table",
+          "none",
+          "input"
+        ],
+        "default": "none",
+        "description": "Call parentheses: always, omitted for a single string or a single table argument, `none` for either, or kept as written (`input`)."
+      },
+      "collapse_simple_statement": {
+        "type": "string",
+        "enum": [
+          "never",
+          "function-only",
+          "conditional-only",
+          "always"
+        ],
+        "default": "never",
+        "description": "Collapse simple functions, simple if guards, or both onto one line."
+      },
+      "space_after_function_names": {
+        "type": "string",
+        "enum": [
+          "never",
+          "definitions",
+          "calls",
+          "always"
+        ],
+        "default": "never",
+        "description": "Space before `(` in function definitions, calls, or both."
+      },
+      "block_newline_gaps": {
+        "type": "string",
+        "enum": [
+          "never",
+          "preserve"
+        ],
+        "default": "never",
+        "description": "Leading and trailing blank lines inside blocks: `preserve` keeps them, `never` removes them."
+      },
+      "sort_requires": {
+        "type": "boolean",
+        "default": false,
+        "description": "Sort `require` calls."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "verify": {
+        "type": "boolean",
+        "default": false,
+        "description": "Reparse the formatted output and fail when it no longer parses."
+      }
+    },
+    "markdown": {
+      "dialect": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "commonmark",
+          "gfm",
+          "obsidian"
+        ],
+        "default": "auto",
+        "description": "Markdown flavor; `auto` detects GFM and Obsidian from the vault ancestry. Aliases `github` and `obsidian-markdown` are accepted."
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000,
+        "default": 80,
+        "description": "Width for table layout; prose is never reflowed."
+      },
+      "autosize_table": {
+        "type": "boolean",
+        "default": false,
+        "description": "Size table dividers to the aligned columns; compact tables keep three dashes."
+      },
+      "blank_lines": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3,
+        "default": 1,
+        "description": "Maximum consecutive blank lines kept outside code and HTML blocks."
+      },
+      "heading_blank_lines": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3,
+        "default": 1,
+        "description": "Blank lines written around headings."
+      },
+      "trim_trailing_blank_lines": {
+        "type": "boolean",
+        "default": true,
+        "description": "Drop blank lines at the end of the document."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "table_style": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "aligned",
+          "compact"
+        ],
+        "default": "auto",
+        "description": "Table layout: `auto` follows the source, `aligned` pads cells into columns, and `compact` keeps cells minimal."
+      },
+      "list_marker": {
+        "type": "string",
+        "enum": [
+          "-",
+          "*",
+          "+"
+        ],
+        "default": "-",
+        "description": "Bullet marker written for unordered lists."
+      }
+    },
+    "plist": {
+      "indent": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 2,
+        "description": "Spaces per indentation level."
+      },
+      "indent_type": {
+        "type": "string",
+        "enum": [
+          "spaces",
+          "tabs"
+        ],
+        "default": "spaces",
+        "description": "Indentation character: `indent` spaces or a single tab."
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "default": 80,
+        "description": "Accepted from the shared block and unused: plist layout never wraps."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "windows"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF)."
+      },
+      "blank_lines": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "default": 1,
+        "description": "Maximum consecutive blank lines kept between elements."
+      },
+      "data_width": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 120,
+        "default": 0,
+        "description": "Wrap `<data>` payloads at this width; `0` keeps the original bytes."
+      },
+      "prolog": {
+        "type": "string",
+        "enum": [
+          "preserve",
+          "normalize"
+        ],
+        "default": "preserve",
+        "description": "Keep the XML declaration, DOCTYPE and prolog comments as written, or replace the declaration and DOCTYPE with Apple's canonical spelling."
+      },
+      "self_closing": {
+        "type": "string",
+        "enum": [
+          "preserve",
+          "always",
+          "never"
+        ],
+        "default": "preserve",
+        "description": "Empty elements: keep the source form, always self-close them, or always pair the tags."
+      },
+      "sort_keys": {
+        "type": "boolean",
+        "default": false,
+        "description": "Accepted only as `false`: reordering keys would change duplicate-key shadowing."
+      }
+    },
+    "toml": {
+      "indent": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 2,
+        "description": "Spaces per indentation level."
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "default": 80,
+        "description": "Target line width; arrays and inline tables expand beyond it."
+      },
+      "allowed_blank_lines": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "default": 1,
+        "description": "Maximum consecutive blank lines kept between elements."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "windows"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF)."
+      },
+      "align_entries": {
+        "type": "boolean",
+        "default": false,
+        "description": "Align `=` within contiguous groups of entries."
+      },
+      "align_comments": {
+        "type": "boolean",
+        "default": true,
+        "description": "Align trailing comments within contiguous groups."
+      },
+      "align_single_comments": {
+        "type": "boolean",
+        "default": true,
+        "description": "Also align a lone trailing comment in a group."
+      },
+      "array_trailing_comma": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a trailing comma on multi-line arrays."
+      },
+      "array_auto_expand": {
+        "type": "boolean",
+        "default": true,
+        "description": "Expand arrays that do not fit the configured width."
+      },
+      "array_auto_collapse": {
+        "type": "boolean",
+        "default": true,
+        "description": "Collapse arrays that fit on one line."
+      },
+      "compact_arrays": {
+        "type": "boolean",
+        "default": true,
+        "description": "Omit padding inside single-line arrays."
+      },
+      "compact_inline_tables": {
+        "type": "boolean",
+        "default": false,
+        "description": "Omit padding inside inline tables."
+      },
+      "compact_entries": {
+        "type": "boolean",
+        "default": false,
+        "description": "Omit spaces around `=`."
+      },
+      "inline_table_expand": {
+        "type": "boolean",
+        "default": true,
+        "description": "Expand values nested in inline tables that do not fit the width."
+      },
+      "indent_tables": {
+        "type": "boolean",
+        "default": false,
+        "description": "Indent nested table headers and their contents by depth."
+      },
+      "indent_entries": {
+        "type": "boolean",
+        "default": false,
+        "description": "Indent entries under a table header by one level."
+      },
+      "reorder_keys": {
+        "type": "boolean",
+        "default": false,
+        "description": "Sort direct entries within a contiguous group by key."
+      },
+      "format_comments": {
+        "type": "boolean",
+        "default": false,
+        "description": "Insert a space after `#` where one is missing."
+      }
+    },
+    "typescript": {
+      "dialect": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "ts",
+          "tsx",
+          "js",
+          "jsx"
+        ],
+        "default": "auto",
+        "description": "Source dialect; `auto` reads the extension. Aliases `typescript` and `javascript` are accepted."
+      },
+      "indent": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 24,
+        "default": 2,
+        "description": "Spaces per indentation level."
+      },
+      "indent_type": {
+        "type": "string",
+        "enum": [
+          "spaces",
+          "tabs"
+        ],
+        "default": "spaces",
+        "description": "Indentation character: `indent` spaces or a single tab."
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 320,
+        "default": 80,
+        "description": "Target line width."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a trailing newline at the end of the file."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "lf",
+          "windows",
+          "crlf"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document."
+      },
+      "quote_style": {
+        "type": "string",
+        "enum": [
+          "double",
+          "single"
+        ],
+        "default": "double",
+        "description": "Quote character for string literals."
+      },
+      "jsx_quote_style": {
+        "type": "string",
+        "enum": [
+          "double",
+          "single"
+        ],
+        "default": "double",
+        "description": "Quote character for JSX attribute values."
+      },
+      "quote_properties": {
+        "type": "string",
+        "enum": [
+          "as-needed",
+          "as_needed",
+          "preserve",
+          "consistent"
+        ],
+        "default": "as-needed",
+        "description": "Object key quotes: only when needed, preserved from the source, or one style consistently."
+      },
+      "semicolons": {
+        "type": "string",
+        "enum": [
+          "always",
+          "as-needed",
+          "as_needed"
+        ],
+        "default": "always",
+        "description": "Write statement-terminating semicolons."
+      },
+      "trailing_commas": {
+        "type": "string",
+        "enum": [
+          "all",
+          "es5",
+          "none"
+        ],
+        "default": "all",
+        "description": "Where to write trailing commas in multi-line lists."
+      },
+      "arrow_parentheses": {
+        "type": "string",
+        "enum": [
+          "always",
+          "as-needed",
+          "as_needed"
+        ],
+        "default": "always",
+        "description": "Parenthesize single-parameter arrow functions."
+      },
+      "bracket_spacing": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write spaces inside `{ }`."
+      },
+      "bracket_same_line": {
+        "type": "boolean",
+        "default": false,
+        "description": "Put the closing `>` of a multi-line JSX tag on the last attribute's line."
+      },
+      "attribute_position": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "multiline"
+        ],
+        "default": "auto",
+        "description": "Attribute wrapping for JSX elements: `multiline` breaks every attribute once the tag breaks."
+      },
+      "expand": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "preserve",
+          "never",
+          "collapse"
+        ],
+        "default": "auto",
+        "description": "Object literals: `auto`/`preserve` keep an object multi-line when the source wrote a newline after `{`, and `never`/`collapse` also collapse it onto one line when it fits."
+      },
+      "object_wrap": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "preserve",
+          "never",
+          "collapse"
+        ],
+        "default": "auto",
+        "description": "Alias of `expand`, matching the Prettier `objectWrap` spelling."
+      },
+      "jsdoc": {
+        "type": "boolean",
+        "default": false,
+        "description": "Format JSDoc comment blocks."
+      },
+      "embedded_css": {
+        "type": "boolean",
+        "default": true,
+        "description": "Format CSS inside CSS-in-JS template literals with the CSS formatter."
+      },
+      "sort_imports": {
+        "type": "boolean",
+        "default": false,
+        "description": "Sort import statements."
+      },
+      "import_order": {
+        "type": "string",
+        "enum": [
+          "asc",
+          "ascending",
+          "desc",
+          "descending"
+        ],
+        "default": "asc",
+        "description": "Import sort direction."
+      },
+      "import_internal": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "defaultDescription": "`~/` and `@/`",
+        "description": "Module prefixes treated as internal imports when grouping. Arrays are joined with commas."
+      },
+      "import_side_effects": {
+        "type": "boolean",
+        "default": false,
+        "description": "Sort side-effect imports together with the other groups."
+      },
+      "import_newlines": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a blank line between import groups."
+      },
+      "import_partition_by_newline": {
+        "type": "boolean",
+        "default": false,
+        "description": "Keep the source's blank lines between import groups."
+      },
+      "import_partition_by_comment": {
+        "type": "boolean",
+        "default": false,
+        "description": "Keep the source's comments between import groups."
+      },
+      "import_groups": {
+        "type": "string",
+        "defaultDescription": "the built-in group order: builtin, external, internal/subpath, parent/sibling/index, style, then unknown",
+        "description": "Custom import groups: `|` separates groups and `+` joins entries in one group, for example `type+builtin | external | parent+sibling`. `default`, `perfectionist`, `biome` and `none` keep the built-in order."
+      },
+      "tailwind": {
+        "type": "string",
+        "enum": [
+          "off",
+          "on",
+          "auto"
+        ],
+        "default": "auto",
+        "description": "Tailwind class sorting: `auto` engages only when the file or project uses Tailwind. `true` and `false` are accepted aliases for `on` and `off`."
+      },
+      "tailwind_order": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "project",
+          "rust"
+        ],
+        "default": "auto",
+        "description": "Where the class order comes from: the project's own Tailwind, the Rust pattern sorter, or `auto` (project when available, Rust otherwise)."
+      },
+      "tailwind_functions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "defaultDescription": "the formatter's built-in function names",
+        "description": "Functions whose arguments hold class lists. Arrays are joined with commas."
+      },
+      "tailwind_attributes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "defaultDescription": "the formatter's built-in attribute names",
+        "description": "Attributes whose values hold class lists. Arrays are joined with commas."
+      },
+      "tailwind_dedupe": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove duplicate classes from a class list."
+      },
+      "tailwind_merge": {
+        "type": "boolean",
+        "default": false,
+        "description": "Collapse conflicting utilities with `tailwind-merge`. Off by default because merging can change rendering."
+      },
+      "tailwind_stylesheet": {
+        "type": "string",
+        "defaultDescription": "unset — the project's stylesheet is discovered",
+        "description": "Stylesheet that declares the Tailwind theme used for ordering."
+      },
+      "tailwind_config": {
+        "type": "string",
+        "defaultDescription": "unset — the project's Tailwind config is discovered",
+        "description": "Tailwind config file used for ordering."
+      },
+      "fixes": {
+        "type": "string",
+        "enum": [
+          "off",
+          "none",
+          "safe",
+          "unsafe",
+          "all"
+        ],
+        "default": "off",
+        "description": "Preset for format-time fixes: `off`, `safe` (unused imports, type-only conversion, organize imports) or `unsafe` (safe plus unused locals). `none` and `all` are aliases; export removal is never implied."
+      },
+      "remove_unused_imports": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove unused imports; a bare side-effect-only import keeps its side effect."
+      },
+      "remove_unused_exports": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove project-wide unused exports. Unsafe: needs project analysis and a trusted workspace."
+      },
+      "remove_unused_locals": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove unused local variables (unsafe)."
+      },
+      "remove_unused_parameters": {
+        "type": "boolean",
+        "default": false,
+        "description": "Diagnose-only: `--diagnose` reports unused parameters, and formatting never removes them."
+      },
+      "convert_type_only_imports": {
+        "type": "boolean",
+        "default": false,
+        "description": "Convert imports used only as types to `import type`."
+      },
+      "organize_imports": {
+        "type": "boolean",
+        "default": false,
+        "description": "Sort and group import runs, applying their import fixes."
+      },
+      "type_aware": {
+        "type": "boolean",
+        "default": true,
+        "description": "Run the project's `tsc --noEmit` once and keep errors only. Project checks require a trusted workspace."
+      },
+      "verify": {
+        "type": "boolean",
+        "default": true,
+        "description": "Fail when formatting would remove code compared with the input."
+      }
+    },
+    "yaml": {
+      "width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "default": 80,
+        "description": "Target line width for flow collections."
+      },
+      "indent": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 2,
+        "description": "Spaces per indentation level."
+      },
+      "quote_style": {
+        "type": "string",
+        "enum": [
+          "auto-prefer-double",
+          "auto",
+          "auto-prefer-single",
+          "force-double",
+          "double",
+          "force-single",
+          "single"
+        ],
+        "default": "auto-prefer-double",
+        "description": "Quote style for strings that need quotes: `auto-prefer-*` switch only when the other quote needs fewer escapes, while `force-*` always applies. `auto` means `auto-prefer-double`, and `double` and `single` force that quote."
+      },
+      "line_endings": {
+        "type": "string",
+        "enum": [
+          "unix",
+          "windows"
+        ],
+        "default": "unix",
+        "description": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF)."
+      },
+      "indent_sequences": {
+        "type": "boolean",
+        "default": true,
+        "description": "Indent sequence entries under their parent key instead of aligning `-` with the key."
+      },
+      "trailing_comma": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write a trailing comma on multi-line flow collections."
+      },
+      "brace_spacing": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write spaces inside `{ ... }` flow mappings."
+      },
+      "bracket_spacing": {
+        "type": "boolean",
+        "default": false,
+        "description": "Write spaces inside `[ ... ]` flow sequences."
+      },
+      "dash_spacing": {
+        "type": "string",
+        "enum": [
+          "one-space",
+          "indent"
+        ],
+        "default": "one-space",
+        "description": "Sequence dashes: `- item` with one space, or indent the item under the dash to the parent's indentation level."
+      },
+      "prefer_single_line": {
+        "type": "boolean",
+        "default": false,
+        "description": "Collapse flow collections that fit on one line."
+      },
+      "format_comments": {
+        "type": "boolean",
+        "default": false,
+        "description": "Insert a space after `#` where one is missing."
+      },
+      "final_newline": {
+        "type": "boolean",
+        "default": true,
+        "description": "Write a trailing newline at the end of the file."
+      }
+    }
+  }
+}
