@@ -9,7 +9,13 @@ import {
   message,
   type Client,
 } from "./client";
-import { explain } from "./lib/explain";
+import {
+  doctorReportLines,
+  projectForFile,
+  requestDoctor,
+  tscState,
+} from "./lib/doctor";
+import { explain, type Explanation } from "./lib/explain";
 import { CONFIG_NAME, LANGUAGES, SELECTOR } from "./lib/languages";
 import { expandHome, findConfig, isWithin, tildify } from "./lib/paths";
 import { readSettings } from "./lib/settings";
@@ -132,7 +138,10 @@ async function showStatus(client: Client): Promise<void> {
     return;
   }
   try {
-    const result = await explain(client, document.uri, document.languageId);
+    const [result, known] = await Promise.all([
+      explain(client, document.uri, document.languageId),
+      requestDoctor(client),
+    ]);
     if (result.error) {
       const showOutput = "Show Output";
       const answer = await vscode.window.showWarningMessage(
@@ -152,9 +161,31 @@ async function showStatus(client: Client): Promise<void> {
       .filter(Boolean)
       .join(" ");
     const nearest = result.configs.at(-1);
+    const settings = readSettings(document.uri);
+    const report = known.report;
+    const project = report
+      ? projectForFile(report, document.uri.fsPath)
+      : undefined;
+    const server = report?.server;
+    const serverVersion = server?.version ?? client.version();
+    const tsc = tscState(
+      vscode.workspace.isTrusted,
+      settings.typeAware,
+      settings.tscScope,
+    );
+    const summary = [
+      detail,
+      `tsc: ${tsc}${project?.state ? `, ${project.state}` : ""}`,
+      serverVersion
+        ? `server: ${server?.name ?? "dotfmt-lsp"} ${serverVersion}`
+        : undefined,
+      nearest ? tildify(nearest) : undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
     const doctor = "Doctor";
     const answer = await vscode.window.showInformationMessage(
-      `dotfmt: ${detail}${nearest ? ` · ${tildify(nearest)}` : ""}`,
+      `dotfmt: ${summary}`,
       doctor,
     );
     if (answer === doctor) {
@@ -191,17 +222,25 @@ async function doctorSummary(
 ): Promise<string> {
   const version = extensionVersion(context);
   const cli = cliPath(context);
-  const cliVersion = await binaryVersion(cli);
   const folders = vscode.workspace.workspaceFolders ?? [];
   const target = doctorTarget();
   const settings = readSettings(target.uri);
-  const serverVersion = client.version();
+  const [cliVersion, known, result] = await Promise.all([
+    binaryVersion(cli),
+    requestDoctor(client),
+    explain(client, target.uri, target.languageId).catch(
+      (error): Explanation => ({ error: message(error), configs: [] }),
+    ),
+  ]);
+  const report = known.report;
+  const serverVersion = report?.server.version ?? client.version();
+  const serverName = report?.server.name ?? "dotfmt-lsp";
   const lines = [
     "dotfmt doctor",
     `extension: ${context.extension.id} ${version}`,
     `server: ${tildify(client.serverPath())}${
       serverVersion
-        ? ` (dotfmt-lsp ${serverVersion})`
+        ? ` (${serverName} ${serverVersion})`
         : " (version unavailable)"
     }`,
     `CLI: ${tildify(cli)}${
@@ -213,41 +252,41 @@ async function doctorSummary(
         ? folders.map((folder) => tildify(folder.uri.fsPath)).join(", ")
         : "none"
     }`,
-    `type-aware diagnostics: ${settings.typeAware ? "on" : "off"} · scope: ${
-      settings.tscScope
-    } · debounce: ${settings.debounceMs}ms`,
-    `syntax diagnostics: ${settings.syntaxDiagnostics ? "on" : "off"}`,
+  ];
+  if (report) {
+    lines.push(...doctorReportLines(report, tildify));
+  } else {
+    lines.push(
+      `server report: unavailable (${known.error ?? "unexpected response"})`,
+      `type-aware diagnostics: ${settings.typeAware ? "on" : "off"} · scope: ${
+        settings.tscScope
+      } · debounce: ${settings.debounceMs}ms`,
+      `syntax diagnostics: ${settings.syntaxDiagnostics ? "on" : "off"}`,
+      "tsc compiler: unavailable (the server did not report it)",
+    );
+  }
+  lines.push(
     `fixes on save: ${settings.fixesOnSave}`,
     `TypeScript SDK: ${
       settings.tsdk ? tildify(expandHome(settings.tsdk)) : "auto"
     }`,
-    `tsc compiler: ${
-      settings.tsdk
-        ? "set above; compiler/version is not reported by the server"
-        : "auto-discovered by the server; compiler/version is not reported"
-    }`,
-  ];
-  try {
-    const result = await explain(client, target.uri, target.languageId);
-    if (result.error) {
-      lines.push(`configuration: error: ${result.error}`);
+  );
+  if (result.error) {
+    lines.push(`configuration: error: ${result.error}`);
+  } else {
+    lines.push(
+      `language: ${result.language ?? "unmapped"}${
+        result.dialect ? ` (${result.dialect})` : ""
+      }${result.skipped ? ` · skipped: ${result.skipped}` : ""}`,
+    );
+    lines.push("configuration:");
+    if (result.configs.length === 0) {
+      lines.push("  (none)");
     } else {
-      lines.push(
-        `language: ${result.language ?? "unmapped"}${
-          result.dialect ? ` (${result.dialect})` : ""
-        }${result.skipped ? ` · skipped: ${result.skipped}` : ""}`,
-      );
-      lines.push("configuration:");
-      if (result.configs.length === 0) {
-        lines.push("  (none)");
-      } else {
-        for (const file of result.configs) {
-          lines.push(`  ${file}`);
-        }
+      for (const file of result.configs) {
+        lines.push(`  ${tildify(file)}`);
       }
     }
-  } catch (error) {
-    lines.push(`configuration: unavailable (${message(error)})`);
   }
   return lines.join("\n");
 }

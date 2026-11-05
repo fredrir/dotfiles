@@ -9,12 +9,12 @@ Formatting, range formatting, on-type formatting, errors, code actions and comma
 - **Default formatter:** run **dotfmt: Set as Default Formatter**, or set it per language in `settings.json`. With a workspace open it writes workspace settings; without one it writes user settings.
 - **Format on save:** enable `editor.formatOnSave`. `editor.formatOnSaveMode: "modifications"` and Format Selection work through the server's range requests.
 - **Format on type:** `;` and `}` trigger formatting of the surrounding block.
-- **Format on paste:** pasted text is formatted through the language server and offered as a paste edit; a snippet that does not parse keeps its original text.
+- **Format on paste:** pasted text is formatted through the language server and offered as a paste edit; a snippet that does not parse keeps its original text. Paste formatting is format-only and never applies configured fixes.
 - **Binary:** `dotfmt.server.path` replaces the bundled language server. `dotfmt.path` names the CLI used by status and doctor. Workspace values are ignored in untrusted workspaces.
 - **Configuration:** the filename and `dotfmt.dotfile` decide the language and dialect, as in Neovim. Untitled buffers use their VS Code language. The nearest `dotfmt.dotfile` applies, with the user config directory as the final fallback.
 - **Settings:** `dotfmt.dotfile` is the only formatting configuration; VS Code's tab size and indentation settings are ignored. A `line_endings` change also switches the document's line endings.
 - **Scope:** the dotfmt settings below are resource-scoped. In a multi-root workspace each folder resolves its own values from the nearest workspace folder, including its own type-aware scope and TypeScript SDK.
-- **Status:** the `{}` language status shows the resolved language, dialect and config, or why a file is skipped (`unmapped`, `excluded`, `disabled`). Its tooltip shows the extension version, server and CLI paths, TypeScript state and the configuration chain. It turns red on errors.
+- **Status:** the `{}` language status shows the resolved language, dialect and config, or why a file is skipped (`unmapped`, `excluded`, `disabled`). Its tooltip shows the extension version, server name and version, CLI path, tsc state, the resolved compiler when the server reports it, and the configuration chain. It turns red on errors.
 - **Dotfile language:** `*.dotfile` gets highlighting, `#` comments, bracket matching and indentation.
 
 ## Diagnostics: errors only
@@ -44,11 +44,15 @@ organize_imports = false
 
 - `fixes = "off"` applies no format-time fixes unless an individual boolean is true.
 - `fixes = "safe"` implies `remove_unused_imports`, `convert_type_only_imports` and `organize_imports`.
-- `fixes = "unsafe"` implies all safe fixes plus `remove_unused_exports`, `remove_unused_locals` and `remove_unused_parameters`.
-- An individual boolean forces that category on regardless of `fixes`.
+- `fixes = "unsafe"` implies the safe fixes plus `remove_unused_locals`. It never implies `remove_unused_exports`; removing exports changes the public API and must be requested explicitly.
+- `remove_unused_exports = true` removes project-wide unused exports during full-document formatting. It is never implied by `fixes` and requires a trusted workspace.
+- `remove_unused_parameters` is diagnose-only: `dotfmt --diagnose` reports unused parameters and formatting leaves them alone because there is no parameter-removal fix yet.
+- An individual boolean forces that category on regardless of `fixes`, except for diagnose-only `remove_unused_parameters`.
 - Selected fixes run before the final format, for at most three idempotent passes. Defaults delete nothing.
 
-The same categories are available interactively through code actions and **dotfmt: Fix All**. Unsafe fixes are hidden in untrusted workspaces.
+Configured fixes apply only to full-document formatting and `textDocument/willSaveWaitUntil`. Range formatting, on-type formatting, paste formatting and formatting requested through a code action never apply them; explicit fix actions (`source.fixAll.dotfmt`, **dotfmt: Fix All**) apply fixes directly.
+
+The fixable categories are available interactively through code actions and **dotfmt: Fix All**. Unsafe fixes are hidden in untrusted workspaces.
 
 ## Type-aware diagnostics
 
@@ -56,9 +60,10 @@ The same categories are available interactively through code actions and **dotfm
 
 - `dotfmt.diagnostics.tscScope` (default `open`) publishes compiler errors only for open documents. Set it to `project` to publish errors for every file in the project.
 - `dotfmt.diagnostics.debounceMs` (default `250`) coalesces checks after edits.
-- `dotfmt.typescript.tsdk` points at a TypeScript installation's `lib` directory. Empty auto-discovers `DOTFMT_TSC`, the project's `node_modules/typescript/lib/tsc.js`, `node_modules/.bin/tsc`, `@typescript/native-preview`/`tsgo`, then `tsc` on `PATH`.
-- Compiler discovery and version are logged once per project. TypeScript's unused-code and lint codes (6133, 6192, 6196, 6198, 6199, 6205) are filtered out, so tsc errors never become unused-code warnings.
-- Project checks, project JavaScript execution and unsafe fixes require an explicitly trusted workspace. In an untrusted workspace they are disabled; deterministic formatting still works.
+- `dotfmt.typescript.tsdk` accepts a TypeScript package directory (`node_modules/typescript`), its `lib` directory (`node_modules/typescript/lib`) or `tsc.js` itself. Empty auto-discovers `DOTFMT_TSC`, the project's `node_modules/typescript/lib/tsc.js`, `node_modules/.bin/tsc`, `@typescript/native-preview`/`tsgo`, then `tsc` on `PATH`.
+- Compiler discovery and version are logged once per project. TypeScript's unused-code and lint codes (6133, 6138, 6192, 6196, 6198, 6199, 6205, 7027, 7028) are filtered out, so tsc errors never become unused-code warnings or hints.
+- If the compiler fails or times out three times in a row, dotfmt backs off until the configuration or compiler changes and shows that state in status and doctor.
+- Project checks, project JavaScript execution and unsafe fixes, including `remove_unused_exports`, require an explicitly trusted workspace. In an untrusted workspace they are disabled; deterministic formatting still works.
 
 ## Settings
 
@@ -68,8 +73,8 @@ The same categories are available interactively through code actions and **dotfm
 | `dotfmt.diagnostics.syntax`     | boolean                               | `true`   | resource            | Publish fatal syntax and configuration errors; `false` silences all dotfmt diagnostics |
 | `dotfmt.diagnostics.tscScope`   | `"open"` \| `"project"`              | `"open"` | resource            | Publish tsc errors for open documents or the whole project                             |
 | `dotfmt.diagnostics.debounceMs` | number, 50..2000                      | `250`    | resource            | Delay before tsc checks rerun after an edit                                            |
-| `dotfmt.typescript.tsdk`        | string                                | `""`     | resource            | TypeScript `lib` directory; empty auto-discovers                                       |
-| `dotfmt.fixes.onSave`           | `"off"` \| `"safe"` \| `"unsafe"`     | `"off"`  | resource            | Apply fixes through `textDocument/willSaveWaitUntil` before writing                     |
+| `dotfmt.typescript.tsdk`        | string                                | `""`     | resource            | TypeScript package dir, `lib` dir or `tsc.js`; empty auto-discovers                 |
+| `dotfmt.fixes.onSave`           | `"off"` \| `"safe"` \| `"unsafe"`     | `"off"`  | resource            | Apply configured fixes through `willSaveWaitUntil` and full-document formatting        |
 | `dotfmt.path`                   | string                                | `""`     | machine-overridable | CLI binary used by status and doctor; empty uses the bundled one                       |
 | `dotfmt.server.path`            | string                                | `""`     | machine-overridable | Language server binary; empty uses the bundled one                                     |
 | `dotfmt.trace.server`           | `"off"` \| `"messages"` \| `"verbose"` | `"off"`  | window              | Route LSP tracing to the dedicated **dotfmt trace** output channel                      |
@@ -95,12 +100,12 @@ The same categories are available interactively through code actions and **dotfm
 | `dotfmt.sortTailwind`          | Format, including Tailwind class order                                                 |
 | `dotfmt.restartServer`         | Restart the language server                                                            |
 | `dotfmt.showOutput`            | Show the dotfmt output channel                                                         |
-| `dotfmt.showStatus`            | Show the active file's resolved language and configuration                             |
+| `dotfmt.showStatus`            | Show the active file's resolved language, configuration, tsc state and server version   |
 | `dotfmt.setAsDefaultFormatter` | Set dotfmt as the default formatter for its languages                                  |
 | `dotfmt.openConfig`            | Open or create the nearest `dotfmt.dotfile`; without a folder, use the global fallback |
-| `dotfmt.doctor`                | Print paths, versions, trust, settings, tsc state and the config chain; copy the summary |
+| `dotfmt.doctor`                | Print the server report, paths, versions, trust, settings, tsc state and config chain; copy summary |
 
-**dotfmt: Doctor** reports what the client knows: extension, server and CLI paths and versions, workspace trust, workspace folders, resource settings, TypeScript state, and the configuration chain from `dotfmt/explain`. The server does not currently report the resolved tsc compiler path or version, so doctor shows the configured discovery mode and SDK instead.
+**dotfmt: Doctor** calls the server's `dotfmt/doctor` request and reports the server name and version, trust, type-aware and syntax settings, tsc scope, workspace roots, and every resolved project's `tsconfig`, compiler, version and state. The extension adds its own version, server and CLI paths, workspace folders, settings and the configuration chain from `dotfmt/explain`. If an older server does not implement the request, doctor falls back to the client-known summary.
 
 ## Code actions
 
