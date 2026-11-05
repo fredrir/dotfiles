@@ -15,16 +15,22 @@ const FORMAT: &str = "--out-format=%i|%n|%l";
 const GITIGNORE: &str = "--filter=:- .gitignore";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RemoteArguments {
+pub enum RemoteArguments {
     Protected,
     ShellQuoted,
 }
 
 impl RemoteArguments {
+    // A legacy client re-splits `--rsync-path` itself, so a quoted path cannot ride in it.
+    pub fn makes_parent(self) -> bool {
+        self == Self::Protected
+    }
+
     fn path(self, path: &str) -> String {
+        let path = place::from_login(path);
         match self {
-            Self::Protected => path.to_string(),
-            Self::ShellQuoted => quote(path),
+            Self::Protected => path,
+            Self::ShellQuoted => quote(&path),
         }
     }
 }
@@ -83,6 +89,12 @@ impl Plan {
             .unwrap_or_else(|| PathBuf::from("/"))
     }
 
+    // The remote shell that starts rsync makes the parent first, saving a round trip.
+    fn landing_made(&self) -> String {
+        let parent = place::from_login(place::parent_of(&self.remote));
+        format!("--rsync-path=mkdir -p -- {} && rsync", quote(&parent))
+    }
+
     // The delta algorithm is a trade of processor time against link time, and
     // over the cable there is no link time worth buying.
     fn whole_file(&self) -> bool {
@@ -112,6 +124,9 @@ impl Plan {
         if self.whole_file() {
             found.push("-W".into());
         }
+        if self.direction == Direction::Push && !self.dry_run && remote_arguments.makes_parent() {
+            found.push(self.landing_made());
+        }
         if !self.all {
             found.push(GITIGNORE.into());
             found.push("--exclude=.git/".into());
@@ -128,7 +143,7 @@ impl Plan {
     }
 }
 
-fn remote_arguments() -> Result<RemoteArguments, String> {
+pub fn remote_arguments() -> Result<RemoteArguments, String> {
     let output = Command::new(PROGRAM)
         .arg("--help")
         .output()
@@ -161,9 +176,12 @@ pub fn excludes() -> Option<PathBuf> {
     file.is_file().then_some(file)
 }
 
-pub fn run(plan: &Plan, mut progress: impl FnMut(&Outcome)) -> Result<Outcome, String> {
+pub fn run(
+    plan: &Plan,
+    remote_arguments: RemoteArguments,
+    mut progress: impl FnMut(&Outcome),
+) -> Result<Outcome, String> {
     let started = Instant::now();
-    let remote_arguments = remote_arguments()?;
     let mut child = Command::new(PROGRAM)
         .args(plan.arguments(remote_arguments))
         // The selected argument encoding must not be changed behind our back.

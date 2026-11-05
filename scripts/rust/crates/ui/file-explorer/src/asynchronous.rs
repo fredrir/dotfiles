@@ -211,7 +211,7 @@ where
                 dirty = false;
             }
             let timeout = if loading {
-                Duration::from_millis(25)
+                Duration::from_millis(5)
             } else {
                 Duration::from_secs(1)
             };

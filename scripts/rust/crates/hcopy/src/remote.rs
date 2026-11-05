@@ -1,12 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::time::Duration;
 
 use hostkit::shell::quote;
 use hostkit::ssh::Session;
 
 use crate::place;
+use crate::shell::{Failure, REPLY_LIMIT, Shell};
 
 const MAX_PREFETCHES: usize = 2;
+const REPLY_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
@@ -42,6 +45,13 @@ impl Target {
             Target::Absolute(path) => quote(path),
         }
     }
+
+    fn requested(&self) -> Option<&str> {
+        match self {
+            Target::Absolute(path) => Some(path),
+            Target::Home(_) => None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -49,6 +59,7 @@ pub struct Peer {
     host: String,
     cache: Arc<Mutex<ListingCache>>,
     flights: Arc<(Mutex<Flights>, Condvar)>,
+    shell: Arc<Mutex<Option<Shell>>>,
 }
 
 #[derive(Default)]
@@ -102,6 +113,7 @@ impl Peer {
             host: host.to_string(),
             cache: Arc::new(Mutex::new(ListingCache::default())),
             flights: Arc::new((Mutex::new(Flights::default()), Condvar::new())),
+            shell: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -110,11 +122,25 @@ impl Peer {
     }
 
     pub fn list(&self, target: &Target) -> Result<Listing, String> {
-        self.load_with(target, true, fetch)
+        self.load_with(target, true, Peer::fetch)
     }
 
     pub fn refresh(&self, target: &Target) -> Result<Listing, String> {
-        self.load_with(target, false, fetch)
+        self.load_with(target, false, Peer::fetch)
+    }
+
+    // The nearby listings ride along in the same round trip and only warm the cache.
+    pub fn list_and_warm(&self, target: &Target, nearby: &[Target]) -> Result<Listing, String> {
+        let scripts: Vec<String> = std::iter::once(target).chain(nearby).map(script).collect();
+        let mut replies = self.ask(&scripts)?.into_iter();
+        let listing = parse_reply(&self.host, &replies.next().unwrap_or_default())?;
+        self.remember(target.requested(), &listing);
+        for (target, reply) in nearby.iter().zip(replies) {
+            if let Ok(found) = parse_reply(&self.host, &reply) {
+                self.remember(target.requested(), &found);
+            }
+        }
+        Ok(listing)
     }
 
     pub fn cached(&self, path: &str) -> Option<Listing> {
@@ -134,7 +160,7 @@ impl Peer {
         let started = std::thread::Builder::new()
             .name("hcopy-prefetch".into())
             .spawn(move || {
-                if let Ok(listing) = fetch(&peer.host, &Target::Absolute(path.clone())) {
+                if let Ok(listing) = peer.fetch(&Target::Absolute(path.clone())) {
                     peer.remember(Some(&path), &listing);
                 }
                 peer.finish(&flight, true);
@@ -179,12 +205,9 @@ impl Peer {
 
     fn load_with<F>(&self, target: &Target, use_cache: bool, fetcher: F) -> Result<Listing, String>
     where
-        F: FnOnce(&str, &Target) -> Result<Listing, String>,
+        F: FnOnce(&Peer, &Target) -> Result<Listing, String>,
     {
-        let requested = match target {
-            Target::Absolute(path) => Some(path.as_str()),
-            Target::Home(_) => None,
-        };
+        let requested = target.requested();
         if use_cache
             && let Some(path) = requested
             && let Some(listing) = self.cached(path)
@@ -192,7 +215,7 @@ impl Peer {
             return Ok(listing);
         }
         let Some(requested) = requested else {
-            let listing = fetcher(&self.host, target)?;
+            let listing = fetcher(self, target)?;
             self.remember(None, &listing);
             return Ok(listing);
         };
@@ -209,16 +232,12 @@ impl Peer {
             flights = wait(&self.flights.1, flights);
         }
         drop(flights);
-        let result = fetcher(&self.host, target);
+        let result = fetcher(self, target);
         if let Ok(listing) = &result {
             self.remember(Some(requested), listing);
         }
         self.finish(&flight, false);
         result
-    }
-
-    pub fn knows_directory(&self, path: &str) -> bool {
-        self.cached(path).is_some()
     }
 
     pub fn knows_entry(&self, path: &str) -> bool {
@@ -234,7 +253,7 @@ impl Peer {
              elif [ -e {quoted} ] || [ -L {quoted} ]; then echo file; \
              else echo missing; fi"
         );
-        let reply = run(&self.host, &script)?;
+        let reply = self.ask(&[script])?.pop().unwrap_or_default();
         let reply = std::str::from_utf8(&reply)
             .map_err(|_| format!("{}: replied with non-UTF-8 output", self.host))?;
         Ok(match reply.trim() {
@@ -245,12 +264,68 @@ impl Peer {
     }
 
     pub fn make_directory(&self, path: &str) -> Result<(), String> {
-        run(&self.host, &format!("mkdir -p -- {}", quote(path))).map(|_| ())
+        let script = format!("if mkdir -p -- {} 2>&1; then printf ok; fi", quote(path));
+        let reply = self.ask(&[script])?.pop().unwrap_or_default();
+        let reply = String::from_utf8_lossy(&reply);
+        match reply.as_ref() {
+            "ok" => Ok(()),
+            _ => Err(format!(
+                "{}: {}",
+                self.host,
+                reply
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+                    .unwrap_or("directory could not be made")
+            )),
+        }
     }
-}
 
-fn fetch(host: &str, target: &Target) -> Result<Listing, String> {
-    parse_reply(host, &run(host, &script(target))?)
+    fn fetch(&self, target: &Target) -> Result<Listing, String> {
+        let reply = self.ask(&[script(target)])?.pop().unwrap_or_default();
+        parse_reply(&self.host, &reply)
+    }
+
+    // A shell that was already open may have died since; it is replaced once.
+    fn ask(&self, scripts: &[String]) -> Result<Vec<Vec<u8>>, String> {
+        let mut slot = lock(&self.shell);
+        loop {
+            let reused = slot.is_some();
+            let shell = match slot.as_mut() {
+                Some(shell) => shell,
+                None => slot.insert(
+                    Shell::open(&mut Session::new(&self.host).script("exec sh").command())
+                        .map_err(hostkit::ssh::command_error)?,
+                ),
+            };
+            let failure = match shell.ask(scripts, REPLY_TIMEOUT) {
+                Ok(replies) => return Ok(replies),
+                Err(failure) => failure,
+            };
+            let retry = reused && failure == Failure::Lost;
+            let reason = (failure == Failure::Lost && !retry)
+                .then(|| shell.complaint())
+                .flatten();
+            *slot = None;
+            if !retry {
+                return Err(self.explain(failure, reason));
+            }
+        }
+    }
+
+    fn explain(&self, failure: Failure, reason: Option<String>) -> String {
+        let host = &self.host;
+        match failure {
+            Failure::Lost => format!("{host}: {}", reason.as_deref().unwrap_or("no answer")),
+            Failure::TimedOut => format!("{host}: timed out"),
+            Failure::TooLarge => {
+                format!(
+                    "{host}: directory listing exceeds {} MiB",
+                    REPLY_LIMIT >> 20
+                )
+            }
+        }
+    }
 }
 
 fn script(target: &Target) -> String {
@@ -271,31 +346,6 @@ fn script(target: &Target) -> String {
          else printf 'FAIL\\000directory could not be opened\\000'; fi; break; fi; done; fi; exit 0",
         target.expression()
     )
-}
-
-fn run(host: &str, script: &str) -> Result<Vec<u8>, String> {
-    let output = Session::new(host)
-        .script(script)
-        .output_bounded(
-            hostkit::process::CaptureLimits {
-                stdout: 64 * 1024 * 1024,
-                stderr: 64 * 1024,
-            },
-            std::time::Duration::from_secs(60),
-        )
-        .map_err(|error| format!("ssh: {error}"))?;
-    if !output.status.success() {
-        let reason = String::from_utf8_lossy(&output.stderr);
-        let reason = reason
-            .lines()
-            .find(|line| !line.trim().is_empty())
-            .unwrap_or("no answer");
-        return Err(format!("{host}: {}", reason.trim()));
-    }
-    if output.stdout_truncated {
-        return Err(format!("{host}: directory listing exceeds 64 MiB"));
-    }
-    Ok(output.stdout)
 }
 
 fn parse_reply(host: &str, bytes: &[u8]) -> Result<Listing, String> {

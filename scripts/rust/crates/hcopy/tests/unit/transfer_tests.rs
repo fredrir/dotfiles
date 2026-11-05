@@ -145,6 +145,50 @@ fn dry_run_and_checksum_reach_the_command() {
 }
 
 #[test]
+fn a_modern_push_makes_its_parent_in_the_shell_that_starts_rsync() {
+    let arguments = plan(Direction::Push).arguments(RemoteArguments::Protected);
+    assert!(
+        arguments
+            .contains(&"--rsync-path=mkdir -p -- '/home/fredrir/projects' && rsync".to_string())
+    );
+}
+
+#[test]
+fn only_a_modern_real_push_asks_rsync_to_make_the_parent() {
+    let made = |plan: &Plan, remote_arguments| {
+        plan.arguments(remote_arguments)
+            .iter()
+            .any(|arg| arg.starts_with("--rsync-path="))
+    };
+    assert!(!made(&plan(Direction::Push), RemoteArguments::ShellQuoted));
+    assert!(!made(&plan(Direction::Pull), RemoteArguments::Protected));
+    let mut dry = plan(Direction::Push);
+    dry.dry_run = true;
+    assert!(!made(&dry, RemoteArguments::Protected));
+}
+
+#[test]
+fn a_push_into_an_unasked_home_names_paths_from_the_login_directory() {
+    let mut plan = plan(Direction::Push);
+    plan.remote = "~/projects/my-app".into();
+    assert_eq!(
+        plan.destination(RemoteArguments::Protected),
+        "archie:./projects/"
+    );
+    assert_eq!(
+        plan.destination(RemoteArguments::ShellQuoted),
+        "archie:'./projects'/"
+    );
+    assert!(
+        plan.arguments(RemoteArguments::Protected)
+            .contains(&"--rsync-path=mkdir -p -- './projects' && rsync".to_string())
+    );
+
+    plan.remote = "~/my-app".into();
+    assert_eq!(plan.destination(RemoteArguments::Protected), "archie:./");
+}
+
+#[test]
 fn a_transferred_file_is_counted_with_its_size() {
     let mut outcome = Outcome::default();
     absorb(&mut outcome, ">f+++++++|projects/my-app/main.rs|1024");

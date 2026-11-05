@@ -122,17 +122,25 @@ pub fn name_of(path: &str) -> &str {
         .unwrap_or(path)
 }
 
-pub fn expand_remote(input: &str, home: &str) -> String {
-    let expanded = match input {
-        "~" => home.to_string(),
-        _ => match input.strip_prefix("~/") {
-            Some(rest) => join(home, rest),
-            None => input.to_string(),
+// Stands in for the remote home when it was never asked for.
+pub const LOGIN: &str = "~";
+
+// The form the remote shell and rsync read relative to the login directory.
+pub fn from_login(path: &str) -> String {
+    match path {
+        LOGIN => ".".to_string(),
+        _ => match path.strip_prefix("~/") {
+            Some(rest) => format!("./{rest}"),
+            None => path.to_string(),
         },
-    };
-    match expanded.starts_with('/') {
-        true => expanded,
-        false => join(home, &expanded),
+    }
+}
+
+pub fn expand_remote(input: &str, home: &str) -> String {
+    match input {
+        "~" => home.to_string(),
+        _ if input.starts_with('/') => input.to_string(),
+        _ => join(home, input.strip_prefix("~/").unwrap_or(input)),
     }
 }
 

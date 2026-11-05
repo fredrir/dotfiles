@@ -39,8 +39,15 @@ pub fn main(request: Request) -> Result<(), String> {
         None
     };
 
-    let below = anchor.as_ref().map(Local::parent).unwrap_or_default();
-    let listing = peer.list(&Target::Home(below))?;
+    let (listing, remote_home) = match settled(&request) {
+        true => (Listing::default(), place::LOGIN.to_string()),
+        false => {
+            let listing =
+                peer.list_and_warm(&first(anchor.as_ref()), &nearby(&request, anchor.as_ref()))?;
+            let home = listing.home.clone();
+            (listing, home)
+        }
+    };
 
     let session = Session {
         this,
@@ -48,7 +55,7 @@ pub fn main(request: Request) -> Result<(), String> {
         home,
         style: Style::for_stdout(),
         route: route.and_then(|handle| handle.join().ok().flatten()),
-        remote_home: listing.home.clone(),
+        remote_home,
     };
 
     let start = session.start(request.direction, anchor.as_ref(), &listing);
@@ -62,6 +69,24 @@ pub fn main(request: Request) -> Result<(), String> {
         return Ok(());
     }
     session.carry(&request, &plan)
+}
+
+// A push told where to land never browses, so it never needs the remote home.
+fn settled(request: &Request) -> bool {
+    request.direction == Direction::Push && (request.yes || request.remote.is_some())
+}
+
+fn first(anchor: Option<&Local>) -> Target {
+    Target::Home(anchor.map(Local::parent).unwrap_or_default())
+}
+
+fn nearby(request: &Request, anchor: Option<&Local>) -> Vec<Target> {
+    match anchor {
+        Some(local) if request.direction == Direction::Push && local.absolute.is_dir() => {
+            vec![Target::Home(local.relative.clone())]
+        }
+        _ => Vec::new(),
+    }
 }
 
 fn anchor(request: &Request, home: &Path) -> Result<Option<Local>, String> {
@@ -258,14 +283,13 @@ impl Session {
 
     fn carry(&self, request: &Request, plan: &Plan) -> Result<(), String> {
         let style = &self.style;
+        let remote_arguments = transfer::remote_arguments()?;
         if !plan.dry_run {
             match plan.direction {
-                Direction::Push => {
-                    let parent = place::parent_of(&plan.remote);
-                    if !self.peer.knows_directory(parent) {
-                        self.peer.make_directory(parent)?;
-                    }
-                }
+                Direction::Push if !remote_arguments.makes_parent() => self
+                    .peer
+                    .make_directory(&place::from_login(place::parent_of(&plan.remote)))?,
+                Direction::Push => {}
                 Direction::Pull => std::fs::create_dir_all(plan.local_parent())
                     .map_err(|error| format!("{}: {error}", plan.local_parent().display()))?,
             }
@@ -273,7 +297,7 @@ impl Session {
 
         let live = io::stdout().is_terminal() && !request.verbose;
         let mut progress = ui_progress::Reporter::new(io::stdout());
-        let outcome = transfer::run(plan, |running| {
+        let outcome = transfer::run(plan, remote_arguments, |running| {
             if live {
                 let _ = progress.update(&report::progress(style, running));
             }

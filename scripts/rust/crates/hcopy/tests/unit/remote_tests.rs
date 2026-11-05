@@ -136,8 +136,8 @@ fn peer_knowing(path: &str, names: &[(&str, bool)]) -> Peer {
 #[test]
 fn a_listed_directory_does_not_have_to_be_asked_about_again() {
     let peer = peer_knowing("/home/fredrir/projects", &[("my-app", true)]);
-    assert!(peer.knows_directory("/home/fredrir/projects"));
-    assert!(!peer.knows_directory("/home/fredrir/elsewhere"));
+    assert!(peer.cached("/home/fredrir/projects").is_some());
+    assert!(peer.cached("/home/fredrir/elsewhere").is_none());
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn a_directory_that_was_not_there_is_never_remembered_as_being_there() {
             missing: true,
         },
     );
-    assert!(!peer.knows_directory("/home/fredrir/new"));
+    assert!(peer.cached("/home/fredrir/new").is_none());
 }
 
 #[test]
@@ -414,4 +414,30 @@ fn the_shell_protocol_reports_non_utf8_names_without_loss() {
         .unwrap();
     let error = parse_reply("local", &output.stdout).unwrap_err();
     assert_eq!(error, "local: replied with non-UTF-8 names");
+}
+
+#[cfg(unix)]
+#[test]
+fn several_listings_share_one_long_lived_shell() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("folder")).unwrap();
+    std::fs::write(root.path().join("folder/inner"), []).unwrap();
+    let base = root.path().to_string_lossy().into_owned();
+    let mut shell = crate::shell::Shell::open(&mut Command::new("sh")).unwrap();
+    let replies = shell
+        .ask(
+            &[
+                script(&Target::Absolute(base.clone())),
+                script(&Target::Absolute(format!("{base}/folder"))),
+                script(&Target::Absolute(format!("{base}/absent"))),
+            ],
+            std::time::Duration::from_secs(10),
+        )
+        .unwrap();
+
+    let top = parse_reply("local", &replies[0]).unwrap();
+    assert_eq!(top.entries[0].name, "folder");
+    let folder = parse_reply("local", &replies[1]).unwrap();
+    assert_eq!(folder.entries[0].name, "inner");
+    assert!(parse_reply("local", &replies[2]).unwrap().missing);
 }

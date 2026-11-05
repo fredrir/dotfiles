@@ -105,6 +105,23 @@ fn a_typed_remote_path_is_resolved_against_the_remote_home() {
 }
 
 #[test]
+fn a_typed_remote_path_stays_relative_to_an_unasked_home() {
+    assert_eq!(expand_remote("~/go", LOGIN), "~/go");
+    assert_eq!(expand_remote("~", LOGIN), "~");
+    assert_eq!(expand_remote("/etc", LOGIN), "/etc");
+    assert_eq!(expand_remote("go", LOGIN), "~/go");
+    assert_eq!(expand_remote("~other", LOGIN), "~/~other");
+}
+
+#[test]
+fn a_login_relative_path_is_spelled_so_no_tilde_reaches_the_other_side() {
+    assert_eq!(from_login("~"), ".");
+    assert_eq!(from_login("~/go/it's"), "./go/it's");
+    assert_eq!(from_login("~/~other"), "./~other");
+    assert_eq!(from_login("/home/f/go"), "/home/f/go");
+}
+
+#[test]
 fn a_pulled_path_from_that_home_lands_in_the_same_place_under_this_one() {
     let (landed, shown) = landing(
         "/home/fredrir/projects/my-app",

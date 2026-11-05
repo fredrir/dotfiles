@@ -20,92 +20,90 @@
   "oxc.fixKind": "all",
   "python.terminal.useEnvFile": true,
   "[python]": {
-    "editor.defaultFormatter": "charliermarsh.ruff"
+    "editor.defaultFormatter": "charliermarsh.ruff",
   },
   "[javascript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
   },
   "[javascriptreact]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
   },
   "[typescript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
   },
   "[typescriptreact]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
   },
   "[css]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
   },
   "[tailwindcss]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
   },
   "[html]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
   },
   "[json]": {
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "[jsonc]": {
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
   },
   "[jsonl]": {
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "[lua]": {
     "editor.quickSuggestions": {
       "other": true,
       "comments": true,
-      "strings": true
+      "strings": true,
     },
     "editor.tabCompletion": "on",
     "editor.quickSuggestionsDelay": 1,
     "editor.suggest.snippetsPreventQuickSuggestions": false,
     "editor.formatOnSave": true,
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "[toml]": {
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "[rust]": {
-    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
   },
   "[go]": {},
   "[markdown]": {
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "[skill][chatagent][instructions][prompt]": {
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "[nix]": {
     "editor.insertSpaces": true,
-    "editor.tabSize": 2
+    "editor.tabSize": 2,
   },
   "customLocalFormatters.formatters": [
     {
       "command": "sqlfluff format -",
-      "languages": [
-        "sql"
-      ]
-    }
+      "languages": ["sql"],
+    },
   ],
   "[latex]": {
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "[bibtex]": {
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "[yaml]": {
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "[sql]": {
-    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+    "editor.defaultFormatter": "jkillian.custom-local-formatters",
   },
   "[properties]": {
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "[tex][ini][dotenv][ignore][dotfile][dockercompose]": {
-    "editor.defaultFormatter": "fredrir.dotfmt"
+    "editor.defaultFormatter": "fredrir.dotfmt",
   },
   "files.associations": {
     "*.hujson": "jsonc",
@@ -124,14 +122,9 @@
     "Cargo.lock": "properties",
     "uv.lock": "properties",
     "*.just": "just",
-    "*.toml": "toml"
+    "*.toml": "toml",
   },
-  "tailwindCSS.classFunctions": [
-    "cn",
-    "cva",
-    "clsx",
-    "twMerge"
-  ],
+  "tailwindCSS.classFunctions": ["cn", "cva", "clsx", "twMerge"],
   "js/ts.updateImportsOnFileMove.enabled": "always",
   "json.schemaDownload.trustedDomains": {
     "https://biomejs.dev": true,
@@ -147,22 +140,18 @@
     "https://schemastore.azurewebsites.net/": true,
     "https://spec.openapis.org/": true,
     "https://ui.shadcn.com": true,
-    "https://www.schemastore.org/": true
+    "https://www.schemastore.org/": true,
   },
   "json.schemas": [
     {
-      "fileMatch": [
-        "*.hujson"
-      ],
+      "fileMatch": ["*.hujson"],
       "schema": {
         "allowTrailingCommas": true,
-      }
-    }
+      },
+    },
   ],
   "yaml.schemas": {
-    "./schemas/openai.schema.json": [
-      "**/openai.yaml"
-    ]
+    "./schemas/openai.schema.json": ["**/openai.yaml"],
   },
   "evenBetterToml.schema.associations": {
     "(^|/)\\prettierrc\\.toml$": "https://www.schemastore.org/prettierrc.json",
@@ -176,18 +165,16 @@
     "plaintext": false,
     "markdown": false,
     "scminput": false,
-    "lua": false
+    "lua": false,
   },
   "workbench.browser.showInTitleBar": false,
   "biome.enabled": true,
   "biome.requireConfiguration": false,
   "workbench.editorAssociations": {
     "*.copilotmd": "vscode.markdown.preview.editor",
-    "*.md": "default"
+    "*.md": "default",
   },
-  "settingsSync.ignoredExtensions": [
-    "github.copilot-chat"
-  ],
+  "settingsSync.ignoredExtensions": ["github.copilot-chat"],
   "extensions.ignoreRecommendations": true,
   "security.workspace.trust.untrustedFiles": "open",
   "terminal.integrated.enableNotifications": false,
@@ -321,7 +308,7 @@
     "xargs": false,
     "eval": false,
     "Invoke-Expression": false,
-    "iex": false
+    "iex": false,
   },
   "window.newWindowDimensions": "maximized",
   "workbench.editor.useModal": "off",
@@ -335,11 +322,11 @@
   "litellm-vscode-chat.servers": [
     {
       "label": "fredrir",
-      "baseUrl": "https://llm.fredrir.com"
-    }
+      "baseUrl": "https://llm.fredrir.com",
+    },
   ],
   "[shellscript]": {
-    "editor.defaultFormatter": "fredrir.shucked"
+    "editor.defaultFormatter": "fredrir.shucked",
   },
   "shucked.unsafeFixes.enable": true,
   "shucked.server.completion.maxItems": 1000,
@@ -347,14 +334,11 @@
   "litellm-vscode-chat.inlineCompletions.enabled": false,
   "litellm-vscode-chat.inlineCompletions.model": {
     "server": "fredrir",
-    "model": "ntnu/deepseek-ai/DeepSeek-V4.1-Flash-1017"
+    "model": "ntnu/deepseek-ai/DeepSeek-V4.1-Flash-1017",
   },
   "litellm-vscode-chat.inlineCompletions.languageFilter": {
     "mode": "block",
-    "languages": [
-      "markdown",
-      "json"
-    ]
+    "languages": ["markdown", "json"],
   },
   "litellm-vscode-chat.commitGeneration.enabled": false,
   "redhat.telemetry.enabled": false,
@@ -365,31 +349,25 @@
   "terminal.integrated.profiles.osx": {
     "bash": {
       "path": "bash",
-      "args": [
-        "-l"
-      ],
-      "icon": "terminal-bash"
+      "args": ["-l"],
+      "icon": "terminal-bash",
     },
     "zsh": {
       "path": "/bin/zsh",
-      "args": [
-        "-l"
-      ]
+      "args": ["-l"],
     },
     "fish": {
       "path": "fish",
-      "args": [
-        "-l"
-      ]
+      "args": ["-l"],
     },
     "tmux": {
       "path": "tmux",
-      "icon": "terminal-tmux"
+      "icon": "terminal-tmux",
     },
     "pwsh": {
       "path": "pwsh",
-      "icon": "terminal-powershell"
-    }
+      "icon": "terminal-powershell",
+    },
   },
   "terminal.integrated.defaultProfile.osx": "zsh",
   "evenBetterToml.schema.links": true,
@@ -399,7 +377,7 @@
     "kilo-code.new.agentManagerOpen",
     "kilo-code.new.agentManager.showTerminal",
     "kilo-code.new.agentManager.previousTerminal",
-    "kilo-code.new.agentManager.nextTerminal"
+    "kilo-code.new.agentManager.nextTerminal",
   ],
   "kilo-code.new.agentWorkStyle": "unset",
   "github.copilot.completions.chat.enabled": true,
@@ -414,7 +392,7 @@
     "eslint.restart",
     "oxc.restartServer",
     "dotCode.restart",
-    "workbench.files.action.refreshFilesExplorer"
+    "workbench.files.action.refreshFilesExplorer",
   ],
   "oxc.enable.oxfmt": true,
   "js/ts.preferences.autoImportEntrypointDirectorySearch": true,

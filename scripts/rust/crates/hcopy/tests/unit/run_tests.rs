@@ -149,3 +149,71 @@ fn file_pushes_conflicts_and_pulls_keep_the_mirror_parent() {
         "/home/fredrir"
     );
 }
+
+#[test]
+fn a_push_told_where_to_land_never_asks_for_the_remote_home() {
+    let mut told = request(Direction::Push, "notes.md");
+    told.yes = true;
+    assert!(settled(&told));
+    told.yes = false;
+    told.remote = Some("~/scratch".into());
+    assert!(settled(&told));
+
+    assert!(!settled(&request(Direction::Push, "notes.md")));
+    let mut pull = request(Direction::Pull, "notes.md");
+    pull.yes = true;
+    assert!(!settled(&pull));
+}
+
+#[test]
+fn a_directory_push_lists_its_mirror_in_the_same_round_trip() {
+    let root = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(root.path()).unwrap();
+    std::fs::create_dir(home.join("dotfiles")).unwrap();
+    std::fs::write(home.join("notes.md"), []).unwrap();
+    let local = |name: &str| Local {
+        absolute: home.join(name),
+        relative: name.to_string(),
+        name: name.to_string(),
+    };
+    let directory = local("dotfiles");
+    let file = local("notes.md");
+
+    let warmed = nearby(&request(Direction::Push, "dotfiles"), Some(&directory));
+    assert!(matches!(warmed.as_slice(), [Target::Home(path)] if path == "dotfiles"));
+    assert!(nearby(&request(Direction::Push, "notes.md"), Some(&file)).is_empty());
+    assert!(nearby(&request(Direction::Pull, "dotfiles"), Some(&directory)).is_empty());
+}
+
+#[test]
+fn a_settled_push_shows_where_it_lands_without_the_remote_home() {
+    let root = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(root.path()).unwrap();
+    std::fs::create_dir(home.join("dotfiles")).unwrap();
+    let local = Local {
+        absolute: home.join("dotfiles"),
+        relative: "dotfiles".to_string(),
+        name: "dotfiles".to_string(),
+    };
+    let mut session = session(&home);
+    session.remote_home = place::LOGIN.to_string();
+    let mut told = request(Direction::Push, "dotfiles");
+    told.yes = true;
+
+    let start = session.start(Direction::Push, Some(&local), &Listing::default());
+    let remote = session
+        .decide(&told, Some(&local), &start)
+        .unwrap()
+        .unwrap();
+    assert_eq!(remote, "~/dotfiles");
+    let plan = session.plan(&told, Some(&local), &remote).unwrap();
+    assert_eq!(plan.remote_display, "~/dotfiles");
+
+    told.yes = false;
+    told.remote = Some("/srv/drop".into());
+    let remote = session
+        .decide(&told, Some(&local), &start)
+        .unwrap()
+        .unwrap();
+    assert_eq!(remote, "/srv/drop/dotfiles");
+}

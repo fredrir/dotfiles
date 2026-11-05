@@ -8,6 +8,7 @@ pub mod report;
 pub mod transfer;
 
 mod run;
+mod shell;
 
 pub use cli::Direction;
 pub use run::main;
