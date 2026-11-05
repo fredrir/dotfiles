@@ -3,7 +3,7 @@ use std::path::Path;
 use super::{Repairs, configuration};
 use dotfmt_core::config::{Effective, Settings};
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
-use dotfmt_core::edit::{Fix, apply_fixes};
+use dotfmt_core::edit::{FixMode, apply_fixes, select_fixes};
 use dotfmt_core::language::Language;
 use dotfmt_core::repair::Repaired;
 use std::collections::HashMap;
@@ -293,6 +293,16 @@ impl Engine {
         self.format_with_fixes(path, context, input, detected, clean, selection)
     }
 
+    /// Categories selected for an explicit CLI/LSP fix request.
+    pub fn fix_selection(&self, mode: FixMode) -> Option<dotfmt_typescript::config::FixSelection> {
+        match &self.kind {
+            Kind::TypeScript(config, _) | Kind::Javascript(config, _) if mode != FixMode::None => {
+                config.requested_fix_selection(mode)
+            }
+            _ => None,
+        }
+    }
+
     fn format_with_fixes(
         &self,
         path: &Path,
@@ -324,16 +334,12 @@ impl Engine {
                 Ok(analysis) => analysis,
                 Err(_) => return self.format_text(path, context, input, detected, clean),
             };
-            let selected: Vec<&Fix> = analysis
-                .fixes
-                .iter()
-                .filter(|fix| {
-                    selection.selects(
-                        fix.finding.as_ref().map(|finding| finding.code.as_str()),
-                        &fix.kind,
-                    )
-                })
-                .collect();
+            let mode = if selection.r#unsafe {
+                FixMode::Unsafe
+            } else {
+                FixMode::Safe
+            };
+            let selected = select_fixes(mode, &selection, &analysis.fixes);
             if selected.is_empty() {
                 break;
             }
@@ -541,8 +547,10 @@ impl Engine {
             || input.contains("@tailwind")
             || input.contains("@theme")
             || input.contains("@utility");
+        let explicit_path = config.stylesheet.is_some() || config.config_file.is_some();
         if matches!(config.mode, dotfmt_tailwind::Mode::Auto)
             && !source_uses_tailwind
+            && !explicit_path
             && !dotfmt_tailwind::bridge::is_tailwind_project(root)
         {
             return Ok(());
@@ -572,16 +580,27 @@ impl Engine {
             return Ok(());
         }
         let classes = dotfmt_tailwind::extract::candidates(input);
-        match dotfmt_tailwind::bridge::project_order(
+        match dotfmt_tailwind::bridge::project_order_for(
             root,
+            Some(path),
             config.stylesheet.as_deref(),
+            config.stylesheet_base.as_deref(),
             config.config_file.as_deref(),
+            config.config_base.as_deref(),
             &classes,
         ) {
-            Ok(table) => {
+            Ok(order) => {
+                for warning in &order.discovery.warnings {
+                    eprintln!("dotfmt: tailwind: {warning} for {}", path.display());
+                }
+                let mut resolved = config.clone();
+                resolved.stylesheet = order.discovery.stylesheet.clone();
+                resolved.stylesheet_base = None;
+                resolved.config_file = order.discovery.config.clone();
+                resolved.config_base = None;
                 *sorter = Some(
-                    dotfmt_tailwind::Sorter::new(Arc::new(table), config.clone())
-                        .with_project_root(root),
+                    dotfmt_tailwind::Sorter::new(Arc::new(order.table), resolved)
+                        .with_project_root(order.discovery.package_root),
                 );
                 Ok(())
             }
@@ -593,6 +612,10 @@ impl Engine {
                     )
                     .with_path(path));
                 }
+                eprintln!(
+                    "dotfmt: tailwind: {error}; using the Rust order for {}",
+                    path.display()
+                );
                 *sorter = Some(
                     dotfmt_tailwind::Sorter::new(
                         Arc::new(dotfmt_tailwind::OrderTable::empty()),
@@ -762,5 +785,96 @@ impl DirectoryContext {
             self.markdown.insert(directory, detected);
         }
         detected
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dotfmt_core::config::Setting;
+
+    fn settings(root: &Path, order: &str, stylesheet: &str, source: &Path) -> Settings {
+        let mut settings = Settings::new();
+        for (key, value) in [
+            ("tailwind", "on"),
+            ("tailwind_order", order),
+            ("tailwind_stylesheet", stylesheet),
+        ] {
+            settings.insert(
+                key.to_owned(),
+                Setting {
+                    value: value.to_owned(),
+                    source: source.to_path_buf(),
+                    line: 1,
+                    global: false,
+                },
+            );
+        }
+        settings.insert(
+            "type_aware".to_owned(),
+            Setting {
+                value: "false".to_owned(),
+                source: root.join("dotfmt.dotfile"),
+                line: 1,
+                global: false,
+            },
+        );
+        settings
+    }
+
+    fn fixture() -> tempfile::TempDir {
+        let directory = tempfile::tempdir().expect("fixture");
+        let package = directory.path().join("packages/ui");
+        std::fs::create_dir_all(package.join("src")).expect("src");
+        std::fs::write(package.join("package.json"), "{\"name\":\"ui\"}\n").expect("package.json");
+        directory
+    }
+
+    #[test]
+    fn project_order_reports_a_missing_config_relative_stylesheet() {
+        let directory = fixture();
+        let root = directory.path();
+        let source = root.join("packages/ui/dotfmt.dotfile");
+        let path = root.join("packages/ui/src/a.tsx");
+        let config = settings(root, "project", "styles/missing.css", &source);
+        let engine = Engine::new(Language::TypeScript, &config, None).expect("engine");
+        let error = match engine.format(
+            &path,
+            &path,
+            b"const value = 'p-2 p-4';\n",
+            dotfmt_markdown::dialect::Dialect::Gfm,
+            false,
+        ) {
+            Ok(_) => panic!("project order must fail"),
+            Err(error) => error,
+        };
+        assert!(error.message.contains("missing.css"), "{error}");
+        assert!(
+            error.message.contains("packages/ui/styles/missing.css"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn auto_order_logs_and_falls_back_for_a_missing_explicit_stylesheet() {
+        let directory = fixture();
+        let root = directory.path();
+        let source = root.join("packages/ui/dotfmt.dotfile");
+        let path = root.join("packages/ui/src/a.tsx");
+        let config = settings(root, "auto", "styles/missing.css", &source);
+        let engine = Engine::new(Language::TypeScript, &config, None).expect("engine");
+        let formatted = engine
+            .format(
+                &path,
+                &path,
+                b"const value = 'p-2 p-4';\n",
+                dotfmt_markdown::dialect::Dialect::Gfm,
+                false,
+            )
+            .expect("auto order falls back to Rust");
+        let Formatted::Text { text, .. } = formatted else {
+            panic!("expected text");
+        };
+        assert!(text.contains("p-2 p-4"), "{text}");
     }
 }

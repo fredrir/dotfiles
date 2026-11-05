@@ -1,5 +1,6 @@
 use dotfmt_core::config::Settings;
 use dotfmt_core::diagnostic::Diagnostic;
+use dotfmt_core::edit::{Fix, FixMode as CoreFixMode};
 use oxc_formatter::{
     ArrowParentheses, AttributePosition, BracketSameLine, BracketSpacing, Expand, JsdocOptions,
     QuoteProperties, QuoteStyle, Semicolons, SortImportsOptions, TrailingCommas,
@@ -44,6 +45,40 @@ pub struct FixSelection {
 }
 
 impl FixSelection {
+    fn preset(mode: FixMode) -> Self {
+        let mut selection = Self::default();
+        match mode {
+            FixMode::Off => {}
+            FixMode::Safe => {
+                selection.remove_unused_imports = true;
+                selection.convert_type_only_imports = true;
+                selection.organize_imports = true;
+            }
+            FixMode::Unsafe => {
+                selection.remove_unused_imports = true;
+                selection.convert_type_only_imports = true;
+                selection.organize_imports = true;
+                // Export removal changes public API and is never implied by a
+                // mode; it must be requested explicitly with
+                // `remove_unused_exports = true`.
+                selection.remove_unused_locals = true;
+            }
+        }
+        selection
+    }
+
+    fn with_config(mut self, config: &Config) -> Self {
+        self.remove_unused_imports |= config.remove_unused_imports;
+        self.remove_unused_exports |= config.remove_unused_exports;
+        self.remove_unused_locals |= config.remove_unused_locals || config.remove_impure_locals;
+        self.convert_type_only_imports |= config.convert_type_only_imports;
+        self.organize_imports |= config.organize_imports;
+        self.safe =
+            self.remove_unused_imports || self.convert_type_only_imports || self.organize_imports;
+        self.r#unsafe = self.remove_unused_exports || self.remove_unused_locals;
+        self
+    }
+
     /// Whether a fix belongs to an enabled category.
     pub fn selects(&self, code: Option<&str>, kind: &str) -> bool {
         if kind.contains("organizeImports") {
@@ -56,6 +91,30 @@ impl FixSelection {
             Some("unused-parameter" | "unused-type-parameter") => self.remove_unused_parameters,
             Some("unused-export") => self.remove_unused_exports,
             _ => false,
+        }
+    }
+
+    /// Whether `fix` belongs to an enabled category.
+    pub fn selects_fix(&self, fix: &Fix) -> bool {
+        self.selects(
+            fix.finding.as_ref().map(|finding| finding.code.as_str()),
+            &fix.kind,
+        )
+    }
+}
+
+impl dotfmt_core::edit::FixSelection for FixSelection {
+    fn selects(&self, fix: &Fix) -> bool {
+        self.selects_fix(fix)
+    }
+}
+
+impl From<CoreFixMode> for FixMode {
+    fn from(mode: CoreFixMode) -> Self {
+        match mode {
+            CoreFixMode::None => Self::Off,
+            CoreFixMode::Safe => Self::Safe,
+            CoreFixMode::Unsafe => Self::Unsafe,
         }
     }
 }
@@ -93,6 +152,9 @@ pub struct Config {
     pub remove_unused_imports: bool,
     pub remove_unused_exports: bool,
     pub remove_unused_locals: bool,
+    /// Remove unused locals whose initializer may have side effects. This is
+    /// separate from `fixes`: pure locals still need an unsafe mode.
+    pub remove_impure_locals: bool,
     pub remove_unused_parameters: bool,
     pub convert_type_only_imports: bool,
     pub organize_imports: bool,
@@ -145,6 +207,7 @@ impl Default for Config {
             remove_unused_imports: false,
             remove_unused_exports: false,
             remove_unused_locals: false,
+            remove_impure_locals: false,
             remove_unused_parameters: false,
             convert_type_only_imports: false,
             organize_imports: false,
@@ -161,13 +224,19 @@ impl Config {
         let mut config = Self::default();
         for (key, setting) in settings {
             config
-                .set(key, &setting.value, setting.global)
+                .set(key, &setting.value, setting.global, &setting.source)
                 .map_err(|error| setting.error(error))?;
         }
         Ok(config)
     }
 
-    fn set(&mut self, key: &str, value: &str, global: bool) -> Result<(), String> {
+    fn set(
+        &mut self,
+        key: &str,
+        value: &str,
+        global: bool,
+        source: &std::path::Path,
+    ) -> Result<(), String> {
         match key {
             "indent" if global => {
                 if let Some(indent) = clamped(value, 0, 24) {
@@ -356,8 +425,14 @@ impl Config {
             }
             "tailwind_dedupe" => self.tailwind.dedupe = flag(key, value)?,
             "tailwind_merge" => self.tailwind.merge = flag(key, value)?,
-            "tailwind_stylesheet" => self.tailwind.stylesheet = Some(value.into()),
-            "tailwind_config" => self.tailwind.config_file = Some(value.into()),
+            "tailwind_stylesheet" => {
+                self.tailwind.stylesheet = Some(value.into());
+                self.tailwind.stylesheet_base = setting_base(global, source);
+            }
+            "tailwind_config" => {
+                self.tailwind.config_file = Some(value.into());
+                self.tailwind.config_base = setting_base(global, source);
+            }
             "fixes" => {
                 self.fixes = match value {
                     "off" | "none" => FixMode::Off,
@@ -369,6 +444,7 @@ impl Config {
             "remove_unused_imports" => self.remove_unused_imports = flag(key, value)?,
             "remove_unused_exports" => self.remove_unused_exports = flag(key, value)?,
             "remove_unused_locals" => self.remove_unused_locals = flag(key, value)?,
+            "remove_impure_locals" => self.remove_impure_locals = flag(key, value)?,
             "remove_unused_parameters" => self.remove_unused_parameters = flag(key, value)?,
             "convert_type_only_imports" => self.convert_type_only_imports = flag(key, value)?,
             "organize_imports" => self.organize_imports = flag(key, value)?,
@@ -456,38 +532,38 @@ impl Config {
     ///
     /// `fixes = off` selects nothing on its own; `safe` enables imports and
     /// type-only conversion; `unsafe` adds unused locals. Export removal is
-    /// never implied by a mode and must be requested explicitly. Parameter
+    /// never implied by a mode and must be requested explicitly. Impure local
+    /// removal additionally needs `remove_impure_locals = true`. Parameter
     /// removal is diagnose-only: there is no safe parameter-removal fix.
     pub fn format_fix_selection(&self) -> Option<FixSelection> {
-        let mut selection = FixSelection::default();
-        match self.fixes {
-            FixMode::Off => {}
-            FixMode::Safe => {
-                selection.remove_unused_imports = true;
-                selection.convert_type_only_imports = true;
-                selection.organize_imports = true;
-            }
-            FixMode::Unsafe => {
-                selection.remove_unused_imports = true;
-                selection.convert_type_only_imports = true;
-                selection.organize_imports = true;
-                // Export removal changes public API and is never implied by a
-                // mode; it must be requested explicitly with
-                // `remove_unused_exports = true`.
-                selection.remove_unused_locals = true;
-            }
-        }
-        selection.remove_unused_imports |= self.remove_unused_imports;
-        selection.remove_unused_exports |= self.remove_unused_exports;
-        selection.remove_unused_locals |= self.remove_unused_locals;
-        selection.convert_type_only_imports |= self.convert_type_only_imports;
-        selection.organize_imports |= self.organize_imports;
-        selection.safe = selection.remove_unused_imports
-            || selection.convert_type_only_imports
-            || selection.organize_imports;
-        selection.r#unsafe = selection.remove_unused_exports || selection.remove_unused_locals;
+        self.fix_selection(self.fixes)
+    }
+
+    /// Categories for an explicit CLI `--fix`/`--fix-unsafe` request.
+    ///
+    /// The requested mode supplies the preset; explicit options still add
+    /// their categories. Applicability is intersected separately, so a
+    /// category selected here is not applied by a safe mode unless the fix
+    /// itself is safe.
+    pub fn requested_fix_selection(&self, mode: CoreFixMode) -> Option<FixSelection> {
+        self.fix_selection(mode.into())
+    }
+
+    fn fix_selection(&self, mode: FixMode) -> Option<FixSelection> {
+        let selection = FixSelection::preset(mode).with_config(self);
         (selection.safe || selection.r#unsafe).then_some(selection)
     }
+}
+
+/// A local setting is relative to its declaring config file; globals are
+/// relative to the workspace root and therefore have no base here.
+fn setting_base(global: bool, source: &std::path::Path) -> Option<std::path::PathBuf> {
+    (!global).then(|| {
+        source
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf()
+    })
 }
 
 fn flag(key: &str, value: &str) -> Result<bool, String> {

@@ -33,6 +33,15 @@ impl Documents {
     pub fn iter(&self) -> impl Iterator<Item = (&Uri, &Document)> {
         self.0.iter()
     }
+
+    /// The open document's client URI for one path identity, if any.
+    pub fn uri_for_identity(&self, key: &crate::uri::Key) -> Option<Uri> {
+        self.0
+            .keys()
+            .filter(|uri| crate::uri::key(uri) == *key)
+            .min_by_key(|uri| uri.as_str())
+            .cloned()
+    }
 }
 
 #[derive(Debug)]

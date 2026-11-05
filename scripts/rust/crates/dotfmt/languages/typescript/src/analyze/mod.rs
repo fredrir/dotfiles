@@ -221,10 +221,11 @@ fn resolve_type_diagnostics(path: &Path, options: &Options) -> Vec<TypeDiagnosti
     let Some(root) = project::discover_root(path) else {
         return Vec::new();
     };
-    let Some(tsconfig) = tsconfig::nearest(path) else {
+    let tsconfigs = tsconfig::nearest_configs(path);
+    if tsconfigs.is_empty() {
         return Vec::new();
-    };
-    project::type_diagnostics_for(path, &root, &tsconfig).unwrap_or_default()
+    }
+    project::type_diagnostics_for_anchors(path, &root, &tsconfigs).unwrap_or_default()
 }
 
 fn offset_analysis(mut analysis: Analysis, offset: usize) -> Analysis {

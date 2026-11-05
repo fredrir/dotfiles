@@ -133,10 +133,7 @@ pub fn discover_root(start: &Path) -> Option<PathBuf> {
     let mut package = None;
     let mut workspace = None;
     loop {
-        if config.is_none()
-            && (directory.join("tsconfig.json").is_file()
-                || directory.join("jsconfig.json").is_file())
-        {
+        if config.is_none() && !crate::tsconfig::configs_in(&directory).is_empty() {
             config = Some(directory.clone());
         }
         if package.is_none() && directory.join("package.json").is_file() {
@@ -159,7 +156,9 @@ fn is_workspace_root(directory: &Path) -> bool {
         .iter()
         .any(|name| directory.join(name).is_file())
         || package_declares_workspaces(directory)
-        || crate::tsconfig::is_solution_config_file(&directory.join("tsconfig.json"))
+        || crate::tsconfig::configs_in(directory)
+            .iter()
+            .any(|config| crate::tsconfig::is_solution_config_file(config))
 }
 
 fn package_declares_workspaces(directory: &Path) -> bool {
@@ -185,6 +184,21 @@ fn package_declares_workspaces(directory: &Path) -> bool {
 /// The nearest tsconfig/jsconfig for a source file, if any.
 pub fn tsconfig_for(path: &Path) -> Option<PathBuf> {
     crate::tsconfig::nearest(path)
+}
+
+/// Every config at the nearest directory that contains one.
+pub fn tsconfigs_for(path: &Path) -> Vec<PathBuf> {
+    crate::tsconfig::nearest_configs(path)
+}
+
+/// Config files in `directory`, preferring the standard names.
+pub fn configs_in(directory: &Path) -> Vec<PathBuf> {
+    crate::tsconfig::configs_in(directory)
+}
+
+/// Whether `path` is one of the config files discovered by [`configs_in`].
+pub fn is_config_file(path: &Path) -> bool {
+    crate::tsconfig::is_config_file(path)
 }
 
 /// Reports exports in `path` that are never imported by another file in the
@@ -397,19 +411,167 @@ fn executable_name(name: &str) -> String {
     name.to_owned()
 }
 
-/// Runs `tsc --noEmit` for `tsconfig` and parses TypeScript diagnostics.
+/// Every config reachable from `anchors` through `references`.
 ///
-/// Results are cached by project and invalidated by any source or tsconfig
-/// change. One compiler run is shared by every file in the project.
+/// This is the single project graph used by the CLI and the LSP. Each existing
+/// config is visited once even when several references point at it, cycles are
+/// reported instead of followed, and missing reference targets are recorded so
+/// callers can log them.
+#[derive(Clone, Debug, Default)]
+pub struct ConfigGraph {
+    pub configs: Vec<PathBuf>,
+    pub missing: Vec<PathBuf>,
+    pub cycles: Vec<PathBuf>,
+}
+
+/// Builds the project graph rooted at `anchors`.
+pub fn config_graph(anchors: &[PathBuf]) -> ConfigGraph {
+    let mut graph = ConfigGraph::default();
+    let mut seen = HashSet::new();
+    let mut active = HashSet::new();
+    for anchor in anchors {
+        visit_config(anchor, &mut graph, &mut seen, &mut active);
+    }
+    graph
+}
+
+fn visit_config(
+    config: &Path,
+    graph: &mut ConfigGraph,
+    seen: &mut HashSet<PathBuf>,
+    active: &mut HashSet<PathBuf>,
+) {
+    let config = normalize_config_path(config);
+    if active.contains(&config) {
+        if !graph.cycles.contains(&config) {
+            graph.cycles.push(config);
+        }
+        return;
+    }
+    if !seen.insert(config.clone()) {
+        return;
+    }
+    graph.configs.push(config.clone());
+    if !config.is_file() {
+        graph.missing.push(config);
+        return;
+    }
+    active.insert(config.clone());
+    for reference in referenced_configs(&config) {
+        if reference.is_file() {
+            visit_config(&reference, graph, seen, active);
+        } else {
+            graph.missing.push(reference);
+        }
+    }
+    active.remove(&config);
+}
+
+/// `references` entries are `{ "path": ... }` objects (and, leniently, strings).
+fn reference_specs(config: &Path) -> Vec<String> {
+    let Ok(text) = fs::read_to_string(config) else {
+        return Vec::new();
+    };
+    let Ok(Some(jsonc_parser::JsonValue::Object(object))) =
+        jsonc_parser::parse_to_value(&text, &Default::default())
+    else {
+        return Vec::new();
+    };
+    let Some(references) = object.get_array("references") else {
+        return Vec::new();
+    };
+    references
+        .iter()
+        .filter_map(|value| match value {
+            jsonc_parser::JsonValue::String(path) => Some(path.to_string()),
+            jsonc_parser::JsonValue::Object(reference) => {
+                reference.get_string("path").map(|path| path.to_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A reference may point at a tsconfig file or at its directory.
+fn reference_path(config: &Path, spec: &str) -> PathBuf {
+    let raw = Path::new(spec);
+    let directory = config.parent().unwrap_or(Path::new("."));
+    let candidate = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        directory.join(raw)
+    };
+    let resolved = if candidate.is_file() {
+        candidate
+    } else if candidate.extension().is_none() || candidate.join("tsconfig.json").is_file() {
+        candidate.join("tsconfig.json")
+    } else {
+        candidate
+    };
+    normalize_config_path(&resolved)
+}
+
+/// Resolved configs named by `config`'s top-level `references`.
+pub fn referenced_configs(config: &Path) -> Vec<PathBuf> {
+    reference_specs(config)
+        .iter()
+        .map(|spec| reference_path(config, spec))
+        .collect()
+}
+
+fn normalize_config_path(path: &Path) -> PathBuf {
+    if let Ok(path) = fs::canonicalize(path) {
+        return path;
+    }
+    if let (Some(parent), Some(name)) = (path.parent(), path.file_name())
+        && let Ok(parent) = fs::canonicalize(parent)
+    {
+        return parent.join(name);
+    }
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+/// TypeScript's "referenced project was not built" diagnostics.
+pub fn is_reference_build_diagnostic(code: u32) -> bool {
+    matches!(code, 6305 | 6310)
+}
+
+/// Synthetic code for the single build hint that replaces TS6305/TS6310.
+pub const TSC_REFERENCE_BUILD_CODE: u32 = 9001;
+
+/// One actionable message for filtered project-reference build diagnostics.
+pub const TSC_REFERENCE_BUILD_MESSAGE: &str = "referenced project not built; run tsc -b";
+
+/// Runs `tsc --noEmit` for every config reachable from `tsconfig` and merges
+/// their diagnostics.
+///
+/// Results are cached by anchor set and graph fingerprint, so all files in a
+/// project share one compiler run per reachable config.
 pub fn type_diagnostics(
     project_root: &Path,
     tsconfig: &Path,
 ) -> Result<Vec<TypeDiagnostic>, Diagnostic> {
-    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None, TSC_TIMEOUT)?;
-    Ok(diagnostics
+    let anchors = [tsconfig.to_path_buf()];
+    let merged = cached_type_diagnostics(project_root, &anchors, None, TSC_TIMEOUT)?;
+    let mut diagnostics: Vec<TypeDiagnostic> = merged
+        .diagnostics
         .iter()
         .map(|(_, diagnostic)| diagnostic.clone())
-        .collect())
+        .collect();
+    if !merged.reference_build.is_empty() {
+        diagnostics.push(reference_build_hint());
+    }
+    Ok(diagnostics)
 }
 
 /// Runs `tsc --noEmit` with an explicit timeout. A compiler that does not exit
@@ -420,31 +582,52 @@ pub fn type_diagnostics_with_timeout(
     tsconfig: &Path,
     timeout: Duration,
 ) -> Result<Vec<TypeDiagnostic>, Diagnostic> {
-    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None, timeout)?;
-    Ok(diagnostics
+    let anchors = [tsconfig.to_path_buf()];
+    let merged = cached_type_diagnostics(project_root, &anchors, None, timeout)?;
+    let mut diagnostics: Vec<TypeDiagnostic> = merged
+        .diagnostics
         .iter()
         .map(|(_, diagnostic)| diagnostic.clone())
-        .collect())
+        .collect();
+    if !merged.reference_build.is_empty() {
+        diagnostics.push(reference_build_hint());
+    }
+    Ok(diagnostics)
 }
 
 /// Returns the project diagnostics that belong to `path`.
 ///
-/// The compiler runs once per project; subsequent calls reuse the result until
-/// a source or tsconfig file changes. A project-wide timeout is attributed to
-/// the requested file so it is not silently dropped by the path filter.
+/// Every config reachable from `tsconfig` runs once; subsequent calls reuse the
+/// result until a source or config file changes. A project-wide timeout is
+/// attributed to the requested file so it is not silently dropped by the path
+/// filter.
 pub fn type_diagnostics_for(
     path: &Path,
     project_root: &Path,
     tsconfig: &Path,
 ) -> Result<Vec<TypeDiagnostic>, Diagnostic> {
+    type_diagnostics_for_anchors(path, project_root, &[tsconfig.to_path_buf()])
+}
+
+/// Runs the union of every graph reachable from `anchors` and selects `path`.
+///
+/// Callers that discover several nonstandard configs pass all of them so a
+/// shared referenced config still runs only once.
+pub fn type_diagnostics_for_anchors(
+    path: &Path,
+    project_root: &Path,
+    anchors: &[PathBuf],
+) -> Result<Vec<TypeDiagnostic>, Diagnostic> {
     let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None, TSC_TIMEOUT)?;
-    let mut selected: Vec<TypeDiagnostic> = diagnostics
+    let merged = cached_type_diagnostics(project_root, anchors, None, TSC_TIMEOUT)?;
+    let mut selected: Vec<TypeDiagnostic> = merged
+        .diagnostics
         .iter()
         .filter_map(|(file, diagnostic)| (file == &canonical).then_some(diagnostic.clone()))
         .collect();
     if selected.is_empty()
-        && let Some(timeout) = diagnostics
+        && let Some(timeout) = merged
+            .diagnostics
             .iter()
             .find(|(_, diagnostic)| diagnostic.code == TSC_TIMEOUT_CODE)
             .map(|(_, diagnostic)| diagnostic.clone())
@@ -455,7 +638,23 @@ pub fn type_diagnostics_for(
             ..timeout
         });
     }
+    if merged
+        .reference_build
+        .iter()
+        .any(|directory| canonical.starts_with(directory))
+    {
+        selected.push(reference_build_hint());
+    }
     Ok(selected)
+}
+
+fn reference_build_hint() -> TypeDiagnostic {
+    TypeDiagnostic {
+        code: TSC_REFERENCE_BUILD_CODE,
+        message: TSC_REFERENCE_BUILD_MESSAGE.to_owned(),
+        start: 0,
+        end: 0,
+    }
 }
 
 /// Whether the project graph for `path` resolved every source file and import
@@ -664,8 +863,7 @@ fn graph_truncated(root: &Path) -> bool {
     // workspace that can consume it, does.
     let workspace = is_workspace_root(root);
     for ancestor in root.ancestors().skip(1) {
-        if ancestor.join("tsconfig.json").is_file()
-            || ancestor.join("jsconfig.json").is_file()
+        if !crate::tsconfig::configs_in(ancestor).is_empty()
             || is_workspace_root(ancestor)
             || (!workspace && ancestor.join("package.json").is_file())
         {
@@ -1146,19 +1344,15 @@ fn walk_source_listing(root: &Path) -> SourceListing {
     }
     let mut metadata = Vec::new();
     for directory in directories {
-        for name in [
-            "package.json",
-            "tsconfig.json",
-            "jsconfig.json",
-            "index.html",
-        ] {
+        for name in ["package.json", "index.html"] {
             let candidate = directory.join(name);
             if candidate.is_file() {
-                if matches!(name, "tsconfig.json" | "jsconfig.json") {
-                    metadata.extend(crate::tsconfig::load_at(&candidate).chain);
-                }
                 metadata.push(candidate);
             }
+        }
+        for candidate in crate::tsconfig::configs_in(&directory) {
+            metadata.extend(crate::tsconfig::load_at(&candidate).chain);
+            metadata.push(candidate);
         }
     }
     metadata.sort();
@@ -2218,7 +2412,15 @@ fn is_framework_entry(stem: &str, name: &str, directories: &[&str]) -> bool {
 static TSC_CACHE: OnceLock<TscCache> = OnceLock::new();
 
 type DiagnosticList = Vec<(PathBuf, TypeDiagnostic)>;
-type SharedDiagnostics = Arc<DiagnosticList>;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct MergedDiagnostics {
+    diagnostics: DiagnosticList,
+    /// Project directories whose run produced only filtered TS6305/TS6310.
+    reference_build: Vec<PathBuf>,
+}
+
+type SharedDiagnostics = Arc<MergedDiagnostics>;
 
 struct TscCache {
     diagnostics: Mutex<HashMap<TscCacheKey, SharedDiagnostics>>,
@@ -2227,28 +2429,37 @@ struct TscCache {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct TscCacheKey {
     root: PathBuf,
-    tsconfig: PathBuf,
+    anchors: Vec<PathBuf>,
     compiler: TscProgram,
-    tsconfig_fingerprint: u64,
+    graph_fingerprint: u64,
     source_fingerprint: u64,
     timeout: Duration,
 }
 
 fn cached_type_diagnostics(
     project_root: &Path,
-    tsconfig: &Path,
+    anchors: &[PathBuf],
     compiler: Option<&TscProgram>,
     timeout: Duration,
 ) -> Result<SharedDiagnostics, Diagnostic> {
     let root = fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
-    let tsconfig = fs::canonicalize(tsconfig).unwrap_or_else(|_| tsconfig.to_path_buf());
+    let mut anchors: Vec<PathBuf> = anchors
+        .iter()
+        .map(|path| normalize_config_path(path))
+        .collect();
+    anchors.sort();
+    anchors.dedup();
+    if anchors.is_empty() {
+        return Ok(Arc::new(MergedDiagnostics::default()));
+    }
+    let graph = config_graph(&anchors);
     let compiler = compiler.cloned().unwrap_or_else(|| resolve_compiler(&root));
     let key = TscCacheKey {
         root: root.clone(),
-        tsconfig: tsconfig.clone(),
+        anchors: anchors.clone(),
         compiler,
-        tsconfig_fingerprint: tsconfig_fingerprint(&tsconfig),
-        source_fingerprint: source_fingerprint(&root),
+        graph_fingerprint: config_graph_fingerprint(&graph),
+        source_fingerprint: config_graph_source_fingerprint(&root, &graph),
         timeout,
     };
     let cache = TSC_CACHE.get_or_init(|| TscCache {
@@ -2260,10 +2471,72 @@ fn cached_type_diagnostics(
     if let Some(diagnostics) = diagnostics.get(&key).cloned() {
         return Ok(diagnostics);
     }
-    let result = Arc::new(run_tsc(&root, &tsconfig, &key.compiler, timeout)?);
-    diagnostics.retain(|cached, _| cached.root != key.root || cached.tsconfig != key.tsconfig);
+    let mut merged = MergedDiagnostics::default();
+    for config in graph.configs.iter().filter(|config| config.is_file()) {
+        let project = config.parent().unwrap_or(&root);
+        let raw = run_tsc(project, config, &key.compiler, timeout)?;
+        let mut reference_build = false;
+        for (file, diagnostic) in raw {
+            if is_reference_build_diagnostic(diagnostic.code) {
+                reference_build = true;
+                continue;
+            }
+            merged.diagnostics.push((file, diagnostic));
+        }
+        if reference_build {
+            merged.reference_build.push(project.to_path_buf());
+        }
+    }
+    merged.diagnostics.sort_by_key(|(file, diagnostic)| {
+        (
+            file.clone(),
+            diagnostic.start,
+            diagnostic.end,
+            diagnostic.code,
+            diagnostic.message.clone(),
+        )
+    });
+    merged.diagnostics.dedup();
+    merged.reference_build.sort();
+    merged.reference_build.dedup();
+    let result = Arc::new(merged);
+    diagnostics.retain(|cached, _| cached.root != key.root || cached.anchors != key.anchors);
     diagnostics.insert(key, Arc::clone(&result));
     Ok(result)
+}
+
+fn config_graph_fingerprint(graph: &ConfigGraph) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for config in &graph.configs {
+        config.hash(&mut hasher);
+        tsconfig_fingerprint(config).hash(&mut hasher);
+    }
+    for missing in &graph.missing {
+        missing.hash(&mut hasher);
+    }
+    for cycle in &graph.cycles {
+        cycle.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn config_graph_source_fingerprint(root: &Path, graph: &ConfigGraph) -> u64 {
+    let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let mut roots = BTreeSet::from([root.clone()]);
+    for config in &graph.configs {
+        let Some(parent) = config.parent() else {
+            continue;
+        };
+        let parent = fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
+        if !parent.starts_with(&root) {
+            roots.insert(parent);
+        }
+    }
+    let mut hasher = DefaultHasher::new();
+    for root in roots {
+        source_fingerprint(&root).hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 fn tsconfig_fingerprint(tsconfig: &Path) -> u64 {
@@ -2612,15 +2885,20 @@ mod tests {
             program: script,
             arguments: Vec::new(),
         };
-        let diagnostics =
-            cached_type_diagnostics(root, &tsconfig, Some(&compiler), TSC_TIMEOUT).unwrap();
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].1.code, 2322);
-        assert_eq!(diagnostics[0].1.start, 6);
-        assert_eq!(diagnostics[0].1.end, 7);
+        let diagnostics = cached_type_diagnostics(
+            root,
+            std::slice::from_ref(&tsconfig),
+            Some(&compiler),
+            TSC_TIMEOUT,
+        )
+        .unwrap();
+        assert_eq!(diagnostics.diagnostics.len(), 1);
+        assert_eq!(diagnostics.diagnostics[0].1.code, 2322);
+        assert_eq!(diagnostics.diagnostics[0].1.start, 6);
+        assert_eq!(diagnostics.diagnostics[0].1.end, 7);
 
         let cached =
-            cached_type_diagnostics(root, &tsconfig, Some(&compiler), TSC_TIMEOUT).unwrap();
+            cached_type_diagnostics(root, &[tsconfig], Some(&compiler), TSC_TIMEOUT).unwrap();
         assert_eq!(cached, diagnostics);
         assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 1);
     }

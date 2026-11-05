@@ -45,9 +45,11 @@ let output = dotfmt_typescript::format(
   `safe` implies `remove_unused_imports`, `convert_type_only_imports` and
   `organize_imports`, `unsafe` adds `remove_unused_locals`. Export removal is
   never implied and must be requested explicitly with `remove_unused_exports`;
-  parameter removal is diagnose-only because no safe fix exists. The matching
-  booleans default to `false` and force the implemented categories on. Fixes run before the final
-  format, at most 3 passes, and stay idempotent; the defaults delete nothing.
+  unused locals with side-effecting initializers additionally need
+  `remove_impure_locals`; parameter removal is diagnose-only because no safe
+  fix exists. The matching booleans default to `false` and force the
+  implemented categories on. Fixes run before the final format, at most 3
+  passes, and stay idempotent; the defaults delete nothing.
 - `tsconfig.json`/`jsconfig.json` gates: classic JSX factory bindings
   (`React`/`h`), `verbatimModuleSyntax`, `importsNotUsedAsValues`,
   `preserveValueImports`, decorator metadata, `.d.ts`/`.d.mts`/`.d.cts`,

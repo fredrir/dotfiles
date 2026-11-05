@@ -49,7 +49,7 @@ fn every_entry(root: &Path, policy: &Policy) -> Walked<()> {
 
 #[test]
 fn the_skip_list_is_the_one_dotfile_format_and_confmt_agree_on() {
-    assert_eq!(SKIP.len(), 22);
+    assert_eq!(SKIP.len(), 24);
     for name in [
         ".git",
         ".jj",
@@ -59,6 +59,8 @@ fn the_skip_list_is_the_one_dotfile_format_and_confmt_agree_on() {
         "__pycache__",
         ".direnv",
         ".cache",
+        ".bun",
+        ".bun-cache",
     ] {
         assert!(SKIP.contains(&name), "{name}");
     }
@@ -242,6 +244,8 @@ fn the_skip_list_is_not_walked() {
         ".git/hooks/pre-commit.sh",
         ".venv/lib/x.py",
         "__pycache__/y.py",
+        ".bun/install/cache/pkg/index.js",
+        ".bun-cache/pkg/index.js",
     ]);
     assert_eq!(
         shown(&every_file(root.path(), &Policy::new()).items),

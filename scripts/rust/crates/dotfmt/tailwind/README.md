@@ -7,8 +7,9 @@ Shared Tailwind class engine for TypeScript, CSS and HTML.
   removed.
 - `bridge::project_order` runs the project's own
   `prettier-plugin-tailwindcss` sorter (or Tailwind v4's design-system API)
-  through a Node subprocess, batches only unseen classes and caches the order
-  under `${XDG_CACHE_HOME:-~/.cache}/dotfmt/tailwind`.
+  through a Node subprocess. Complete results are cached per theme and exact
+  candidate set under `${XDG_CACHE_HOME:-~/.cache}/dotfmt/tailwind`; v3 projects
+  use memory only.
 - `OrderSource::Project` requires project order; `Auto` falls back to the Rust
   pattern sorter so a missing Node/Tailwind never blocks formatting.
 - `Config.merge` is opt-in; it prefers `tailwind-merge` through Node, then a

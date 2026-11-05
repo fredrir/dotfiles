@@ -45,20 +45,25 @@ pub fn forced(path: &Path, uri: &Uri, language_id: &str) -> Vec<Language> {
 
 /// The path a buffer is formatted as; untitled buffers get a stable stdin name.
 pub fn buffer_path(uri: &Uri, language_id: &str) -> Option<PathBuf> {
-    uri::path(uri).or_else(|| {
-        let path = match language_id {
-            "typescriptreact" => Path::new("stdin.tsx"),
-            "javascriptreact" => Path::new("stdin.jsx"),
-            "scss" => Path::new("stdin.scss"),
-            "sass" => Path::new("stdin.sass"),
-            "less" => Path::new("stdin.less"),
-            "vue" => Path::new("stdin.vue"),
-            "svelte" => Path::new("stdin.svelte"),
-            "astro" => Path::new("stdin.astro"),
-            _ => language_for(language_id)?.default_stdin(),
-        };
-        Some(path.to_path_buf())
-    })
+    uri::path(uri).or_else(|| stdin_path(language_id))
+}
+
+/// The stable stdin name for a language id, preserving its dialect.
+pub fn stdin_path(language_id: &str) -> Option<PathBuf> {
+    let path = match language_id {
+        "typescriptreact" => Path::new("stdin.tsx"),
+        "javascriptreact" => Path::new("stdin.jsx"),
+        "scss" => Path::new("stdin.scss"),
+        "sass" => Path::new("stdin.sass"),
+        "less" => Path::new("stdin.less"),
+        "jsonc" => Path::new("stdin.jsonc"),
+        "jsonl" => Path::new("stdin.jsonl"),
+        "vue" => Path::new("stdin.vue"),
+        "svelte" => Path::new("stdin.svelte"),
+        "astro" => Path::new("stdin.astro"),
+        _ => language_for(language_id)?.default_stdin(),
+    };
+    Some(path.to_path_buf())
 }
 
 /// Whether a path is a TypeScript or JavaScript source file.
@@ -266,6 +271,21 @@ mod tests {
             buffer_path(&uri, "scss").as_deref(),
             Some(Path::new("stdin.scss"))
         );
+        for (language_id, expected) in [
+            ("typescriptreact", "stdin.tsx"),
+            ("javascriptreact", "stdin.jsx"),
+            ("scss", "stdin.scss"),
+            ("sass", "stdin.sass"),
+            ("less", "stdin.less"),
+            ("jsonc", "stdin.jsonc"),
+        ] {
+            assert_eq!(
+                stdin_path(language_id).as_deref(),
+                Some(Path::new(expected)),
+                "{language_id}"
+            );
+        }
+        assert_eq!(stdin_path("plaintext"), None);
         assert!(forced(Path::new("stdin.json"), &uri, "json").contains(&Language::Json));
     }
 }

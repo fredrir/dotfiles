@@ -40,6 +40,33 @@ fn formats_typescript_idempotently() {
     assert_eq!(formatted("a.ts", expected), expected);
 }
 
+const IDEMPOTENT_CHAIN: &str = r#"type User = { id: string; name: string; createdAt: string };
+declare const users: { items: User[] };
+export const D = users.items.slice(0, 5).map((user) => ({ id: user.id, title: `${user.name} joined`, at: user.createdAt }));
+export const E = <List entries={users.items.slice(0, 5).map((user) => ({ id: user.id, title: `${user.name} joined`, at: user.createdAt }))} />;
+"#;
+
+#[test]
+fn tsx_member_chain_repro_is_idempotent() {
+    let first = formatted("idempotent-chain.tsx", IDEMPOTENT_CHAIN);
+    let second = formatted("idempotent-chain.tsx", &first);
+    assert_eq!(
+        first, second,
+        "format(format(input)) must equal format(input)"
+    );
+}
+
+#[test]
+fn tsx_member_chain_repro_is_stable_on_the_third_pass() {
+    let first = formatted("idempotent-chain.tsx", IDEMPOTENT_CHAIN);
+    let second = formatted("idempotent-chain.tsx", &first);
+    let third = formatted("idempotent-chain.tsx", &second);
+    assert_eq!(
+        second, third,
+        "the settled member-chain layout must not drift"
+    );
+}
+
 #[test]
 fn formats_tsx_jsx_decorators_satisfies_and_import_attributes() {
     for (path, input, expected_fragment) in [

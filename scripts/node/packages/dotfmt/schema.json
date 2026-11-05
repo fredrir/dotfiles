@@ -1108,6 +1108,11 @@
         "default": false,
         "description": "Remove unused local variables (unsafe)."
       },
+      "remove_impure_locals": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove unused locals with side-effecting initializers (unsafe, opt-in)."
+      },
       "remove_unused_parameters": {
         "type": "boolean",
         "default": false,
@@ -1915,6 +1920,11 @@
         "type": "boolean",
         "default": false,
         "description": "Remove unused local variables (unsafe)."
+      },
+      "remove_impure_locals": {
+        "type": "boolean",
+        "default": false,
+        "description": "Remove unused locals with side-effecting initializers (unsafe, opt-in)."
       },
       "remove_unused_parameters": {
         "type": "boolean",

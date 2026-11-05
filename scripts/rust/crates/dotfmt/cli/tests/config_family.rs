@@ -56,6 +56,9 @@ fn config_family_paths_are_owned_by_the_new_languages() {
     assert!(output.success(), "{output:?}");
     let mut expected = String::new();
     for path in paths {
+        if path.starts_with(".git/") {
+            continue;
+        }
         expected.push_str(path);
         expected.push('\0');
     }

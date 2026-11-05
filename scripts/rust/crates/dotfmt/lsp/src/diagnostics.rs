@@ -31,13 +31,15 @@ use crate::analysis;
 use crate::client::Client;
 use crate::documents::{Document, Documents};
 use crate::settings::{Settings, SettingsStore};
-use crate::uri;
+use crate::uri::{self, Key};
 use crate::workspace::Workspace;
 
 /// A merged dotfmt + tsc view for one URI, with a stable result id.
 #[derive(Debug, PartialEq)]
 pub struct Merged {
     pub diagnostics: Vec<Diagnostic>,
+    /// Configuration diagnostics that explain errors in the requested source.
+    pub related_documents: Vec<(Uri, Vec<Diagnostic>)>,
     pub result_id: String,
 }
 
@@ -46,14 +48,17 @@ pub struct Diagnostics {
     published: Arc<Mutex<Published>>,
     client: Arc<Client>,
     settings: Arc<SettingsStore>,
+    workspace: Arc<Workspace>,
+    removal_epochs: Arc<Mutex<HashMap<PathBuf, u64>>>,
     worker: Option<JoinHandle<()>>,
 }
 
 enum Job {
-    Schedule(Scheduled),
+    Schedule(Box<Scheduled>),
     Clear(Uri),
     ClearAll,
     ClearRoot(PathBuf),
+    RemoveRoot(PathBuf),
     ClearTscRoot(PathBuf),
     ClearTscUri(Uri),
     Shutdown,
@@ -67,6 +72,8 @@ struct Scheduled {
     text: String,
     delay: Duration,
     settings: Settings,
+    epoch_root: PathBuf,
+    epoch: u64,
 }
 
 impl Diagnostics {
@@ -78,14 +85,25 @@ impl Diagnostics {
         pull: bool,
     ) -> Self {
         let (pending, jobs) = crossbeam_channel::unbounded();
-        let published = Arc::new(Mutex::new(Published::new(pull, Arc::clone(&workspace))));
+        let published = Arc::new(Mutex::new(Published::new(
+            pull,
+            Arc::clone(&workspace),
+            Arc::clone(&documents),
+        )));
+        let removal_epochs = Arc::new(Mutex::new(HashMap::new()));
         let worker = {
             let published = Arc::clone(&published);
             let settings = Arc::clone(&settings);
             let client = Arc::clone(&client);
+            let epochs = Arc::clone(&removal_epochs);
+            let workspace = Arc::clone(&workspace);
             thread::Builder::new()
                 .name("dotfmt-lsp-diagnostics".into())
-                .spawn(move || run(jobs, workspace, documents, settings, published, client))
+                .spawn(move || {
+                    run(
+                        jobs, workspace, documents, settings, published, client, epochs,
+                    )
+                })
                 .ok()
         };
         Self {
@@ -93,6 +111,8 @@ impl Diagnostics {
             published,
             client,
             settings,
+            workspace,
+            removal_epochs,
             worker,
         }
     }
@@ -105,7 +125,9 @@ impl Diagnostics {
     pub fn schedule(&self, document: &Document, path: PathBuf, uri: Uri) {
         let path = crate::workspace::normalize(&path);
         let settings = self.settings.settings_for(&path);
-        let _ = self.pending.send(Job::Schedule(Scheduled {
+        let epoch_root = self.workspace.root_for(&path);
+        let epoch = epoch_for(&self.removal_epochs, &epoch_root);
+        let _ = self.pending.send(Job::Schedule(Box::new(Scheduled {
             uri,
             version: document.version,
             path,
@@ -113,7 +135,9 @@ impl Diagnostics {
             text: document.text().to_owned(),
             delay: Duration::from_millis(settings.debounce_ms),
             settings,
-        }));
+            epoch_root,
+            epoch,
+        })));
     }
 
     pub fn clear(&self, uri: Uri) {
@@ -127,6 +151,21 @@ impl Diagnostics {
     /// Drops every dotfmt and tsc entry for one workspace folder.
     pub fn clear_under(&self, root: PathBuf) {
         let _ = self.pending.send(Job::ClearRoot(root));
+    }
+
+    /// Removes one workspace folder: discards its debounced jobs and clears
+    /// its diagnostics. Later events for the folder cannot revive them because
+    /// the removal epoch only moves forward.
+    pub fn remove_root(&self, root: PathBuf) {
+        let root = crate::workspace::normalize(&root);
+        {
+            let mut epochs = self
+                .removal_epochs
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            *epochs.entry(root.clone()).or_insert(0) += 1;
+        }
+        let _ = self.pending.send(Job::RemoveRoot(root));
     }
 
     /// Drops disk-derived `tsc` entries for one URI, for example after an edit.
@@ -206,11 +245,12 @@ fn run(
     settings: Arc<SettingsStore>,
     published: Arc<Mutex<Published>>,
     client: Arc<Client>,
+    removal_epochs: Arc<Mutex<HashMap<PathBuf, u64>>>,
 ) {
-    let mut pending: HashMap<Uri, (Instant, Scheduled)> = HashMap::new();
+    let mut pending: HashMap<Key, (Instant, Scheduled)> = HashMap::new();
     loop {
         let now = Instant::now();
-        let due: Vec<Uri> = pending
+        let due: Vec<Key> = pending
             .iter()
             .filter(|(_, (at, _))| *at <= now)
             .map(|(uri, _)| uri.clone())
@@ -219,6 +259,9 @@ fn run(
             let Some((_, job)) = pending.remove(&uri) else {
                 continue;
             };
+            if epoch_for(&removal_epochs, &job.epoch_root) != job.epoch {
+                continue;
+            }
             if let Some(entries) = inspect(&workspace, &documents, &settings, &job) {
                 let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
                 published.set_dotfmt(&job.uri, job.version, entries, &client);
@@ -233,11 +276,13 @@ fn run(
             .min(Duration::from_secs(1));
         match jobs.recv_timeout(timeout) {
             Ok(Job::Schedule(job)) => {
+                let job = *job;
                 let at = Instant::now() + job.delay;
-                pending.insert(job.uri.clone(), (at, job));
+                let key = uri::key(&job.uri);
+                pending.insert(key, (at, job));
             }
             Ok(Job::Clear(uri)) => {
-                pending.remove(&uri);
+                pending.remove(&uri::key(&uri));
                 let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
                 published.clear_dotfmt(&uri, &client);
             }
@@ -248,6 +293,11 @@ fn run(
             }
             Ok(Job::ClearRoot(root)) => {
                 pending.retain(|_, (_, job)| !job.path.starts_with(&root));
+                let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
+                published.clear_under(&root, &client);
+            }
+            Ok(Job::RemoveRoot(root)) => {
+                pending.retain(|_, (_, job)| job.epoch_root != root);
                 let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
                 published.clear_under(&root, &client);
             }
@@ -264,6 +314,15 @@ fn run(
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
         }
     }
+}
+
+fn epoch_for(epochs: &Mutex<HashMap<PathBuf, u64>>, root: &Path) -> u64 {
+    epochs
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(root)
+        .copied()
+        .unwrap_or(0)
 }
 
 fn inspect(
@@ -392,7 +451,8 @@ pub fn fatal(_uri: &Uri, text: &str, error: &Fatal) -> Diagnostic {
 }
 
 fn fatal_entries(uri: &Uri, text: &str, errors: &[Fatal]) -> Vec<(Uri, Vec<Diagnostic>)> {
-    let mut grouped: HashMap<Uri, Vec<Diagnostic>> = HashMap::new();
+    let mut grouped: HashMap<Key, (Uri, Vec<Diagnostic>)> = HashMap::new();
+    let owner = uri::key(uri);
     for error in errors {
         let (target, target_text) = error
             .path
@@ -402,14 +462,16 @@ fn fatal_entries(uri: &Uri, text: &str, errors: &[Fatal]) -> Vec<(Uri, Vec<Diagn
                 let contents = std::fs::read_to_string(path).unwrap_or_default();
                 (target, contents)
             })
-            .filter(|(target, _)| target != uri)
+            .filter(|(target, _)| uri::key(target) != owner)
             .unwrap_or_else(|| (uri.clone(), text.to_owned()));
+        let key = uri::key(&target);
         grouped
-            .entry(target.clone())
-            .or_default()
+            .entry(key)
+            .or_insert_with(|| (target.clone(), Vec::new()))
+            .1
             .push(fatal(&target, &target_text, error));
     }
-    grouped.into_iter().collect()
+    grouped.into_values().collect()
 }
 
 fn range(index: &LineIndex, text: &str, start: usize, end: usize) -> lsp_types::Range {
@@ -462,6 +524,7 @@ struct Entry {
 
 #[derive(Clone, PartialEq)]
 struct Sent {
+    uri: Uri,
     version: Option<i32>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -469,19 +532,21 @@ struct Sent {
 struct Published {
     /// Pull clients re-request diagnostics; pushing would duplicate the set.
     pull: bool,
-    dotfmt: HashMap<Uri, Entry>,
-    owners: HashMap<Uri, Vec<Uri>>,
-    /// One compiler result per project. Projects may overlap on a URI, so the
+    dotfmt: HashMap<Key, Entry>,
+    owners: HashMap<Key, Vec<Key>>,
+    /// One compiler result per project. Projects may overlap on a path, so the
     /// published view merges every project that reports it.
     projects: BTreeMap<PathBuf, TscProject>,
     /// The last set sent to (or pulled by) the client, for diff suppression.
-    last: HashMap<Uri, Sent>,
+    last: HashMap<Key, Sent>,
     workspace: Arc<Workspace>,
+    documents: Arc<Mutex<Documents>>,
 }
 
 struct TscProject {
     generation: u64,
-    diagnostics: HashMap<Uri, Vec<Diagnostic>>,
+    config: PathBuf,
+    diagnostics: HashMap<Key, Vec<Diagnostic>>,
 }
 
 impl Default for Published {
@@ -493,15 +558,17 @@ impl Default for Published {
             projects: BTreeMap::new(),
             last: HashMap::new(),
             workspace: Arc::new(Workspace::new(Vec::new())),
+            documents: Arc::new(Mutex::new(Documents::default())),
         }
     }
 }
 
 impl Published {
-    fn new(pull: bool, workspace: Arc<Workspace>) -> Self {
+    fn new(pull: bool, workspace: Arc<Workspace>, documents: Arc<Mutex<Documents>>) -> Self {
         Self {
             pull,
             workspace,
+            documents,
             ..Self::default()
         }
     }
@@ -513,38 +580,40 @@ impl Published {
         entries: Vec<(Uri, Vec<Diagnostic>)>,
         client: &Client,
     ) {
+        let owner = uri::key(owner);
         if self
             .dotfmt
-            .get(owner)
+            .get(&owner)
             .and_then(|entry| entry.version)
             .is_some_and(|stored| stored > version)
         {
             return;
         }
-        let old_aliases = self.owners.remove(owner).unwrap_or_default();
+        let old_aliases = self.owners.remove(&owner).unwrap_or_default();
         // Another owner may still report one of these aliases (two open files
         // can both carry the same `dotfmt.dotfile` configuration error). Only
         // drop an alias when this publish is its last reference.
-        let referenced = self.referenced_by_others(owner);
+        let referenced = self.referenced_by_others(&owner);
         let mut affected = Vec::new();
-        for uri in old_aliases {
-            if !referenced.contains(&uri) {
-                self.dotfmt.remove(&uri);
-                affected.push(uri);
+        for key in old_aliases {
+            if !referenced.contains(&key) {
+                self.dotfmt.remove(&key);
+                affected.push(key);
             }
         }
-        self.dotfmt.remove(owner);
+        self.dotfmt.remove(&owner);
         affected.push(owner.clone());
         let mut aliases = Vec::new();
         let mut includes_owner = false;
         for (uri, diagnostics) in entries {
-            aliases.push(uri.clone());
-            affected.push(uri.clone());
-            let is_owner = uri == *owner;
+            let key = uri::key(&uri);
+            aliases.push(key.clone());
+            affected.push(key.clone());
+            let is_owner = key == owner;
             includes_owner |= is_owner;
             if is_owner || !diagnostics.is_empty() {
                 self.dotfmt.insert(
-                    uri,
+                    key,
                     Entry {
                         version: is_owner.then_some(version),
                         diagnostics,
@@ -561,30 +630,31 @@ impl Published {
                 },
             );
         }
-        self.owners.insert(owner.clone(), aliases);
+        self.owners.insert(owner, aliases);
         self.publish(&affected, client);
     }
 
     fn clear_dotfmt(&mut self, owner: &Uri, client: &Client) {
-        let aliases = self.owners.remove(owner).unwrap_or_default();
-        let referenced = self.referenced_by_others(owner);
+        let owner = uri::key(owner);
+        let aliases = self.owners.remove(&owner).unwrap_or_default();
+        let referenced = self.referenced_by_others(&owner);
         let mut affected = Vec::new();
-        for uri in aliases {
-            if !referenced.contains(&uri) {
-                self.dotfmt.remove(&uri);
-                affected.push(uri);
+        for key in aliases {
+            if !referenced.contains(&key) {
+                self.dotfmt.remove(&key);
+                affected.push(key);
             }
         }
-        self.dotfmt.remove(owner);
-        affected.push(owner.clone());
+        self.dotfmt.remove(&owner);
+        affected.push(owner);
         self.publish(&affected, client);
     }
 
-    /// Every URI another owner still reports.
+    /// Every key another owner still reports.
     ///
     /// Aliases are owned per buffer, so an alias entry is only stale when no
     /// other owner lists it any more.
-    fn referenced_by_others(&self, owner: &Uri) -> HashSet<Uri> {
+    fn referenced_by_others(&self, owner: &Key) -> HashSet<Key> {
         self.owners
             .iter()
             .filter(|(other, _)| *other != owner)
@@ -595,7 +665,7 @@ impl Published {
     }
 
     fn clear_all(&mut self, client: &Client) {
-        let mut affected: Vec<Uri> = self.dotfmt.keys().cloned().collect();
+        let mut affected: Vec<Key> = self.dotfmt.keys().cloned().collect();
         affected.extend(self.owners.keys().cloned());
         affected.extend(self.last.keys().cloned());
         affected.extend(
@@ -611,14 +681,14 @@ impl Published {
 
     fn clear_under(&mut self, root: &Path, client: &Client) {
         let mut affected = Vec::new();
-        let owners: Vec<(Uri, Vec<Uri>)> = self
+        let owners: Vec<(Key, Vec<Key>)> = self
             .owners
             .iter()
-            .filter(|(owner, _)| uri_in_root(&self.workspace, owner, root))
+            .filter(|(owner, _)| key_in_root(&self.workspace, owner, root))
             .map(|(owner, aliases)| (owner.clone(), aliases.clone()))
             .collect();
-        let cleared: HashSet<Uri> = owners.iter().map(|(owner, _)| owner.clone()).collect();
-        let kept: HashSet<Uri> = self
+        let cleared: HashSet<Key> = owners.iter().map(|(owner, _)| owner.clone()).collect();
+        let kept: HashSet<Key> = self
             .owners
             .iter()
             .filter(|(owner, _)| !cleared.contains(*owner))
@@ -665,22 +735,24 @@ impl Published {
         {
             return;
         }
-        let mut affected: Vec<Uri> = self
+        let mut affected: Vec<Key> = self
             .projects
             .remove(project)
             .map(|project| project.diagnostics.into_keys().collect())
             .unwrap_or_default();
         let mut diagnostics = HashMap::new();
         for (uri, entries) in entries {
-            affected.push(uri.clone());
+            let key = uri::key(&uri);
+            affected.push(key.clone());
             if !entries.is_empty() {
-                diagnostics.insert(uri, entries);
+                diagnostics.insert(key, entries);
             }
         }
         self.projects.insert(
             project.to_path_buf(),
             TscProject {
                 generation,
+                config: project.to_path_buf(),
                 diagnostics,
             },
         );
@@ -688,10 +760,11 @@ impl Published {
     }
 
     fn clear_tsc_uri(&mut self, uri: &Uri, client: &Client) {
+        let key = uri::key(uri);
         for project in self.projects.values_mut() {
-            project.diagnostics.remove(uri);
+            project.diagnostics.remove(&key);
         }
-        self.publish(std::slice::from_ref(uri), client);
+        self.publish(std::slice::from_ref(&key), client);
     }
 
     fn clear_tsc_under(&mut self, root: &Path, client: &Client) {
@@ -711,7 +784,7 @@ impl Published {
     }
 
     fn clear_tsc(&mut self, client: &Client) {
-        let affected: Vec<Uri> = self
+        let affected: Vec<Key> = self
             .projects
             .values()
             .flat_map(|project| project.diagnostics.keys().cloned())
@@ -721,7 +794,8 @@ impl Published {
     }
 
     fn merged(&self, uri: &Uri, version: Option<i32>) -> Merged {
-        let dotfmt_entry = self.dotfmt.get(uri).filter(|entry| {
+        let key = uri::key(uri);
+        let dotfmt_entry = self.dotfmt.get(&key).filter(|entry| {
             !matches!(
                 (entry.version, version),
                 (Some(stored), Some(current)) if stored != current
@@ -730,29 +804,131 @@ impl Published {
         let mut diagnostics = dotfmt_entry
             .map(|entry| entry.diagnostics.clone())
             .unwrap_or_default();
-        diagnostics.extend(self.tsc_for(uri));
+        diagnostics.extend(self.tsc_for(&key));
+        let related = self.related_for(&key);
         let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
         serde_json::to_string(&diagnostics)
             .unwrap_or_default()
             .hash(&mut hasher);
+        // A configuration error can change without changing the source's own
+        // diagnostics, so the related set is part of the result identity.
+        for (related_key, diagnostics) in &related {
+            related_key.hash(&mut hasher);
+            serde_json::to_string(diagnostics)
+                .unwrap_or_default()
+                .hash(&mut hasher);
+        }
         Merged {
             result_id: format!("{}:{:x}", version.unwrap_or(-1), hasher.finish()),
             diagnostics,
+            related_documents: related
+                .into_iter()
+                .map(|(key, diagnostics)| (self.display_uri(&key), diagnostics))
+                .collect(),
         }
+    }
+
+    /// Configuration diagnostics attached to one source, with the source
+    /// itself excluded. Dotfmt configuration errors are aliases of the buffer
+    /// that produced them; tsc configuration errors belong to the project's
+    /// `TscProject.config`.
+    fn related_for(&self, key: &Key) -> BTreeMap<Key, Vec<Diagnostic>> {
+        let mut related = BTreeMap::new();
+        if let Some(aliases) = self.owners.get(key) {
+            for alias in aliases {
+                if alias == key {
+                    continue;
+                }
+                if let Some(entry) = self.dotfmt.get(alias)
+                    && !entry.diagnostics.is_empty()
+                {
+                    related
+                        .entry(alias.clone())
+                        .or_insert_with(Vec::new)
+                        .extend(entry.diagnostics.iter().cloned());
+                }
+            }
+        }
+        let path = key.path();
+        let mut projects: Vec<&TscProject> = self
+            .projects
+            .values()
+            .filter(|project| project.diagnostics.contains_key(key))
+            .collect();
+        if projects.is_empty()
+            && let Some(path) = path
+        {
+            let depth = self
+                .projects
+                .values()
+                .filter(|project| {
+                    project
+                        .config
+                        .parent()
+                        .is_some_and(|parent| path.starts_with(parent))
+                })
+                .map(|project| {
+                    project
+                        .config
+                        .parent()
+                        .map_or(0, |parent| parent.components().count())
+                })
+                .max();
+            if let Some(depth) = depth {
+                projects = self
+                    .projects
+                    .values()
+                    .filter(|project| {
+                        project.config.parent().is_some_and(|parent| {
+                            path.starts_with(parent) && parent.components().count() == depth
+                        })
+                    })
+                    .collect();
+            }
+        }
+        for project in projects {
+            let config = uri::key(&uri::from_path(&project.config));
+            for (diagnostic_key, diagnostics) in &project.diagnostics {
+                if diagnostic_key == key || diagnostics.is_empty() {
+                    continue;
+                }
+                let is_config =
+                    diagnostic_key == &config || diagnostic_key.path().is_some_and(is_tsconfig);
+                if is_config {
+                    related
+                        .entry(diagnostic_key.clone())
+                        .or_insert_with(Vec::new)
+                        .extend(diagnostics.iter().cloned());
+                }
+            }
+        }
+        related
+    }
+
+    /// The client spelling of a key: an open document's URI when one exists,
+    /// otherwise the canonical encoding of its normalized path.
+    fn display_uri(&self, key: &Key) -> Uri {
+        self.documents
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .uri_for_identity(key)
+            .unwrap_or_else(|| key.uri())
     }
 
     /// Sends one notification per URI whose set changed, or asks a pull client
     /// to refresh when any merged set changed.
-    fn publish(&mut self, affected: &[Uri], client: &Client) {
+    fn publish(&mut self, affected: &[Key], client: &Client) {
         let mut seen = HashSet::new();
         let mut changed = false;
         let mut notifications = Vec::new();
-        for uri in affected {
-            if !seen.insert(uri.clone()) {
+        for key in affected {
+            if !seen.insert(key.clone()) {
                 continue;
             }
-            let dotfmt_entry = self.dotfmt.get(uri);
-            let tsc = self.tsc_for(uri);
+            let uri = self.display_uri(key);
+            let dotfmt_entry = self.dotfmt.get(key);
+            let tsc = self.tsc_for(key);
             let mut diagnostics = dotfmt_entry
                 .map(|entry| entry.diagnostics.clone())
                 .unwrap_or_default();
@@ -765,15 +941,28 @@ impl Published {
                 _ => None,
             };
             let sent = Sent {
+                uri: uri.clone(),
                 version,
                 diagnostics,
             };
-            if self.last.get(uri) == Some(&sent) {
+            if self.last.get(key) == Some(&sent) {
                 continue;
             }
             changed = true;
-            notifications.push((uri.clone(), sent.clone()));
-            self.last.insert(uri.clone(), sent);
+            if let Some(previous) = self.last.get(key)
+                && previous.uri != uri
+            {
+                notifications.push((
+                    previous.uri.clone(),
+                    Sent {
+                        uri: previous.uri.clone(),
+                        version: None,
+                        diagnostics: Vec::new(),
+                    },
+                ));
+            }
+            notifications.push((uri, sent.clone()));
+            self.last.insert(key.clone(), sent);
         }
         if !changed {
             return;
@@ -793,12 +982,13 @@ impl Published {
 }
 
 impl Published {
-    /// Every project's compiler errors for one URI, merged in a stable order.
-    fn tsc_for(&self, uri: &Uri) -> Vec<Diagnostic> {
+    /// Every project's compiler errors for one path identity, merged in a
+    /// stable order.
+    fn tsc_for(&self, key: &Key) -> Vec<Diagnostic> {
         let mut diagnostics: Vec<Diagnostic> = self
             .projects
             .values()
-            .filter_map(|project| project.diagnostics.get(uri))
+            .filter_map(|project| project.diagnostics.get(key))
             .flatten()
             .cloned()
             .collect();
@@ -819,8 +1009,17 @@ impl Published {
     }
 }
 
-fn uri_in_root(workspace: &Workspace, uri: &Uri, root: &Path) -> bool {
-    uri::path(uri).is_some_and(|path| workspace.in_root(&path, root))
+fn is_tsconfig(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            (name.starts_with("tsconfig") || name.starts_with("jsconfig"))
+                && name.ends_with(".json")
+        })
+}
+
+fn key_in_root(workspace: &Workspace, key: &Key, root: &Path) -> bool {
+    key.path().is_some_and(|path| workspace.in_root(path, root))
 }
 
 #[cfg(test)]
@@ -846,11 +1045,13 @@ mod tests {
         Scheduled {
             uri,
             version,
+            epoch_root: path.clone(),
             path,
             language_id: "typescript".into(),
             text: text.into(),
             delay: Duration::from_millis(0),
             settings: Settings::default(),
+            epoch: 0,
         }
     }
 
@@ -947,6 +1148,117 @@ mod tests {
             code: Some(NumberOrString::String(code.into())),
             ..Diagnostic::default()
         }
+    }
+
+    /// The old allowlist encoder, kept to simulate clients that still spell
+    /// route-group punctuation with percent escapes.
+    fn legacy_uri(path: &Path) -> Uri {
+        let text = path.to_string_lossy();
+        let mut encoded = String::from("file://");
+        for byte in text.bytes() {
+            if byte.is_ascii_alphanumeric()
+                || matches!(byte, b'/' | b':' | b'-' | b'_' | b'.' | b'~')
+            {
+                encoded.push(byte as char);
+            } else {
+                encoded.push_str(&format!("%{byte:02X}"));
+            }
+        }
+        Uri::from_str(&encoded).unwrap()
+    }
+
+    #[test]
+    fn special_paths_publish_under_the_open_client_uri() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let names = [
+            "app/(dashboard)/page.tsx",
+            "app/(.)photo/page.tsx",
+            "app/@modal/page.tsx",
+            "[slug]/page.tsx",
+            "~ ! $ & ' * + , ; = # %/file.ts",
+            "space folder/page.tsx",
+            "üñïçødé/page.tsx",
+        ];
+        let mut entries = Vec::new();
+        let mut opened = Vec::new();
+        for name in names {
+            let path = root.join(name);
+            write(root, name, "");
+            let canonical = uri::from_path(&path);
+            let client = legacy_uri(&path);
+            opened.push(client);
+            entries.push((canonical, vec![tsc("TS2322")]));
+        }
+        let (mut published, client, receiver) = harness_with_roots(false, &[root]);
+        {
+            let mut documents = published
+                .documents
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            for uri in &opened {
+                documents.open(
+                    uri.clone(),
+                    Document::new("".into(), "typescript".into(), 1),
+                );
+            }
+        }
+        published.set_tsc(root, 1, entries, &client);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut seen = HashSet::new();
+        while seen.len() < opened.len() {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("timed out waiting for special-path diagnostics");
+            let message = receiver
+                .recv_timeout(remaining)
+                .expect("diagnostics message");
+            let Message::Notification(notification) = message else {
+                continue;
+            };
+            if notification.method != "textDocument/publishDiagnostics" {
+                continue;
+            }
+            let params: PublishDiagnosticsParams =
+                serde_json::from_value(notification.params).unwrap();
+            assert!(
+                opened.contains(&params.uri),
+                "published under a non-client URI: {}",
+                params.uri.as_str()
+            );
+            assert_eq!(params.diagnostics.len(), 1);
+            seen.insert(params.uri);
+        }
+        for uri in opened {
+            assert_eq!(published.merged(&uri, None).diagnostics.len(), 1);
+        }
+    }
+
+    #[test]
+    fn a_config_error_under_a_route_group_stays_on_the_open_owner() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let path = root.join("app/(dashboard)/page.tsx");
+        write(root, "app/(dashboard)/page.tsx", "");
+        let owner = legacy_uri(&path);
+        let error = Fatal::config(&path, 1, "bad configuration");
+        let entries = fatal_entries(&owner, "", &[error]);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(uri::key(&entries[0].0), uri::key(&owner));
+
+        let (mut published, client, _receiver) = harness_with_roots(true, &[root]);
+        published.set_dotfmt(&owner, 1, entries, &client);
+        let merged = published.merged(&owner, None);
+        assert_eq!(merged.diagnostics.len(), 1);
+        assert_eq!(
+            merged.diagnostics[0].code,
+            Some(NumberOrString::String("configuration".into()))
+        );
+        assert_eq!(
+            merged,
+            published.merged(&uri::from_path(&path), None),
+            "one path produced different pull reports"
+        );
     }
 
     #[test]
@@ -1262,6 +1574,101 @@ mod tests {
         assert_eq!(merged.diagnostics.len(), 2);
         assert_eq!(merged, published.merged(&uri, Some(4)));
         assert_ne!(merged.result_id, published.merged(&uri, Some(5)).result_id);
+
+        let other = Uri::from_str("file:///work/b.ts").unwrap();
+        published.set_dotfmt(
+            &other,
+            4,
+            vec![(other.clone(), vec![Diagnostic::default()])],
+            &client,
+        );
+        published.set_tsc(
+            Path::new("/work/other"),
+            1,
+            vec![(other.clone(), vec![Diagnostic::default()])],
+            &client,
+        );
+        let other_merged = published.merged(&other, Some(4));
+        assert_eq!(other_merged.diagnostics, merged.diagnostics);
+        assert_ne!(
+            other_merged.result_id, merged.result_id,
+            "the result id ignored the path identity"
+        );
+    }
+
+    #[test]
+    fn pull_reports_dotfmt_configuration_errors_as_related_documents() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        write(root, "src/a.ts", "export const a = 1;\n");
+        write(root, "dotfmt.dotfile", "typescript {}\n");
+        let source = uri::from_path(&root.join("src/a.ts"));
+        let config = uri::from_path(&root.join("dotfmt.dotfile"));
+        let (mut published, client, _receiver) = harness_with_roots(true, &[root]);
+
+        let first = Fatal::config(root.join("dotfmt.dotfile"), 1, "bad configuration");
+        let entries = fatal_entries(&source, "export const a = 1;\n", &[first]);
+        published.set_dotfmt(&source, 1, entries, &client);
+        let merged = published.merged(&source, None);
+        assert!(merged.diagnostics.is_empty());
+        assert_eq!(merged.related_documents.len(), 1);
+        assert_eq!(merged.related_documents[0].0, config);
+        assert_eq!(
+            merged.related_documents[0].1[0].code,
+            Some(NumberOrString::String("configuration".into()))
+        );
+        let first_id = merged.result_id;
+
+        let second = Fatal::config(root.join("dotfmt.dotfile"), 1, "different error");
+        let entries = fatal_entries(&source, "export const a = 1;\n", &[second]);
+        published.set_dotfmt(&source, 2, entries, &client);
+        let changed = published.merged(&source, None);
+        assert_eq!(changed.related_documents.len(), 1);
+        assert_ne!(
+            changed.result_id, first_id,
+            "a changed configuration error did not change the result id"
+        );
+    }
+
+    #[test]
+    fn pull_reports_tsconfig_errors_as_related_documents() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        write(root, "src/a.ts", "export const a = 1;\n");
+        write(root, "tsconfig.json", "{}\n");
+        let source = uri::from_path(&root.join("src/a.ts"));
+        let config = uri::from_path(&root.join("tsconfig.json"));
+        let (mut published, client, _receiver) = harness_with_roots(true, &[root]);
+        let diagnostic = tsc("TS18003");
+
+        published.set_tsc(
+            &root.join("tsconfig.json"),
+            1,
+            vec![(config.clone(), vec![diagnostic])],
+            &client,
+        );
+        let merged = published.merged(&source, None);
+        assert!(merged.diagnostics.is_empty());
+        assert_eq!(merged.related_documents.len(), 1);
+        assert_eq!(merged.related_documents[0].0, config);
+        assert_eq!(
+            merged.related_documents[0].1[0].code,
+            Some(NumberOrString::String("TS18003".into()))
+        );
+        let first_id = merged.result_id;
+
+        published.set_tsc(
+            &root.join("tsconfig.json"),
+            2,
+            vec![(config, vec![tsc("TS18003"), tsc("TS5053")])],
+            &client,
+        );
+        let changed = published.merged(&source, None);
+        assert_eq!(changed.related_documents[0].1.len(), 2);
+        assert_ne!(
+            changed.result_id, first_id,
+            "a changed tsconfig error did not change the result id"
+        );
     }
 
     #[test]

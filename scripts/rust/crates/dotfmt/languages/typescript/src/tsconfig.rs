@@ -109,46 +109,116 @@ impl Tsconfig {
     }
 }
 
-/// Finds the nearest `tsconfig.json` or `jsconfig.json` for a source path.
-pub(crate) fn nearest(path: &Path) -> Option<PathBuf> {
-    let mut directory = if path.is_dir() { path } else { path.parent()? };
+/// Config files in `directory`, in TypeScript's discovery order.
+///
+/// A standard `tsconfig.json` (or, without it, `jsconfig.json`) wins over
+/// nonstandard names. Otherwise every `tsconfig*.json`/`jsconfig*.json` is
+/// returned so callers can run all of them.
+pub(crate) fn configs_in(directory: &Path) -> Vec<PathBuf> {
+    let tsconfig = directory.join("tsconfig.json");
+    if tsconfig.is_file() {
+        return vec![tsconfig];
+    }
+    let jsconfig = directory.join("jsconfig.json");
+    if jsconfig.is_file() {
+        return vec![jsconfig];
+    }
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut configs: Vec<PathBuf> = entries
+        .flatten()
+        .filter_map(|entry| {
+            entry
+                .file_name()
+                .into_string()
+                .ok()
+                .map(|name| (name, entry))
+        })
+        .filter(|(name, _)| is_nonstandard_config_name(name))
+        .map(|(_, entry)| entry.path())
+        .filter(|path| path.is_file())
+        .collect();
+    configs.sort();
+    configs
+}
+
+/// Whether `name` is a nonstandard `tsconfig*.json`/`jsconfig*.json`.
+pub(crate) fn is_nonstandard_config_name(name: &str) -> bool {
+    name.ends_with(".json")
+        && (name.starts_with("tsconfig") || name.starts_with("jsconfig"))
+        && name != "tsconfig.json"
+        && name != "jsconfig.json"
+}
+
+/// Whether `path` is any config file discovered by [`configs_in`].
+pub(crate) fn is_config_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            name == "tsconfig.json" || name == "jsconfig.json" || is_nonstandard_config_name(name)
+        })
+}
+
+/// Every config at the nearest directory that contains one, sorted.
+pub(crate) fn nearest_configs(path: &Path) -> Vec<PathBuf> {
+    let Some(mut directory) = (if path.is_dir() {
+        Some(path)
+    } else {
+        path.parent()
+    }) else {
+        return Vec::new();
+    };
     loop {
-        let tsconfig = directory.join("tsconfig.json");
-        if tsconfig.is_file() {
-            return Some(tsconfig);
+        let configs = configs_in(directory);
+        if !configs.is_empty() {
+            return configs;
         }
-        let jsconfig = directory.join("jsconfig.json");
-        if jsconfig.is_file() {
-            return Some(jsconfig);
-        }
-        directory = directory.parent()?;
+        let Some(parent) = directory.parent() else {
+            return Vec::new();
+        };
+        directory = parent;
     }
 }
 
-/// Finds the nearest `tsconfig.json` or `jsconfig.json`, never walking above
-/// `root` (the workspace root).
-pub(crate) fn nearest_within(path: &Path, root: &Path) -> Option<PathBuf> {
+/// Finds the nearest config for a source path.
+pub(crate) fn nearest(path: &Path) -> Option<PathBuf> {
+    nearest_configs(path).into_iter().next()
+}
+
+/// Finds the nearest configs, never walking above `root` (the workspace root).
+pub(crate) fn nearest_configs_within(path: &Path, root: &Path) -> Vec<PathBuf> {
     let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-    let start = if path.is_dir() { path } else { path.parent()? };
+    let Some(start) = (if path.is_dir() {
+        Some(path)
+    } else {
+        path.parent()
+    }) else {
+        return Vec::new();
+    };
     let start = fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
     if !start.starts_with(&root) {
-        return None;
+        return Vec::new();
     }
     let mut directory = start.as_path();
     loop {
-        let tsconfig = directory.join("tsconfig.json");
-        if tsconfig.is_file() {
-            return Some(tsconfig);
-        }
-        let jsconfig = directory.join("jsconfig.json");
-        if jsconfig.is_file() {
-            return Some(jsconfig);
+        let configs = configs_in(directory);
+        if !configs.is_empty() {
+            return configs;
         }
         if directory == root {
-            return None;
+            return Vec::new();
         }
-        directory = directory.parent()?;
+        let Some(parent) = directory.parent() else {
+            return Vec::new();
+        };
+        directory = parent;
     }
+}
+
+/// Finds the nearest config, never walking above `root` (the workspace root).
+pub(crate) fn nearest_within(path: &Path, root: &Path) -> Option<PathBuf> {
+    nearest_configs_within(path, root).into_iter().next()
 }
 
 /// Loads the nearest config, following relative and package `extends` chains.
@@ -1111,6 +1181,36 @@ mod tests {
             Some(root.join("tsconfig.json")),
             "the unrestricted lookup still walks to the workspace root"
         );
+    }
+
+    #[test]
+    fn configs_in_prefers_standard_names_then_all_nonstandard_sorted() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(root, "tsconfig.router.json", "{}");
+        write(root, "tsconfig.node.json", "{}");
+        write(root, "jsconfig.legacy.json", "{}");
+        write(root, "other.json", "{}");
+        let names: Vec<PathBuf> = configs_in(root)
+            .into_iter()
+            .map(|path| path.file_name().unwrap().into())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                PathBuf::from("jsconfig.legacy.json"),
+                PathBuf::from("tsconfig.node.json"),
+                PathBuf::from("tsconfig.router.json"),
+            ]
+        );
+
+        write(root, "tsconfig.json", "{}");
+        assert_eq!(configs_in(root), vec![root.join("tsconfig.json")]);
+        fs::remove_file(root.join("tsconfig.json")).unwrap();
+        write(root, "jsconfig.json", "{}");
+        assert_eq!(configs_in(root), vec![root.join("jsconfig.json")]);
+        assert!(is_config_file(&root.join("tsconfig.router.json")));
+        assert!(!is_config_file(&root.join("other.json")));
     }
 
     #[test]

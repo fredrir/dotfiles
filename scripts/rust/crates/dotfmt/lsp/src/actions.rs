@@ -39,14 +39,37 @@ pub struct Context<'a> {
 pub fn code_actions(context: &Context<'_>) -> Vec<CodeActionOrCommand> {
     let selection = context.document.range(context.range);
     let mut actions = Vec::new();
+    let mut source_fixes: Vec<(String, &[dotfmt_core::edit::Edit])> = Vec::new();
     if wants(&context.only, CodeActionKind::QUICKFIX.as_str()) {
         for fix in context.fixes {
             if !context.trusted && fix.applicability == Applicability::Unsafe {
                 continue;
             }
             let kind = fix_kind(&fix.kind);
+            let source_handled = match kind.as_str() {
+                ORGANIZE_IMPORTS => context.organize.is_some(),
+                FIX_ALL => context.fix_all.is_some(),
+                FORMAT => context.format.is_some(),
+                _ => false,
+            };
+            if source_handled {
+                // Source actions are computed as one whole-document edit below;
+                // emitting their individual fixes here duplicates them.
+                continue;
+            }
             if !wants(&context.only, kind.as_str()) {
                 continue;
+            }
+            if !kind.as_str().starts_with(CodeActionKind::QUICKFIX.as_str()) {
+                // A source fix supplied without a computed whole-document text
+                // is still usable, but identical plans must not duplicate it.
+                if source_fixes
+                    .iter()
+                    .any(|(seen, edits)| seen == kind.as_str() && *edits == fix.edits)
+                {
+                    continue;
+                }
+                source_fixes.push((kind.as_str().to_owned(), &fix.edits));
             }
             if kind.as_str().starts_with("quickfix")
                 && fix.finding.is_some()
@@ -168,6 +191,11 @@ fn title(fix: &Fix) -> String {
 fn touches(finding: &Finding, selection: &std::ops::Range<usize>) -> bool {
     let start = finding.start;
     let end = finding.end.max(start.saturating_add(1));
+    if selection.start == selection.end {
+        // A cursor exactly at the finding start touches it; the exclusive end
+        // remains exclusive so a cursor after the token does not.
+        return selection.start >= start && selection.start < end;
+    }
     start < selection.end && end > selection.start
 }
 

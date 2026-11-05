@@ -239,6 +239,27 @@ fn unknown_keys_are_rejected_with_the_setting_source() {
 }
 
 #[test]
+fn tailwind_paths_keep_the_declaring_config_layer() {
+    let config = Config::from_settings(&settings(&[
+        ("tailwind_stylesheet", "styles/app.css"),
+        ("tailwind_config", "tailwind.config.ts"),
+    ]))
+    .unwrap();
+    assert_eq!(
+        config.tailwind.stylesheet.as_deref(),
+        Some(std::path::Path::new("styles/app.css"))
+    );
+    assert_eq!(
+        config.tailwind.stylesheet_base.as_deref(),
+        Some(std::path::Path::new("project"))
+    );
+    assert_eq!(
+        config.tailwind.config_base.as_deref(),
+        Some(std::path::Path::new("project"))
+    );
+}
+
+#[test]
 fn tailwind_can_be_disabled_and_none_clears_the_attribute_limit() {
     let config = Config::from_settings(&settings(&[
         ("tailwind", "off"),

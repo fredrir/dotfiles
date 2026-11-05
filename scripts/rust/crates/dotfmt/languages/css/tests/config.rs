@@ -338,6 +338,14 @@ fn tailwind_settings_map_modes_order_and_paths() {
         tailwind.tailwind.config_file.as_deref(),
         Some(Path::new("tailwind.config.js"))
     );
+    assert_eq!(
+        tailwind.tailwind.stylesheet_base.as_deref(),
+        Some(Path::new("project"))
+    );
+    assert_eq!(
+        tailwind.tailwind.config_base.as_deref(),
+        Some(Path::new("project"))
+    );
 
     assert_eq!(
         config(&[("tailwind", "on")]).tailwind.mode,
@@ -351,6 +359,20 @@ fn tailwind_settings_map_modes_order_and_paths() {
         config(&[("tailwind_order", "rust")]).tailwind.order,
         dotfmt_tailwind::OrderSource::Rust
     );
+}
+
+#[test]
+fn global_tailwind_paths_have_no_declaring_base() {
+    let mut entries = settings(&[
+        ("tailwind_stylesheet", "app.css"),
+        ("tailwind_config", "tailwind.config.js"),
+    ]);
+    for setting in entries.values_mut() {
+        setting.global = true;
+    }
+    let config = Config::from_settings(&entries).unwrap();
+    assert!(config.tailwind.stylesheet_base.is_none());
+    assert!(config.tailwind.config_base.is_none());
 }
 
 #[test]

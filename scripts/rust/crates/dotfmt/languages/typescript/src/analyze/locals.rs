@@ -93,7 +93,9 @@ fn unused_variables<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) 
         }
         // Removing a declaration is destructive even when its initializer is
         // pure, so the fix is unsafe and only selected by unsafe fix modes.
-        if !pure_initializer && !context.options.unsafe_fixes {
+        // An impure initializer also needs the explicit opt-in; `unsafe_fixes`
+        // alone must not delete side effects.
+        if !pure_initializer && !context.config.remove_impure_locals {
             continue;
         }
         let applicability = Applicability::Unsafe;

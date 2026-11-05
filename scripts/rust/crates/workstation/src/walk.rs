@@ -24,6 +24,8 @@ pub const SKIP: &[&str] = &[
     ".next",
     ".turbo",
     "vendor",
+    ".bun",
+    ".bun-cache",
     ".terraform",
     ".gradle",
     ".idea",

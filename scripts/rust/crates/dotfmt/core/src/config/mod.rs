@@ -181,7 +181,13 @@ impl Effective {
     }
 
     fn apply(&mut self, layer: Layer) {
-        self.has_language_blocks |= layer.languages.values().any(|local| !local.is_empty());
+        self.apply_layer(layer, true);
+    }
+
+    fn apply_layer(&mut self, layer: Layer, declared: bool) {
+        if declared {
+            self.has_language_blocks |= layer.languages.values().any(|local| !local.is_empty());
+        }
         self.sources.extend(layer.source);
         for config in self.languages.values_mut() {
             config.settings.extend(layer.global.clone());
@@ -205,7 +211,7 @@ impl Effective {
         if overlay.is_empty() {
             return;
         }
-        self.apply(overlay.layer);
+        self.apply_layer(overlay.layer, false);
     }
 
     /// Enables the shipped default language set when no layer declared a

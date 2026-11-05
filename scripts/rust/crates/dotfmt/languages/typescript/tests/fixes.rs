@@ -9,10 +9,20 @@ use dotfmt_typescript::config::Config;
 use dotfmt_typescript::dialect::Dialect;
 
 fn analyze(path: &Path, input: &str, fix: bool, unsafe_fixes: bool) -> Analysis {
+    analyze_with_config(path, input, &Config::default(), fix, unsafe_fixes)
+}
+
+fn analyze_with_config(
+    path: &Path,
+    input: &str,
+    config: &Config,
+    fix: bool,
+    unsafe_fixes: bool,
+) -> Analysis {
     analyze::analyze(
         path,
         input,
-        &Config::default(),
+        config,
         Dialect::Auto,
         &Options {
             fix,
@@ -323,20 +333,32 @@ fn unused_variables_are_removed_only_by_unsafe_fixes() {
         .expect("unsafe fix");
     assert_eq!(fix.applicability, Applicability::Unsafe);
     assert_eq!(apply_every_fix(input, &analysis), "console.log(2);\n");
+}
 
+#[test]
+fn impure_initializers_need_remove_impure_locals() {
     let input = "const x = risky();\nconsole.log(2);\n";
-    let analysis = analyze(Path::new("a.ts"), input, true, false);
-    assert_eq!(analysis.findings[0].code, "unused-variable");
-    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+    for unsafe_fixes in [false, true] {
+        let analysis = analyze(Path::new("a.ts"), input, true, unsafe_fixes);
+        assert_eq!(analysis.findings[0].code, "unused-variable");
+        assert!(analysis.fixes.is_empty(), "{analysis:?}");
+    }
 
-    let analysis = analyze(Path::new("a.ts"), input, true, true);
+    let config = Config {
+        remove_impure_locals: true,
+        ..Config::default()
+    };
+    let analysis = analyze_with_config(Path::new("a.ts"), input, &config, true, true);
     let fix = analysis
         .fixes
         .iter()
         .find(|fix| fix.title.contains("unused variable"))
-        .expect("unsafe fix");
+        .expect("opted-in unsafe fix");
     assert_eq!(fix.applicability, Applicability::Unsafe);
     assert_eq!(apply_every_fix(input, &analysis), "console.log(2);\n");
+
+    let analysis = analyze_with_config(Path::new("a.ts"), input, &config, true, false);
+    assert!(analysis.fixes.is_empty(), "{analysis:?}");
 }
 
 #[test]

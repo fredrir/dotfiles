@@ -22,6 +22,28 @@ fn settings(key: &str, value: &str, global: bool) -> Settings {
 }
 
 #[test]
+fn tailwind_paths_keep_the_declaring_config_layer() {
+    let mut entries = Settings::new();
+    for (key, value, global) in [
+        ("tailwind_stylesheet", "styles/app.css", false),
+        ("tailwind_config", "tailwind.config.ts", false),
+    ] {
+        for (key, setting) in settings(key, value, global) {
+            entries.insert(key, setting);
+        }
+    }
+    let config = Config::from_settings(&entries).unwrap();
+    assert_eq!(
+        config.tailwind.stylesheet_base.as_deref(),
+        Some(std::path::Path::new("project"))
+    );
+    assert_eq!(
+        config.tailwind.config_base.as_deref(),
+        Some(std::path::Path::new("project"))
+    );
+}
+
+#[test]
 fn defaults_match_prettier() {
     let config = Config::default();
     assert_eq!(config.indent, 2);

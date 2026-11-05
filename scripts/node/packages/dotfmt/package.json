@@ -1722,6 +1722,12 @@
           "scope": "resource",
           "markdownDescription": "Remove unused local variables (unsafe).\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
         },
+        "dotfmt.format.javascript.remove_impure_locals": {
+          "type": "boolean",
+          "default": null,
+          "scope": "resource",
+          "markdownDescription": "Remove unused locals with side-effecting initializers (unsafe, opt-in).\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
         "dotfmt.format.javascript.remove_unused_parameters": {
           "type": "boolean",
           "default": null,
@@ -2807,6 +2813,12 @@
           "default": null,
           "scope": "resource",
           "markdownDescription": "Remove unused local variables (unsafe).\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.remove_impure_locals": {
+          "type": "boolean",
+          "default": null,
+          "scope": "resource",
+          "markdownDescription": "Remove unused locals with side-effecting initializers (unsafe, opt-in).\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.typescript.remove_unused_parameters": {
           "type": "boolean",

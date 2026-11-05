@@ -490,7 +490,10 @@ fn gitignored_consumers_keep_exports_alive() {
         "src/use.ts",
         "import { home } from \"./home\";\nconsole.log(home);\n",
     );
-    assert_eq!(unused_codes(&root.join("src/home.ts")), Vec::<String>::new());
+    assert_eq!(
+        unused_codes(&root.join("src/home.ts")),
+        Vec::<String>::new()
+    );
     assert!(project::graph_complete(&root.join("src/home.ts")));
 }
 
@@ -507,10 +510,12 @@ fn non_literal_dynamic_imports_block_project_fixes() {
         "const name = \"./home\";\nconst module = import(name);\nconsole.log(module);\n",
     );
     assert!(!project::graph_complete(&root.join("src/home.ts")));
-    assert!(project::unused_exports(&root.join("src/home.ts"))
-        .unwrap()
-        .fixes
-        .is_empty());
+    assert!(
+        project::unused_exports(&root.join("src/home.ts"))
+            .unwrap()
+            .fixes
+            .is_empty()
+    );
 }
 
 #[test]
@@ -526,10 +531,12 @@ fn unsupported_glob_patterns_block_project_fixes() {
         "const modules = import.meta.glob(\"./lib/[ab].ts\");\nconsole.log(modules);\n",
     );
     assert!(!project::graph_complete(&root.join("src/lib/home.ts")));
-    assert!(project::unused_exports(&root.join("src/lib/home.ts"))
-        .unwrap()
-        .fixes
-        .is_empty());
+    assert!(
+        project::unused_exports(&root.join("src/lib/home.ts"))
+            .unwrap()
+            .fixes
+            .is_empty()
+    );
 }
 
 #[test]
@@ -773,10 +780,12 @@ fn component_non_literal_dynamic_imports_block_project_fixes() {
         "<script setup lang=\"ts\">\nconst name = \"./a\";\nconst mod = import(name);\n</script>\n<template><div /></template>\n",
     );
     assert!(!project::graph_complete(&root.join("src/a.ts")));
-    assert!(project::unused_exports(&root.join("src/a.ts"))
-        .unwrap()
-        .fixes
-        .is_empty());
+    assert!(
+        project::unused_exports(&root.join("src/a.ts"))
+            .unwrap()
+            .fixes
+            .is_empty()
+    );
 }
 
 #[test]
@@ -965,6 +974,174 @@ fn tsc_invalidates_after_a_source_change() {
     write(root, "src/m0.ts", "const x: number = \"changed value\";\n");
     assert_eq!(project::type_diagnostics(root, &tsconfig).unwrap().len(), 1);
     assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn nonstandard_config_is_discovered_and_used() {
+    if std::env::var_os("DOTFMT_TSC").is_some() {
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "tsconfig.router.json", "{}");
+    write(root, "src/a.ts", "const a: number = 's';\n");
+    let marker = root.join("calls");
+    write_script(
+        &root.join("node_modules/.bin/tsc"),
+        &format!(
+            "echo call >> '{}'\necho 'src/a.ts(1,7): error TS2322: Type mismatch'",
+            marker.display()
+        ),
+    );
+
+    let source = root.join("src/a.ts");
+    assert_eq!(
+        project::tsconfig_for(&source),
+        Some(root.join("tsconfig.router.json"))
+    );
+    assert_eq!(
+        project::tsconfigs_for(&source),
+        vec![root.join("tsconfig.router.json")]
+    );
+    let analysis = analyze::analyze(
+        &source,
+        "const a: number = 's';\n",
+        &Config::default(),
+        Dialect::Auto,
+        &Options {
+            type_aware: true,
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        analysis
+            .findings
+            .iter()
+            .any(|finding| finding.code == "tsc-2322"),
+        "{:?}",
+        analysis.findings
+    );
+    assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 1);
+
+    // A standard config wins over nonstandard siblings.
+    write(root, "tsconfig.json", "{}");
+    assert_eq!(
+        project::tsconfigs_for(&source),
+        vec![root.join("tsconfig.json")]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn solution_config_runs_each_reference_once_and_merges_diagnostics() {
+    if std::env::var_os("DOTFMT_TSC").is_some() {
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "tsconfig.json",
+        r#"{"files":[],"references":[{"path":"./app"}]}"#,
+    );
+    write(
+        root,
+        "app/tsconfig.json",
+        r#"{"references":[{"path":"../lib"}]}"#,
+    );
+    write(root, "lib/tsconfig.json", "{}");
+    write(root, "app/src/a.ts", "const a: number = 's';\n");
+    write(root, "lib/src/lib.ts", "export const lib: number = 's';\n");
+    let marker = root.join("calls");
+    write_script(
+        &root.join("node_modules/.bin/tsc"),
+        &format!(
+            "echo \"$*\" >> '{}'\ncase \"$*\" in\n*app/tsconfig.json*) echo 'src/a.ts(1,7): error TS2322: app error' ;;\n*lib/tsconfig.json*) echo 'src/lib.ts(1,14): error TS2322: lib error' ;;\nesac",
+            marker.display()
+        ),
+    );
+
+    let solution = root.join("tsconfig.json");
+    let diagnostics = project::type_diagnostics(root, &solution).unwrap();
+    let messages: Vec<&str> = diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect();
+    assert!(messages.contains(&"app error"), "{messages:?}");
+    assert!(messages.contains(&"lib error"), "{messages:?}");
+    assert_eq!(
+        fs::read_to_string(&marker).unwrap().lines().count(),
+        3,
+        "the solution, app and lib configs must each run once"
+    );
+
+    let app_source = root.join("app/src/a.ts");
+    let selected = project::type_diagnostics_for(&app_source, root, &solution).unwrap();
+    assert_eq!(selected.len(), 1, "{selected:?}");
+    assert_eq!(selected[0].message, "app error");
+    assert_eq!(
+        fs::read_to_string(&marker).unwrap().lines().count(),
+        3,
+        "a cached graph must not rerun the compiler"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn reference_build_codes_are_filtered_and_replaced_with_a_hint() {
+    if std::env::var_os("DOTFMT_TSC").is_some() {
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "tsconfig.json", "{}");
+    write(root, "src/a.ts", "const a: number = 's';\n");
+    write_script(
+        &root.join("node_modules/.bin/tsc"),
+        "echo 'src/a.ts(1,7): error TS6305: output not built'\n\
+         echo 'src/a.ts(1,7): error TS6310: referenced project may not disable emit'\n\
+         echo 'src/a.ts(1,7): error TS2322: real error'",
+    );
+    let source = root.join("src/a.ts");
+    let config = root.join("tsconfig.json");
+    let diagnostics = project::type_diagnostics_for(&source, root, &config).unwrap();
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| !project::is_reference_build_diagnostic(diagnostic.code)),
+        "{diagnostics:?}"
+    );
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic.code == 2322),
+        "{diagnostics:?}"
+    );
+    let hint = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == project::TSC_REFERENCE_BUILD_CODE);
+    assert!(hint.is_some(), "{diagnostics:?}");
+    assert!(hint.unwrap().message.contains("tsc -b"));
+
+    let analysis = analyze::analyze(
+        &source,
+        "const a: number = 's';\n",
+        &Config::default(),
+        Dialect::Auto,
+        &Options {
+            type_aware: true,
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        analysis
+            .findings
+            .iter()
+            .any(|finding| finding.code == format!("tsc-{}", project::TSC_REFERENCE_BUILD_CODE)),
+        "{:?}",
+        analysis.findings
+    );
 }
 
 #[test]
@@ -1851,11 +2028,7 @@ fn workspace_root_keeps_the_private_package_check_per_file() {
         "package.json",
         r#"{"private":true,"workspaces":["packages/*"]}"#,
     );
-    write(
-        root,
-        "packages/ui/package.json",
-        r#"{"private":false}"#,
-    );
+    write(root, "packages/ui/package.json", r#"{"private":false}"#);
     write(root, "packages/ui/tsconfig.json", "{}");
     write(root, "packages/ui/src/a.ts", "export const unused = 1;\n");
     write(root, "packages/ui/src/use.ts", "console.log(1);\n");

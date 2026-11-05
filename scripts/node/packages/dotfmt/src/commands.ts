@@ -3,11 +3,11 @@ import path from "node:path";
 import * as vscode from "vscode";
 import {
   binaryVersion,
+  type Client,
   cliPath,
   extensionVersion,
   globalConfigFile,
   message,
-  type Client,
 } from "./client";
 import {
   doctorReportLines,
@@ -15,8 +15,13 @@ import {
   requestDoctor,
   tscState,
 } from "./lib/doctor";
-import { explain, type Explanation } from "./lib/explain";
-import { CONFIG_NAME, LANGUAGES, SELECTOR } from "./lib/languages";
+import { type Explanation, explain } from "./lib/explain";
+import {
+  CONFIG_NAME,
+  enabledFormatterLanguages,
+  fallbackFormatterLanguages,
+  SELECTOR,
+} from "./lib/languages";
 import { configTarget, formatSettingsQuery } from "./lib/native";
 import { expandHome, findConfig, isWithin, tildify } from "./lib/paths";
 import { readSettings } from "./lib/settings";
@@ -41,7 +46,7 @@ export function registerCommands(
     }),
     vscode.commands.registerCommand("dotfmt.showOutput", () => log.show(true)),
     vscode.commands.registerCommand("dotfmt.setAsDefaultFormatter", () =>
-      setAsDefaultFormatter(context),
+      setAsDefaultFormatter(context, client),
     ),
     vscode.commands.registerCommand("dotfmt.configure", () =>
       vscode.commands.executeCommand(
@@ -61,18 +66,47 @@ export function registerCommands(
 
 async function setAsDefaultFormatter(
   context: vscode.ExtensionContext,
+  client: Client,
 ): Promise<void> {
   const hasFolder = (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
   const target = hasFolder
     ? vscode.ConfigurationTarget.Workspace
     : vscode.ConfigurationTarget.Global;
+  const folder =
+    (vscode.window.activeTextEditor
+      ? vscode.workspace.getWorkspaceFolder(
+          vscode.window.activeTextEditor.document.uri,
+        )
+      : undefined) ?? vscode.workspace.workspaceFolders?.[0];
+  const available = await vscode.languages.getLanguages();
+  let languages: string[];
+  try {
+    const response = await client.request<unknown>(
+      "dotfmt/languages",
+      folder ? { scopeUri: folder.uri.toString() } : {},
+    );
+    const names = languageNames(response);
+    if (!names) {
+      throw new Error("unexpected dotfmt/languages response");
+    }
+    languages = enabledFormatterLanguages(names, available);
+  } catch {
+    // Older or unavailable servers still get the conservative shipped set.
+    languages = fallbackFormatterLanguages(available);
+  }
+  if (languages.length === 0) {
+    void vscode.window.showWarningMessage(
+      "dotfmt: no enabled languages to set as the default formatter.",
+    );
+    return;
+  }
   const failures: string[] = [];
   await Promise.all(
-    LANGUAGES.map(async (language) => {
+    languages.map(async (language) => {
       try {
         await vscode.workspace
           .getConfiguration("editor", { languageId: language })
-          .update("defaultFormatter", context.extension.id, target);
+          .update("defaultFormatter", context.extension.id, target, true);
       } catch (error) {
         failures.push(`${language}: ${message(error)}`);
       }
@@ -87,10 +121,25 @@ async function setAsDefaultFormatter(
     return;
   }
   void vscode.window.showInformationMessage(
-    `dotfmt is now the default formatter for its languages in ${
+    `dotfmt is now the default formatter for its enabled languages in ${
       hasFolder ? "this workspace" : "user settings"
     }.`,
   );
+}
+
+function languageNames(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+  if (typeof value === "object" && value !== null) {
+    const languages = (value as { languages?: unknown }).languages;
+    if (Array.isArray(languages)) {
+      return languages.filter(
+        (item): item is string => typeof item === "string",
+      );
+    }
+  }
+  return undefined;
 }
 
 async function openConfig(): Promise<void> {

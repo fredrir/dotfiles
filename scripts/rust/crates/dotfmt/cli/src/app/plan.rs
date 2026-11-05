@@ -9,6 +9,7 @@ use dotfmt_core::language::Language;
 use dotfmt_markdown::dialect::Dialect;
 
 use super::engine::Engine;
+use super::ignore::ScanPolicy;
 use super::{
     Buffer, Explanation, Operation, Request, Session, attach_path, configuration, discovery,
     forced, ordered, requested,
@@ -103,7 +104,15 @@ impl Session {
                         "dialect overrides do not apply to ownership queries",
                     )]);
                 }
+                let scan = ScanPolicy::current();
                 for path in paths {
+                    let absolute = match self.resolver.absolute_path(path) {
+                        Ok(absolute) => absolute,
+                        Err(error) => {
+                            errors.push(error);
+                            continue;
+                        }
+                    };
                     let config = match self.resolver.for_file(path) {
                         Ok(config) => config,
                         Err(error) => {
@@ -111,7 +120,7 @@ impl Session {
                             continue;
                         }
                     };
-                    if prettier_ignored(path) {
+                    if !scan.allows(&absolute) {
                         continue;
                     }
                     configs.insert(Arc::as_ptr(&config) as usize, Arc::clone(&config));
@@ -235,7 +244,7 @@ impl Session {
                             }
                             _ => continue,
                         };
-                        if prettier_ignored(&candidate.absolute) {
+                        if !ScanPolicy::at(&candidate.root).allows(&candidate.absolute) {
                             continue;
                         }
                         let canonical = match fs::canonicalize(&candidate.absolute) {
@@ -302,7 +311,7 @@ impl Session {
         let (config, selection) = self
             .resolve_buffer(request, path)
             .map_err(|error| vec![error])?;
-        if prettier_ignored(path) {
+        if ScanPolicy::at(path).ignored(path) {
             return Ok(Explanation {
                 selection: Selection::Excluded,
                 dialect: None,
@@ -506,28 +515,6 @@ impl Session {
             Operation::Owns { .. } => unreachable!(),
         }
     }
-}
-
-/// Prettier compatibility: honor the nearest `.prettierignore` during discovery.
-fn prettier_ignored(path: &Path) -> bool {
-    let Some(parent) = path.parent() else {
-        return false;
-    };
-    let mut directory = Some(parent);
-    while let Some(current) = directory {
-        let ignore = current.join(".prettierignore");
-        if ignore.is_file() {
-            let mut builder = ignore::gitignore::GitignoreBuilder::new(current);
-            builder.add(&ignore);
-            if let Ok(patterns) = builder.build()
-                && patterns.matched(path, false).is_ignore()
-            {
-                return true;
-            }
-        }
-        directory = current.parent();
-    }
-    false
 }
 
 fn enabled(config: &Effective, languages: &mut BTreeSet<Language>) {

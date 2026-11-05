@@ -1,9 +1,7 @@
 use std::path::Path;
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{
-    ArrayExpression, JSXElement, JSXFragment, ObjectExpression, Program, Statement,
-};
+use oxc_ast::ast::{ArrayExpression, JSXElement, JSXFragment, ObjectExpression, Statement};
 use oxc_ast_visit::Visit;
 use oxc_span::{GetSpan, SourceType};
 
@@ -13,8 +11,8 @@ use crate::dialect::Dialect;
 ///
 /// The returned range is always a contiguous byte range within `input`.
 /// Statements, JSX elements, fragments, object expressions, and array
-/// expressions are candidates; the whole program covers selections outside
-/// those nodes. Zero-width selections expand to a statement or JSX node.
+/// expressions are candidates. Selections outside those nodes return `None`
+/// so callers can use a bounded line block instead of the whole program.
 /// Parse failures and reversed ranges return `None`.
 pub fn expand_range(
     path: &Path,
@@ -49,9 +47,7 @@ pub fn expand_range(
         best: None,
     };
     expansion.visit_program(&parsed.program);
-    expansion
-        .best
-        .or_else(|| program_range(&parsed.program, input.len()))
+    expansion.best
 }
 
 struct Expansion {
@@ -124,12 +120,6 @@ fn source_type(path: &Path, dialect: Dialect) -> SourceType {
     dialect
         .resolve(Dialect::Auto, path)
         .source_type_for_path(path)
-}
-
-fn program_range(program: &Program<'_>, input_len: usize) -> Option<(usize, usize)> {
-    let start = program.span.start as usize;
-    let end = program.span.end as usize;
-    (start <= end && end <= input_len).then_some((start, end))
 }
 
 fn char_boundary(input: &str, offset: usize, round_up: bool) -> usize {

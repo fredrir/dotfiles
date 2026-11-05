@@ -77,13 +77,19 @@ impl Config {
         let mut config = Self::default();
         for (key, setting) in settings {
             config
-                .set(key, &setting.value, setting.global)
+                .set(key, &setting.value, setting.global, &setting.source)
                 .map_err(|error| setting.error(error))?;
         }
         Ok(config)
     }
 
-    fn set(&mut self, key: &str, value: &str, global: bool) -> Result<(), String> {
+    fn set(
+        &mut self,
+        key: &str,
+        value: &str,
+        global: bool,
+        source: &std::path::Path,
+    ) -> Result<(), String> {
         match key {
             "indent" if global => {
                 if let Some(indent) = clamped(value, 0, 24) {
@@ -220,8 +226,14 @@ impl Config {
             }
             "tailwind_dedupe" => self.tailwind.dedupe = flag(key, value)?,
             "tailwind_merge" => self.tailwind.merge = flag(key, value)?,
-            "tailwind_stylesheet" => self.tailwind.stylesheet = Some(value.into()),
-            "tailwind_config" => self.tailwind.config_file = Some(value.into()),
+            "tailwind_stylesheet" => {
+                self.tailwind.stylesheet = Some(value.into());
+                self.tailwind.stylesheet_base = setting_base(global, source);
+            }
+            "tailwind_config" => {
+                self.tailwind.config_file = Some(value.into());
+                self.tailwind.config_base = setting_base(global, source);
+            }
             "dialect" => self.dialect = crate::dialect::Dialect::parse(value, true)?,
             other => return Err(format!("unknown setting: {other}")),
         }
@@ -253,6 +265,17 @@ impl Config {
     pub fn tailwind_enabled(&self) -> bool {
         !matches!(self.tailwind.mode, dotfmt_tailwind::Mode::Off)
     }
+}
+
+/// A local setting is relative to its declaring config file; globals are
+/// relative to the workspace root and therefore have no base here.
+fn setting_base(global: bool, source: &std::path::Path) -> Option<std::path::PathBuf> {
+    (!global).then(|| {
+        source
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf()
+    })
 }
 
 fn flag(key: &str, value: &str) -> Result<bool, String> {

@@ -66,6 +66,40 @@ fn formats_html_and_settles_after_one_pass() {
 }
 
 #[test]
+fn formats_container_children_without_corrupting_optional_tag_boundaries() {
+    assert_eq!(
+        html("<body><div></div></body>"),
+        "<body><div></div></body>\n"
+    );
+    assert_eq!(
+        html("<body><section></section></body>"),
+        "<body><section></section></body>\n"
+    );
+    assert_eq!(
+        html("<body><table><tr><td>x</td></tr></table></body>"),
+        "<body><table><tr><td>x</td></tr></table></body>\n"
+    );
+}
+
+#[test]
+fn formats_the_standard_vite_entry_document() {
+    let output = html(
+        r#"<!doctype html><html><head><title>x</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>"#,
+    );
+    assert!(output.contains(r#"<div id="root"></div>"#), "{output}");
+    assert!(output.contains("</body>"), "{output}");
+    assert!(output.ends_with("</html>\n"), "{output}");
+}
+
+#[test]
+fn still_repairs_omitted_optional_end_tags() {
+    let output = html("<ul><li>a<li>b</ul>");
+    assert_eq!(output, "<ul>\n  <li>a</li>\n  <li>b</li>\n</ul>\n");
+    let output = html("<html><head><title>x</title><body><p>y</p></body></html>");
+    assert!(output.contains("</head>"), "{output}");
+}
+
+#[test]
 fn resolves_the_dialect_from_the_path_when_configured_as_auto() {
     let output = run(
         "component.vue",

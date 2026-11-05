@@ -3,13 +3,18 @@ use std::sync::Arc;
 
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use oxc_allocator::Allocator;
-use oxc_formatter::format_with_session;
+use oxc_formatter::{JsFormatOptions, format_with_session};
 use oxc_formatter_core::{FormatSession, InputKind, SessionServices, TailwindSorter};
 use oxc_span::SourceType;
 
 use crate::config::{Config, LineEndings};
 use crate::dialect::Dialect;
 use crate::source::syntax_diagnostic;
+
+/// The formatter's layout should be stable after one pass, but a few oxc
+/// member-chain decisions depend on the input line breaks. Settle those before
+/// returning, without hiding a genuinely oscillating result from the verifier.
+const MAX_FORMAT_PASSES: usize = 3;
 
 /// Formats TypeScript/TSX/JavaScript/JSX.
 ///
@@ -39,13 +44,58 @@ pub fn format(
         }
         return Ok(output);
     }
-    let allocator = Allocator::default();
     let source_type = source_type(config, path, dialect);
     let options = config.js_options_for_path(path);
     let services = services(config);
-    let session = FormatSession::with_services(&allocator, InputKind::PhysicalFile, services);
-    let formatted = format_with_session(&session, &text, source_type, options)
-        .map_err(|error| syntax_diagnostic(&text, &error))?;
+    let mut output = format_pass(&text, config, source_type, &options, &services)?;
+    let mut settled = false;
+    for pass in 2..=MAX_FORMAT_PASSES {
+        let next = format_pass(&output, config, source_type, &options, &services)?;
+        if next == output {
+            output = next;
+            settled = true;
+            if pass > 2 {
+                debug_log(format_args!(
+                    "{}: formatting settled on pass {pass}",
+                    path.display()
+                ));
+            }
+            break;
+        }
+        output = next;
+    }
+    if !settled {
+        warn_log(format_args!(
+            "{}: formatting did not settle after {MAX_FORMAT_PASSES} passes; using the last pass",
+            path.display()
+        ));
+    }
+    if config.verify
+        && let Some(removal) = crate::verify::detect_code_removal(&text, &output, source_type)
+    {
+        return Err(internal(format!("formatting would remove code: {removal}")));
+    }
+    if config.line_endings == LineEndings::Windows {
+        output = output.replace('\n', "\r\n");
+    }
+    if bom {
+        output.insert(0, '\u{feff}');
+    }
+    Ok(output)
+}
+
+fn format_pass(
+    text: &str,
+    config: &Config,
+    source_type: SourceType,
+    options: &JsFormatOptions,
+    services: &SessionServices,
+) -> Result<String, Diagnostic> {
+    let allocator = Allocator::default();
+    let session =
+        FormatSession::with_services(&allocator, InputKind::PhysicalFile, services.clone());
+    let formatted = format_with_session(&session, text, source_type, options.clone())
+        .map_err(|error| syntax_diagnostic(text, &error))?;
     let mut output = formatted
         .print()
         .map_err(|error| internal(format!("formatting failed: {error}")))?
@@ -57,18 +107,17 @@ pub fn format(
     if config.final_newline && !output.is_empty() {
         output.push('\n');
     }
-    if config.verify
-        && let Some(removal) = oxc_formatter::detect_code_removal(&text, &output, source_type)
-    {
-        return Err(internal(format!("formatting would remove code: {removal}")));
-    }
-    if config.line_endings == LineEndings::Windows {
-        output = output.replace('\n', "\r\n");
-    }
-    if bom {
-        output.insert(0, '\u{feff}');
-    }
     Ok(output)
+}
+
+fn debug_log(message: std::fmt::Arguments<'_>) {
+    if std::env::var_os("DOTFMT_DEBUG").is_some() {
+        eprintln!("dotfmt: debug: {message}");
+    }
+}
+
+fn warn_log(message: std::fmt::Arguments<'_>) {
+    eprintln!("dotfmt: warning: {message}");
 }
 
 fn normalize_line_endings(input: &str) -> String {

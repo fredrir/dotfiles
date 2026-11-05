@@ -216,7 +216,14 @@ impl Settings {
     }
 
     /// The explicit `trusted` value in an initialization option or settings object.
+    ///
+    /// A top-level `trusted` key is authoritative; a nested `dotfmt.trusted`
+    /// value is only a fallback so extension initialization options cannot be
+    /// overridden by a stray nested object.
     pub fn trust(value: &Value) -> Option<bool> {
+        if let Some(trusted) = value.get("trusted").and_then(Value::as_bool) {
+            return Some(trusted);
+        }
         let value = value
             .get("dotfmt")
             .filter(|value| value.is_object())
@@ -616,6 +623,20 @@ mod tests {
         );
         assert_eq!(
             Settings::trust(&json!({ "dotfmt.trusted": false })),
+            Some(false)
+        );
+        assert_eq!(
+            Settings::trust(&json!({
+                "trusted": true,
+                "dotfmt": { "trusted": false, "typeAware": false }
+            })),
+            Some(true)
+        );
+        assert_eq!(
+            Settings::trust(&json!({
+                "trusted": false,
+                "dotfmt": { "trusted": true }
+            })),
             Some(false)
         );
         assert_eq!(Settings::trust(&json!({ "typeAware": false })), None);

@@ -80,7 +80,8 @@ fn invalid_dialects_are_configuration_errors() {
 fn blank_line_and_alignment_ranges_are_enforced() {
     for value in ["0", "10"] {
         let config = Config::from_settings(&setting("blank_lines", value, false)).unwrap();
-        assert_eq!(config.blank_lines, value.parse().unwrap());
+        let expected: usize = value.parse().unwrap();
+        assert_eq!(config.blank_lines, expected);
     }
     for value in ["11", "100", "no"] {
         let error = Config::from_settings(&setting("blank_lines", value, false)).unwrap_err();
@@ -91,7 +92,8 @@ fn blank_line_and_alignment_ranges_are_enforced() {
     }
     for value in ["0", "1000"] {
         let config = Config::from_settings(&setting("align_max", value, false)).unwrap();
-        assert_eq!(config.align_max, value.parse().unwrap());
+        let expected: usize = value.parse().unwrap();
+        assert_eq!(config.align_max, expected);
     }
     for value in ["1001", "-1", "wide"] {
         let error = Config::from_settings(&setting("align_max", value, false)).unwrap_err();

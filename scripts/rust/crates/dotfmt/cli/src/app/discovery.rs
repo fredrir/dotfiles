@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 
 use dotfmt_core::config::Resolver;
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
-use workstation::walk::Policy;
 pub use workstation::walk::Symlinks;
+
+use super::ignore::ScanPolicy;
 
 #[derive(Debug)]
 pub struct Gathered {
@@ -36,7 +37,7 @@ pub fn gather(
 
     let walked = workstation::walk::walk(
         target,
-        &Policy::new().symlinks(symlinks),
+        &ScanPolicy::at(target).walk().symlinks(symlinks),
         |_directory, entries| {
             entries
                 .iter()
@@ -57,6 +58,7 @@ pub fn gather(
 pub(super) struct Candidate {
     pub path: PathBuf,
     pub absolute: PathBuf,
+    pub root: PathBuf,
     pub explicit: bool,
 }
 
@@ -106,6 +108,7 @@ pub(super) fn discover(targets: &[PathBuf], resolver: &Resolver) -> Discovered {
                     result.candidates.push(Candidate {
                         path: shown,
                         absolute: path,
+                        root: absolute.clone(),
                         explicit: !is_dir,
                     });
                 }

@@ -26,18 +26,30 @@ pub fn format(
     }
     let text = input.replace("\r\n", "\n");
     let dialect = dialect.resolve(config.dialect, path);
-    let text = if dialect == Dialect::Html {
-        crate::optional::insert_optional_end_tags(&text)
-    } else {
-        std::borrow::Cow::Borrowed(text.as_str())
+    let format_markup = |source: &str| {
+        markup_fmt::format_text(
+            source,
+            dialect.language(),
+            &config.markup_options(),
+            |code, hints| Ok(embedded(code, hints.ext, config)),
+        )
     };
-    let mut output = markup_fmt::format_text(
-        &text,
-        dialect.language(),
-        &config.markup_options(),
-        |code, hints| Ok(embedded(code, hints.ext, config)),
-    )
-    .map_err(|error| syntax(&text, error))?;
+    // Format the document as written first. The optional-end-tag pre-pass is
+    // only a repair path for markup that omits optional closing tags; running
+    // it unconditionally can corrupt well-formed HTML with container elements.
+    let mut prepared = Cow::Borrowed(text.as_str());
+    let mut output = match format_markup(&prepared) {
+        Ok(output) => output,
+        Err(first) if dialect == Dialect::Html => {
+            let with_optional = crate::optional::insert_optional_end_tags(&prepared);
+            if with_optional.as_ref() == prepared.as_ref() {
+                return Err(syntax(&prepared, first));
+            }
+            prepared = Cow::Owned(with_optional.into_owned());
+            format_markup(&prepared).map_err(|error| syntax(&prepared, error))?
+        }
+        Err(error) => return Err(syntax(&prepared, error)),
+    };
     output.truncate(output.trim_end_matches('\n').len());
     if config.tailwind_enabled()
         && let Some(sorter) = &config.tailwind_sorter

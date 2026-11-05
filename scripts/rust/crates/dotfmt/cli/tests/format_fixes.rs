@@ -32,6 +32,7 @@ fn enabled(config: &Config, key: &str) -> bool {
         "remove_unused_imports" => config.remove_unused_imports,
         "remove_unused_exports" => config.remove_unused_exports,
         "remove_unused_locals" => config.remove_unused_locals,
+        "remove_impure_locals" => config.remove_impure_locals,
         "remove_unused_parameters" => config.remove_unused_parameters,
         "convert_type_only_imports" => config.convert_type_only_imports,
         "organize_imports" => config.organize_imports,
@@ -46,6 +47,7 @@ fn config_parses_every_format_fix_key() {
         config.remove_unused_imports,
         config.remove_unused_exports,
         config.remove_unused_locals,
+        config.remove_impure_locals,
         config.remove_unused_parameters,
         config.convert_type_only_imports,
         config.organize_imports,
@@ -57,6 +59,7 @@ fn config_parses_every_format_fix_key() {
         "remove_unused_imports",
         "remove_unused_exports",
         "remove_unused_locals",
+        "remove_impure_locals",
         "remove_unused_parameters",
         "convert_type_only_imports",
         "organize_imports",
@@ -144,6 +147,12 @@ fn format_fix_selection_follows_modes_and_individual_flags() {
     assert!(locals.r#unsafe);
     assert!(locals.remove_unused_locals);
     assert!(!locals.remove_unused_imports);
+
+    let impure = selection("remove_impure_locals", "true").expect("impure local selection");
+    assert!(!impure.safe);
+    assert!(impure.r#unsafe);
+    assert!(impure.remove_unused_locals);
+    assert!(!impure.remove_unused_imports);
 
     let mut forced = Config::from_settings(&settings("fixes", "safe")).unwrap();
     forced.remove_unused_locals = true;
@@ -460,5 +469,22 @@ fn remove_unused_parameters_is_diagnose_only() {
     assert_eq!(
         fs::read_to_string(root.path().join("a.ts")).unwrap(),
         "export function f(unused: number) {\n  return 1;\n}\n"
+    );
+}
+
+#[test]
+fn fixes_off_with_explicit_impure_locals_removes_the_initializer_call() {
+    let root = tree_pairs(&[
+        (
+            "dotfmt.dotfile",
+            "typescript { fixes = off\n remove_impure_locals = true\n tailwind = off\n type_aware = false }\n",
+        ),
+        ("a.ts", "const unused = bump();\nexport const live = 1;\n"),
+    ]);
+    let output = dotfmt(root.path()).arg("a.ts").run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.ts")).unwrap(),
+        "export const live = 1;\n"
     );
 }

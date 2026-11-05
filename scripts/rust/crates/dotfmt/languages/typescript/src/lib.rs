@@ -9,6 +9,7 @@ mod range;
 mod resolve;
 mod source;
 mod tsconfig;
+mod verify;
 
 pub use analyze::{Options, TypeDiagnostic, analyze};
 pub use config::Config;

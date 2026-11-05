@@ -25,6 +25,32 @@ impl Applicability {
     }
 }
 
+/// How much applicability an explicit fix pass may apply.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FixMode {
+    #[default]
+    None,
+    Safe,
+    Unsafe,
+}
+
+impl FixMode {
+    /// Whether a fix with `applicability` may be applied in this mode.
+    pub fn allows(self, applicability: Applicability) -> bool {
+        match self {
+            Self::None => false,
+            Self::Safe => applicability == Applicability::Safe,
+            Self::Unsafe => matches!(applicability, Applicability::Safe | Applicability::Unsafe),
+        }
+    }
+}
+
+/// The enabled fix categories for a pass.
+pub trait FixSelection {
+    /// Whether `fix` belongs to an enabled category.
+    fn selects(&self, fix: &Fix) -> bool;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
@@ -230,6 +256,21 @@ pub fn apply(source: &str, edits: &[Edit]) -> Result<String, EditError> {
     Ok(output)
 }
 
+/// Selects fixes allowed by `mode` whose category `selection` enables.
+///
+/// Applicability and categories are independent: `Unsafe` widens applicability
+/// but never enables an unselected category.
+pub fn select_fixes<'a, S: FixSelection + ?Sized>(
+    mode: FixMode,
+    selection: &S,
+    fixes: &'a [Fix],
+) -> Vec<&'a Fix> {
+    fixes
+        .iter()
+        .filter(|fix| mode.allows(fix.applicability) && selection.selects(fix))
+        .collect()
+}
+
 /// Applies every edit from every provided fix, rejecting overlaps.
 pub fn apply_fixes(source: &str, fixes: &[&Fix]) -> Result<String, EditError> {
     let edits: Vec<Edit> = fixes
@@ -271,6 +312,70 @@ mod tests {
         assert_eq!(
             apply("é", &[Edit::replace(0, 1, "x")]),
             Err(EditError::NotCharBoundary)
+        );
+    }
+
+    struct Categories {
+        safe_category: bool,
+        unsafe_category: bool,
+    }
+
+    impl FixSelection for Categories {
+        fn selects(&self, fix: &Fix) -> bool {
+            if fix.applicability == Applicability::Safe {
+                self.safe_category
+            } else {
+                self.unsafe_category
+            }
+        }
+    }
+
+    #[test]
+    fn select_fixes_intersects_applicability_and_categories() {
+        let fixes = [
+            Fix::new("safe", "quickfix", Applicability::Safe, Vec::new()),
+            Fix::new("unsafe", "quickfix", Applicability::Unsafe, Vec::new()),
+            Fix::new(
+                "suggestion",
+                "quickfix",
+                Applicability::Suggestion,
+                Vec::new(),
+            ),
+        ];
+        let none = Categories {
+            safe_category: false,
+            unsafe_category: false,
+        };
+        let safe = Categories {
+            safe_category: true,
+            unsafe_category: false,
+        };
+        let all = Categories {
+            safe_category: true,
+            unsafe_category: true,
+        };
+        assert!(select_fixes(FixMode::None, &all, &fixes).is_empty());
+        assert_eq!(
+            select_fixes(FixMode::Safe, &all, &fixes)
+                .iter()
+                .map(|fix| fix.title.as_str())
+                .collect::<Vec<_>>(),
+            ["safe"]
+        );
+        assert_eq!(
+            select_fixes(FixMode::Unsafe, &all, &fixes)
+                .iter()
+                .map(|fix| fix.title.as_str())
+                .collect::<Vec<_>>(),
+            ["safe", "unsafe"]
+        );
+        assert!(select_fixes(FixMode::Unsafe, &none, &fixes).is_empty());
+        assert_eq!(
+            select_fixes(FixMode::Safe, &safe, &fixes)
+                .iter()
+                .map(|fix| fix.title.as_str())
+                .collect::<Vec<_>>(),
+            ["safe"]
         );
     }
 

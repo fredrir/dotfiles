@@ -1,7 +1,7 @@
 use std::fs;
 
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
-use dotfmt_core::edit::{Applicability, Fix, apply_fixes};
+use dotfmt_core::edit::{apply_fixes, select_fixes};
 use dotfmt_core::language::Language;
 use rayon::prelude::*;
 
@@ -282,13 +282,22 @@ fn inspect(
         Some(text) => (true, text),
         None => (false, original.as_str()),
     };
+    let selection = engine.fix_selection(fix);
+    let unsafe_fixes = selection
+        .as_ref()
+        .map_or(fix == FixMode::Unsafe, |selection| {
+            fix == FixMode::Unsafe && selection.r#unsafe
+        });
+    let organize = selection
+        .as_ref()
+        .is_none_or(|selection| selection.organize_imports);
     let analysis = engine.analyze(
         absolute,
         text.as_bytes(),
         fix != FixMode::None,
-        fix == FixMode::Unsafe,
+        unsafe_fixes,
         type_aware,
-        true,
+        organize,
         project_analysis,
     )?;
     let mut applied = Vec::new();
@@ -300,22 +309,15 @@ fn inspect(
                 absolute,
                 current.as_bytes(),
                 true,
-                fix == FixMode::Unsafe,
+                unsafe_fixes,
                 type_aware,
-                true,
+                organize,
                 project_analysis,
             )?;
-            let selected: Vec<&Fix> = pass
-                .fixes
-                .iter()
-                .filter(|candidate| {
-                    matches!(
-                        (fix, candidate.applicability),
-                        (FixMode::Safe, Applicability::Safe)
-                            | (FixMode::Unsafe, Applicability::Safe | Applicability::Unsafe)
-                    )
-                })
-                .collect();
+            let selected = match &selection {
+                Some(selection) => select_fixes(fix, selection, &pass.fixes),
+                None => Vec::new(),
+            };
             if selected.is_empty() {
                 break;
             }

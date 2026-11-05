@@ -29,7 +29,13 @@ pub struct Config {
     pub dedupe: bool,
     pub merge: bool,
     pub stylesheet: Option<PathBuf>,
+    /// Directory of the configuration layer that declared `stylesheet`.
+    /// `None` means a global setting, resolved against the workspace root.
+    pub stylesheet_base: Option<PathBuf>,
     pub config_file: Option<PathBuf>,
+    /// Directory of the configuration layer that declared `config_file`.
+    /// `None` means a global setting, resolved against the workspace root.
+    pub config_base: Option<PathBuf>,
 }
 
 impl Config {

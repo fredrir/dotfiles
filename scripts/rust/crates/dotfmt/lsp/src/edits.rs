@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 use lsp_types::TextEdit;
-use similar::{ChangeTag, TextDiff};
+use similar::{ChangeTag, DiffOp, TextDiff};
 
 use dotfmt_core::edit::Edit;
 
@@ -126,24 +126,217 @@ fn line_starts(text: &str) -> Vec<usize> {
     starts
 }
 
-/// Keeps the edits fully contained in at least one requested byte range.
+/// Replaces the requested original ranges with the corresponding formatted
+/// text. A range-scoped request must not be built by filtering a whole-file
+/// line diff: when formatting changes the line count, a filtered hunk no
+/// longer denotes the selected statement.
 ///
-/// Range formatting must never rewrite bytes outside the selection, so an edit
-/// that merely touches a range boundary is discarded until [`minimal`] has
-/// split the hunk small enough to fit.
-pub fn filter(edits: Vec<ByteEdit>, ranges: &[Range<usize>]) -> Vec<ByteEdit> {
+pub fn ranged(before: &str, after: &str, ranges: &[Range<usize>]) -> Vec<ByteEdit> {
+    if before == after || ranges.is_empty() {
+        return Vec::new();
+    }
+    // Character diffing makes the original -> formatted offset mapping robust
+    // across inserted and removed lines. Keep a bound so a range request on a
+    // huge generated file cannot turn into an expensive quadratic diff.
+    let map = LineMap::new(before, after);
+    let mut edits = Vec::new();
+    for requested in merge_ranges(ranges) {
+        let original = expanded_lines(before, requested.start, requested.end);
+        let Some(start) = map.map(original.start) else {
+            continue;
+        };
+        let Some(end) = map.map(original.end) else {
+            continue;
+        };
+        let start_at_line = at_line_start(before, original.start);
+        let end_at_line = original.end == before.len() || at_line_start(before, original.end);
+        let formatted_start = if start_at_line {
+            line_start_at(after, start)
+        } else {
+            start.min(after.len())
+        };
+        let formatted_end = if end_at_line {
+            line_start_at(after, end)
+        } else {
+            line_end_at(after, end)
+        };
+        let formatted_end = formatted_end.max(formatted_start);
+        let new_text = after[formatted_start..formatted_end].to_owned();
+        if before[original.clone()] == new_text {
+            continue;
+        }
+        edits.push(ByteEdit::new(original.start, original.end, new_text));
+    }
     edits
-        .into_iter()
-        .filter(|edit| ranges.iter().any(|range| contains(edit, range)))
-        .collect()
 }
 
-fn contains(edit: &ByteEdit, range: &Range<usize>) -> bool {
-    if edit.start == edit.end {
-        range.start <= edit.start && edit.start <= range.end
-    } else {
-        range.start <= edit.start && edit.end <= range.end
+const MAX_CHAR_DIFF: usize = 1_048_576;
+
+struct LineMap<'a> {
+    before: &'a str,
+    after: &'a str,
+    old_starts: Vec<usize>,
+    new_starts: Vec<usize>,
+    ops: Vec<DiffOp>,
+}
+
+impl<'a> LineMap<'a> {
+    fn new(before: &'a str, after: &'a str) -> Self {
+        let diff = TextDiff::from_lines(before, after);
+        Self {
+            before,
+            after,
+            old_starts: line_starts(before),
+            new_starts: line_starts(after),
+            ops: diff.ops().to_vec(),
+        }
     }
+
+    fn map(&self, offset: usize) -> Option<usize> {
+        let line = line_index(&self.old_starts, offset);
+        for op in &self.ops {
+            let old = op.old_range();
+            let new = op.new_range();
+            if line < old.start || line >= old.end {
+                continue;
+            }
+            if let DiffOp::Equal { .. } = op {
+                let target_line = new.start + (line - old.start);
+                let old_base = self.old_starts[line];
+                let new_base = *self.new_starts.get(target_line)?;
+                return Some(new_base + offset.saturating_sub(old_base));
+            }
+            let old_start = self.old_starts[old.start];
+            let old_end = self
+                .old_starts
+                .get(old.end)
+                .copied()
+                .unwrap_or(self.before.len());
+            let new_start = self.new_starts[new.start];
+            let new_end = self
+                .new_starts
+                .get(new.end)
+                .copied()
+                .unwrap_or(self.after.len());
+            let local = offset
+                .saturating_sub(old_start)
+                .min(old_end.saturating_sub(old_start));
+            let map = CharMap::new(
+                &self.before[old_start..old_end],
+                &self.after[new_start..new_end],
+            )?;
+            return Some(new_start + map.map(local)?);
+        }
+        // A selection exactly at EOF belongs to the final op's new end.
+        (offset == self.before.len()).then_some(self.after.len())
+    }
+}
+
+fn line_index(starts: &[usize], offset: usize) -> usize {
+    match starts.binary_search(&offset) {
+        Ok(index) => index,
+        Err(index) => index.saturating_sub(1),
+    }
+}
+
+struct CharMap {
+    offsets: Vec<usize>,
+}
+
+impl CharMap {
+    fn new(before: &str, after: &str) -> Option<Self> {
+        if before.len().max(after.len()) > MAX_CHAR_DIFF {
+            return None;
+        }
+        let diff = TextDiff::from_chars(before, after);
+        let mut offsets = vec![0; before.len() + 1];
+        let mut old = 0usize;
+        let mut new = 0usize;
+        for change in diff.iter_all_changes() {
+            let text = change.value();
+            let len = text.len();
+            match change.tag() {
+                ChangeTag::Equal => {
+                    for index in 0..=len {
+                        offsets[old + index] = new + index;
+                    }
+                    old += len;
+                    new += len;
+                }
+                ChangeTag::Delete => {
+                    for index in 0..len {
+                        offsets[old + index] = new;
+                    }
+                    old += len;
+                }
+                ChangeTag::Insert => {
+                    new += len;
+                }
+            }
+        }
+        offsets[before.len()] = after.len();
+        Some(Self { offsets })
+    }
+
+    fn map(&self, offset: usize) -> Option<usize> {
+        self.offsets.get(offset).copied()
+    }
+}
+
+fn merge_ranges(ranges: &[Range<usize>]) -> Vec<Range<usize>> {
+    let mut ranges: Vec<Range<usize>> = ranges.to_vec();
+    ranges.sort_by_key(|range| (range.start, range.end));
+    let mut merged: Vec<Range<usize>> = Vec::new();
+    for range in ranges {
+        if let Some(last) = merged.last_mut()
+            && range.start <= last.end
+        {
+            last.end = last.end.max(range.end);
+            continue;
+        }
+        merged.push(range);
+    }
+    merged
+}
+
+fn at_line_start(text: &str, offset: usize) -> bool {
+    offset == 0 || text.as_bytes().get(offset - 1) == Some(&b'\n')
+}
+
+fn line_start_at(text: &str, offset: usize) -> usize {
+    let offset = offset.min(text.len());
+    if at_line_start(text, offset) {
+        return offset;
+    }
+    text[..offset].rfind('\n').map_or(0, |index| index + 1)
+}
+
+fn line_end_at(text: &str, offset: usize) -> usize {
+    let offset = offset.min(text.len());
+    text[offset..]
+        .find('\n')
+        .map_or(text.len(), |index| offset + index + 1)
+}
+
+fn expanded_lines(text: &str, start: usize, end: usize) -> Range<usize> {
+    let start = start.min(text.len());
+    let end = end.min(text.len()).max(start);
+    let start = if start == 0 || text.as_bytes().get(start - 1) == Some(&b'\n') {
+        start
+    } else {
+        text[..start].rfind('\n').map_or(0, |offset| offset + 1)
+    };
+    let end = if end == text.len()
+        || text.as_bytes().get(end) == Some(&b'\n')
+        || (end > 0 && text.as_bytes().get(end - 1) == Some(&b'\n'))
+    {
+        end
+    } else {
+        text[end..]
+            .find('\n')
+            .map_or(text.len(), |offset| end + offset + 1)
+    };
+    start..end
 }
 
 /// Converts fixes from the dotfmt analysis pass into UTF-16 text edits.
@@ -194,12 +387,9 @@ pub fn whole(document: &Document, text: &str) -> Vec<TextEdit> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use lsp_types::Position;
+    #![allow(clippy::single_range_in_vec_init)]
 
-    fn document(text: &str) -> Document {
-        Document::new(text.into(), "json".into(), 1)
-    }
+    use super::*;
 
     #[test]
     fn returns_no_edits_for_equal_text() {
@@ -219,99 +409,53 @@ mod tests {
     }
 
     #[test]
-    fn filtering_a_split_edit_does_not_touch_the_next_statement() {
-        let edits = minimal("a\nb\n", "A\nB\n");
-        let range = 0usize..2;
-        let filtered = filter(edits, std::slice::from_ref(&range));
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0], ByteEdit::new(0, 2, "A\n".to_owned()));
+    fn ranged_replaces_only_the_selected_line() {
+        let edits = ranged("one\ntwo\nthree\n", "ONE\nTWO\nTHREE\n", &[4..8]);
+        assert_eq!(edits, vec![ByteEdit::new(4, 8, "TWO\n".to_owned())]);
     }
 
     #[test]
-    fn every_multiline_replacement_becomes_one_edit_per_line() {
-        let edits = minimal("one\ntwo\nthree\n", "ONE\nTWO\nTHREE\n");
+    fn ranged_maps_a_statement_after_earlier_line_count_changes() {
+        let before = "function one(){return 1;}\nfunction two(){return 2;}\n";
+        let after = "function one() {\n  return 1;\n}\nfunction two() {\n  return 2;\n}\n";
+        let start = before.find("function two").unwrap();
+        let end = before.len();
+        let edits = ranged(before, after, &[start..end]);
+        assert_eq!(edits.len(), 1);
         assert_eq!(
-            edits,
-            vec![
-                ByteEdit::new(0, 4, "ONE\n".to_owned()),
-                ByteEdit::new(4, 8, "TWO\n".to_owned()),
-                ByteEdit::new(8, 14, "THREE\n".to_owned()),
-            ]
+            &before[edits[0].start..edits[0].end],
+            "function two(){return 2;}\n"
         );
+        assert_eq!(edits[0].new_text, "function two() {\n  return 2;\n}\n");
     }
 
     #[test]
-    fn unequal_multiline_hunks_split_into_line_edits() {
-        assert_eq!(
-            minimal("one\ntwo\n", "ONE\nTWO\nTHREE\n"),
-            vec![
-                ByteEdit::new(0, 4, "ONE\n".to_owned()),
-                ByteEdit::new(4, 8, "TWO\n".to_owned()),
-                ByteEdit::new(8, 8, "THREE\n".to_owned()),
-            ]
-        );
-        assert_eq!(
-            minimal("one\ntwo\nthree\n", "ONE\nTWO\n"),
-            vec![
-                ByteEdit::new(0, 4, "ONE\n".to_owned()),
-                ByteEdit::new(4, 8, "TWO\n".to_owned()),
-                ByteEdit::new(8, 14, String::new()),
-            ]
-        );
+    fn ranged_never_replaces_unselected_statements() {
+        let before = "function one(){return 1;}\nfunction two(){return 2;}\n";
+        let after = "function one() {\n  return 1;\n}\nfunction two() {\n  return 2;\n}\n";
+        let start = before.find("function two").unwrap();
+        let edits = ranged(before, after, &[start..before.len() - 1]);
+        let mut output = before.to_owned();
+        for edit in edits.into_iter().rev() {
+            output.replace_range(edit.start..edit.end, &edit.new_text);
+        }
+        assert!(output.starts_with("function one(){return 1;}\n"));
+        assert!(output.contains("function two() {\n  return 2;\n}"));
     }
 
     #[test]
-    fn a_range_inside_a_multiline_hunk_keeps_only_its_own_line() {
-        let edits = minimal("one\ntwo\nthree\n", "ONE\nTWO\nTHREE\n");
-        let range = 4..8;
-        let filtered = filter(edits, std::slice::from_ref(&range));
-        assert_eq!(filtered, vec![ByteEdit::new(4, 8, "TWO\n".to_owned())]);
+    fn ranged_merges_overlapping_ranges() {
+        let edits = ranged("a\nb\nc\n", "A\nB\nC\n", &[0..2, 1..4]);
+        assert_eq!(edits, vec![ByteEdit::new(0, 4, "A\nB\n".to_owned())]);
     }
 
     #[test]
-    fn partially_overlapping_edits_are_not_kept() {
-        let edits = || vec![ByteEdit::new(4, 8, "TWO\n".to_owned())];
-        let partial = 5..7;
-        let clipped = 4..7;
-        let whole = 4..8;
-        assert!(filter(edits(), std::slice::from_ref(&partial)).is_empty());
-        assert!(filter(edits(), std::slice::from_ref(&clipped)).is_empty());
-        assert_eq!(filter(edits(), std::slice::from_ref(&whole)).len(), 1);
+    fn ranged_returns_empty_for_equal_text() {
+        assert!(ranged("same\n", "same\n", &[0..5]).is_empty());
     }
 
     #[test]
-    fn only_the_changed_lines_are_replaced() {
-        let edits = minimal("a\nb\nc\n", "a\nB\nc\n");
-        assert_eq!(edits, vec![ByteEdit::new(2, 4, "B\n".to_owned())]);
-        let edits = text_edits(&document("a\nb\nc\n"), &edits);
-        assert_eq!(edits[0].range.start, Position::new(1, 0));
-        assert_eq!(edits[0].range.end, Position::new(2, 0));
-    }
-
-    #[test]
-    fn handles_insertions_at_the_end_and_empty_buffers() {
-        assert_eq!(
-            minimal("", "x\n"),
-            vec![ByteEdit::new(0, 0, "x\n".to_owned())]
-        );
-        assert_eq!(
-            minimal("a", "a\n"),
-            vec![ByteEdit::new(0, 1, "a\n".to_owned())]
-        );
-    }
-
-    #[test]
-    fn ranges_keep_only_touching_edits() {
-        let edits = minimal("a\nb\nc\nd\n", "a\nB\nc\nD\n");
-        let range = 2..6;
-        let filtered = filter(edits, std::slice::from_ref(&range));
-        assert_eq!(filtered, vec![ByteEdit::new(2, 4, "B\n".to_owned())]);
-    }
-
-    #[test]
-    fn a_zero_width_range_touches_an_insertion_at_its_position() {
-        let edits = minimal("a\n", "a\nb\n");
-        let range = 2..2;
-        assert_eq!(filter(edits, std::slice::from_ref(&range)).len(), 1);
+    fn ranged_does_not_full_format_from_an_empty_range_at_eof() {
+        assert!(ranged("a\n", "a\nb\n", &[2..2]).is_empty());
     }
 }

@@ -55,7 +55,7 @@ pub struct Cli {
     #[arg(long, conflicts_with_all = ["check", "clean", "owns", "editor", "add", "sync", "diagnose"])]
     pub fix: bool,
 
-    /// Apply safe and unsafe fixes, including code removal. Implies --fix.
+    /// Apply safe and unsafe fixes selected by the configuration, including code removal. Implies --fix.
     #[arg(long, conflicts_with_all = ["check", "clean", "owns", "editor", "add", "sync", "diagnose"])]
     pub fix_unsafe: bool,
 

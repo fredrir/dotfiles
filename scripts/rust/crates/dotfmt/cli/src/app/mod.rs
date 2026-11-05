@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 pub use dotfmt_core::config::Selection;
+pub use dotfmt_core::edit::FixMode;
 
 use dotfmt_core::config::{ConfigOverlay, Resolver};
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
@@ -10,6 +11,7 @@ use dotfmt_core::language::Language;
 mod discovery;
 mod engine;
 mod execute;
+mod ignore;
 mod plan;
 
 pub use dotfmt_core::repair::{Fix, Repair, Repairs};
@@ -47,14 +49,6 @@ pub enum Operation {
         /// Include project-wide unused-export findings and fixes.
         project_analysis: bool,
     },
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum FixMode {
-    #[default]
-    None,
-    Safe,
-    Unsafe,
 }
 
 #[derive(Clone, Debug)]

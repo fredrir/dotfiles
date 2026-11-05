@@ -6,7 +6,7 @@ Formatting, range formatting, on-type formatting, errors, code actions and comma
 
 ## Setup
 
-- **Default formatter:** run **dotfmt: Set as Default Formatter**, or set it per language in `settings.json`. With a workspace open it writes workspace settings; without one it writes user settings.
+- **Default formatter:** run **dotfmt: Set as Default Formatter**, or set it per language in `settings.json`. The command writes language-scoped settings for the enabled dotfmt languages (never JavaScript while it is disabled). With a workspace open it writes workspace settings; without one it writes user settings.
 - **Format on save:** enable `editor.formatOnSave`. `editor.formatOnSaveMode: "modifications"` and Format Selection work through the server's range requests.
 - **Format on type:** `;` and `}` trigger formatting of the surrounding block.
 - **Format on paste:** pasted text is formatted through the language server and offered as a paste edit; a snippet that does not parse keeps its original text. Paste formatting is format-only and never applies configured fixes.
@@ -52,7 +52,7 @@ The editor receives exactly two classes of diagnostics:
 
 There are **no lint diagnostics**. dotfmt never publishes `unused-import`, `type-only-import`, `unused-export`, `unused-variable`, `unused-parameter`, `unused-type-parameter` or `unused-class-member` findings, and it never uses `DiagnosticSeverity.Hint`, Information or Warning. Unused-code removal is a formatting/fix action that you opt into, not an editor warning.
 
-The CLI is unchanged: `dotfmt --diagnose` still reports findings, `--fix` applies safe fixes, and `--fix-unsafe` applies all fixes.
+The CLI is unchanged: `dotfmt --diagnose` still reports findings, `--fix` applies safe fixes, and `--fix-unsafe` applies all fixes selected by the configuration and fix categories.
 
 ## Opt-in fixes in `dotfmt.dotfile`
 
@@ -78,7 +78,7 @@ organize_imports = false
 
 Configured fixes apply only to full-document formatting and `textDocument/willSaveWaitUntil`. Range formatting, on-type formatting, paste formatting and formatting requested through a code action never apply them; explicit fix actions (`source.fixAll.dotfmt`, **dotfmt: Fix All**) apply fixes directly.
 
-The implemented import and local-variable categories are available interactively through code actions and **dotfmt: Fix All**. Project-wide unused exports are offered as the unsafe quick fix **Remove unused export (unsafe)** when `dotfmt.codeActions.unusedExports` is on (the default) and the workspace is trusted; export removal is also available at format time when `remove_unused_exports = true`, including through `dotfmt --fix-unsafe` with that setting enabled. Parameter removal is diagnose-only. Unsafe fixes are hidden in untrusted workspaces.
+The implemented import and local-variable categories are available interactively through code actions and **dotfmt: Fix All**. Project-wide unused exports are offered as the unsafe quick fix **Remove unused export (unsafe)** when `dotfmt.codeActions.unusedExports` is on (the default) and the workspace is trusted; export removal is also available at format time when `remove_unused_exports = true`, including through `dotfmt --fix-unsafe` with that setting enabled. Parameter removal is diagnose-only. Safe fixes still apply in untrusted workspaces; unsafe/export fixes are hidden.
 
 ## Type-aware diagnostics
 
@@ -89,7 +89,7 @@ The implemented import and local-variable categories are available interactively
 - `dotfmt.typescript.tsdk` accepts a TypeScript package directory (`node_modules/typescript`), its `lib` directory (`node_modules/typescript/lib`) or `tsc.js` itself. Empty auto-discovers `DOTFMT_TSC`, the project's `node_modules/typescript/lib/tsc.js`, `node_modules/.bin/tsc`, `@typescript/native-preview`/`tsgo`, then `tsc` on `PATH`.
 - Compiler discovery and version are logged once per project. TypeScript's unused-code and lint codes (6133, 6138, 6192, 6196, 6198, 6199, 6205, 7027, 7028) are filtered out, so tsc errors never become unused-code warnings or hints.
 - If the compiler fails or times out three times in a row, dotfmt backs off until the configuration or compiler changes and shows that state in status and doctor.
-- Project checks, project JavaScript execution and unsafe fixes, including `remove_unused_exports`, require an explicitly trusted workspace. In an untrusted workspace they are disabled; deterministic formatting still works.
+- Project checks, project JavaScript execution and unsafe fixes, including `remove_unused_exports`, require an explicitly trusted workspace. Safe configured fixes and deterministic formatting still work untrusted.
 
 ## Settings
 

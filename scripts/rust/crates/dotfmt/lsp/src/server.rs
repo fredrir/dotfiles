@@ -9,9 +9,9 @@ use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 
 use dotfmt::app::{FixMode, Selection};
-use dotfmt_core::config::ConfigOverlay;
+use dotfmt_core::config::{ConfigOverlay, Resolver};
 use dotfmt_core::diagnostic::DiagnosticKind;
-use dotfmt_core::edit::{Applicability, Fix, apply_fixes};
+use dotfmt_core::edit::{Applicability, Fix, apply_fixes, select_fixes};
 use dotfmt_core::language::Language;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
@@ -29,14 +29,14 @@ use lsp_types::{
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
-    DocumentFormattingParams, DocumentOnTypeFormattingOptions, DocumentOnTypeFormattingParams,
-    DocumentRangeFormattingParams, ExecuteCommandOptions, ExecuteCommandParams,
-    FullDocumentDiagnosticReport, InitializeParams, NumberOrString, OneOf, PositionEncodingKind,
-    Range, RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport,
-    SaveOptions, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit,
-    UnchangedDocumentDiagnosticReport, Uri, WillSaveTextDocumentParams,
-    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+    DocumentDiagnosticReportKind, DocumentFormattingParams, DocumentOnTypeFormattingOptions,
+    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, ExecuteCommandOptions,
+    ExecuteCommandParams, FullDocumentDiagnosticReport, InitializeParams, NumberOrString, OneOf,
+    PositionEncodingKind, Range, RelatedFullDocumentDiagnosticReport,
+    RelatedUnchangedDocumentDiagnosticReport, SaveOptions, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, TextEdit, UnchangedDocumentDiagnosticReport, Uri,
+    WillSaveTextDocumentParams, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -45,7 +45,7 @@ use serde_json::{Value, json};
 use crate::actions::{self, Capabilities as EditCapabilities};
 use crate::analysis;
 use crate::client::Client;
-use crate::diagnostics::Diagnostics;
+use crate::diagnostics::{Diagnostics, Merged};
 use crate::documents::{Document, Documents};
 use crate::edits;
 use crate::settings::{FixesOnSave, Settings, SettingsStore};
@@ -62,6 +62,7 @@ pub const RELOAD_CONFIG: &str = "dotfmt/reloadConfig";
 const DOCTOR_REQUEST: &str = "dotfmt/doctor";
 const EXPLAIN_REQUEST: &str = "dotfmt/explain";
 const FORMAT_TEXT_REQUEST: &str = "dotfmt/formatText";
+const LANGUAGES_REQUEST: &str = "dotfmt/languages";
 const REQUEST_WORKERS: usize = 4;
 
 const COMMANDS: &[&str] = &[
@@ -386,6 +387,106 @@ impl Server {
         self.settings.settings_for_root(root)
     }
 
+    /// The TypeScript/JavaScript configuration a formatting session uses for
+    /// this path, resolved with the same root, global file and native overlay.
+    fn typescript_config(&self, path: &Path) -> Option<dotfmt_typescript::Config> {
+        let language = Language::for_path(path)?;
+        if !matches!(language, Language::TypeScript | Language::Javascript) {
+            return None;
+        }
+        let root = self.workspace.root_for(path);
+        let overlay = self
+            .settings
+            .overlay_for(&root)
+            .map(|overlay| (*overlay).clone());
+        let resolver = Resolver::with_paths_overlay(root, self.global_config.clone(), overlay);
+        let effective = resolver.for_file(path).ok()?;
+        dotfmt_typescript::Config::from_settings(effective.settings(language)).ok()
+    }
+
+    /// Formats a full document, applying only the configured fixes selected by
+    /// the shared fix selection. Unsafe categories are disabled untrusted.
+    fn format_with_fixes(
+        &self,
+        session: &mut dotfmt::app::Session,
+        path: &Path,
+        text: &str,
+        languages: Vec<Language>,
+        fixes: bool,
+    ) -> std::result::Result<String, Vec<dotfmt_core::diagnostic::Diagnostic>> {
+        if !fixes {
+            return analysis::format(session, path, text, languages, false);
+        }
+        let Some(config) = self.typescript_config(path) else {
+            return analysis::format(session, path, text, languages, false);
+        };
+        let Some(mut selection) = config.format_fix_selection() else {
+            return analysis::format(session, path, text, languages, false);
+        };
+        if !self.trusted() {
+            selection.remove_unused_exports = false;
+            selection.remove_unused_locals = false;
+            selection.remove_unused_parameters = false;
+            selection.r#unsafe = false;
+        }
+        let mode = if selection.r#unsafe {
+            FixMode::Unsafe
+        } else {
+            FixMode::Safe
+        };
+        let mut current = text.to_owned();
+        let mut formatted_any = false;
+        for _ in 0..3 {
+            let analysis = match dotfmt_typescript::analyze(
+                path,
+                &current,
+                &config,
+                dotfmt_typescript::Dialect::Auto,
+                &dotfmt_typescript::Options {
+                    fix: true,
+                    unsafe_fixes: mode == FixMode::Unsafe,
+                    type_aware: false,
+                    organize: selection.organize_imports,
+                    project_analysis: false,
+                    type_diagnostics: Vec::new(),
+                },
+            ) {
+                Ok(analysis) => analysis,
+                Err(error) => {
+                    self.log(format!("format fixes skipped: {error}"));
+                    return analysis::format(session, path, text, languages, false);
+                }
+            };
+            let selected = select_fixes(mode, &selection, &analysis.fixes);
+            if selected.is_empty() {
+                break;
+            }
+            let edited = match apply_fixes(&current, &selected) {
+                Ok(edited) => edited,
+                Err(error) => {
+                    self.log(format!("format fixes skipped: {error}"));
+                    return analysis::format(session, path, text, languages, false);
+                }
+            };
+            let formatted = match analysis::format(session, path, &edited, languages.clone(), false)
+            {
+                Ok(formatted) => formatted,
+                Err(_) => return analysis::format(session, path, text, languages, false),
+            };
+            let changed = formatted != current;
+            current = formatted;
+            formatted_any = true;
+            if !changed {
+                break;
+            }
+        }
+        if formatted_any {
+            Ok(current)
+        } else {
+            analysis::format(session, path, text, languages, false)
+        }
+    }
+
     fn log(&self, message: impl Into<String>) {
         self.diagnostics.log(message);
     }
@@ -586,6 +687,17 @@ impl Server {
             }
             self.schedule_tsc(uri.clone());
         }
+    }
+
+    /// Removes one workspace folder without snapshotting or rescheduling its
+    /// documents. The removal epoch discards jobs that were already debounced.
+    fn remove_folder(&self, root: &Path) {
+        let root = crate::workspace::normalize(root);
+        dotfmt_typescript::project::invalidate_root(&root);
+        self.workspace.invalidate_root(&root);
+        self.clear_configuration_errors(Some(&root));
+        self.diagnostics.remove_root(root.clone());
+        self.tsc.invalidate_root(&root);
     }
 
     /// Reloads one workspace folder without touching another folder's state.
@@ -838,6 +950,9 @@ impl Server {
             }
             RangesFormatting::METHOD => {
                 let params: RangesFormattingParams = parse(params)?;
+                if params.ranges.is_empty() {
+                    return Ok(json!(Some(Vec::<lsp_types::TextEdit>::new())));
+                }
                 let document = self.document(&params.text_document.uri)?;
                 let edits = self.format_document(
                     &params.text_document.uri,
@@ -869,6 +984,7 @@ impl Server {
             DOCTOR_REQUEST => Ok(self.doctor()),
             EXPLAIN_REQUEST => self.explain(params.clone()),
             FORMAT_TEXT_REQUEST => self.format_text(params.clone()),
+            LANGUAGES_REQUEST => self.languages(params.clone()),
             _ => Err(RpcError {
                 code: ErrorCode::MethodNotFound as i32,
                 message: format!("unhandled method: {method}"),
@@ -903,16 +1019,17 @@ impl Server {
             .map_err(|error| RpcError::invalid_params(error.to_string()));
         }
         let merged = self.diagnostics.merged(&uri, version);
+        let related = related_reports(&merged);
         let report = if params.previous_result_id.as_deref() == Some(merged.result_id.as_str()) {
             DocumentDiagnosticReport::Unchanged(RelatedUnchangedDocumentDiagnosticReport {
-                related_documents: None,
+                related_documents: related,
                 unchanged_document_diagnostic_report: UnchangedDocumentDiagnosticReport {
                     result_id: merged.result_id,
                 },
             })
         } else {
             DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
-                related_documents: None,
+                related_documents: related,
                 full_document_diagnostic_report: FullDocumentDiagnosticReport {
                     result_id: Some(merged.result_id),
                     items: merged.diagnostics,
@@ -945,10 +1062,11 @@ impl Server {
         request_fixes: bool,
         state: Option<&RequestState>,
     ) -> std::result::Result<Vec<TextEdit>, RpcError> {
-        // Configured dotfmt.dotfile fixes are only for full-document formatting
-        // and require explicit trust; range/on-type formatting never applies
-        // them.
-        let fixes = request_fixes && ranges.is_empty() && self.trusted();
+        // Configured dotfmt.dotfile fixes are only for full-document formatting;
+        // range/on-type formatting never applies them. Safe categories run in
+        // untrusted workspaces; unsafe/export categories stay gated by the
+        // shared fix selection.
+        let fixes = request_fixes && ranges.is_empty();
         let path = self.path(uri, document)?;
         if fixes && let Some(root) = dotfmt_typescript::project::discover_root(&path) {
             dotfmt_typescript::project::invalidate_root(&root);
@@ -956,24 +1074,23 @@ impl Server {
         let languages = analysis::forced(&path, uri, document.language());
         let session = self.workspace.session(&path);
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
-        let output = match analysis::format(&mut session, &path, document.text(), languages, fixes)
-        {
-            Ok(output) => output,
-            Err(errors) => {
-                self.publish_fatal(uri, document.text(), document.version, &errors);
-                return Ok(Vec::new());
-            }
-        };
+        let output =
+            match self.format_with_fixes(&mut session, &path, document.text(), languages, fixes) {
+                Ok(output) => output,
+                Err(errors) => {
+                    self.publish_fatal(uri, document.text(), document.version, &errors);
+                    return Ok(Vec::new());
+                }
+            };
         if let Some(state) = state {
             state.check()?;
         }
         self.ensure_current(uri, document.version)?;
-        let edits = edits::minimal(document.text(), &output);
         let edits = if ranges.is_empty() {
-            edits
+            edits::minimal(document.text(), &output)
         } else {
             let ranges = expanded_ranges(document, &path, ranges);
-            edits::filter(edits, &ranges)
+            edits::ranged(document.text(), &output, &ranges)
         };
         Ok(edits::text_edits(document, &edits))
     }
@@ -1068,9 +1185,10 @@ impl Server {
             .into_iter()
             .map(|kind| kind.as_str().to_owned())
             .collect();
-        let session = self.workspace.session(&path);
-        let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
-        state.check()?;
+        let wants_quickfix = actions::wants(&only, CodeActionKind::QUICKFIX.as_str());
+        let wants_fix_all = actions::wants(&only, actions::FIX_ALL);
+        let wants_organize = actions::wants(&only, actions::ORGANIZE_IMPORTS);
+        let wants_format = actions::wants(&only, actions::FORMAT);
         // Project analysis is only needed when an unsafe unused-export quick
         // fix can be returned. It is expensive, trusted-only, and never part of
         // diagnostics or formatting.
@@ -1078,42 +1196,92 @@ impl Server {
         let project_analysis = analysis::is_typescript(&path)
             && settings.code_actions_unused_exports
             && self.trusted()
-            && (actions::wants(&only, CodeActionKind::QUICKFIX.as_str())
-                || actions::wants(&only, actions::FIX_ALL));
-        // One inspection supplies quickfixes and the safe fix set for
-        // fix-all and organize-imports.
-        let inspection = match analysis::inspect_with_project(
-            &mut session,
-            &path,
-            document.text(),
-            languages.clone(),
-            FixMode::Unsafe,
-            project_analysis,
-        ) {
-            Ok(inspection) => inspection,
-            Err(errors) => {
-                self.publish_fatal(&uri, document.text(), document.version, &errors);
-                return Ok(Vec::new());
-            }
+            && (wants_quickfix || wants_fix_all);
+        let action_mode = if self.trusted() {
+            FixMode::Unsafe
+        } else {
+            FixMode::Safe
         };
-        let fixes = inspection.fixes;
-        let wants_fix_all = actions::wants(&only, actions::FIX_ALL);
-        let wants_organize = actions::wants(&only, actions::ORGANIZE_IMPORTS);
-        let wants_format = actions::wants(&only, actions::FORMAT);
+        let mut quickfixes = Vec::new();
+        let mut action_fixes = Vec::new();
+        if let Some(config) = self.typescript_config(&path)
+            && let Some(selection) = config.requested_fix_selection(FixMode::Unsafe)
+        {
+            let analyze = |organize: bool| {
+                dotfmt_typescript::analyze(
+                    &path,
+                    document.text(),
+                    &config,
+                    dotfmt_typescript::Dialect::Auto,
+                    &dotfmt_typescript::Options {
+                        fix: true,
+                        unsafe_fixes: true,
+                        type_aware: false,
+                        organize,
+                        project_analysis,
+                        type_diagnostics: Vec::new(),
+                    },
+                )
+            };
+            // Quickfixes are always the per-change fixes, even when organize
+            // imports covers the same declaration.
+            if wants_quickfix {
+                state.check()?;
+                let analysis = match analyze(false) {
+                    Ok(analysis) => analysis,
+                    Err(error) => {
+                        self.publish_fatal(&uri, document.text(), document.version, &[error]);
+                        return Ok(Vec::new());
+                    }
+                };
+                quickfixes = select_fixes(action_mode, &selection, &analysis.fixes)
+                    .into_iter()
+                    .cloned()
+                    .collect();
+            }
+            // Source actions use the organized plan so they never overlap the
+            // per-change fixes it covers.
+            if wants_fix_all || wants_organize {
+                state.check()?;
+                let analysis = match analyze(true) {
+                    Ok(analysis) => analysis,
+                    Err(error) => {
+                        self.publish_fatal(&uri, document.text(), document.version, &[error]);
+                        return Ok(Vec::new());
+                    }
+                };
+                action_fixes = select_fixes(action_mode, &selection, &analysis.fixes)
+                    .into_iter()
+                    .cloned()
+                    .collect();
+            }
+        }
+        let session = self.workspace.session(&path);
+        let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
         let mut format = None;
         let mut fix_all = None;
         let mut organize = None;
         if wants_fix_all || wants_organize || wants_format {
             state.check()?;
-            let safe_fixes: Vec<&Fix> = fixes
+            let organize_fixes = dedupe_identical_fixes(
+                action_fixes
+                    .iter()
+                    .filter(|fix| {
+                        fix.applicability == Applicability::Safe
+                            && fix.kind.contains("organizeImports")
+                    })
+                    .collect(),
+            );
+            let other_safe: Vec<&Fix> = action_fixes
                 .iter()
-                .filter(|fix| fix.applicability == Applicability::Safe)
+                .filter(|fix| {
+                    fix.applicability == Applicability::Safe
+                        && !fix.kind.contains("organizeImports")
+                })
                 .collect();
-            let organize_fixes: Vec<&Fix> = safe_fixes
-                .iter()
-                .copied()
-                .filter(|fix| fix.kind.contains("organizeImports"))
-                .collect();
+            let other_safe = without_covered(other_safe, &organize_fixes);
+            let mut safe_fixes = organize_fixes.clone();
+            safe_fixes.extend(other_safe);
             let mut formatted = |source: &str| match analysis::format(
                 &mut session,
                 &path,
@@ -1169,7 +1337,7 @@ impl Server {
             range: params.range,
             only,
             trusted: self.trusted(),
-            fixes: &fixes,
+            fixes: &quickfixes,
             format: format.as_deref(),
             fix_all: fix_all.as_deref(),
             organize: organize.as_deref(),
@@ -1258,17 +1426,25 @@ impl Server {
 
     fn format_text(&self, value: Value) -> std::result::Result<Value, RpcError> {
         let params: FormatTextParams = parse(&value)?;
-        let language = params
-            .language_id
-            .as_deref()
-            .and_then(analysis::language_for);
-        let path = params
+        let language = match params.language_id.as_deref() {
+            Some(language_id) => Some(analysis::language_for(language_id).ok_or_else(|| {
+                RpcError::invalid_params(format!("unknown languageId: {language_id}"))
+            })?),
+            None => None,
+        };
+        let uri = params
             .uri
             .as_deref()
-            .and_then(|uri| uri.parse::<Uri>().ok())
-            .and_then(|uri| uri::path(&uri))
-            .or_else(|| language.map(|language| language.default_stdin().to_path_buf()))
-            .ok_or_else(|| RpcError::invalid_params("formatText needs a uri or languageId"))?;
+            .map(str::parse::<Uri>)
+            .transpose()
+            .map_err(|error| RpcError::invalid_params(error.to_string()))?;
+        let path = match (&uri, params.language_id.as_deref()) {
+            (Some(uri), language_id) => analysis::buffer_path(uri, language_id.unwrap_or_default())
+                .or_else(|| uri::path(uri)),
+            (None, Some(language_id)) => analysis::stdin_path(language_id),
+            (None, None) => None,
+        }
+        .ok_or_else(|| RpcError::invalid_params("formatText needs a uri or languageId"))?;
         let languages = language.into_iter().collect();
         let session = self.workspace.session(&path);
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
@@ -1283,6 +1459,28 @@ impl Server {
             },
         )?;
         Ok(json!(text))
+    }
+
+    /// Enabled dotfmt language names for a workspace folder.
+    fn languages(&self, value: Value) -> std::result::Result<Value, RpcError> {
+        let root = language_root(&self.workspace, &value);
+        let overlay = self
+            .settings
+            .overlay_for_root(&root)
+            .map(|overlay| (*overlay).clone());
+        let resolver =
+            Resolver::with_paths_overlay(root.clone(), self.global_config.clone(), overlay);
+        let effective = resolver.for_directory(&root).map_err(|error| RpcError {
+            code: ErrorCode::RequestFailed as i32,
+            message: error.to_string(),
+        })?;
+        let languages: Vec<&str> = effective
+            .languages
+            .iter()
+            .filter(|(_, config)| config.enabled)
+            .map(|(language, _)| language.name())
+            .collect();
+        Ok(json!(languages))
     }
 
     fn explain(&self, value: Value) -> std::result::Result<Value, RpcError> {
@@ -1494,15 +1692,20 @@ impl Server {
                 {
                     let global_config = self.global_config.clone();
                     let mut config_roots = HashSet::new();
+                    let mut config_paths = Vec::new();
+                    let mut tsc_paths = Vec::new();
                     let mut tsc_roots = HashSet::new();
                     let mut all_config = false;
                     let mut all_tsc = false;
+                    let mut tailwind_changed = false;
                     for change in &params.changes {
                         let Some(path) = uri::path(&change.uri) else {
                             continue;
                         };
+                        tailwind_changed |= is_tailwind_dependency(&path);
                         let root = self.workspace.containing_root(&path);
                         if is_config_file(&path) {
+                            config_paths.push(path.clone());
                             match root {
                                 Some(root) if global_config.as_deref() != Some(path.as_path()) => {
                                     config_roots.insert(root);
@@ -1510,6 +1713,7 @@ impl Server {
                                 _ => all_config = true,
                             }
                         } else {
+                            tsc_paths.push(path.clone());
                             match root {
                                 Some(root) => {
                                     tsc_roots.insert(root);
@@ -1518,20 +1722,34 @@ impl Server {
                             }
                         }
                     }
+                    if tailwind_changed {
+                        dotfmt_tailwind::bridge::invalidate_caches();
+                    }
                     if all_config {
                         self.reload_all();
                     } else {
-                        for root in config_roots {
-                            self.reload_folder(&root);
+                        for root in &config_roots {
+                            self.reload_folder(root);
                         }
                     }
                     if !all_config {
+                        // Drop dependent caches across every root. The root
+                        // containing the event is reloaded below; an external
+                        // dependent keeps the queued check from this call.
+                        for path in &tsc_paths {
+                            let _ = self.tsc.invalidate_path(path);
+                        }
                         if all_tsc {
                             self.reschedule_tsc(None);
                         } else {
                             for root in tsc_roots {
                                 self.reschedule_tsc(Some(&root));
                             }
+                        }
+                        // A config reload already dropped its own folder's
+                        // cache; invalidate only dependents in other folders.
+                        for path in &config_paths {
+                            self.tsc.invalidate_path_except(path, &config_roots);
                         }
                     }
                 }
@@ -1541,7 +1759,8 @@ impl Server {
                     serde_json::from_value::<DidChangeWorkspaceFoldersParams>(notification.params)
                 {
                     let mut roots = self.workspace.roots();
-                    let mut affected = Vec::new();
+                    let mut removed = Vec::new();
+                    let mut added = Vec::new();
                     for folder in params.event.removed {
                         let Some(path) = uri::path(&folder.uri) else {
                             continue;
@@ -1554,9 +1773,8 @@ impl Server {
                             .lock()
                             .unwrap_or_else(|error| error.into_inner())
                             .remove(&root);
-                        affected.push(root);
+                        removed.push(root);
                     }
-                    let mut added = false;
                     for folder in params.event.added {
                         let Some(path) = uri::path(&folder.uri) else {
                             continue;
@@ -1568,14 +1786,17 @@ impl Server {
                         }
                         self.settings
                             .set_folder_overlay(root.clone(), Arc::new(empty_overlay(&root)));
-                        affected.push(root);
-                        added = true;
+                        added.push(root);
                     }
                     self.workspace.set_roots(roots);
-                    for root in affected {
+                    for root in removed {
+                        self.remove_folder(&root);
+                    }
+                    let added_any = !added.is_empty();
+                    for root in added {
                         self.reload_folder(&root);
                     }
-                    if added {
+                    if added_any {
                         self.pull_settings();
                     }
                 }
@@ -1596,9 +1817,13 @@ impl Server {
             json!({ "globPattern": "**/package.json" }),
             json!({ "globPattern": "**/package-lock.json" }),
             json!({ "globPattern": "**/pnpm-lock.yaml" }),
+            json!({ "globPattern": "**/pnpm-workspace.yaml" }),
+            json!({ "globPattern": "**/lerna.json" }),
             json!({ "globPattern": "**/yarn.lock" }),
             json!({ "globPattern": "**/bun.lock" }),
             json!({ "globPattern": "**/bun.lockb" }),
+            json!({ "globPattern": "**/*.css" }),
+            json!({ "globPattern": "**/tailwind.config.*" }),
         ];
         if let Some(global) = &self.global_config {
             // A relative pattern keeps Windows separators out of the glob; the
@@ -1713,7 +1938,11 @@ impl Server {
             .iter()
             .map(|root| (root.clone(), self.settings_for_root(root)))
             .collect();
-        let projects = self.tsc.status(&folders);
+        let projects = if self.trusted() {
+            self.tsc.status(&folders)
+        } else {
+            self.tsc.status_untrusted(&folders)
+        };
         json!({
             "server": {
                 "name": "dotfmt-lsp",
@@ -1755,6 +1984,47 @@ impl Server {
                 .collect::<Vec<_>>(),
         })
     }
+}
+
+fn related_reports(merged: &Merged) -> Option<HashMap<Uri, DocumentDiagnosticReportKind>> {
+    (!merged.related_documents.is_empty()).then(|| {
+        merged
+            .related_documents
+            .iter()
+            .map(|(uri, diagnostics)| {
+                (
+                    uri.clone(),
+                    DocumentDiagnosticReportKind::Full(FullDocumentDiagnosticReport {
+                        result_id: None,
+                        items: diagnostics.clone(),
+                    }),
+                )
+            })
+            .collect()
+    })
+}
+
+/// The workspace folder a `dotfmt/languages` request scopes to.
+fn language_root(workspace: &Workspace, value: &Value) -> PathBuf {
+    let scope = value
+        .get("scopeUri")
+        .or_else(|| value.get("uri"))
+        .or_else(|| {
+            value
+                .get("textDocument")
+                .and_then(|document| document.get("uri"))
+        })
+        .or_else(|| value.is_string().then_some(value));
+    let supplied = scope
+        .and_then(Value::as_str)
+        .and_then(|uri| uri.parse::<Uri>().ok())
+        .and_then(|uri| uri::path(&uri));
+    let root = supplied
+        .map(|path| workspace.root_for(&path))
+        .or_else(|| workspace.roots().first().cloned())
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+    crate::workspace::normalize(&root)
 }
 
 fn settings_json(settings: &Settings) -> Value {
@@ -1895,6 +2165,29 @@ fn is_config_file(path: &Path) -> bool {
     )
 }
 
+fn is_tailwind_dependency(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("css"))
+        || path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| {
+                name.starts_with("tailwind.config.")
+                    || matches!(
+                        name,
+                        "package.json"
+                            | "package-lock.json"
+                            | "pnpm-lock.yaml"
+                            | "pnpm-workspace.yaml"
+                            | "lerna.json"
+                            | "yarn.lock"
+                            | "bun.lock"
+                            | "bun.lockb"
+                    )
+            })
+}
+
 fn capabilities(pull: bool) -> ServerCapabilities {
     ServerCapabilities {
         diagnostic_provider: pull.then(|| {
@@ -2007,6 +2300,37 @@ fn expanded_ranges(
                 None => range,
             };
             Some(full_lines(document, range))
+        })
+        .collect()
+}
+
+/// Drops fixes whose edits are identical to an earlier fix. Organize plans can
+/// be reported once per import run but the source action is still one edit.
+fn dedupe_identical_fixes(fixes: Vec<&Fix>) -> Vec<&Fix> {
+    let mut unique: Vec<&Fix> = Vec::new();
+    for fix in fixes {
+        if !unique.iter().any(|seen| seen.edits == fix.edits) {
+            unique.push(fix);
+        }
+    }
+    unique
+}
+
+/// Removes fixes whose edits overlap an organize-imports edit. Applying both
+/// would be an ambiguous overlapping `WorkspaceEdit`.
+fn without_covered<'a>(fixes: Vec<&'a Fix>, coverage: &[&Fix]) -> Vec<&'a Fix> {
+    let covered: Vec<(usize, usize)> = coverage
+        .iter()
+        .flat_map(|fix| fix.edits.iter().map(|edit| (edit.start, edit.end)))
+        .collect();
+    fixes
+        .into_iter()
+        .filter(|fix| {
+            !fix.edits.iter().any(|edit| {
+                covered
+                    .iter()
+                    .any(|(start, end)| edit.start < *end && edit.end > *start)
+            })
         })
         .collect()
 }
@@ -2166,15 +2490,29 @@ mod tests {
     }
 
     fn code_actions_for(server: &Arc<Server>, uri: &Uri, only: Value) -> Vec<CodeActionOrCommand> {
+        code_actions_for_range(
+            server,
+            uri,
+            Range::new(
+                lsp_types::Position::new(0, 0),
+                lsp_types::Position::new(0, 40),
+            ),
+            only,
+        )
+    }
+
+    fn code_actions_for_range(
+        server: &Arc<Server>,
+        uri: &Uri,
+        range: Range,
+        only: Value,
+    ) -> Vec<CodeActionOrCommand> {
         let result = server
             .handle(
                 CodeActionRequest::METHOD,
                 &json!({
                     "textDocument": { "uri": uri },
-                    "range": {
-                        "start": { "line": 0, "character": 0 },
-                        "end": { "line": 0, "character": 40 }
-                    },
+                    "range": range,
                     "context": { "diagnostics": [], "only": only }
                 }),
                 &RequestState::default(),
@@ -2223,6 +2561,11 @@ mod tests {
     fn unused_export_project(root: &Path) -> (PathBuf, Uri, String) {
         std::fs::write(root.join("package.json"), r#"{"private":true}"#).unwrap();
         std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        std::fs::write(
+            root.join("dotfmt.dotfile"),
+            "typescript { remove_unused_exports = true\n type_aware = false }\n",
+        )
+        .unwrap();
         let path = root.join("src/a.ts");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let text = "export const unused = 1;\n";
@@ -2645,7 +2988,7 @@ mod tests {
         assert!(
             edits
                 .iter()
-                .all(|edit| edit.range.start.line >= 2 && edit.range.end.line <= 5),
+                .all(|edit| edit.range.start.line >= 1 && edit.range.end.line <= 5),
             "{edits:?}"
         );
         let formatted = apply_edits(text, &edits);
@@ -2658,6 +3001,53 @@ mod tests {
         for line in [0, 1, 5, 6] {
             assert_eq!(after[line], before[line]);
         }
+    }
+
+    #[test]
+    fn range_formatting_a_blank_line_is_a_no_op() {
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::write(temporary.path().join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let path = temporary.path().join("a.ts");
+        let text = "const a=1;\n\nconst b=2;\nconst c=3;\n";
+        std::fs::write(&path, text).unwrap();
+        let server = test_server(temporary.path());
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let range = document.lsp_range(&document.line_range(1, 1));
+        let edits = server
+            .format_document(&uri, &document, &[range], false, None)
+            .unwrap();
+        assert!(edits.is_empty(), "{edits:?}");
+    }
+
+    #[test]
+    fn empty_ranges_formatting_returns_no_edits() {
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::write(temporary.path().join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let path = temporary.path().join("a.ts");
+        let text = "const a=1;\n";
+        std::fs::write(&path, text).unwrap();
+        let server = test_server(temporary.path());
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        server.documents.lock().unwrap().open(uri.clone(), document);
+        let result = server
+            .handle(
+                RangesFormatting::METHOD,
+                &json!({
+                    "textDocument": { "uri": uri },
+                    "ranges": [],
+                    "options": { "tabSize": 2, "insertSpaces": true }
+                }),
+                &RequestState::default(),
+            )
+            .unwrap();
+        assert_eq!(result, json!([]));
     }
 
     #[test]
@@ -2711,6 +3101,50 @@ mod tests {
     }
 
     #[test]
+    fn format_text_preserves_language_only_dialects_and_rejects_unknown_ones() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (server, _receiver) = server_with_options(
+            temporary.path(),
+            json!({
+                "trusted": true,
+                "format": {
+                    "javascript": { "enabled": true },
+                    "typescript": { "enabled": true },
+                    "css": { "enabled": true },
+                    "json": { "enabled": true },
+                }
+            }),
+        );
+        for (language, text, expected) in [
+            (
+                "typescriptreact",
+                "const view = <div className=\"x\" />;\n",
+                "<div",
+            ),
+            (
+                "javascriptreact",
+                "const view = <div className=\"x\" />;\n",
+                "<div",
+            ),
+            ("scss", ".a{color:red}\n", ".a {"),
+            ("jsonc", "{\"a\":1,// comment\n}\n", "// comment"),
+        ] {
+            let value = server
+                .format_text(json!({ "text": text, "languageId": language }))
+                .unwrap();
+            let formatted = value.as_str().expect("formatted text");
+            assert!(
+                formatted.contains(expected),
+                "{language} lost its dialect: {formatted:?}"
+            );
+        }
+        let error = server
+            .format_text(json!({ "text": "value\n", "languageId": "plaintext" }))
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidParams as i32);
+    }
+
+    #[test]
     fn on_type_range_falls_back_to_the_line_block_outside_typescript() {
         let text = "{\n\"a\":1\n}\n";
         let document = Document::new(text.into(), "json".into(), 1);
@@ -2732,6 +3166,16 @@ mod tests {
         let (server, _) =
             server_with_options(temporary.path(), json!({ "dotfmt": { "trusted": true } }));
         assert!(server.trusted());
+        let (server, _) = server_with_options(
+            temporary.path(),
+            json!({ "trusted": true, "dotfmt": { "trusted": false } }),
+        );
+        assert!(server.trusted());
+        let (server, _) = server_with_options(
+            temporary.path(),
+            json!({ "trusted": false, "dotfmt": { "trusted": true } }),
+        );
+        assert!(!server.trusted());
     }
 
     #[test]
@@ -3137,6 +3581,8 @@ mod tests {
             "**/.prettierignore",
             "**/tsconfig*.json",
             "**/jsconfig*.json",
+            "**/*.css",
+            "**/tailwind.config.*",
         ] {
             assert!(globs.contains(&expected), "{globs:?}");
         }
@@ -3189,6 +3635,45 @@ mod tests {
             )))
             .unwrap();
         serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn tailwind_stylesheet_changes_invalidate_discovery() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("package.json"), "{\"name\":\"fixture\"}\n").unwrap();
+        let package = root.join("node_modules/tailwindcss");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(
+            package.join("package.json"),
+            "{\"name\":\"tailwindcss\",\"version\":\"4.0.0\"}\n",
+        )
+        .unwrap();
+        let source = root.join("src/a.tsx");
+        std::fs::write(&source, "export const a = 1;\n").unwrap();
+        dotfmt_tailwind::bridge::invalidate_caches();
+        let before =
+            dotfmt_tailwind::bridge::discover_project(root, Some(&source), None, None, None, None)
+                .expect("initial discovery");
+        assert!(before.stylesheet.is_none(), "{before:?}");
+
+        let stylesheet = root.join("src/index.css");
+        std::fs::write(&stylesheet, "@import \"tailwindcss\";\n").unwrap();
+        let server = test_server(root);
+        server.notify(Notification::new(
+            DidChangeWatchedFiles::METHOD.into(),
+            json!({
+                "changes": [{
+                    "uri": uri::from_path(&stylesheet),
+                    "type": 1
+                }]
+            }),
+        ));
+        let after =
+            dotfmt_tailwind::bridge::discover_project(root, Some(&source), None, None, None, None)
+                .expect("refreshed discovery");
+        assert_eq!(after.stylesheet.as_deref(), Some(stylesheet.as_path()));
     }
 
     #[test]
@@ -3594,6 +4079,64 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn a_dependency_change_in_another_root_reruns_the_dependent_tsc_project() {
+        let temporary = tempfile::tempdir().unwrap();
+        let app = temporary.path().join("app");
+        let lib = temporary.path().join("lib");
+        std::fs::create_dir_all(app.join("src")).unwrap();
+        std::fs::create_dir_all(lib.join("src")).unwrap();
+        std::fs::write(
+            app.join("tsconfig.json"),
+            r#"{"compilerOptions":{"paths":{"@lib":["../lib/src/index.ts"]}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            app.join("src/a.ts"),
+            "import { value } from '@lib';\nexport const text: string = value;\n",
+        )
+        .unwrap();
+        let lib_source = lib.join("src/index.ts");
+        std::fs::write(&lib_source, "export const value: number = 1;\n").unwrap();
+        write_fake_tsc(
+            &app,
+            r#"if [ -f mode_new ]; then
+  echo "src/a.ts(1,7): error TS2322: new"
+else
+  echo "src/a.ts(1,7): error TS2322: old"
+fi"#,
+        );
+        let (server, receiver) = server_with_roots(
+            &[&app, &lib],
+            json!({ "trusted": true, "typeAware": true }),
+            json!({}),
+        );
+        let (_path, uri) = open_typescript(&server, &app, "const value: number = 'x';\n");
+        let first = wait_for_tsc_diagnostics(&receiver, &uri);
+        assert!(first.diagnostics[0].message.contains("old"));
+
+        std::fs::write(app.join("mode_new"), "").unwrap();
+        std::fs::write(&lib_source, "export const value: string = 'x';\n").unwrap();
+        server.notify(Notification::new(
+            DidChangeWatchedFiles::METHOD.into(),
+            json!({
+                "changes": [{
+                    "uri": uri::from_path(&lib_source),
+                    "type": 2
+                }]
+            }),
+        ));
+        let second = wait_for_tsc_diagnostics(&receiver, &uri);
+        assert!(
+            second.diagnostics[0].message.contains("new"),
+            "{:?}",
+            second.diagnostics
+        );
+        let runs = std::fs::read_to_string(app.join("marker.log")).unwrap();
+        assert_eq!(runs.lines().count(), 2, "{runs}");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn did_change_clears_tsc_diagnostics_for_the_uri() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path();
@@ -3732,15 +4275,141 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn configured_fixes_are_limited_to_trusted_full_document_formatting() {
+    fn doctor_does_not_spawn_tsc_untrusted() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        let directory = root.join("node_modules/.bin");
+        std::fs::create_dir_all(&directory).unwrap();
+        let compiler = directory.join("tsc");
+        std::fs::write(
+            &compiler,
+            "#!/bin/sh\necho run >> marker.log\necho 'Version 9.9.9'\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&compiler).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&compiler, permissions).unwrap();
+
+        let (server, _receiver) = server_with_options(root, Value::Null);
+        let value = server
+            .handle(DOCTOR_REQUEST, &Value::Null, &RequestState::default())
+            .unwrap();
+        assert_eq!(value["trusted"], json!(false));
+        let projects = value["projects"].as_array().unwrap();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0]["state"], json!("untrusted"));
+        assert_eq!(projects[0]["compiler"], Value::Null);
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            !root.join("marker.log").exists(),
+            "doctor spawned tsc in an untrusted workspace"
+        );
+    }
+
+    #[test]
+    fn doctor_reports_an_invalid_explicit_compiler_once() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        let missing = root.join("missing-typescript");
+        let (server, receiver) =
+            server_with_options(root, json!({ "trusted": true, "tsdk": missing }));
+        let value = server
+            .handle(DOCTOR_REQUEST, &Value::Null, &RequestState::default())
+            .unwrap();
+        let projects = value["projects"].as_array().unwrap();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0]["state"], json!("unavailable"));
+        assert_eq!(projects[0]["compiler"], Value::Null);
+
+        let logs = |receiver: &crossbeam_channel::Receiver<Message>| {
+            receiver
+                .try_iter()
+                .filter_map(|message| match message {
+                    Message::Notification(notification)
+                        if notification.method == "window/logMessage" =>
+                    {
+                        notification.params["message"]
+                            .as_str()
+                            .filter(|message| message.contains("no compiler found"))
+                            .map(ToOwned::to_owned)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(logs(&receiver).len(), 1);
+        let _ = server
+            .handle(DOCTOR_REQUEST, &Value::Null, &RequestState::default())
+            .unwrap();
+        assert_eq!(
+            logs(&receiver).len(),
+            0,
+            "the compiler error was logged twice"
+        );
+    }
+
+    #[test]
+    fn languages_request_reports_enabled_dotfmt_names() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let server = test_server(root);
+        let request = || {
+            server
+                .handle(
+                    LANGUAGES_REQUEST,
+                    &json!({ "scopeUri": uri::from_path(root) }),
+                    &RequestState::default(),
+                )
+                .unwrap()
+        };
+        let names = |value: &Value| {
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        };
+        let default = names(&request());
+        assert!(default.contains(&"typescript".to_owned()), "{default:?}");
+        assert!(default.contains(&"json".to_owned()), "{default:?}");
+        assert!(!default.contains(&"javascript".to_owned()), "{default:?}");
+
+        std::fs::write(
+            root.join("dotfmt.dotfile"),
+            "javascript { enabled = false }\ntypescript {}\n",
+        )
+        .unwrap();
+        let configured = names(&request());
+        assert!(
+            configured.contains(&"typescript".to_owned()),
+            "{configured:?}"
+        );
+        assert!(
+            !configured.contains(&"javascript".to_owned()),
+            "{configured:?}"
+        );
+
+        std::fs::write(root.join("dotfmt.dotfile"), "javascript {}\n").unwrap();
+        let enabled = names(&request());
+        assert!(enabled.contains(&"javascript".to_owned()), "{enabled:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn untrusted_formatting_applies_safe_fixes_and_blocks_unsafe_ones() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path();
         std::fs::write(
             root.join("dotfmt.dotfile"),
-            "typescript { fixes = safe\n type_aware = false }\n",
+            "typescript { fixes = unsafe\n type_aware = false }\n",
         )
         .unwrap();
-        let text = "import { unused } from \"./side\";\nconst value=1;\n";
+        let text = "import { unused } from \"./side\";\nconst unusedLocal = 1;\nconst value=1;\n";
         let path = root.join("src/a.ts");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, text).unwrap();
@@ -3756,9 +4425,14 @@ mod tests {
         let edits = untrusted
             .format_document(&uri, &document, &[], true, None)
             .unwrap();
+        let formatted = apply_edits(text, &edits);
         assert!(
-            apply_edits(text, &edits).contains("unused"),
-            "untrusted formatting applied configured fixes"
+            !formatted.contains("import { unused }"),
+            "untrusted formatting did not apply the safe fix: {formatted}"
+        );
+        assert!(
+            formatted.contains("unusedLocal"),
+            "untrusted formatting applied the unsafe fix: {formatted}"
         );
 
         let (trusted, _receiver) = server_with_options(root, json!({ "trusted": true }));
@@ -3770,9 +4444,10 @@ mod tests {
         let edits = trusted
             .format_document(&uri, &document, &[], true, None)
             .unwrap();
+        let formatted = apply_edits(text, &edits);
         assert!(
-            !apply_edits(text, &edits).contains("unused"),
-            "trusted full-document formatting did not apply configured fixes"
+            !formatted.contains("unusedLocal"),
+            "trusted full-document formatting did not apply the unsafe fix: {formatted}"
         );
 
         let range = document.lsp_range(&document.line_range(1, 1));
@@ -3780,7 +4455,7 @@ mod tests {
             .format_document(&uri, &document, &[range], false, None)
             .unwrap();
         assert!(
-            apply_edits(text, &edits).contains("unused"),
+            apply_edits(text, &edits).contains("unusedLocal"),
             "range formatting applied configured fixes"
         );
     }
@@ -4056,6 +4731,130 @@ mod tests {
     }
 
     #[test]
+    fn quickfix_only_keeps_an_unused_import_when_imports_need_organizing() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(
+            root.join("dotfmt.dotfile"),
+            "typescript { type_aware = false }\n",
+        )
+        .unwrap();
+        let text =
+            "import { unused } from \"./b\";\nimport { used } from \"./a\";\nconsole.log(used);\n";
+        let path = root.join("a.ts");
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let (server, _receiver) = server_with_options(root, json!({ "trusted": true }));
+        server.documents.lock().unwrap().open(
+            uri.clone(),
+            Document::new(text.into(), "typescript".into(), 1),
+        );
+
+        let titles = action_titles(&code_actions_for(&server, &uri, json!(["quickfix"])));
+        assert!(
+            titles
+                .iter()
+                .any(|title| title.contains("Remove unused import")),
+            "organize-imports swallowed the per-change quickfix: {titles:?}"
+        );
+        assert!(
+            !titles
+                .iter()
+                .any(|title| title.contains("Organize imports")),
+            "source action leaked into quickfix-only results: {titles:?}"
+        );
+    }
+
+    #[test]
+    fn duplicate_organize_actions_are_deduplicated() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(
+            root.join("dotfmt.dotfile"),
+            "typescript { type_aware = false }\n",
+        )
+        .unwrap();
+        let text = "import { b } from \"./b\";\nimport { a } from \"./a\";\nconsole.log(a, b);\nconst gap=1;\nimport { d } from \"./d\";\nimport { c } from \"./c\";\nconsole.log(c, d, gap);\n";
+        let path = root.join("a.ts");
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let (server, _receiver) = server_with_options(root, json!({ "trusted": true }));
+        server.documents.lock().unwrap().open(
+            uri.clone(),
+            Document::new(text.into(), "typescript".into(), 1),
+        );
+
+        let titles = action_titles(&code_actions_for(&server, &uri, Value::Null));
+        assert_eq!(
+            titles
+                .iter()
+                .filter(|title| title.as_str() == "Organize imports with dotfmt")
+                .count(),
+            1,
+            "{titles:?}"
+        );
+    }
+
+    #[test]
+    fn cursor_exactly_at_the_finding_start_gets_the_quickfix() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(
+            root.join("dotfmt.dotfile"),
+            "typescript { type_aware = false }\n",
+        )
+        .unwrap();
+        let text =
+            "import { unused } from \"./b\";\nimport { used } from \"./a\";\nconsole.log(used);\n";
+        let path = root.join("a.ts");
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let position = document.position(text.find("unused").unwrap());
+        let (server, _receiver) = server_with_options(root, json!({ "trusted": true }));
+        server.documents.lock().unwrap().open(uri.clone(), document);
+
+        let titles = action_titles(&code_actions_for_range(
+            &server,
+            &uri,
+            Range::new(position, position),
+            json!(["quickfix"]),
+        ));
+        assert!(
+            titles
+                .iter()
+                .any(|title| title.contains("Remove unused import")),
+            "cursor at finding start had no quickfix: {titles:?}"
+        );
+    }
+
+    #[test]
+    fn impure_initializer_removal_is_not_offered_by_default() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(
+            root.join("dotfmt.dotfile"),
+            "typescript { fixes = unsafe\n type_aware = false }\n",
+        )
+        .unwrap();
+        let text = "const unused = bump();\nexport const live = 1;\n";
+        let path = root.join("a.ts");
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let (server, _receiver) = server_with_options(root, json!({ "trusted": true }));
+        server.documents.lock().unwrap().open(
+            uri.clone(),
+            Document::new(text.into(), "typescript".into(), 1),
+        );
+
+        let titles = action_titles(&code_actions_for(&server, &uri, json!(["quickfix"])));
+        assert!(
+            !titles.iter().any(|title| title.contains("unused variable")),
+            "impure initializer was offered without opt-in: {titles:?}"
+        );
+    }
+
+    #[test]
     fn diagnostic_provider_is_advertised_only_for_pull_clients() {
         let temporary = tempfile::tempdir().unwrap();
         let (server, client) = Connection::memory();
@@ -4155,6 +4954,80 @@ mod tests {
             )))
             .unwrap();
         serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn pull_reports_configuration_errors_as_related_documents() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        let dotfile_path = root.join("dotfmt.dotfile");
+        std::fs::write(&dotfile_path, "typescript {}\n").unwrap();
+        let source_path = root.join("src/a.ts");
+        std::fs::create_dir_all(source_path.parent().unwrap()).unwrap();
+        let text = "export const a = 1;\n";
+        std::fs::write(&source_path, text).unwrap();
+        let source = uri::from_path(&source_path);
+        let dotfile = uri::from_path(&dotfile_path);
+        let config = uri::from_path(&root.join("tsconfig.json"));
+        let (server, _receiver) = server_with_options(root, json!({ "trusted": true }));
+        server.documents.lock().unwrap().open(
+            source.clone(),
+            Document::new(text.into(), "typescript".into(), 1),
+        );
+        let config_error =
+            dotfmt_core::diagnostic::Diagnostic::config(&dotfile_path, 1, "bad configuration");
+        server
+            .diagnostics
+            .publish_fatal(source.clone(), text, 1, &[config_error]);
+        server.diagnostics.set_tsc(
+            &root.join("tsconfig.json"),
+            1,
+            vec![(
+                config.clone(),
+                vec![lsp_types::Diagnostic {
+                    code: Some(NumberOrString::String("TS18003".into())),
+                    message: "No inputs were found".into(),
+                    ..lsp_types::Diagnostic::default()
+                }],
+            )],
+        );
+        let pull = |previous: Option<&str>| {
+            let mut params = json!({ "textDocument": { "uri": source } });
+            if let Some(previous) = previous {
+                params["previousResultId"] = json!(previous);
+            }
+            server.diagnostic(&params).unwrap()
+        };
+        let report = pull(None);
+        assert_eq!(report["kind"], json!("full"));
+        assert_eq!(report["items"], json!([]));
+        let related = report["relatedDocuments"].as_object().unwrap();
+        assert_eq!(related.len(), 2, "{related:?}");
+        assert_eq!(
+            related[dotfile.as_str()]["items"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(
+            related[config.as_str()]["items"][0]["code"],
+            json!("TS18003")
+        );
+        let result_id = report["resultId"].as_str().unwrap().to_owned();
+        assert_eq!(pull(Some(&result_id))["kind"], json!("unchanged"));
+
+        // The source is unchanged, but a different dotfmt configuration error
+        // must produce a new result id instead of an unchanged report.
+        let config_error = dotfmt_core::diagnostic::Diagnostic::config(
+            &dotfile_path,
+            1,
+            "different configuration error",
+        );
+        server
+            .diagnostics
+            .publish_fatal(source.clone(), text, 1, &[config_error]);
+        let changed = pull(Some(&result_id));
+        assert_eq!(changed["kind"], json!("full"));
+        assert_ne!(changed["resultId"], json!(result_id));
     }
 
     #[cfg(unix)]
@@ -4523,6 +5396,97 @@ mod tests {
                 .is_empty(),
             "reloading one folder cleared another folder's tsc entries"
         );
+    }
+
+    #[test]
+    fn removing_a_workspace_folder_discards_debounced_diagnostics() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let text = "const = ;\n";
+        let path = root.join("src/a.ts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let (server, receiver) =
+            server_with_options(root, json!({ "diagnostics": { "debounceMs": 200 } }));
+        server.notify(Notification::new(
+            DidOpenTextDocument::METHOD.into(),
+            json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "typescript",
+                    "version": 1,
+                    "text": text
+                }
+            }),
+        ));
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("initial syntax diagnostics were never published");
+            let Ok(Message::Notification(notification)) = receiver.recv_timeout(remaining) else {
+                continue;
+            };
+            if notification.method != "textDocument/publishDiagnostics" {
+                continue;
+            }
+            let params: lsp_types::PublishDiagnosticsParams =
+                serde_json::from_value(notification.params).unwrap();
+            if params.uri == uri && !params.diagnostics.is_empty() {
+                break;
+            }
+        }
+
+        server.notify(Notification::new(
+            DidChangeWorkspaceFolders::METHOD.into(),
+            json!({
+                "event": {
+                    "added": [],
+                    "removed": [{ "uri": uri::from_path(root), "name": "root" }]
+                }
+            }),
+        ));
+        assert!(server.workspace.roots().is_empty());
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("removal never cleared the diagnostics");
+            let Ok(Message::Notification(notification)) = receiver.recv_timeout(remaining) else {
+                continue;
+            };
+            if notification.method != "textDocument/publishDiagnostics" {
+                continue;
+            }
+            let params: lsp_types::PublishDiagnosticsParams =
+                serde_json::from_value(notification.params).unwrap();
+            if params.uri == uri && params.diagnostics.is_empty() {
+                break;
+            }
+        }
+
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            let Ok(Message::Notification(notification)) = receiver.recv_timeout(remaining) else {
+                continue;
+            };
+            if notification.method != "textDocument/publishDiagnostics" {
+                continue;
+            }
+            let params: lsp_types::PublishDiagnosticsParams =
+                serde_json::from_value(notification.params).unwrap();
+            if params.uri == uri {
+                assert!(
+                    params.diagnostics.is_empty(),
+                    "a removed folder republished diagnostics: {:?}",
+                    params.diagnostics
+                );
+            }
+        }
     }
 
     #[test]

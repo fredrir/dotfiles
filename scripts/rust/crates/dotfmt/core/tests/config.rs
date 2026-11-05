@@ -90,6 +90,28 @@ fn all_null_native_language_blocks_do_not_suppress_defaults() {
 }
 
 #[test]
+fn native_settings_only_do_not_suppress_default_languages() {
+    let root = tempfile::tempdir().unwrap();
+    let overlay = overlay(
+        root.path(),
+        json!({
+            "global": {"width": 40},
+            "typescript": {"quote_style": "single"}
+        }),
+    );
+    let effective = overlaid_resolver(root.path(), overlay)
+        .for_directory(root.path())
+        .unwrap();
+    assert!(effective.languages[&Language::Json].enabled);
+    assert!(effective.languages[&Language::TypeScript].enabled);
+    assert_eq!(
+        effective.settings(Language::TypeScript)["quote_style"].value,
+        "single"
+    );
+    assert!(!effective.languages[&Language::Javascript].enabled);
+}
+
+#[test]
 fn nearer_global_overrides_outer_language_and_nearest_language_wins() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().join("project");
