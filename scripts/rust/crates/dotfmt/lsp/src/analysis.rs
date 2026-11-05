@@ -69,12 +69,19 @@ pub fn is_typescript(path: &Path) -> bool {
     )
 }
 
+/// Formats one buffer.
+///
+/// `fixes` selects whether configured `dotfmt.dotfile` fixes run before the
+/// formatter. Only full-document formatting and `willSaveWaitUntil` pass
+/// `true`; ranges, on-type, code actions, organize imports and paste formatting
+/// are always format-only.
 #[allow(clippy::collapsible_match)]
 pub fn format(
     session: &mut Session,
     path: &Path,
     text: &str,
     languages: Vec<Language>,
+    fixes: bool,
 ) -> Result<String, Vec<Diagnostic>> {
     let request = Request {
         operation: Operation::Format {
@@ -84,6 +91,7 @@ pub fn format(
                 input: text.as_bytes().to_vec(),
             }),
             check: false,
+            fixes,
         },
         languages,
         dialect: None,
@@ -114,6 +122,24 @@ fn formatted(outcome: dotfmt::app::BufferOutcome) -> Result<String, Vec<Diagnost
         .map_err(|error| vec![error])
 }
 
+/// Inspection policy for the diagnostics worker: no fixes, no project analysis,
+/// no `tsc` (the dedicated worker owns compiler diagnostics), and only
+/// `Severity::Error` findings. dotfmt is a formatter; lint findings are code
+/// actions and `--diagnose` output, never editor diagnostics.
+pub fn inspect_errors(
+    session: &mut Session,
+    path: &Path,
+    text: &str,
+    languages: Vec<Language>,
+) -> Result<Vec<dotfmt_core::edit::Finding>, Vec<Diagnostic>> {
+    let inspection = inspect(session, path, text, languages, FixMode::None)?;
+    Ok(inspection
+        .findings
+        .into_iter()
+        .filter(|finding| finding.severity == dotfmt_core::edit::Severity::Error)
+        .collect())
+}
+
 /// Applies the safe `source.organizeImports.dotfmt` fixes, then formats.
 pub fn organize(
     session: &mut Session,
@@ -130,7 +156,7 @@ pub fn organize(
         })
         .collect();
     if selected.is_empty() {
-        return format(session, path, &inspection.before, languages);
+        return format(session, path, &inspection.before, languages, false);
     }
     let organized = apply_fixes(text, &selected).map_err(|error| {
         vec![Diagnostic::new(
@@ -138,7 +164,7 @@ pub fn organize(
             format!("fix edits: {error}"),
         )]
     })?;
-    format(session, path, &organized, languages)
+    format(session, path, &organized, languages, false)
 }
 
 #[allow(clippy::collapsible_match)]

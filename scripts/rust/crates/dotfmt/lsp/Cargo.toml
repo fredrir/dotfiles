@@ -16,6 +16,7 @@ dotfmt-css.workspace        = true
 dotfmt-html.workspace       = true
 dotfmt-tailwind.workspace   = true
 dotfmt-typescript.workspace = true
+jsonc-parser.workspace      = true
 line-index.workspace        = true
 lsp-server.workspace        = true
 lsp-types.workspace         = true

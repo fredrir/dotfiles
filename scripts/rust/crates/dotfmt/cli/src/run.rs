@@ -131,6 +131,7 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
                 targets: cli.targets.clone(),
                 buffer,
                 check: cli.check,
+                fixes: true,
             }
         }
     };

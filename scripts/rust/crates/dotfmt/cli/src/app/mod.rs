@@ -29,6 +29,9 @@ pub enum Operation {
         targets: Vec<PathBuf>,
         buffer: Option<Buffer>,
         check: bool,
+        /// Apply configured format-time fixes before formatting. Only the
+        /// editor's full-document and will-save paths set this.
+        fixes: bool,
     },
     Owns {
         paths: Vec<PathBuf>,

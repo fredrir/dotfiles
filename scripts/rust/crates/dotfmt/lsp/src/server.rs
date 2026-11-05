@@ -42,7 +42,7 @@ use crate::client::Client;
 use crate::diagnostics::Diagnostics;
 use crate::documents::{Document, Documents};
 use crate::edits;
-use crate::settings::Settings;
+use crate::settings::{FixesOnSave, Settings, TscScope};
 use crate::tsc::Tsc;
 use crate::uri;
 use crate::workspace::Workspace;
@@ -53,6 +53,7 @@ pub const SORT_TAILWIND: &str = "dotfmt.sortTailwind";
 pub const EXPLAIN: &str = "dotfmt.explain";
 pub const RELOAD_CONFIG: &str = "dotfmt/reloadConfig";
 
+const DOCTOR_REQUEST: &str = "dotfmt/doctor";
 const EXPLAIN_REQUEST: &str = "dotfmt/explain";
 const FORMAT_TEXT_REQUEST: &str = "dotfmt/formatText";
 const REQUEST_WORKERS: usize = 4;
@@ -170,7 +171,7 @@ pub fn run(connection: &Connection) -> Result<()> {
 pub struct Server {
     documents: Arc<Mutex<Documents>>,
     workspace: Arc<Workspace>,
-    settings: RwLock<Settings>,
+    settings: Arc<RwLock<Settings>>,
     client: Arc<Client>,
     diagnostics: Arc<Diagnostics>,
     tsc: Arc<Tsc>,
@@ -225,18 +226,20 @@ impl Server {
         let roots = workspace_roots(params);
         let documents = Arc::new(Mutex::new(Documents::default()));
         let workspace = Arc::new(Workspace::new(roots));
-        let diagnostics = Arc::new(Diagnostics::new(
-            Arc::clone(&workspace),
-            Arc::clone(&documents),
-            sender.clone(),
-        ));
-        let tsc = Arc::new(Tsc::new(Arc::clone(&diagnostics)));
         let mut settings = Settings::default();
         if let Some(options) = &params.initialization_options {
             settings.apply(options);
         }
         settings.apply_environment();
         dotfmt_tailwind::bridge::set_trusted(settings.trusted);
+        let settings = Arc::new(RwLock::new(settings));
+        let diagnostics = Arc::new(Diagnostics::new(
+            Arc::clone(&workspace),
+            Arc::clone(&documents),
+            sender.clone(),
+            Arc::clone(&settings),
+        ));
+        let tsc = Arc::new(Tsc::new(Arc::clone(&diagnostics), Arc::clone(&documents)));
         let workspace_edit = params
             .capabilities
             .workspace
@@ -254,7 +257,7 @@ impl Server {
         Self {
             documents,
             workspace,
-            settings: RwLock::new(settings),
+            settings,
             client: Arc::new(Client::new(sender)),
             diagnostics,
             tsc,
@@ -307,22 +310,27 @@ impl Server {
     }
 
     fn configure(&self, value: &Value) {
-        {
+        let changed = {
             let mut settings = self
                 .settings
                 .write()
                 .unwrap_or_else(|error| error.into_inner());
+            let before = settings.clone();
             settings.apply(value);
             settings.apply_environment();
-        }
+            *settings != before
+        };
         dotfmt_tailwind::bridge::set_trusted(self.settings().trusted);
-        self.reload();
+        if changed {
+            self.reload();
+        }
     }
 
     fn reload(&self) {
         self.workspace.invalidate();
         self.diagnostics.clear_all();
         self.tsc.invalidate();
+        let settings = self.settings();
         // Snapshot under the lock, then reschedule without holding it so
         // request handlers and diagnostics are not blocked by the clone.
         let snapshot = {
@@ -336,9 +344,24 @@ impl Server {
             }
             snapshot
         };
-        self.diagnostics.schedule_all(&snapshot);
+        self.diagnostics.schedule_all(&snapshot, &settings);
         for (uri, _) in snapshot.iter() {
-            self.schedule_tsc(uri.clone());
+            self.schedule_tsc(uri.clone(), &settings);
+        }
+    }
+
+    /// Invalidates compiler results and immediately rechecks every open document.
+    fn reschedule_tsc(&self, settings: &Settings) {
+        self.tsc.invalidate();
+        let uris: Vec<Uri> = self
+            .documents
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .iter()
+            .map(|(uri, _)| uri.clone())
+            .collect();
+        for uri in uris {
+            self.schedule_tsc(uri, settings);
         }
     }
 
@@ -506,8 +529,13 @@ impl Server {
             Formatting::METHOD => {
                 let params: DocumentFormattingParams = parse(params)?;
                 let document = self.document(&params.text_document.uri)?;
-                let edits =
-                    self.format_document(&params.text_document.uri, &document, &[], Some(state))?;
+                let edits = self.format_document(
+                    &params.text_document.uri,
+                    &document,
+                    &[],
+                    true,
+                    Some(state),
+                )?;
                 Ok(json!(Some(edits)))
             }
             RangeFormatting::METHOD => {
@@ -517,6 +545,7 @@ impl Server {
                     &params.text_document.uri,
                     &document,
                     &[params.range],
+                    false,
                     Some(state),
                 )?;
                 Ok(json!(Some(edits)))
@@ -534,6 +563,7 @@ impl Server {
                     &params.text_document.uri,
                     &document,
                     &params.ranges,
+                    false,
                     Some(state),
                 )?;
                 Ok(json!(Some(edits)))
@@ -544,7 +574,8 @@ impl Server {
                 let document = self.document(&uri)?;
                 let path = self.path(&uri, &document)?;
                 let range = on_type_range(&document, &path, params.text_document_position.position);
-                let edits = self.format_document(&uri, &document, &[range], Some(state))?;
+                let edits =
+                    self.format_document(&uri, &document, &[range], false, Some(state))?;
                 Ok(json!(Some(edits)))
             }
             CodeActionRequest::METHOD => {
@@ -555,6 +586,7 @@ impl Server {
                 let params: ExecuteCommandParams = parse(params)?;
                 self.execute(params, state)
             }
+            DOCTOR_REQUEST => Ok(self.doctor()),
             EXPLAIN_REQUEST => self.explain(params.clone()),
             FORMAT_TEXT_REQUEST => self.format_text(params.clone()),
             _ => Err(RpcError {
@@ -569,20 +601,22 @@ impl Server {
         uri: &Uri,
         document: &Document,
         ranges: &[Range],
+        request_fixes: bool,
         state: Option<&RequestState>,
     ) -> std::result::Result<Vec<TextEdit>, RpcError> {
+        let settings = self.settings();
+        // Configured dotfmt.dotfile fixes are only for full-document formatting
+        // and require explicit trust; range/on-type formatting never applies
+        // them.
+        let fixes = request_fixes && ranges.is_empty() && settings.trusted;
         let path = self.path(uri, document)?;
         let languages = analysis::forced(&path, uri, document.language());
         let session = self.workspace.session(&path);
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
-        let output = match analysis::format(&mut session, &path, document.text(), languages) {
+        let output = match analysis::format(&mut session, &path, document.text(), languages, fixes) {
             Ok(output) => output,
             Err(errors) => {
-                self.diagnostics
-                    .publish_fatal(uri.clone(), document.text(), &errors);
-                for error in errors {
-                    self.log(error.to_string());
-                }
+                self.publish_fatal(uri, document.text(), document.version, &errors);
                 return Ok(Vec::new());
             }
         };
@@ -605,31 +639,69 @@ impl Server {
         uri: &Uri,
         document: &Document,
     ) -> std::result::Result<Vec<TextEdit>, RpcError> {
-        let mode = self.settings().fixes_on_save;
-        let fix = match mode {
-            crate::settings::FixesOnSave::Off => return Ok(Vec::new()),
-            crate::settings::FixesOnSave::Safe => FixMode::Safe,
-            crate::settings::FixesOnSave::Unsafe if self.settings().trusted => FixMode::Unsafe,
-            crate::settings::FixesOnSave::Unsafe => FixMode::Safe,
-        };
+        let settings = self.settings();
+        let mode = settings.fixes_on_save;
         let path = self.path(uri, document)?;
         let languages = analysis::forced(&path, uri, document.language());
         let session = self.workspace.session(&path);
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
-        let inspection =
-            match analysis::inspect(&mut session, &path, document.text(), languages, fix) {
-                Ok(inspection) => inspection,
-                Err(errors) => {
-                    self.diagnostics
-                        .publish_fatal(uri.clone(), document.text(), &errors);
-                    for error in errors {
-                        self.log(error.to_string());
+        let mut source = document.text().to_owned();
+        let mut on_save_fixes = false;
+        if mode != FixesOnSave::Off {
+            let fix = match mode {
+                FixesOnSave::Off => unreachable!(),
+                FixesOnSave::Safe => FixMode::Safe,
+                FixesOnSave::Unsafe if settings.trusted => FixMode::Unsafe,
+                FixesOnSave::Unsafe => FixMode::Safe,
+            };
+            let inspection =
+                match analysis::inspect(&mut session, &path, document.text(), languages.clone(), fix)
+                {
+                    Ok(inspection) => inspection,
+                    Err(errors) => {
+                        self.publish_fatal(uri, document.text(), document.version, &errors);
+                        return Ok(Vec::new());
                     }
+                };
+            source = inspection.after;
+            on_save_fixes = true;
+        }
+        // `willSaveWaitUntil` is one of the two paths allowed to apply
+        // configured fixes. Untrusted workspaces never run them.
+        let formatted = match analysis::format(
+            &mut session,
+            &path,
+            &source,
+            languages.clone(),
+            settings.trusted,
+        ) {
+            Ok(text) => text,
+            Err(errors) => {
+                self.publish_fatal(uri, document.text(), document.version, &errors);
+                return Ok(Vec::new());
+            }
+        };
+        if !on_save_fixes {
+            // `fixes.onSave = off` must not turn will-save into format-on-save.
+            let plain = match analysis::format(
+                &mut session,
+                &path,
+                document.text(),
+                languages,
+                false,
+            ) {
+                Ok(text) => text,
+                Err(errors) => {
+                    self.publish_fatal(uri, document.text(), document.version, &errors);
                     return Ok(Vec::new());
                 }
             };
+            if formatted == plain {
+                return Ok(Vec::new());
+            }
+        }
         self.ensure_current(uri, document.version)?;
-        Ok(edits::whole(document, &inspection.after))
+        Ok(edits::whole(document, &formatted))
     }
 
     fn code_actions(
@@ -638,6 +710,7 @@ impl Server {
         state: &RequestState,
     ) -> std::result::Result<Vec<CodeActionOrCommand>, RpcError> {
         let uri = params.text_document.uri;
+        let settings = self.settings();
         let document = self.document(&uri)?;
         let path = self.path(&uri, &document)?;
         let languages = analysis::forced(&path, &uri, document.language());
@@ -662,11 +735,7 @@ impl Server {
         ) {
             Ok(inspection) => inspection,
             Err(errors) => {
-                self.diagnostics
-                    .publish_fatal(uri.clone(), document.text(), &errors);
-                for error in errors {
-                    self.log(error.to_string());
-                }
+                self.publish_fatal(&uri, document.text(), document.version, &errors);
                 return Ok(Vec::new());
             }
         };
@@ -706,7 +775,7 @@ impl Server {
                     }
                 }
             };
-            match analysis::format(&mut session, &path, &source, languages) {
+            match analysis::format(&mut session, &path, &source, languages, false) {
                 Ok(text) => {
                     if wants_fix_all {
                         fix_all = Some(text.clone());
@@ -719,11 +788,7 @@ impl Server {
                     }
                 }
                 Err(errors) => {
-                    self.diagnostics
-                        .publish_fatal(uri.clone(), document.text(), &errors);
-                    for error in errors {
-                        self.log(error.to_string());
-                    }
+                    self.publish_fatal(&uri, document.text(), document.version, &errors);
                 }
             }
         }
@@ -734,7 +799,7 @@ impl Server {
             uri: &uri,
             range: params.range,
             only,
-            trusted: self.settings().trusted,
+            trusted: settings.trusted,
             fixes: &fixes,
             format: format.as_deref(),
             fix_all: fix_all.as_deref(),
@@ -769,6 +834,7 @@ impl Server {
             .and_then(Value::as_str)
             .and_then(|value| value.parse().ok())
             .ok_or_else(|| RpcError::invalid_params("command needs a document URI"))?;
+        let settings = self.settings();
         let document = self.document(&uri)?;
         let path = self.path(&uri, &document)?;
         let languages = analysis::forced(&path, &uri, document.language());
@@ -781,7 +847,7 @@ impl Server {
                     .get(1)
                     .and_then(Value::as_str)
                     .unwrap_or("safe");
-                let mode = if !self.settings().trusted || requested != "unsafe" {
+                let mode = if !settings.trusted || requested != "unsafe" {
                     FixMode::Safe
                 } else {
                     FixMode::Unsafe
@@ -790,7 +856,9 @@ impl Server {
                     .map(|inspection| inspection.after)
             }
             ORGANIZE_IMPORTS => analysis::organize(&mut session, &path, document.text(), languages),
-            SORT_TAILWIND => analysis::format(&mut session, &path, document.text(), languages),
+            SORT_TAILWIND => {
+                analysis::format(&mut session, &path, document.text(), languages, false)
+            }
             _ => {
                 return Err(RpcError {
                     code: ErrorCode::MethodNotFound as i32,
@@ -835,16 +903,14 @@ impl Server {
         let languages = language.into_iter().collect();
         let session = self.workspace.session(&path);
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
-        let text =
-            analysis::format(&mut session, &path, &params.text, languages).map_err(|errors| {
-                RpcError {
-                    code: ErrorCode::RequestFailed as i32,
-                    message: errors
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                }
+        let text = analysis::format(&mut session, &path, &params.text, languages, false)
+            .map_err(|errors| RpcError {
+                code: ErrorCode::RequestFailed as i32,
+                message: errors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
             })?;
         Ok(json!(text))
     }
@@ -907,12 +973,14 @@ impl Server {
                     if !is_supported {
                         return;
                     }
+                    let settings = self.settings();
                     self.diagnostics.schedule(
                         &document,
                         self.document_path(&item.uri, &document),
                         item.uri.clone(),
+                        &settings,
                     );
-                    self.schedule_tsc(item.uri);
+                    self.schedule_tsc(item.uri, &settings);
                 }
             }
             DidChangeTextDocument::METHOD => {
@@ -951,17 +1019,25 @@ impl Server {
                                 "ignoring out-of-order didChange for {} version {version} (current version {current})",
                                 uri.as_str()
                             ));
-                            self.diagnostics.clear(uri);
+                            self.diagnostics.clear(uri.clone());
+                            self.diagnostics.clear_tsc_uri(uri);
                         }
-                        Some(Ok((_, true))) => self.log(format!(
-                            "incremental didChange for {} could not be applied; document is desynchronised until reopen",
-                            uri.as_str()
-                        )),
+                        Some(Ok((_, true))) => {
+                            self.log(format!(
+                                "incremental didChange for {} could not be applied; document is desynchronised until reopen",
+                                uri.as_str()
+                            ));
+                            self.diagnostics.clear_tsc_uri(uri);
+                        }
                         Some(Ok((snapshot, false))) => {
+                            // tsc entries describe the file on disk; an edit
+                            // invalidates them until the next save/open.
+                            self.diagnostics.clear_tsc_uri(uri.clone());
                             if supported(&uri, snapshot.language())
                                 && let Some(path) = analysis::buffer_path(&uri, snapshot.language())
                             {
-                                self.diagnostics.schedule(&snapshot, path, uri);
+                                let settings = self.settings();
+                                self.diagnostics.schedule(&snapshot, path, uri, &settings);
                             }
                         }
                     }
@@ -971,11 +1047,15 @@ impl Server {
                 if let Ok(params) =
                     serde_json::from_value::<DidCloseTextDocumentParams>(notification.params)
                 {
+                    let settings = self.settings();
                     self.documents
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .close(&params.text_document.uri);
-                    self.diagnostics.clear(params.text_document.uri);
+                    self.diagnostics.clear(params.text_document.uri.clone());
+                    if settings.tsc_scope == TscScope::Open {
+                        self.diagnostics.clear_tsc_uri(params.text_document.uri);
+                    }
                 }
             }
             DidSaveTextDocument::METHOD => {
@@ -1000,12 +1080,14 @@ impl Server {
                         }
                         document.clone()
                     };
+                    let settings = self.settings();
                     if supported(&uri, snapshot.language())
                         && let Some(path) = analysis::buffer_path(&uri, snapshot.language())
                     {
-                        self.diagnostics.schedule(&snapshot, path, uri.clone());
+                        self.diagnostics
+                            .schedule(&snapshot, path, uri.clone(), &settings);
                     }
-                    self.schedule_tsc(uri);
+                    self.schedule_tsc(uri, &settings);
                 }
             }
             DidChangeConfiguration::METHOD => {
@@ -1024,6 +1106,13 @@ impl Server {
                     });
                     if config {
                         self.reload();
+                    } else if params.changes.iter().any(|change| {
+                        uri::path(&change.uri).is_some_and(|path| is_tsc_config_file(&path))
+                    }) {
+                        // A compiler configuration change invalidates cached
+                        // results and rechecks every open document.
+                        let settings = self.settings();
+                        self.reschedule_tsc(&settings);
                     } else {
                         self.tsc.invalidate();
                     }
@@ -1061,6 +1150,12 @@ impl Server {
             json!({ "globPattern": "**/.prettierignore" }),
             json!({ "globPattern": "**/tsconfig*.json" }),
             json!({ "globPattern": "**/jsconfig*.json" }),
+            json!({ "globPattern": "**/package.json" }),
+            json!({ "globPattern": "**/package-lock.json" }),
+            json!({ "globPattern": "**/pnpm-lock.yaml" }),
+            json!({ "globPattern": "**/yarn.lock" }),
+            json!({ "globPattern": "**/bun.lock" }),
+            json!({ "globPattern": "**/bun.lockb" }),
         ];
         if let Some(global) = crate::workspace::global_config() {
             watchers.push(json!({ "globPattern": global.display().to_string() }));
@@ -1084,8 +1179,7 @@ impl Server {
         analysis::buffer_path(uri, document.language()).unwrap_or_else(|| PathBuf::from("stdin"))
     }
 
-    fn schedule_tsc(&self, uri: Uri) {
-        let settings = self.settings();
+    fn schedule_tsc(&self, uri: Uri, settings: &Settings) {
         if !settings.trusted || !settings.type_aware {
             return;
         }
@@ -1095,8 +1189,59 @@ impl Server {
         if !analysis::is_typescript(&path) {
             return;
         }
-        self.tsc
-            .schedule(path.clone(), self.workspace.root_for(&path));
+        self.tsc.schedule(
+            path.clone(),
+            self.workspace.root_for(&path),
+            settings.clone(),
+        );
+    }
+
+    fn publish_fatal(&self, uri: &Uri, text: &str, version: i32, errors: &[dotfmt_core::diagnostic::Diagnostic]) {
+        if self.settings().syntax_diagnostics {
+            self.diagnostics
+                .publish_fatal(uri.clone(), text, version, errors);
+        } else {
+            self.diagnostics.clear(uri.clone());
+        }
+        for error in errors {
+            self.log(error.to_string());
+        }
+    }
+
+    fn doctor(&self) -> Value {
+        let settings = self.settings();
+        let roots = self.workspace.roots();
+        let projects = self.tsc.status(&roots, &settings);
+        json!({
+            "server": {
+                "name": "dotfmt-lsp",
+                "version": env!("CARGO_PKG_VERSION"),
+            },
+            "trusted": settings.trusted,
+            "typeAware": settings.type_aware,
+            "syntax": settings.syntax_diagnostics,
+            "tscScope": settings.tsc_scope.as_str(),
+            "roots": roots
+                .iter()
+                .map(|root| root.display().to_string())
+                .collect::<Vec<_>>(),
+            "projects": projects
+                .iter()
+                .map(|project| json!({
+                    "root": project.root.display().to_string(),
+                    "tsconfig": project
+                        .tsconfig
+                        .as_ref()
+                        .map(|path| path.display().to_string()),
+                    "compiler": project
+                        .compiler
+                        .as_ref()
+                        .map(|path| path.display().to_string()),
+                    "version": project.version,
+                    "state": project.state,
+                }))
+                .collect::<Vec<_>>(),
+        })
     }
 }
 
@@ -1182,6 +1327,25 @@ fn is_config_file(path: &Path) -> bool {
         path.file_name().and_then(|name| name.to_str()),
         Some("dotfmt.dotfile" | ".prettierignore")
     )
+}
+
+fn is_tsc_config_file(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some(
+            "tsconfig.json"
+                | "jsconfig.json"
+                | "package.json"
+                | "package-lock.json"
+                | "pnpm-lock.yaml"
+                | "yarn.lock"
+                | "bun.lock"
+                | "bun.lockb"
+        )
+    ) || path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("tsconfig.") || name.starts_with("jsconfig."))
 }
 
 fn capabilities() -> ServerCapabilities {
@@ -1643,7 +1807,7 @@ mod tests {
         let range = document.lsp_range(&(start..start + "world".len()));
 
         let edits = server
-            .format_document(&uri, &document, &[range], None)
+            .format_document(&uri, &document, &[range], false, None)
             .unwrap_or_else(|error| panic!("formatting failed: {}", error.message));
         assert!(!edits.is_empty());
         assert!(
@@ -1677,7 +1841,7 @@ mod tests {
         let range = document.lsp_range(&(start..start + "one".len()));
 
         let edits = server
-            .format_document(&uri, &document, &[range], None)
+            .format_document(&uri, &document, &[range], false, None)
             .unwrap_or_else(|error| panic!("formatting failed: {}", error.message));
         assert!(!edits.is_empty());
         assert!(
@@ -2362,7 +2526,7 @@ mod tests {
         let range = document.line_range(2, 2);
         let range = document.lsp_range(&range);
         let edits = server
-            .format_document(&uri, &document, &[range], None)
+            .format_document(&uri, &document, &[range], false, None)
             .unwrap_or_else(|error| panic!("formatting failed: {}", error.message));
         assert!(!edits.is_empty());
         assert!(
@@ -2377,6 +2541,347 @@ mod tests {
         assert_eq!(after[1], before[1]);
         assert_eq!(after[3], before[3]);
         assert_eq!(after[2], "  \"b\": 2,");
+    }
+
+
+    #[cfg(unix)]
+    fn write_fake_tsc(root: &Path, output: &str) {
+        let directory = root.join("node_modules/.bin");
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("tsc");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'Version 9.9.9'; exit 0; fi\n\
+                 echo run >> marker.log\n{output}\n"
+            ),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn wait_for_tsc_diagnostics(
+        receiver: &crossbeam_channel::Receiver<Message>,
+        uri: &Uri,
+    ) -> lsp_types::PublishDiagnosticsParams {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("timed out waiting for tsc diagnostics");
+            let message = receiver.recv_timeout(remaining).expect("server message");
+            let Message::Notification(notification) = message else {
+                continue;
+            };
+            if notification.method != "textDocument/publishDiagnostics" {
+                continue;
+            }
+            let params: lsp_types::PublishDiagnosticsParams =
+                serde_json::from_value(notification.params).unwrap();
+            if &params.uri == uri
+                && params.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.source.as_deref() == Some("dotfmt(tsc)")
+                })
+            {
+                return params;
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn open_typescript(server: &Server, root: &Path, text: &str) -> (PathBuf, Uri) {
+        let path = root.join("src/a.ts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        server.notify(Notification::new(
+            DidOpenTextDocument::METHOD.into(),
+            json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "typescript",
+                    "version": 1,
+                    "text": text
+                }
+            }),
+        ));
+        (path, uri)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_tsconfig_change_invalidates_and_reruns_tsc() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        write_fake_tsc(
+            root,
+            "echo \"src/a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.\"",
+        );
+        let (server, receiver) =
+            server_with_options(root, json!({ "trusted": true, "typeAware": true }));
+        let (_path, uri) = open_typescript(&server, root, "const value: number = 'x';\n");
+        let first = wait_for_tsc_diagnostics(&receiver, &uri);
+        assert_eq!(first.diagnostics.len(), 1);
+        assert_eq!(
+            first.diagnostics[0].code,
+            Some(NumberOrString::String("TS2322".into()))
+        );
+
+        std::fs::write(
+            root.join("tsconfig.json"),
+            "{\"compilerOptions\":{\"strict\":true}}\n",
+        )
+        .unwrap();
+        server.notify(Notification::new(
+            DidChangeWatchedFiles::METHOD.into(),
+            json!({
+                "changes": [{
+                    "uri": uri::from_path(&root.join("tsconfig.json")),
+                    "type": 2
+                }]
+            }),
+        ));
+        wait_for_tsc_diagnostics(&receiver, &uri);
+        let runs = std::fs::read_to_string(root.join("marker.log")).unwrap();
+        assert_eq!(runs.lines().count(), 2, "{runs}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn did_change_clears_tsc_diagnostics_for_the_uri() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        write_fake_tsc(
+            root,
+            "echo \"src/a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.\"",
+        );
+        let (server, receiver) = server_with_options(root, json!({ "trusted": true }));
+        let (_path, uri) = open_typescript(&server, root, "const value: number = 'x';\n");
+        wait_for_tsc_diagnostics(&receiver, &uri);
+
+        server.notify(Notification::new(
+            DidChangeTextDocument::METHOD.into(),
+            json!({
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{ "text": "const value: number = 1;\n" }]
+            }),
+        ));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("timed out waiting for the cleared publish");
+            let message = receiver.recv_timeout(remaining).expect("server message");
+            let Message::Notification(notification) = message else {
+                continue;
+            };
+            if notification.method != "textDocument/publishDiagnostics" {
+                continue;
+            }
+            let params: lsp_types::PublishDiagnosticsParams =
+                serde_json::from_value(notification.params).unwrap();
+            if params.uri == uri && params.version == Some(2) {
+                assert!(params.diagnostics.is_empty(), "{:?}", params.diagnostics);
+                break;
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doctor_reports_compiler_settings_and_roots() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        write_fake_tsc(root, "");
+        let (server, _receiver) = server_with_options(root, json!({ "trusted": true }));
+        let value = server
+            .handle(DOCTOR_REQUEST, &Value::Null, &RequestState::default())
+            .unwrap();
+        assert_eq!(value["server"]["name"], json!("dotfmt-lsp"));
+        assert_eq!(
+            value["server"]["version"],
+            json!(env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(value["trusted"], json!(true));
+        assert_eq!(value["typeAware"], json!(true));
+        assert_eq!(value["syntax"], json!(true));
+        assert_eq!(value["tscScope"], json!("open"));
+        let roots = value["roots"].as_array().unwrap();
+        assert_eq!(roots.len(), 1);
+        assert_eq!(
+            std::fs::canonicalize(roots[0].as_str().unwrap()).unwrap(),
+            std::fs::canonicalize(root).unwrap()
+        );
+        let projects = value["projects"].as_array().unwrap();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0]["state"], json!("ok"));
+        assert_eq!(projects[0]["version"], json!("9.9.9"));
+        assert!(
+            projects[0]["tsconfig"]
+                .as_str()
+                .unwrap()
+                .ends_with("tsconfig.json")
+        );
+        assert!(
+            projects[0]["compiler"]
+                .as_str()
+                .unwrap()
+                .ends_with("node_modules/.bin/tsc")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn configured_fixes_are_limited_to_trusted_full_document_formatting() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(
+            root.join("dotfmt.dotfile"),
+            "typescript { fixes = safe\n type_aware = false }\n",
+        )
+        .unwrap();
+        let text = "import { unused } from \"./side\";\nconst value=1;\n";
+        let path = root.join("src/a.ts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+
+        let untrusted = test_server(root);
+        untrusted
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let edits = untrusted
+            .format_document(&uri, &document, &[], true, None)
+            .unwrap();
+        assert!(
+            apply_edits(text, &edits).contains("unused"),
+            "untrusted formatting applied configured fixes"
+        );
+
+        let (trusted, _receiver) = server_with_options(root, json!({ "trusted": true }));
+        trusted
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let edits = trusted
+            .format_document(&uri, &document, &[], true, None)
+            .unwrap();
+        assert!(
+            !apply_edits(text, &edits).contains("unused"),
+            "trusted full-document formatting did not apply configured fixes"
+        );
+
+        let range = document.lsp_range(&document.line_range(1, 1));
+        let edits = trusted
+            .format_document(&uri, &document, &[range], false, None)
+            .unwrap();
+        assert!(
+            apply_edits(text, &edits).contains("unused"),
+            "range formatting applied configured fixes"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn will_save_applies_configured_fixes_only_when_trusted() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(
+            root.join("dotfmt.dotfile"),
+            "typescript { fixes = safe\n type_aware = false }\n",
+        )
+        .unwrap();
+        let text = "import { unused } from \"./side\";\nconst value=1;\n";
+        let path = root.join("src/a.ts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+
+        let untrusted = test_server(root);
+        untrusted
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        assert!(
+            untrusted.fix_on_save(&uri, &document).unwrap().is_empty(),
+            "untrusted will-save applied configured fixes"
+        );
+
+        let (trusted, _receiver) = server_with_options(root, json!({ "trusted": true }));
+        trusted
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let edits = trusted.fix_on_save(&uri, &document).unwrap();
+        assert!(
+            !apply_edits(text, &edits).contains("unused"),
+            "trusted will-save did not apply configured fixes"
+        );
+    }
+
+    #[test]
+    fn syntax_disabled_logs_formatting_failures_without_publishing() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let text = "const = ;\n";
+        let path = root.join("src/a.ts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let (server, receiver) =
+            server_with_options(root, json!({ "diagnostics": { "syntax": false } }));
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        assert!(
+            server
+                .format_document(&uri, &document, &[], false, None)
+                .unwrap()
+                .is_empty()
+        );
+        let mut logged = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            let Ok(message) = receiver.recv_timeout(remaining) else {
+                break;
+            };
+            if let Message::Notification(notification) = message {
+                if notification.method == "window/logMessage" {
+                    logged = true;
+                }
+                if notification.method == "textDocument/publishDiagnostics" {
+                    let params: lsp_types::PublishDiagnosticsParams =
+                        serde_json::from_value(notification.params).unwrap();
+                    if params.uri == uri {
+                        assert!(
+                            params.diagnostics.is_empty(),
+                            "syntax diagnostics were published while disabled"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(logged, "formatting failure was not logged");
     }
 
     #[test]
