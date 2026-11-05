@@ -60,6 +60,7 @@ pub(super) enum Work {
         diff: bool,
         json: bool,
         type_aware: Option<bool>,
+        project_analysis: bool,
     },
 }
 
@@ -485,6 +486,7 @@ impl Session {
                 diff,
                 json,
                 type_aware,
+                project_analysis,
                 ..
             } => Ok(Plan {
                 work: Work::Inspect {
@@ -495,6 +497,7 @@ impl Session {
                     diff,
                     json,
                     type_aware,
+                    project_analysis,
                 },
                 parallel,
             }),
