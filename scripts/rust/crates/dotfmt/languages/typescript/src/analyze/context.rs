@@ -11,6 +11,7 @@ use super::Options;
 
 pub(crate) struct Context<'a, 'p> {
     pub text: &'p str,
+    pub path: &'p std::path::Path,
     pub config: &'p Config,
     pub options: &'p Options,
     pub program: &'p Program<'a>,
@@ -18,6 +19,8 @@ pub(crate) struct Context<'a, 'p> {
     pub comments: &'p [Comment],
     pub tsconfig: Tsconfig,
     pub is_declaration: bool,
+    pub is_typescript: bool,
+    pub is_script: bool,
     pub has_eval: bool,
     pub type_diagnostics: Vec<TypeDiagnostic>,
     exported_spans: Vec<Span>,
@@ -27,6 +30,7 @@ impl<'a, 'p> Context<'a, 'p> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         text: &'p str,
+        path: &'p std::path::Path,
         config: &'p Config,
         options: &'p Options,
         source_type: SourceType,
@@ -40,6 +44,7 @@ impl<'a, 'p> Context<'a, 'p> {
         let has_eval = has_eval(semantic);
         Self {
             text,
+            path,
             config,
             options,
             program,
@@ -47,6 +52,8 @@ impl<'a, 'p> Context<'a, 'p> {
             comments,
             tsconfig,
             is_declaration: source_type.is_typescript_definition(),
+            is_typescript: source_type.is_typescript(),
+            is_script: source_type.is_script(),
             has_eval,
             type_diagnostics,
             exported_spans,

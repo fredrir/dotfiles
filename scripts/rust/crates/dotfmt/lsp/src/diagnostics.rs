@@ -215,14 +215,38 @@ fn inspect(
     let languages = analysis::forced(&job.path, &job.uri, &job.language_id);
     match analysis::inspect(&mut session, &job.path, &job.text, languages, FixMode::None) {
         Ok(inspection) => {
-            let findings = findings(&job.uri, &job.text, &inspection.findings);
-            Some(if findings.is_empty() {
+            let mut found = inspection.findings;
+            append_project_unused_exports(&job.path, &mut found);
+            let diagnostics = findings(&job.uri, &job.text, &found);
+            Some(if diagnostics.is_empty() {
                 vec![(job.uri.clone(), Vec::new())]
             } else {
-                vec![(job.uri.clone(), findings)]
+                vec![(job.uri.clone(), diagnostics)]
             })
         }
         Err(errors) => Some(fatal_entries(&job.uri, &job.text, &errors)),
+    }
+}
+
+/// Adds project-wide unused-export findings for TypeScript/JavaScript files.
+/// The export graph is built in Rust from source files, so this stays safe in
+/// an untrusted workspace and never starts Node or `tsc`.
+fn append_project_unused_exports(path: &Path, findings: &mut Vec<Finding>) {
+    if !analysis::is_typescript(path) || !path.is_file() {
+        return;
+    }
+    let Ok(project) = dotfmt_typescript::project::unused_exports(path) else {
+        return;
+    };
+    for finding in project.findings {
+        let duplicate = findings.iter().any(|existing| {
+            existing.code == finding.code
+                && existing.start == finding.start
+                && existing.end == finding.end
+        });
+        if !duplicate {
+            findings.push(finding);
+        }
     }
 }
 
@@ -476,12 +500,22 @@ fn publish(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::str::FromStr;
+    use std::sync::Mutex;
 
     use dotfmt_core::edit::Related;
     use lsp_types::Position;
 
     use super::*;
+
+    fn write(root: &Path, path: &str, text: &str) {
+        let path = root.join(path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, text).unwrap();
+    }
 
     #[test]
     fn findings_keep_tags_related_information_and_source() {
@@ -540,5 +574,53 @@ mod tests {
         };
         let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
         assert!(params.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn project_unused_exports_become_lsp_diagnostics() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(root, "dotfmt.dotfile", "typescript {}\n");
+        write(root, "package.json", "{\"private\":true}\n");
+        let text = "export const consumed = 1;\nexport const orphan = 2;\n";
+        let path = root.join("src/a.ts");
+        write(root, "src/a.ts", text);
+        write(
+            root,
+            "src/use.ts",
+            "import { consumed } from \"./a\";\nconsole.log(consumed);\n",
+        );
+
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let workspace = Workspace::new(vec![root.to_path_buf()]);
+        let documents = Mutex::new(Documents::default());
+        documents.lock().unwrap().open(uri.clone(), document);
+        let job = Scheduled {
+            uri: uri.clone(),
+            version: Some(1),
+            path,
+            language_id: "typescript".into(),
+            text: text.into(),
+            delay: DEBOUNCE,
+        };
+
+        let entries = inspect(&workspace, &documents, &job).expect("inspection");
+        let diagnostics = entries
+            .into_iter()
+            .find_map(|(target, diagnostics)| (target == uri).then_some(diagnostics))
+            .expect("diagnostics for the open file");
+        let unused: Vec<&Diagnostic> = diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.code == Some(NumberOrString::String("unused-export".into()))
+            })
+            .collect();
+        assert_eq!(unused.len(), 1, "{diagnostics:?}");
+        assert!(unused[0].message.contains("orphan"));
+        assert!(!unused[0].message.contains("consumed"));
+        assert_eq!(unused[0].range.start, Position::new(1, 13));
+        assert_eq!(unused[0].range.end, Position::new(1, 19));
+        assert_eq!(unused[0].source.as_deref(), Some("dotfmt"));
     }
 }

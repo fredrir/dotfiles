@@ -90,6 +90,9 @@ fn unused_variables<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) 
             || comments
             || !single
             || in_for
+            || (context.is_script
+                && matches!(variable.kind, VariableDeclarationKind::Var)
+                && !has_function_body(context, variable.node_id()))
         {
             continue;
         }

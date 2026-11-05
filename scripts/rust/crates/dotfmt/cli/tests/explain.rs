@@ -65,6 +65,21 @@ fn explain_reports_why_a_file_is_skipped() {
 }
 
 #[test]
+fn explain_uses_extensionless_language_alias_dialects() {
+    let root = tree_pairs(&[("dotfmt.dotfile", "typescript {}\ncss {}\n")]);
+    for (language, path, expected) in [
+        ("tsx", "Untitled-1", "language typescript\ndialect  tsx\n"),
+        ("tsx", "a.ts", "language typescript\ndialect  ts\n"),
+        ("scss", "Untitled-1", "language css\ndialect  scss\n"),
+    ] {
+        assert!(
+            explain(root.path(), &["-l", language, "--explain", path]).starts_with(expected),
+            "{language} {path}"
+        );
+    }
+}
+
+#[test]
 fn explain_honors_forced_languages_and_dialects_and_reports_configuration_errors() {
     let root = tree_pairs(&[("dotfmt.dotfile", CONFIG)]);
     assert!(

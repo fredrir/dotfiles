@@ -240,7 +240,11 @@ fn analyze_declaration<'a, 'p>(
     }
 
     let edit = if all_unused {
-        if declaration_is_type {
+        let declaration_module = declaration_is_type
+            || (context.is_typescript
+                && context.tsconfig.elides_unused_imports()
+                && source_is_declaration_module(context, declaration));
+        if declaration_module {
             let (start, end) = context.statement_edit(start, end);
             Edit::delete(start, end)
         } else {
@@ -270,6 +274,36 @@ fn analyze_declaration<'a, 'p>(
         finding: findings.first().cloned(),
         title: title.to_owned(),
     });
+}
+
+/// Whether an import specifier resolves to a TypeScript declaration file.
+///
+/// TypeScript elides imports that only refer to declaration files at emit time;
+/// preserving a bare runtime import there would introduce module evaluation.
+fn source_is_declaration_module(
+    context: &Context<'_, '_>,
+    declaration: &ImportDeclaration<'_>,
+) -> bool {
+    let value = source_value(declaration);
+    if !(value.starts_with('.') || value.starts_with('/')) {
+        return false;
+    }
+    let base = context
+        .path
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join(value);
+    for candidate in [
+        base.with_extension("d.ts"),
+        base.with_extension("d.mts"),
+        base.with_extension("d.cts"),
+        base.join("index.d.ts"),
+    ] {
+        if candidate.is_file() {
+            return true;
+        }
+    }
+    false
 }
 
 fn rebuild<'a, 'p>(

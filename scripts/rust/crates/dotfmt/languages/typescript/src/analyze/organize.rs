@@ -136,39 +136,43 @@ fn organize_run<'a, 'p>(
     }
 
     let mut fixed = BTreeSet::new();
-    let mut sortable = Vec::new();
     for slot in &slots {
         if items[*slot].side_effect || items[*slot].ignored {
             fixed.insert(*slot);
-        } else {
-            sortable.push(*slot);
         }
     }
-    match context.config.import_order {
-        SortOrder::Asc => sortable.sort_by(|left, right| {
-            items[*left]
-                .key
-                .cmp(&items[*right].key)
-                .then_with(|| left.cmp(right))
-        }),
-        SortOrder::Desc => sortable.sort_by(|left, right| {
-            items[*right]
-                .key
-                .cmp(&items[*left].key)
-                .then_with(|| left.cmp(right))
-        }),
+
+    // Sort only runs between side-effect/ignored imports. Moving a normal import
+    // across a side-effect import would change module evaluation order.
+    let mut order = slots.clone();
+    let mut start = 0;
+    while start < slots.len() {
+        if fixed.contains(&slots[start]) {
+            start += 1;
+            continue;
+        }
+        let mut end = start;
+        while end < slots.len() && !fixed.contains(&slots[end]) {
+            end += 1;
+        }
+        let mut segment = slots[start..end].to_vec();
+        match context.config.import_order {
+            SortOrder::Asc => segment.sort_by(|left, right| {
+                items[*left]
+                    .key
+                    .cmp(&items[*right].key)
+                    .then_with(|| left.cmp(right))
+            }),
+            SortOrder::Desc => segment.sort_by(|left, right| {
+                items[*right]
+                    .key
+                    .cmp(&items[*left].key)
+                    .then_with(|| left.cmp(right))
+            }),
+        }
+        order[start..end].copy_from_slice(&segment);
+        start = end;
     }
-    let mut sorted = sortable.into_iter();
-    let order: Vec<usize> = slots
-        .iter()
-        .map(|slot| {
-            if fixed.contains(slot) {
-                *slot
-            } else {
-                sorted.next().unwrap_or(*slot)
-            }
-        })
-        .collect();
 
     let rewrites: BTreeSet<usize> = changes
         .keys()

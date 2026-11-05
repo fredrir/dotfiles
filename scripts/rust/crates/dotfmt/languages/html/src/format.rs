@@ -26,6 +26,11 @@ pub fn format(
     }
     let text = input.replace("\r\n", "\n");
     let dialect = dialect.resolve(config.dialect, path);
+    let text = if dialect == Dialect::Html {
+        crate::optional::insert_optional_end_tags(&text)
+    } else {
+        std::borrow::Cow::Borrowed(text.as_str())
+    };
     let mut output = markup_fmt::format_text(
         &text,
         dialect.language(),

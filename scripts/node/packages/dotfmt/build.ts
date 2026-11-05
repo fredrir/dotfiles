@@ -22,13 +22,46 @@ const isPlatform = (name: string): name is Platform => name in TARGETS;
 const executable = (name: string, platform: Platform): string =>
   platform.startsWith("win32") ? `${name}.exe` : name;
 
-export async function build(platforms: Platform[] = DEFAULT_PLATFORMS): Promise<void> {
-  const targets = platforms.flatMap((platform) => [
-    "--target",
-    TARGETS[platform],
-  ]);
+async function checkBuildPrerequisites(targets: string[]): Promise<void> {
+  const missing: string[] = [];
+  if (!Bun.which("zig")) {
+    missing.push("zig; install it from https://ziglang.org/download/");
+  }
+  if (!Bun.which("cargo-zigbuild")) {
+    missing.push(
+      "cargo-zigbuild; install it with `cargo install cargo-zigbuild`",
+    );
+  }
+  if (Bun.which("rustup")) {
+    const installed = await $`rustup target list --installed`.quiet().nothrow();
+    if (installed.exitCode === 0) {
+      const available = new Set(
+        installed.stdout.toString().split(/\r?\n/).filter(Boolean),
+      );
+      for (const target of targets) {
+        if (!available.has(target)) {
+          missing.push(
+            `Rust target ${target}; run \`rustup target add ${target}\``,
+          );
+        }
+      }
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(`dotfmt cannot build:\n- ${missing.join("\n- ")}`);
+  }
+}
+
+export async function build(
+  platforms: Platform[] = DEFAULT_PLATFORMS,
+): Promise<void> {
+  const targetTriples = [
+    ...new Set(platforms.map((platform) => TARGETS[platform])),
+  ];
+  const targets = targetTriples.flatMap((target) => ["--target", target]);
   const selected = packages.flatMap((name) => ["--package", name]);
 
+  await checkBuildPrerequisites(targetTriples);
   await $`cargo zigbuild --locked --release ${selected} ${targets}`.cwd(cargo);
 
   await rm(path.join(root, "bin"), { recursive: true, force: true });

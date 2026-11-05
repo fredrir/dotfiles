@@ -109,6 +109,9 @@ impl Session {
                             continue;
                         }
                     };
+                    if prettier_ignored(path) {
+                        continue;
+                    }
                     configs.insert(Arc::as_ptr(&config) as usize, Arc::clone(&config));
                     match config.select_languages(path, &request.languages, None) {
                         Ok(Some(language)) if requested(&request, language) => {
@@ -160,7 +163,7 @@ impl Session {
                     }
                     let mut visited = HashSet::new();
                     for candidate in found.candidates {
-                        if !candidate.absolute.is_file() || prettier_ignored(&candidate.absolute) {
+                        if !candidate.absolute.is_file() {
                             continue;
                         }
                         let config = match self.resolver.for_file(&candidate.path) {
@@ -178,7 +181,7 @@ impl Session {
                             errors.push(attach_path(error, &candidate.path));
                             continue;
                         }
-                        let language = match config.select_languages(
+                        let selection = match config.selection(
                             &candidate.path,
                             &request.languages,
                             if candidate.explicit {
@@ -187,13 +190,52 @@ impl Session {
                                 None
                             },
                         ) {
-                            Ok(Some(language)) if requested(&request, language) => language,
-                            Ok(_) => continue,
+                            Ok(selection) => selection,
                             Err(error) => {
                                 errors.push(error);
                                 continue;
                             }
                         };
+                        let language = match selection {
+                            Selection::Language(language) if requested(&request, language) => {
+                                language
+                            }
+                            Selection::Excluded | Selection::Unmapped if !candidate.explicit => {
+                                continue;
+                            }
+                            Selection::Excluded => continue,
+                            Selection::Disabled(language) if candidate.explicit => {
+                                errors.push(
+                                    Diagnostic::new(
+                                        DiagnosticKind::Configuration,
+                                        format!(
+                                            "{} is disabled for {}",
+                                            language.name(),
+                                            candidate.path.display()
+                                        ),
+                                    )
+                                    .with_path(&candidate.path),
+                                );
+                                continue;
+                            }
+                            Selection::Unmapped if candidate.explicit => {
+                                errors.push(
+                                    Diagnostic::new(
+                                        DiagnosticKind::Configuration,
+                                        format!(
+                                            "no configured language for {}",
+                                            candidate.path.display()
+                                        ),
+                                    )
+                                    .with_path(&candidate.path),
+                                );
+                                continue;
+                            }
+                            _ => continue,
+                        };
+                        if prettier_ignored(&candidate.absolute) {
+                            continue;
+                        }
                         let canonical = match fs::canonicalize(&candidate.absolute) {
                             Ok(path) => path,
                             Err(error) => {
@@ -258,6 +300,13 @@ impl Session {
         let (config, selection) = self
             .resolve_buffer(request, path)
             .map_err(|error| vec![error])?;
+        if prettier_ignored(path) {
+            return Ok(Explanation {
+                selection: Selection::Excluded,
+                dialect: None,
+                sources: config.sources().to_vec(),
+            });
+        }
         self.engines
             .validate(&config)
             .map_err(|error| vec![error])?;

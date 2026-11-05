@@ -390,13 +390,11 @@ impl Server {
             }
             OnTypeFormatting::METHOD => {
                 let params: DocumentOnTypeFormattingParams = parse(params)?;
-                let document = self.document(&params.text_document_position.text_document.uri)?;
-                let range = block(&document, params.text_document_position.position);
-                let edits = self.format_document(
-                    &params.text_document_position.text_document.uri,
-                    &document,
-                    &[range],
-                )?;
+                let uri = params.text_document_position.text_document.uri;
+                let document = self.document(&uri)?;
+                let path = self.path(&uri, &document)?;
+                let range = on_type_range(&document, &path, params.text_document_position.position);
+                let edits = self.format_document(&uri, &document, &[range])?;
                 Ok(json!(Some(edits)))
             }
             CodeActionRequest::METHOD => {
@@ -442,7 +440,8 @@ impl Server {
         let edits = if ranges.is_empty() {
             edits
         } else {
-            edits::filter(document, edits, ranges)
+            let ranges = expanded_ranges(document, &path, ranges);
+            edits::filter(edits, &ranges)
         };
         Ok(edits::text_edits(document, &edits))
     }
@@ -847,7 +846,7 @@ impl Server {
         let Some(path) = uri::path(&uri) else {
             return;
         };
-        if !is_typescript(&path) {
+        if !analysis::is_typescript(&path) {
             return;
         }
         self.tsc
@@ -974,11 +973,48 @@ fn block(document: &Document, position: lsp_types::Position) -> Range {
     document.lsp_range(&document.line_range(first, last))
 }
 
-fn is_typescript(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|extension| extension.to_str()),
-        Some("ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs")
-    )
+/// Expands each UTF-16 range to the enclosing TypeScript/JavaScript syntax
+/// node. Other languages keep the requested byte range.
+fn expanded_ranges(
+    document: &Document,
+    path: &Path,
+    ranges: &[Range],
+) -> Vec<std::ops::Range<usize>> {
+    let dialect = dotfmt_typescript::Dialect::for_path(path);
+    ranges
+        .iter()
+        .filter_map(|range| {
+            let range = document.range(*range)?;
+            Some(match dialect {
+                Some(dialect) => dotfmt_typescript::expand_range(
+                    path,
+                    document.text(),
+                    range.start,
+                    range.end,
+                    dialect,
+                )
+                .map_or(range, |(start, end)| start..end),
+                None => range,
+            })
+        })
+        .collect()
+}
+
+/// The syntax node for a zero-width on-type cursor, or the line block for
+/// languages without TypeScript syntax support.
+fn on_type_range(document: &Document, path: &Path, position: lsp_types::Position) -> Range {
+    let Some(dialect) = dotfmt_typescript::Dialect::for_path(path) else {
+        return block(document, position);
+    };
+    let Some(offset) = document.offset(position) else {
+        return block(document, position);
+    };
+    let Some((start, end)) =
+        dotfmt_typescript::expand_range(path, document.text(), offset, offset, dialect)
+    else {
+        return block(document, position);
+    };
+    document.lsp_range(&(start..end))
 }
 
 #[cfg(test)]
@@ -1007,6 +1043,36 @@ mod tests {
                 Message::Request(request) => panic!("unexpected request: {request:?}"),
             }
         }
+    }
+
+    fn test_server(root: &Path) -> Server {
+        let (sender, _receiver) = crossbeam_channel::unbounded();
+        let params: InitializeParams = serde_json::from_value(json!({
+            "processId": null,
+            "rootUri": uri::from_path(root),
+            "capabilities": {},
+        }))
+        .unwrap();
+        Server::new(sender, &params)
+    }
+
+    fn apply_edits(text: &str, edits: &[TextEdit]) -> String {
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let mut ranges: Vec<(std::ops::Range<usize>, String)> = edits
+            .iter()
+            .map(|edit| {
+                (
+                    document.range(edit.range).expect("edit range"),
+                    edit.new_text.clone(),
+                )
+            })
+            .collect();
+        ranges.sort_by_key(|(range, _)| range.start);
+        let mut output = text.to_owned();
+        for (range, new_text) in ranges.into_iter().rev() {
+            output.replace_range(range, &new_text);
+        }
+        output
     }
 
     #[test]
@@ -1146,5 +1212,141 @@ mod tests {
             )))
             .unwrap();
         serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn range_formatting_expands_a_jsx_selection_to_the_element() {
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::write(temporary.path().join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let path = temporary.path().join("App.tsx");
+        let text = "const App = () => {\n  return (\n    <section>\n      <span className=\"hero\"    data-kind=\"text\">world</span>\n    </section>\n  );\n};\n";
+        std::fs::write(&path, text).unwrap();
+        let server = test_server(temporary.path());
+        let document = Document::new(text.into(), "typescriptreact".into(), 1);
+        let uri = uri::from_path(&path);
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let start = text.find("world").unwrap();
+        let range = document.lsp_range(&(start..start + "world".len()));
+
+        let edits = server
+            .format_document(&uri, &document, &[range])
+            .unwrap_or_else(|error| panic!("formatting failed: {}", error.message));
+        assert!(!edits.is_empty());
+        assert!(
+            edits
+                .iter()
+                .all(|edit| edit.range.start.line >= 3 && edit.range.end.line <= 4),
+            "{edits:?}"
+        );
+        assert_eq!(
+            apply_edits(text, &edits),
+            "const App = () => {\n  return (\n    <section>\n      <span className=\"hero\" data-kind=\"text\">\n        world\n      </span>\n    </section>\n  );\n};\n"
+        );
+    }
+
+    #[test]
+    fn range_formatting_expands_a_selection_inside_a_multiline_object() {
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::write(temporary.path().join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let path = temporary.path().join("config.ts");
+        let text = "const config = {\n  nested: {\n    first:\"one\",\n    second:\"two\",\n  },\n  untouched: true,\n};\n";
+        std::fs::write(&path, text).unwrap();
+        let server = test_server(temporary.path());
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let uri = uri::from_path(&path);
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let start = text.find("one").unwrap();
+        let range = document.lsp_range(&(start..start + "one".len()));
+
+        let edits = server
+            .format_document(&uri, &document, &[range])
+            .unwrap_or_else(|error| panic!("formatting failed: {}", error.message));
+        assert!(!edits.is_empty());
+        assert!(
+            edits
+                .iter()
+                .all(|edit| edit.range.start.line >= 2 && edit.range.end.line <= 5),
+            "{edits:?}"
+        );
+        let formatted = apply_edits(text, &edits);
+        assert_eq!(
+            formatted,
+            "const config = {\n  nested: {\n    first: \"one\",\n    second: \"two\",\n  },\n  untouched: true,\n};\n"
+        );
+        let before: Vec<&str> = text.lines().collect();
+        let after: Vec<&str> = formatted.lines().collect();
+        for line in [0, 1, 5, 6] {
+            assert_eq!(after[line], before[line]);
+        }
+    }
+
+    #[test]
+    fn on_type_formatting_expands_the_cursor_inside_a_function() {
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::write(temporary.path().join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let path = temporary.path().join("add.ts");
+        let text = "function add(a: number, b: number) {\n  const sum=a+b;\n  return sum;\n}\nconst untouched = 1;\n";
+        std::fs::write(&path, text).unwrap();
+        let server = test_server(temporary.path());
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let uri = uri::from_path(&path);
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let position =
+            document.position(text.find("const sum=a+b;").unwrap() + "const sum=a+b;".len());
+
+        let result = server
+            .handle(
+                OnTypeFormatting::METHOD,
+                &json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": position.line, "character": position.character },
+                    "ch": ";",
+                    "options": { "tabSize": 2, "insertSpaces": true }
+                }),
+                &RequestId::from(9),
+            )
+            .unwrap_or_else(|error| panic!("on-type formatting failed: {}", error.message));
+        let edits: Vec<TextEdit> = serde_json::from_value(result).unwrap();
+        assert!(!edits.is_empty());
+        assert!(
+            edits
+                .iter()
+                .all(|edit| edit.range.start.line >= 1 && edit.range.end.line <= 2),
+            "{edits:?}"
+        );
+        let formatted = apply_edits(text, &edits);
+        assert_eq!(
+            formatted,
+            "function add(a: number, b: number) {\n  const sum = a + b;\n  return sum;\n}\nconst untouched = 1;\n"
+        );
+        let before: Vec<&str> = text.lines().collect();
+        let after: Vec<&str> = formatted.lines().collect();
+        for line in [0, 2, 3, 4] {
+            assert_eq!(after[line], before[line]);
+        }
+    }
+
+    #[test]
+    fn on_type_range_falls_back_to_the_line_block_outside_typescript() {
+        let text = "{\n\"a\":1\n}\n";
+        let document = Document::new(text.into(), "json".into(), 1);
+        let path = Path::new("a.json");
+        let position = lsp_types::Position::new(1, 5);
+        assert_eq!(
+            on_type_range(&document, path, position),
+            block(&document, position)
+        );
     }
 }

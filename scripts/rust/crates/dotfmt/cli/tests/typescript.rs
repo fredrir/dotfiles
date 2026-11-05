@@ -34,6 +34,40 @@ fn formats_typescript_tsx_and_reports_diagnostics() {
 }
 
 #[test]
+fn extensionless_tsx_alias_formats_jsx_from_editor_stdin() {
+    let root = tree_pairs(&[(
+        "dotfmt.dotfile",
+        "typescript {\n tailwind = off\n type_aware = false\n}\n",
+    )]);
+    let output = dotfmt(root.path())
+        .args(["-e", "-l", "tsx"])
+        .stdin("const App=()=> <div className=\"p-4 flex\">{value}</div>\n")
+        .run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(
+        output.stdout,
+        "const App = () => <div className=\"p-4 flex\">{value}</div>;\n"
+    );
+    assert!(output.stderr.is_empty(), "{output:?}");
+}
+
+#[test]
+fn extension_bearing_stdin_keeps_filename_dialect_over_alias() {
+    let root = tree_pairs(&[(
+        "dotfmt.dotfile",
+        "typescript {\n tailwind = off\n type_aware = false\n}\n",
+    )]);
+    let input = "const App=()=> <div>{value}</div>\n";
+    let output = dotfmt(root.path())
+        .args(["-e", "-l", "tsx", "--stdin", "a.ts"])
+        .stdin(input)
+        .run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(output.stdout, input);
+    assert!(output.stderr.is_empty(), "{output:?}");
+}
+
+#[test]
 fn editor_mode_passes_through_typescript_syntax_errors_quietly() {
     let root = tree_pairs(&[("dotfmt.dotfile", "typescript {}\n")]);
     let output = dotfmt(root.path())

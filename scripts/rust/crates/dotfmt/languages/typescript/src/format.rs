@@ -26,6 +26,12 @@ pub fn format(
         None => (false, input),
     };
     let text = normalize_line_endings(input);
+    if crate::source::nesting_exceeded(&text) {
+        return Err(Diagnostic::new(
+            DiagnosticKind::Syntax,
+            "input nesting exceeds the supported limit",
+        ));
+    }
     if text.trim().is_empty() {
         let mut output = String::new();
         if bom {
@@ -84,14 +90,15 @@ fn normalize_line_endings(input: &str) -> String {
     output
 }
 
-/// Format plain CSS-in-JS tagged templates (`css`/`styled.*`/`createGlobalStyle`).
+/// Format CSS-in-JS tagged templates (`css`/`styled.*`/`createGlobalStyle`).
 ///
-/// Interpolated templates are left untouched: formatting them would require
-/// understanding the embedded expression's runtime type. The scan is lexical and
-/// deliberately conservative; if anything looks ambiguous the text is preserved.
+/// Interpolated expressions are masked with identifier placeholders while the
+/// CSS is formatted, then restored byte-for-byte. Templates whose formatting or
+/// restoration is not exact are left untouched.
 fn format_css_in_js(input: &str, config: &Config, source_type: SourceType) -> String {
-    use oxc_ast::ast::{Expression, TaggedTemplateExpression};
+    use oxc_ast::ast::{Expression, TaggedTemplateExpression, TemplateLiteral};
     use oxc_ast_visit::Visit;
+    use oxc_span::GetSpan;
 
     struct Templates<'a> {
         source: &'a str,
@@ -101,23 +108,123 @@ fn format_css_in_js(input: &str, config: &Config, source_type: SourceType) -> St
 
     impl<'a> Visit<'a> for Templates<'a> {
         fn visit_tagged_template_expression(&mut self, expression: &TaggedTemplateExpression<'a>) {
-            if expression.quasi.expressions.is_empty()
-                && let Some(tag) = tag_root(&expression.tag)
+            if let Some(tag) = tag_root(&expression.tag)
                 && matches!(tag, "css" | "styled" | "createGlobalStyle" | "keyframes")
             {
-                let span = expression.quasi.span;
-                let start = span.start as usize + 1;
-                let end = span.end as usize;
-                if start < end
-                    && end <= self.source.len()
-                    && let Some(content) = self.source.get(start..end.saturating_sub(1))
-                    && let Some(replacement) = format_css_template(content, self.config)
+                if let Some(replacement) =
+                    format_tagged_template(self.source, &expression.quasi, self.config)
                 {
-                    self.edits.push((start, end - 1, replacement));
+                    let span = expression.quasi.span;
+                    let start = span.start as usize;
+                    let end = span.end as usize;
+                    if start < end && end <= self.source.len() {
+                        self.edits.push((start + 1, end - 1, replacement));
+                    }
                 }
+                // The quasi body is replaced as a unit, so expressions inside its
+                // interpolations must stay byte-for-byte intact. Only the tag can
+                // contain another independently formatted template.
+                self.visit_expression(&expression.tag);
+                if let Some(type_arguments) = &expression.type_arguments {
+                    self.visit_ts_type_parameter_instantiation(type_arguments);
+                }
+                return;
             }
             oxc_ast_visit::walk::walk_tagged_template_expression(self, expression);
         }
+    }
+
+    fn format_tagged_template(
+        source: &str,
+        quasi: &TemplateLiteral<'_>,
+        config: &Config,
+    ) -> Option<String> {
+        let start = (quasi.span.start as usize).checked_add(1)?;
+        let end = (quasi.span.end as usize).checked_sub(1)?;
+        if start > end || end > source.len() {
+            return None;
+        }
+        let (masked, interpolations) = mask_interpolations(source, quasi, start, end)?;
+        let formatted = format_css_template(&masked, config)?;
+        restore_interpolations(&formatted, &interpolations)
+    }
+
+    /// Replaces each `${...}` with a unique identifier and records its exact
+    /// source text. Quasi spans locate the braces; the expression span verifies
+    /// that the AST and recorded bytes describe the same interpolation.
+    fn mask_interpolations(
+        source: &str,
+        quasi: &TemplateLiteral<'_>,
+        content_start: usize,
+        content_end: usize,
+    ) -> Option<(String, Vec<(String, String)>)> {
+        if quasi.expressions.len() + 1 != quasi.quasis.len() {
+            return None;
+        }
+        let content = source.get(content_start..content_end)?;
+        let mut masked = String::with_capacity(content.len());
+        let mut interpolations = Vec::with_capacity(quasi.expressions.len());
+        let mut copied = content_start;
+        for (index, expression) in quasi.expressions.iter().enumerate() {
+            let interpolation_start = quasi.quasis[index].span.end as usize;
+            let interpolation_end = quasi.quasis[index + 1].span.start as usize;
+            if interpolation_start < copied
+                || interpolation_end > content_end
+                || interpolation_start > interpolation_end
+            {
+                return None;
+            }
+            let interpolation = source.get(interpolation_start..interpolation_end)?;
+            let expression_span = expression.span();
+            if (expression_span.start as usize) < interpolation_start
+                || (expression_span.end as usize) > interpolation_end
+            {
+                return None;
+            }
+            if !interpolation.starts_with("${") || !interpolation.ends_with('}') {
+                return None;
+            }
+            let placeholder = format!("DOTFMT_EXPR_{index}");
+            masked.push_str(source.get(copied..interpolation_start)?);
+            masked.push_str(&placeholder);
+            interpolations.push((placeholder, interpolation.to_owned()));
+            copied = interpolation_end;
+        }
+        masked.push_str(source.get(copied..content_end)?);
+        for (placeholder, _) in &interpolations {
+            if masked.matches(placeholder.as_str()).count() != 1 {
+                return None;
+            }
+        }
+        Some((masked, interpolations))
+    }
+
+    fn restore_interpolations(
+        formatted: &str,
+        interpolations: &[(String, String)],
+    ) -> Option<String> {
+        for (placeholder, _) in interpolations {
+            if formatted.matches(placeholder.as_str()).count() != 1 {
+                return None;
+            }
+        }
+        let mut restored = String::with_capacity(formatted.len());
+        let mut cursor = 0;
+        while cursor < formatted.len() {
+            let rest = &formatted[cursor..];
+            if let Some((placeholder, original)) = interpolations
+                .iter()
+                .find(|(placeholder, _)| rest.starts_with(placeholder.as_str()))
+            {
+                restored.push_str(original);
+                cursor += placeholder.len();
+            } else {
+                let character = rest.chars().next()?;
+                restored.push(character);
+                cursor += character.len_utf8();
+            }
+        }
+        Some(restored)
     }
 
     fn tag_root<'a>(expression: &'a Expression<'a>) -> Option<&'a str> {
@@ -151,8 +258,20 @@ fn format_css_in_js(input: &str, config: &Config, source_type: SourceType) -> St
     if templates.edits.is_empty() {
         return input.to_owned();
     }
+    let mut edits = templates.edits;
+    edits.sort_by_key(|edit| edit.0);
+    let mut disjoint = Vec::with_capacity(edits.len());
+    for edit in edits {
+        if disjoint
+            .last()
+            .is_some_and(|(_, end, _): &(usize, usize, String)| edit.0 < *end)
+        {
+            continue;
+        }
+        disjoint.push(edit);
+    }
     let mut output = input.to_owned();
-    for (start, end, replacement) in templates.edits.into_iter().rev() {
+    for (start, end, replacement) in disjoint.into_iter().rev() {
         output.replace_range(start..end, &replacement);
     }
     output
@@ -201,12 +320,15 @@ fn format_css_template(content: &str, config: &Config) -> Option<String> {
     .ok()?;
     let formatted = formatted.trim_end_matches('\n');
     let mut lines = formatted.lines();
-    let first_line = lines.next().unwrap_or("");
+    let first_line = lines.next().unwrap_or("").trim_end();
     let mut indented = String::from(first_line);
     for line in lines {
         indented.push('\n');
-        indented.push_str(indent);
-        indented.push_str(line);
+        let line = line.trim_end();
+        if !line.is_empty() {
+            indented.push_str(indent);
+            indented.push_str(line);
+        }
     }
     Some(format!("{leading}{indented}{trailing}"))
 }

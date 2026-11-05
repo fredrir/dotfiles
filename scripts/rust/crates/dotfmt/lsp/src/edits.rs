@@ -82,7 +82,20 @@ fn push(edits: &mut Vec<ByteEdit>, starts: &[usize], len: usize, hunk: Hunk) {
         .get(hunk.start + hunk.removed)
         .copied()
         .unwrap_or(len);
-    if start != end || !hunk.text.is_empty() {
+    if start == end && hunk.text.is_empty() {
+        return;
+    }
+    // Adjacent changed lines are one diff hunk. Split equal-length line
+    // replacements so a requested range only receives its own line and cannot
+    // silently rewrite the next statement.
+    let added: Vec<&str> = hunk.text.split_inclusive('\n').collect();
+    if hunk.removed == added.len() && hunk.removed > 1 {
+        for (index, line) in added.into_iter().enumerate() {
+            let line_start = starts.get(hunk.start + index).copied().unwrap_or(len);
+            let line_end = starts.get(hunk.start + index + 1).copied().unwrap_or(len);
+            edits.push(ByteEdit::new(line_start, line_end, line.to_owned()));
+        }
+    } else {
         edits.push(ByteEdit::new(start, end, hunk.text));
     }
 }
@@ -98,19 +111,11 @@ fn line_starts(text: &str) -> Vec<usize> {
     starts
 }
 
-/// Keeps the edits that touch at least one requested UTF-16 range.
-pub fn filter(
-    document: &Document,
-    edits: Vec<ByteEdit>,
-    ranges: &[lsp_types::Range],
-) -> Vec<ByteEdit> {
-    let byte_ranges: Vec<Range<usize>> = ranges
-        .iter()
-        .filter_map(|range| document.range(*range))
-        .collect();
+/// Keeps the edits that touch at least one requested byte range.
+pub fn filter(edits: Vec<ByteEdit>, ranges: &[Range<usize>]) -> Vec<ByteEdit> {
     edits
         .into_iter()
-        .filter(|edit| byte_ranges.iter().any(|range| touches(edit, range)))
+        .filter(|edit| ranges.iter().any(|range| touches(edit, range)))
         .collect()
 }
 
@@ -183,6 +188,27 @@ mod tests {
     }
 
     #[test]
+    fn adjacent_changed_lines_become_separate_edits() {
+        let edits = minimal("a\nb\n", "A\nB\n");
+        assert_eq!(
+            edits,
+            vec![
+                ByteEdit::new(0, 2, "A\n".to_owned()),
+                ByteEdit::new(2, 4, "B\n".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn filtering_a_split_edit_does_not_touch_the_next_statement() {
+        let edits = minimal("a\nb\n", "A\nB\n");
+        let range = 0usize..1;
+        let filtered = filter(edits, std::slice::from_ref(&range));
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0], ByteEdit::new(0, 2, "A\n".to_owned()));
+    }
+
+    #[test]
     fn only_the_changed_lines_are_replaced() {
         let edits = minimal("a\nb\nc\n", "a\nB\nc\n");
         assert_eq!(edits, vec![ByteEdit::new(2, 4, "B\n".to_owned())]);
@@ -205,18 +231,16 @@ mod tests {
 
     #[test]
     fn ranges_keep_only_touching_edits() {
-        let document = document("a\nb\nc\nd\n");
         let edits = minimal("a\nb\nc\nd\n", "a\nB\nc\nD\n");
-        let range = lsp_types::Range::new(Position::new(1, 0), Position::new(2, 0));
-        let filtered = filter(&document, edits, &[range]);
+        let range = 2..6;
+        let filtered = filter(edits, std::slice::from_ref(&range));
         assert_eq!(filtered, vec![ByteEdit::new(2, 4, "B\n".to_owned())]);
     }
 
     #[test]
     fn a_zero_width_range_touches_an_insertion_at_its_position() {
-        let document = document("a\n");
         let edits = minimal("a\n", "a\nb\n");
-        let range = lsp_types::Range::new(Position::new(1, 0), Position::new(1, 0));
-        assert_eq!(filter(&document, edits, &[range]).len(), 1);
+        let range = 2..2;
+        assert_eq!(filter(edits, std::slice::from_ref(&range)).len(), 1);
     }
 }

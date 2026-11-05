@@ -8,6 +8,7 @@ use dotfmt::app::{
 use dotfmt::render::{self, Mode};
 use dotfmt_core::config::Resolver;
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
+use dotfmt_core::language::Language;
 use workstation::Style;
 
 use crate::args::Cli;
@@ -15,6 +16,17 @@ use crate::args::Cli;
 pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
     cli.languages.sort();
     cli.languages.dedup();
+    let mut languages: Vec<Language> = cli
+        .languages
+        .iter()
+        .map(|selected| selected.language)
+        .collect();
+    languages.sort();
+    languages.dedup();
+    let dialect_hint = match cli.languages.as_slice() {
+        [selected] => selected.dialect,
+        _ => None,
+    };
     if let Some(source) = &cli.migrate {
         return crate::migrate::run(&cli, source);
     }
@@ -22,7 +34,7 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
         return crate::placement::run(&cli);
     }
     if let Some(path) = &cli.explain {
-        return explain(&cli, path);
+        return explain(&cli, path, &languages, dialect_hint);
     }
     let inspect = cli.fix || cli.fix_unsafe || cli.diagnose;
     if cli.diff && !cli.fix && !cli.fix_unsafe {
@@ -71,10 +83,13 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
                 .stdin
                 .clone()
                 .or_else(|| {
-                    (cli.languages.len() == 1)
-                        .then(|| cli.languages[0].default_stdin().to_path_buf())
+                    (languages.len() == 1)
+                        .then(|| languages[0].default_stdin().to_path_buf())
                 })
                 .ok_or("standard input needs --editor FILENAME, --stdin FILENAME or one --lang LANGUAGE")?;
+            if cli.dialect.is_none() && (cli.stdin.is_none() || path.extension().is_none()) {
+                cli.dialect = dialect_hint.map(str::to_owned);
+            }
             cli.targets.retain(|path| path != Path::new("-"));
             Some(Buffer {
                 path,
@@ -134,7 +149,7 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
     let mut session = Session::new(Resolver::new(), options);
     let outcome = session.run(Request {
         operation,
-        languages: cli.languages.clone(),
+        languages: languages.clone(),
         dialect: cli.dialect.clone(),
         clean: cli.clean,
     });
@@ -264,9 +279,18 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
     })
 }
 
-fn explain(cli: &Cli, path: &Path) -> Result<ExitCode, String> {
+fn explain(
+    cli: &Cli,
+    path: &Path,
+    languages: &[Language],
+    dialect_hint: Option<&'static str>,
+) -> Result<ExitCode, String> {
+    let dialect = cli.dialect.clone().or_else(|| match dialect_hint {
+        Some(hint) if path.extension().is_none() => Some(hint.to_owned()),
+        _ => None,
+    });
     let explanation = Session::new(Resolver::new(), Options::default())
-        .explain(path, cli.languages.clone(), cli.dialect.clone())
+        .explain(path, languages.to_vec(), dialect)
         .map_err(joined)?;
     let mut rows = Vec::new();
     match explanation.selection {

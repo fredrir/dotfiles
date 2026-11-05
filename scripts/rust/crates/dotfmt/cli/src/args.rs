@@ -5,6 +5,33 @@ use clap::{Parser, ValueHint};
 use dotfmt_core::language::Language;
 use workstation::{Completable, Completions};
 
+/// A `--lang` alias, with the dialect its name implies for extensionless stdin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LanguageArg {
+    pub language: Language,
+    pub dialect: Option<&'static str>,
+}
+
+impl LanguageArg {
+    fn parse(value: &str) -> Result<Self, String> {
+        Ok(Self {
+            language: Language::parse(value)?,
+            dialect: dialect_hint(value),
+        })
+    }
+}
+
+fn dialect_hint(value: &str) -> Option<&'static str> {
+    match value {
+        "tsx" => Some("tsx"),
+        "jsx" => Some("jsx"),
+        "scss" => Some("scss"),
+        "sass" => Some("sass"),
+        "less" => Some("less"),
+        _ => None,
+    }
+}
+
 #[derive(Parser)]
 #[command(version, about = "The one formatter to rule them all")]
 pub struct Cli {
@@ -12,9 +39,9 @@ pub struct Cli {
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]
     pub targets: Vec<PathBuf>,
 
-    /// Select configured languages: bib, conf, css (scss, sass, less), env, html (htm, vue, svelte, astro), ignore, ini, javascript (js, jsx), json, latex, lua, markdown, plist, toml, typescript (ts, tsx), or yaml.
+    /// Select configured languages: bib, conf, css (scss, sass, less), env, html (htm, vue, svelte, astro), ignore, ini, javascript (js, jsx), json, latex, lua, markdown, plist, toml, typescript (ts, tsx), or yaml. The tsx, jsx, scss, sass and less aliases select that dialect for stdin and untitled input.
     #[arg(short = 'l', long = "lang", value_delimiter = ',', value_parser = language(), value_name = "LANGUAGE")]
-    pub languages: Vec<Language>,
+    pub languages: Vec<LanguageArg>,
 
     /// Print a dotfmt.dotfile migrated from another formatter; currently prettier.
     #[arg(long, value_name = "SOURCE", value_parser = ["prettier"], conflicts_with_all = ["add", "sync", "editor", "explain", "owns", "fix", "fix_unsafe", "diff", "diagnose", "json", "check", "clean"])]
@@ -89,7 +116,7 @@ pub struct Cli {
     pub completions: Completions,
 }
 
-fn language() -> impl TypedValueParser<Value = Language> {
+fn language() -> impl TypedValueParser<Value = LanguageArg> {
     PossibleValuesParser::new(Language::ALL.into_iter().flat_map(|language| {
         language
             .aliases()
@@ -98,7 +125,7 @@ fn language() -> impl TypedValueParser<Value = Language> {
             .filter(move |alias| *alias != language.name())
             .chain(std::iter::once(language.name()))
     }))
-    .try_map(|value| Language::parse(&value))
+    .try_map(|value| LanguageArg::parse(&value))
 }
 
 impl Completable for Cli {

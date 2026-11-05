@@ -70,6 +70,52 @@ fn unused_default_and_namespace_imports_preserve_side_effects() {
 }
 
 #[test]
+fn unused_imports_from_declaration_modules_are_deleted_not_bare_imported() {
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(directory.path().join("tsconfig.json"), "{}").unwrap();
+    fs::write(
+        directory.path().join("types.d.ts"),
+        "export interface Unused { x: number }\n",
+    )
+    .unwrap();
+    let path = directory.path().join("a.ts");
+    let input = "import { Unused } from \"./types\";\nconsole.log(1);\n";
+    fs::write(&path, input).unwrap();
+    let analysis = analyze(&path, input, true, false);
+    assert_eq!(apply_every_fix(input, &analysis), "console.log(1);\n");
+}
+
+#[test]
+fn declaration_module_import_keeps_side_effect_under_verbatim_module_syntax() {
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(
+        directory.path().join("tsconfig.json"),
+        "{\"compilerOptions\":{\"verbatimModuleSyntax\":true}}\n",
+    )
+    .unwrap();
+    fs::write(
+        directory.path().join("types.d.ts"),
+        "export interface Unused { x: number }\n",
+    )
+    .unwrap();
+    let path = directory.path().join("a.ts");
+    let input = "import { Unused } from \"./types\";\nconsole.log(1);\n";
+    fs::write(&path, input).unwrap();
+    let analysis = analyze(&path, input, true, false);
+    assert_eq!(
+        apply_every_fix(input, &analysis),
+        "import \"./types\";\nconsole.log(1);\n"
+    );
+}
+
+#[test]
+fn top_level_script_vars_are_not_removed() {
+    let input = "var exposed;\nconsole.log(\"exposed\" in globalThis);\n";
+    let analysis = analyze(Path::new("a.js"), input, true, false);
+    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+}
+
+#[test]
 fn unused_type_imports_are_deleted() {
     let input = "import type { A } from \"m\";\nconsole.log(1);\n";
     let analysis = analyze(Path::new("a.ts"), input, true, false);
@@ -359,6 +405,18 @@ fn organize_imports_sorts_contiguous_imports_and_keeps_side_effects_in_place() {
         "side-effect import should stay: {output}"
     );
     let _ = side;
+}
+
+#[test]
+fn organize_imports_never_reorders_across_side_effect_imports() {
+    let input = "import { b } from \"./b\";\nimport \"./side\";\nimport { a } from \"./a\";\nconsole.log(a, b);\n";
+    let analysis = analyze(Path::new("a.ts"), input, true, false);
+    let organize = analysis
+        .fixes
+        .iter()
+        .find(|fix| fix.kind.contains("organizeImports"));
+    assert!(organize.is_none(), "{:?}", analysis.fixes);
+    assert_eq!(apply_every_fix(input, &analysis), input);
 }
 
 #[test]

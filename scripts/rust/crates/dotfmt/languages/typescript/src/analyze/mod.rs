@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use dotfmt_core::diagnostic::Diagnostic;
+use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use dotfmt_core::edit::{Analysis, Applicability, Fix};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
@@ -78,6 +78,12 @@ fn analyze_text(
     dialect: Dialect,
     options: &Options,
 ) -> Result<Analysis, Diagnostic> {
+    if crate::source::nesting_exceeded(text) {
+        return Err(Diagnostic::new(
+            DiagnosticKind::Syntax,
+            "input nesting exceeds the supported limit",
+        ));
+    }
     let source_type = dialect
         .resolve(config.dialect, path)
         .source_type_for_path(path);
@@ -96,9 +102,10 @@ fn analyze_text(
     let type_diagnostics = resolve_type_diagnostics(path, options);
     let context = Context::new(
         text,
+        path,
         config,
         options,
-        source_type,
+        parsed.program.source_type,
         &parsed.program,
         &semantic,
         &parsed.program.comments,

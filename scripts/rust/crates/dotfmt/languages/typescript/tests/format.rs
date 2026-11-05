@@ -197,7 +197,7 @@ fn expand_trailing_commas_attribute_position_and_bracket_spacing_are_applied() {
 }
 
 #[test]
-fn formats_plain_css_in_js_and_skips_interpolation() {
+fn formats_plain_css_in_js_and_preserves_interpolation() {
     let input = r#"const Button = styled.button`
   color:red;
   padding:4px;
@@ -244,4 +244,81 @@ const Global = createGlobalStyle`
     let output = format(Path::new("a.tsx"), input, &Config::default(), Dialect::Tsx).unwrap();
     assert!(output.contains("display: grid;\n  gap: 1rem;"), "{output}");
     assert!(output.contains("body {\n    margin: 0;\n  }"), "{output}");
+}
+
+#[test]
+fn formats_css_in_js_interpolations_and_restores_them_exactly() {
+    let input = r#"const Button = styled.div`
+  color:${color};
+  background:${active ? colors.primary : colors.secondary};
+  border-color:${{ tone: theme.border }.tone};
+  padding:${spacing}px;
+`;
+const Global = createGlobalStyle`
+  body{
+    color:${text};
+    background:${background};
+    margin:0;
+  }
+`;
+"#;
+    let output = format(Path::new("a.tsx"), input, &Config::default(), Dialect::Tsx).unwrap();
+    for interpolation in [
+        "${color}",
+        "${active ? colors.primary : colors.secondary}",
+        "${{ tone: theme.border }.tone}",
+        "${spacing}px",
+        "${text}",
+        "${background}",
+    ] {
+        assert!(
+            output.matches(interpolation).count() == 1,
+            "{interpolation}: {output}"
+        );
+    }
+    assert!(!output.contains("DOTFMT_EXPR"), "{output}");
+    assert!(
+        output.contains("color: ${color};\n  background:"),
+        "{output}"
+    );
+    assert!(
+        output.contains("background: ${background};\n    margin: 0;"),
+        "{output}"
+    );
+    assert_eq!(
+        format(
+            Path::new("a.tsx"),
+            &output,
+            &Config::default(),
+            Dialect::Tsx
+        )
+        .unwrap(),
+        output
+    );
+}
+
+#[test]
+fn interpolation_formatting_failure_keeps_the_template_unchanged() {
+    let input = r#"const broken = css`
+  color ${value} red;
+`;
+"#;
+    let output = format(Path::new("a.tsx"), input, &Config::default(), Dialect::Tsx).unwrap();
+    assert!(output.contains("color ${value} red;"), "{output}");
+    assert!(!output.contains("DOTFMT_EXPR"), "{output}");
+}
+
+#[test]
+fn non_tagged_object_properties_are_not_formatted_as_css() {
+    let input = "const styles = { css: `color:red` };\n";
+    let output = format(Path::new("a.tsx"), input, &Config::default(), Dialect::Tsx).unwrap();
+    assert!(output.contains("`color:red`"), "{output}");
+}
+
+#[test]
+fn pathological_nesting_is_a_diagnostic_not_a_stack_overflow() {
+    let input = format!("const x = {}1{};\n", "(".repeat(9000), ")".repeat(9000));
+    let error = format(Path::new("a.ts"), &input, &Config::default(), Dialect::Ts)
+        .expect_err("nesting guard");
+    assert!(error.message.contains("nesting"), "{error:?}");
 }

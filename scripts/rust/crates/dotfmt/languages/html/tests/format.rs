@@ -432,3 +432,19 @@ fn respects_quotes_entities_and_ignore_directives() {
         format!("{element}\n")
     );
 }
+
+#[test]
+fn inserts_omitted_html_end_tags_instead_of_rejecting_valid_html() {
+    let config = Config::default();
+    let output = run(
+        "a.html",
+        "<ul><li>one<li>two</ul>\n<p>one<p>two\n<table><tr><td>a<td>b<tr><td>c</table>\n",
+        &config,
+        Dialect::Html,
+    );
+    assert!(output.contains("<li>one</li>"), "{output}");
+    assert!(output.contains("<li>two</li>"), "{output}");
+    assert!(output.contains("<td>a</td>"), "{output}");
+    assert!(output.contains("<tr>"), "{output}");
+    assert!(!output.contains("<li>one<li>"), "{output}");
+}

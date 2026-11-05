@@ -53,9 +53,15 @@ pub fn format(
         .map_err(|error| syntax(&text, error))?;
     // Malva has a few non-idempotent pretty-printer corners on malformed Less.
     // An unstable result is worse than no formatting: keep the normalized input.
-    let mut output = match format_text(&first, dialect.syntax(), &config.malva_options()) {
-        Ok(second) if second == first => first,
-        _ => text.clone(),
+    // The second pass is skipped for large stylesheets to avoid doubling an
+    // already expensive malva parse.
+    let mut output = if dialect == Dialect::Less || text.len() <= 64 * 1024 {
+        match format_text(&first, dialect.syntax(), &config.malva_options()) {
+            Ok(second) if second == first => first,
+            _ => text.clone(),
+        }
+    } else {
+        first
     };
     if config.tailwind_enabled()
         && let Some(sorter) = &config.tailwind_sorter

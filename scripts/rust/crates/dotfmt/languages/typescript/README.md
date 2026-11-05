@@ -17,7 +17,8 @@ let output = dotfmt_typescript::format(
 
 - BOM, CRLF/Windows line endings and `final_newline`; syntax failures are
   `DiagnosticKind::Syntax` with a line and column.
-- Plain CSS-in-JS tagged templates (`css`, `styled.*`, `styled(...)`, `createGlobalStyle`, `keyframes`) are formatted with the CSS engine when they contain no interpolation; interpolated templates are preserved.
+- Plain CSS-in-JS tagged templates (`css`, `styled.*`, `styled(...)`, `createGlobalStyle`, `keyframes`) are formatted with the CSS engine. `${...}` interpolations are masked during formatting and restored byte-for-byte.
+- `expand_range` maps a byte selection to the smallest enclosing statement, JSX node, object/array literal, or program that is safe to format.
 - `prettier-ignore` is honored by the formatter. Formatting is idempotent and
   verifies with oxc's `detect_code_removal` so a layout bug cannot delete code.
 - `sort_imports` uses oxc's Perfectionist-style grouping; `import_groups`

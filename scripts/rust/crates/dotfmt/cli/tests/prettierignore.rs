@@ -25,3 +25,23 @@ fn prettierignore_excludes_discovered_files() {
         "{\n  \"a\": 1\n}\n"
     );
 }
+
+#[test]
+fn prettierignore_applies_to_explicit_paths_explain_and_owns() {
+    let root = tree_pairs(&[
+        ("dotfmt.dotfile", "typescript {}\n"),
+        (".prettierignore", "src/**\n"),
+        ("src/a.ts", "const  a=1\n"),
+    ]);
+    let output = dotfmt(root.path()).args(["--check", "src/a.ts"]).run();
+    assert!(output.success(), "{output:?}");
+    let output = dotfmt(root.path()).args(["--explain", "src/a.ts"]).run();
+    assert!(output.success(), "{output:?}");
+    assert!(output.stdout.contains("skipped  excluded"), "{output:?}");
+    let output = dotfmt(root.path())
+        .args(["--owns"])
+        .stdin("src/a.ts\0")
+        .run();
+    assert!(output.success(), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+}

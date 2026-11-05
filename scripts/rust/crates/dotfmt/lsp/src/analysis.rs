@@ -61,6 +61,14 @@ pub fn buffer_path(uri: &Uri, language_id: &str) -> Option<PathBuf> {
     })
 }
 
+/// Whether a path is a TypeScript or JavaScript source file.
+pub fn is_typescript(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs")
+    )
+}
+
 #[allow(clippy::collapsible_match)]
 pub fn format(
     session: &mut Session,

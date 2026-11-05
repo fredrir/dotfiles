@@ -3,6 +3,7 @@
 pub mod config;
 pub mod dialect;
 mod format;
+mod optional;
 mod tailwind;
 
 pub use config::Config;
