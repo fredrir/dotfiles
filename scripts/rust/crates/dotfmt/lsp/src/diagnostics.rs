@@ -98,7 +98,12 @@ impl Diagnostics {
     }
 
     /// Schedules one buffer with the settings of the folder that contains it.
+    ///
+    /// The path is canonicalised once here so every later root comparison
+    /// (`clear_under`, settings and session lookup) uses the same spelling as
+    /// the canonicalised workspace roots.
     pub fn schedule(&self, document: &Document, path: PathBuf, uri: Uri) {
+        let path = crate::workspace::normalize(&path);
         let settings = self.settings.settings_for(&path);
         let _ = self.pending.send(Job::Schedule(Scheduled {
             uri,
@@ -516,11 +521,20 @@ impl Published {
         {
             return;
         }
-        let mut affected = self.owners.remove(owner).unwrap_or_default();
-        affected.push(owner.clone());
-        for uri in &affected {
-            self.dotfmt.remove(uri);
+        let old_aliases = self.owners.remove(owner).unwrap_or_default();
+        // Another owner may still report one of these aliases (two open files
+        // can both carry the same `dotfmt.dotfile` configuration error). Only
+        // drop an alias when this publish is its last reference.
+        let referenced = self.referenced_by_others(owner);
+        let mut affected = Vec::new();
+        for uri in old_aliases {
+            if !referenced.contains(&uri) {
+                self.dotfmt.remove(&uri);
+                affected.push(uri);
+            }
         }
+        self.dotfmt.remove(owner);
+        affected.push(owner.clone());
         let mut aliases = Vec::new();
         let mut includes_owner = false;
         for (uri, diagnostics) in entries {
@@ -552,12 +566,32 @@ impl Published {
     }
 
     fn clear_dotfmt(&mut self, owner: &Uri, client: &Client) {
-        let mut affected = self.owners.remove(owner).unwrap_or_default();
-        affected.push(owner.clone());
-        for uri in &affected {
-            self.dotfmt.remove(uri);
+        let aliases = self.owners.remove(owner).unwrap_or_default();
+        let referenced = self.referenced_by_others(owner);
+        let mut affected = Vec::new();
+        for uri in aliases {
+            if !referenced.contains(&uri) {
+                self.dotfmt.remove(&uri);
+                affected.push(uri);
+            }
         }
+        self.dotfmt.remove(owner);
+        affected.push(owner.clone());
         self.publish(&affected, client);
+    }
+
+    /// Every URI another owner still reports.
+    ///
+    /// Aliases are owned per buffer, so an alias entry is only stale when no
+    /// other owner lists it any more.
+    fn referenced_by_others(&self, owner: &Uri) -> HashSet<Uri> {
+        self.owners
+            .iter()
+            .filter(|(other, _)| *other != owner)
+            .flat_map(|(other, aliases)| {
+                std::iter::once(other.clone()).chain(aliases.iter().cloned())
+            })
+            .collect()
     }
 
     fn clear_all(&mut self, client: &Client) {
@@ -583,13 +617,24 @@ impl Published {
             .filter(|(owner, _)| uri_in_root(&self.workspace, owner, root))
             .map(|(owner, aliases)| (owner.clone(), aliases.clone()))
             .collect();
+        let cleared: HashSet<Uri> = owners.iter().map(|(owner, _)| owner.clone()).collect();
+        let kept: HashSet<Uri> = self
+            .owners
+            .iter()
+            .filter(|(owner, _)| !cleared.contains(*owner))
+            .flat_map(|(owner, aliases)| {
+                std::iter::once(owner.clone()).chain(aliases.iter().cloned())
+            })
+            .collect();
         for (owner, aliases) in owners {
             self.owners.remove(&owner);
             self.dotfmt.remove(&owner);
             affected.push(owner);
             for alias in aliases {
-                self.dotfmt.remove(&alias);
-                affected.push(alias);
+                if !kept.contains(&alias) {
+                    self.dotfmt.remove(&alias);
+                    affected.push(alias);
+                }
             }
         }
         let projects: Vec<PathBuf> = self
@@ -940,6 +985,65 @@ mod tests {
             receiver.recv_timeout(Duration::from_millis(50)).is_err(),
             "stale result was published"
         );
+    }
+
+    #[test]
+    fn a_shared_alias_survives_until_its_last_owner_drops_it() {
+        let (mut published, client, _receiver) = harness(true);
+        let a = Uri::from_str("file:///work/a.ts").unwrap();
+        let b = Uri::from_str("file:///work/b.ts").unwrap();
+        let dotfile = Uri::from_str("file:///work/dotfmt.dotfile").unwrap();
+        let config_error = || vec![tsc("configuration")];
+        published.set_dotfmt(
+            &a,
+            1,
+            vec![(a.clone(), Vec::new()), (dotfile.clone(), config_error())],
+            &client,
+        );
+        published.set_dotfmt(
+            &b,
+            1,
+            vec![(b.clone(), Vec::new()), (dotfile.clone(), config_error())],
+            &client,
+        );
+        // Editing `a` no longer reports the shared config error; `b` still does.
+        published.set_dotfmt(&a, 2, vec![(a.clone(), Vec::new())], &client);
+        assert_eq!(
+            published.merged(&dotfile, None).diagnostics,
+            config_error(),
+            "one owner's republish removed another owner's alias"
+        );
+        published.set_dotfmt(&b, 2, vec![(b.clone(), Vec::new())], &client);
+        assert!(published.merged(&dotfile, None).diagnostics.is_empty());
+    }
+
+    #[test]
+    fn closing_one_owner_does_not_clear_another_owners_shared_alias() {
+        let (mut published, client, _receiver) = harness(true);
+        let a = Uri::from_str("file:///work/a.ts").unwrap();
+        let b = Uri::from_str("file:///work/b.ts").unwrap();
+        let dotfile = Uri::from_str("file:///work/dotfmt.dotfile").unwrap();
+        let config_error = || vec![tsc("configuration")];
+        published.set_dotfmt(
+            &a,
+            1,
+            vec![(a.clone(), Vec::new()), (dotfile.clone(), config_error())],
+            &client,
+        );
+        published.set_dotfmt(
+            &b,
+            1,
+            vec![(b.clone(), Vec::new()), (dotfile.clone(), config_error())],
+            &client,
+        );
+        published.clear_dotfmt(&a, &client);
+        assert_eq!(
+            published.merged(&dotfile, None).diagnostics,
+            config_error(),
+            "closing one owner removed another owner's shared alias"
+        );
+        published.clear_dotfmt(&b, &client);
+        assert!(published.merged(&dotfile, None).diagnostics.is_empty());
     }
 
     #[test]

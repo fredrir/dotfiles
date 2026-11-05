@@ -396,21 +396,23 @@ impl SettingsStore {
     }
 
     /// Replaces the default from a full pull response; returns whether it changed.
+    ///
+    /// A pull response is fully resolved: absent keys revert to the built-in
+    /// default rather than keeping a value from an older pull. This also clears
+    /// the native overlay when the client removes a generated setting.
     pub fn configure_default(&self, value: &Value) -> bool {
         if value.is_null() {
             return false;
         }
+        let mut settings = Settings::default();
+        settings.apply(value);
         let mut default = self
             .default
             .write()
             .unwrap_or_else(|error| error.into_inner());
-        let before = default.clone();
-        // A full pull omits unset generated settings; absent must clear the
-        // overlay so removing a VS Code setting stops overriding dotfmt.dotfile.
-        default.format = None;
-        default.format_extra = None;
-        default.apply(value);
-        *default != before
+        let changed = *default != settings;
+        *default = settings;
+        changed
     }
 
     /// Applies a partial `didChangeConfiguration` payload to the default.
@@ -424,17 +426,18 @@ impl SettingsStore {
         *default != before
     }
 
-    /// Replaces one folder configuration; returns whether it changed.
+    /// Replaces one folder configuration from a full pull response.
+    ///
+    /// Like [`SettingsStore::configure_default`], absent keys revert to the
+    /// built-in default so a removed setting is never kept stale. Partial
+    /// payloads (push configuration, initialization options) use
+    /// [`Settings::apply`] instead.
     pub fn configure_folder(&self, root: &Path, value: &Value) -> bool {
         if value.is_null() {
             return false;
         }
         let root = normalize(root);
-        let mut settings = self.settings_for_root(&root);
-        // A folder pull is fully resolved: its own native overlay replaces the
-        // old one, and an absent `format` falls back to the default overlay.
-        settings.format = None;
-        settings.format_extra = None;
+        let mut settings = Settings::default();
         settings.apply(value);
         let mut folders = self
             .folders
@@ -751,6 +754,23 @@ mod tests {
         );
         assert!(store.configure_folder(Path::new("/work"), &json!({})));
         assert_eq!(store.settings_for_root(Path::new("/work")).format, None);
+    }
+
+    #[test]
+    fn full_pulls_revert_keys_the_response_omits() {
+        let store = SettingsStore::new(false, Settings::default());
+        assert!(store.configure_folder(
+            Path::new("/work"),
+            &json!({ "dotfmt.typeAware": false, "dotfmt.fixes.onSave": "safe" }),
+        ));
+        assert!(store.configure_folder(Path::new("/work"), &json!({ "dotfmt.typeAware": false })));
+        let folder = store.settings_for_root(Path::new("/work"));
+        assert!(!folder.type_aware);
+        assert_eq!(folder.fixes_on_save, FixesOnSave::Off);
+
+        assert!(store.configure_default(&json!({ "dotfmt.fixes.onSave": "safe" })));
+        assert!(store.configure_default(&json!({})));
+        assert_eq!(store.default_settings().fixes_on_save, FixesOnSave::Off);
     }
 
     #[test]

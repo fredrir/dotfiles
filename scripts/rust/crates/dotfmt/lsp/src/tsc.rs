@@ -13,6 +13,7 @@ use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
@@ -27,6 +28,10 @@ use crate::workspace::Workspace;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long to wait for the stdout/stderr readers after the compiler exited.
+/// A grandchild process can keep a pipe open indefinitely; the worker must not
+/// be wedged by it.
+const PIPE_GRACE: Duration = Duration::from_secs(1);
 const SCAN_LIMIT: usize = 20_000;
 const MAX_FAILURES: u32 = 3;
 const MAX_DIAGNOSTICS_PER_URI: usize = 200;
@@ -68,6 +73,8 @@ pub struct Tsc {
     /// schedule adds its nearest config; the worker drains the whole set in
     /// one job before a new job is queued for that root.
     pending: Arc<Mutex<HashMap<PathBuf, HashSet<PathBuf>>>>,
+    /// The compiler process the worker currently owns.
+    running: Running,
     workspace: Arc<Workspace>,
 }
 
@@ -156,6 +163,50 @@ impl Compiler {
     }
 }
 
+#[derive(Clone, Default)]
+struct Running {
+    child: Arc<Mutex<Option<Child>>>,
+    stopped: Arc<AtomicBool>,
+}
+
+impl Running {
+    fn is_stopped(&self) -> bool {
+        self.stopped.load(Ordering::SeqCst)
+    }
+
+    /// Registers a spawned child, killing it if shutdown already started.
+    fn start(&self, mut child: Child) -> Result<(), RunError> {
+        let mut slot = self.child.lock().unwrap_or_else(|error| error.into_inner());
+        if self.is_stopped() {
+            drop(slot);
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(RunError::Shutdown);
+        }
+        *slot = Some(child);
+        Ok(())
+    }
+
+    /// Kills the tracked child, if any; later runs are still allowed.
+    fn kill(&self) {
+        let child = self
+            .child
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        if let Some(mut child) = child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    /// Kills the tracked child and refuses any further compiler run.
+    fn shutdown(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        self.kill();
+    }
+}
+
 pub struct ProjectStatus {
     /// The workspace folder that owns this config.
     pub root: PathBuf,
@@ -178,10 +229,12 @@ impl Tsc {
         let state = Arc::new(Mutex::new(State::default()));
         let generations = Arc::new(Mutex::new(HashMap::new()));
         let pending = Arc::new(Mutex::new(HashMap::new()));
+        let running = Running::default();
         let cache_for_worker = Arc::clone(&cache);
         let state_for_worker = Arc::clone(&state);
         let generations_for_worker = Arc::clone(&generations);
         let pending_for_worker = Arc::clone(&pending);
+        let running_for_worker = running.clone();
         let _ = thread::Builder::new()
             .name("dotfmt-lsp-tsc".into())
             .spawn(move || {
@@ -191,6 +244,7 @@ impl Tsc {
                     state_for_worker,
                     generations_for_worker,
                     pending_for_worker,
+                    running_for_worker,
                     documents,
                     diagnostics,
                 )
@@ -201,6 +255,7 @@ impl Tsc {
             state,
             generations,
             pending,
+            running,
             workspace,
         }
     }
@@ -402,21 +457,34 @@ impl Tsc {
             .get(project)
             .is_some_and(|failures| *failures >= MAX_FAILURES)
     }
-}
 
-impl Drop for Tsc {
-    fn drop(&mut self) {
-        // Do not join: a tsc run can take up to TIMEOUT and must not delay shutdown.
+    /// Stops the worker and kills any in-flight compiler process.
+    ///
+    /// Called from [`Drop`], so a killed server never leaves a `tsc` child
+    /// behind; idempotent and safe to call from another thread.
+    pub fn shutdown(&self) {
+        self.running.shutdown();
         let _ = self.jobs.send(Job::Shutdown);
     }
 }
 
+impl Drop for Tsc {
+    fn drop(&mut self) {
+        // Kill the child instead of joining the worker: `wait` notices an
+        // emptied `Running` slot within one poll interval, so shutdown never
+        // waits for `TIMEOUT`.
+        self.shutdown();
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run(
     jobs: crossbeam_channel::Receiver<Job>,
     cache: Arc<Mutex<HashMap<PathBuf, Cache>>>,
     state: Arc<Mutex<State>>,
     generations: Arc<Mutex<HashMap<PathBuf, u64>>>,
     pending: Arc<Mutex<HashMap<PathBuf, HashSet<PathBuf>>>>,
+    running: Running,
     documents: Arc<Mutex<Documents>>,
     diagnostics: Arc<Diagnostics>,
 ) {
@@ -440,7 +508,9 @@ fn run(
                 let graph = config_graph(&anchors);
                 log_graph_issues(&state, &diagnostics, &root, &graph);
                 for config in graph.configs {
-                    if job_generation != current_generation(&generations, &root) {
+                    if running.is_stopped()
+                        || job_generation != current_generation(&generations, &root)
+                    {
                         break;
                     }
                     check_config(
@@ -450,6 +520,7 @@ fn run(
                         &cache,
                         &state,
                         &generations,
+                        &running,
                         &documents,
                         &diagnostics,
                     );
@@ -461,7 +532,10 @@ fn run(
             Job::InvalidateRoot(root) => {
                 diagnostics.clear_tsc_under(root);
             }
-            Job::Shutdown => break,
+            Job::Shutdown => {
+                running.shutdown();
+                break;
+            }
         }
     }
 }
@@ -483,9 +557,13 @@ fn check_config(
     cache: &Mutex<HashMap<PathBuf, Cache>>,
     state: &Mutex<State>,
     generations: &Mutex<HashMap<PathBuf, u64>>,
+    running: &Running,
     documents: &Mutex<Documents>,
     diagnostics: &Diagnostics,
 ) {
+    if running.is_stopped() {
+        return;
+    }
     let project = config.parent().unwrap_or(root);
     let generation_now = current_generation(generations, root);
     let compiler = {
@@ -561,7 +639,7 @@ fn check_config(
     let entries = match cached {
         Some(entries) => entries,
         None => {
-            let Some(lines) = check(project, config, &compiler, state, diagnostics) else {
+            let Some(lines) = check(project, config, &compiler, state, diagnostics, running) else {
                 return;
             };
             state
@@ -802,6 +880,7 @@ fn check(
     compiler: &Compiler,
     state: &Mutex<State>,
     diagnostics: &Diagnostics,
+    running: &Running,
 ) -> Option<Vec<TscLine>> {
     let mut command = compiler.command();
     command
@@ -813,8 +892,9 @@ fn check(
         .arg("-p")
         .arg(tsconfig)
         .current_dir(project);
-    match run_command(command, TIMEOUT) {
+    match run_command(command, TIMEOUT, running) {
         Ok(output) => Some(parse_output(&output, project, tsconfig)),
+        Err(RunError::Shutdown) => None,
         Err(error) => {
             let message = match error {
                 RunError::Spawn(error) => {
@@ -823,6 +903,7 @@ fn check(
                 RunError::Timeout => {
                     format!("timed out after {}s and was killed", TIMEOUT.as_secs())
                 }
+                RunError::Shutdown => return None,
             };
             let (count, backoff) = {
                 let mut state = state.lock().unwrap_or_else(|error| error.into_inner());
@@ -859,69 +940,117 @@ struct Output {
 enum RunError {
     Spawn(std::io::Error),
     Timeout,
+    Shutdown,
 }
 
-fn run_command(mut command: Command, timeout: Duration) -> Result<Output, RunError> {
+fn run_command(
+    mut command: Command,
+    timeout: Duration,
+    running: &Running,
+) -> Result<Output, RunError> {
+    if running.is_stopped() {
+        return Err(RunError::Shutdown);
+    }
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(RunError::Spawn)?;
-    let stdout = child
-        .stdout
-        .take()
-        .map(|mut pipe| {
-            thread::spawn(move || {
-                let mut buffer = Vec::new();
-                let _ = pipe.read_to_end(&mut buffer);
-                buffer
+    let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(RunError::Spawn(std::io::Error::other(
+            "missing stdout pipe",
+        )));
+    };
+    let Some(stderr) = child.stderr.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(RunError::Spawn(std::io::Error::other(
+            "missing stderr pipe",
+        )));
+    };
+    let stdout = read_pipe(stdout);
+    let stderr = read_pipe(stderr);
+    running.start(child)?;
+    match wait(running, timeout) {
+        Ok(_) => {
+            let deadline = Instant::now() + PIPE_GRACE;
+            Ok(Output {
+                stdout: collect(stdout, deadline),
+                stderr: collect(stderr, deadline),
             })
-        })
-        .ok_or_else(|| RunError::Spawn(std::io::Error::other("missing stdout pipe")))?;
-    let stderr = child
-        .stderr
-        .take()
-        .map(|mut pipe| {
-            thread::spawn(move || {
-                let mut buffer = Vec::new();
-                let _ = pipe.read_to_end(&mut buffer);
-                buffer
-            })
-        })
-        .ok_or_else(|| RunError::Spawn(std::io::Error::other("missing stderr pipe")))?;
-    match wait(&mut child, timeout) {
-        Ok(_) => {}
+        }
         Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = stdout.join();
-            let _ = stderr.join();
-            return Err(error);
+            // The child is already killed and reaped; a grandchild may still
+            // hold the pipes, so drop them instead of joining the readers.
+            running.kill();
+            Err(error)
         }
     }
-    Ok(Output {
-        stdout: stdout.join().unwrap_or_default(),
-        stderr: stderr.join().unwrap_or_default(),
-    })
 }
 
-fn wait(child: &mut Child, timeout: Duration) -> Result<ExitStatus, RunError> {
+/// Drains one pipe on a detached thread and hands the bytes back over a channel.
+fn read_pipe<R: Read + Send + 'static>(mut pipe: R) -> crossbeam_channel::Receiver<Vec<u8>> {
+    let (sender, receiver) = crossbeam_channel::bounded(1);
+    let _ = thread::Builder::new()
+        .name("dotfmt-lsp-tsc-pipe".into())
+        .spawn(move || {
+            let mut buffer = Vec::new();
+            let _ = pipe.read_to_end(&mut buffer);
+            let _ = sender.send(buffer);
+        });
+    receiver
+}
+
+/// Reads whatever the pipe reader produced before `deadline`.
+fn collect(receiver: crossbeam_channel::Receiver<Vec<u8>>, deadline: Instant) -> Vec<u8> {
+    receiver
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .unwrap_or_default()
+}
+
+fn wait(running: &Running, timeout: Duration) -> Result<ExitStatus, RunError> {
     let started = Instant::now();
     loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(status),
-            Ok(None) if started.elapsed() < timeout => thread::sleep(Duration::from_millis(25)),
-            Ok(None) => return Err(RunError::Timeout),
-            Err(error) => return Err(RunError::Spawn(error)),
+        {
+            let mut slot = running
+                .child
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let Some(child) = slot.as_mut() else {
+                return Err(RunError::Shutdown);
+            };
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    *slot = None;
+                    return Ok(status);
+                }
+                Ok(None) if started.elapsed() < timeout => {}
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    *slot = None;
+                    return Err(RunError::Timeout);
+                }
+                Err(error) => {
+                    *slot = None;
+                    return Err(RunError::Spawn(error));
+                }
+            }
         }
+        if running.is_stopped() {
+            return Err(RunError::Shutdown);
+        }
+        thread::sleep(Duration::from_millis(25));
     }
 }
 
 fn version_of(compiler: &Compiler, project: &Path) -> Option<String> {
     let mut command = compiler.command();
     command.arg("--version").current_dir(project);
-    let output = run_command(command, VERSION_TIMEOUT).ok()?;
+    let output = run_command(command, VERSION_TIMEOUT, &Running::default()).ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let first = text.lines().next()?.trim();
     if first.is_empty() {
@@ -1618,6 +1747,126 @@ mod tests {
         .unwrap();
         make_executable(&path);
         path
+    }
+
+    /// A compiler that leaves a long-lived grandchild holding its stdout pipe.
+    #[cfg(unix)]
+    fn hanging_tsc(project: &Path) -> PathBuf {
+        let directory = project.join("node_modules/.bin");
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("tsc");
+        fs::write(
+            &path,
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"--version\" ]; then echo 'Version 9.9.9'; exit 0; fi\n\
+             echo $$ > tsc.pid\n\
+             sleep 5 &\n\
+             echo $! > grandchild.pid\n\
+             echo run >> marker.log\n\
+             sleep 60\n",
+        )
+        .unwrap();
+        make_executable(&path);
+        path
+    }
+
+    #[cfg(unix)]
+    fn wait_for_pid(path: &Path) -> u32 {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Ok(text) = fs::read_to_string(path)
+                && let Ok(pid) = text.trim().parse()
+            {
+                return pid;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {}",
+                path.display()
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[cfg(unix)]
+    fn process_alive(pid: u32) -> bool {
+        Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_timed_out_compiler_does_not_wait_for_its_pipes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let compiler = hanging_tsc(root);
+        let mut command = Command::new(compiler);
+        command.current_dir(root);
+        let started = Instant::now();
+        let result = run_command(command, Duration::from_millis(200), &Running::default());
+        assert!(
+            matches!(result, Err(RunError::Timeout)),
+            "expected a timeout"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "the timeout path waited for a grandchild's pipe: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_kills_an_in_flight_compiler() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().to_path_buf();
+        let compiler = hanging_tsc(&root);
+        let running = Running::default();
+        let worker = {
+            let running = running.clone();
+            let root = root.clone();
+            thread::spawn(move || {
+                let mut command = Command::new(compiler);
+                command.current_dir(root);
+                run_command(command, Duration::from_secs(30), &running)
+            })
+        };
+        let pid = wait_for_pid(&root.join("tsc.pid"));
+        let started = Instant::now();
+        running.shutdown();
+        let result = worker.join().unwrap();
+        assert!(
+            matches!(result, Err(RunError::Shutdown)),
+            "expected a shutdown error"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "shutdown waited for the compiler: {:?}",
+            started.elapsed()
+        );
+        assert!(!process_alive(pid), "shutdown left the compiler running");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dropping_the_worker_kills_an_in_flight_compiler() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        fs::write(root.join("tsconfig.json"), "{}").unwrap();
+        let source = root.join("src/a.ts");
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::write(&source, "const a: number = 'x';\n").unwrap();
+        hanging_tsc(root);
+        let (tsc, _diagnostics, _documents, _receiver, settings) = harness(root, TscScope::Project);
+        tsc.schedule(source, root.to_path_buf(), settings);
+        let pid = wait_for_pid(&root.join("tsc.pid"));
+        drop(tsc);
+        assert!(!process_alive(pid), "Tsc::drop left the compiler running");
     }
 
     /// Every config runs in its own project directory, so the fake compiler's

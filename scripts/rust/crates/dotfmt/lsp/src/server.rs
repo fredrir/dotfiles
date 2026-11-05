@@ -151,6 +151,10 @@ pub fn run(connection: &Connection) -> Result<()> {
             Message::Response(response) => server.client.response(response),
         }
     }
+    // Kill an in-flight compiler before `serve` joins the stdio threads: the
+    // tsc worker holds a `Client` clone through `Diagnostics` until its child
+    // is gone, and the writer thread waits for every clone to drop.
+    server.tsc.shutdown();
     Ok(())
 }
 
@@ -549,9 +553,7 @@ impl Server {
         self.workspace.invalidate_root(&root);
         self.diagnostics.clear_under(root.clone());
         self.tsc.invalidate_root(&root);
-        let snapshot = self.document_snapshot(|path| {
-            crate::workspace::normalize(path).starts_with(&root)
-        });
+        let snapshot = self.document_snapshot(|path| path.starts_with(&root));
         for (uri, document) in snapshot.iter() {
             if !supported(uri, document.language()) {
                 continue;
@@ -563,6 +565,10 @@ impl Server {
         }
     }
 
+    /// Snapshots the open documents whose canonical path satisfies `keep`.
+    ///
+    /// Canonicalising here keeps symlinked workspace roots comparable with the
+    /// canonical roots used by `reload_folder` and the diagnostics store.
     fn document_snapshot(&self, keep: impl Fn(&Path) -> bool) -> Documents {
         let documents = self
             .documents
@@ -573,7 +579,7 @@ impl Server {
             let Some(path) = analysis::buffer_path(uri, document.language()) else {
                 continue;
             };
-            if keep(&path) {
+            if keep(&crate::workspace::normalize(&path)) {
                 snapshot.open(uri.clone(), document.clone());
             }
         }
@@ -583,6 +589,8 @@ impl Server {
     /// Invalidates compiler results and rechecks the open documents of one
     /// root, or every root when `root` is `None`.
     fn reschedule_tsc(&self, root: Option<&Path>) {
+        let root = root.map(crate::workspace::normalize);
+        let root = root.as_deref();
         match root {
             Some(root) => self.tsc.invalidate_root(root),
             None => self.tsc.invalidate(),
@@ -3120,6 +3128,132 @@ mod tests {
         std::fs::set_permissions(&path, permissions).unwrap();
     }
 
+    /// A compiler that records its pid and then runs past any test deadline.
+    #[cfg(unix)]
+    fn write_hanging_tsc(root: &Path) {
+        let directory = root.join("node_modules/.bin");
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("tsc");
+        std::fs::write(
+            &path,
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"--version\" ]; then echo 'Version 9.9.9'; exit 0; fi\n\
+             echo $$ > tsc.pid\n\
+             sleep 5 &\n\
+             echo run >> marker.log\n\
+             sleep 60\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn wait_for_pid(path: &Path) -> u32 {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Ok(text) = std::fs::read_to_string(path)
+                && let Ok(pid) = text.trim().parse()
+            {
+                return pid;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {}",
+                path.display()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[cfg(unix)]
+    fn process_alive(pid: u32) -> bool {
+        std::process::Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn document_snapshot_compares_canonical_paths() {
+        let temporary = tempfile::tempdir().unwrap();
+        let real = temporary.path().join("real");
+        std::fs::create_dir_all(real.join("src")).unwrap();
+        std::fs::write(real.join("src/a.ts"), "const a = 1;\n").unwrap();
+        let link = temporary.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let uri = uri::from_path(&link.join("src/a.ts"));
+        let server = test_server(&link);
+        server.documents.lock().unwrap().open(
+            uri.clone(),
+            Document::new("const a = 1;\n".into(), "typescript".into(), 1),
+        );
+        let canonical = crate::workspace::normalize(&real);
+        let snapshot = server.document_snapshot(|path| path.starts_with(&canonical));
+        assert_eq!(
+            snapshot
+                .iter()
+                .map(|(uri, _)| uri.clone())
+                .collect::<Vec<_>>(),
+            vec![uri]
+        );
+        assert!(
+            server
+                .document_snapshot(|path| path.starts_with(&link))
+                .iter()
+                .next()
+                .is_none(),
+            "the snapshot compared an un-normalised path"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_kills_an_in_flight_tsc_and_releases_its_workers() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let text = "const value: number = 'x';\n";
+        let path = root.join("src/a.ts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        write_hanging_tsc(root);
+        let (server, _receiver) =
+            server_with_options(root, json!({ "trusted": true, "typeAware": true }));
+        server.notify(Notification::new(
+            DidOpenTextDocument::METHOD.into(),
+            json!({
+                "textDocument": {
+                    "uri": uri::from_path(&path),
+                    "languageId": "typescript",
+                    "version": 1,
+                    "text": text,
+                }
+            }),
+        ));
+        let pid = wait_for_pid(&root.join("tsc.pid"));
+        let diagnostics = Arc::downgrade(&server.diagnostics);
+        let tsc = Arc::clone(&server.tsc);
+        drop(server);
+        let started = Instant::now();
+        drop(tsc);
+        while diagnostics.upgrade().is_some() {
+            assert!(
+                started.elapsed() < Duration::from_secs(3),
+                "shutdown waited for the in-flight compiler"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!process_alive(pid), "shutdown left the compiler running");
+    }
+
     #[cfg(unix)]
     fn wait_for_tsc_diagnostics(
         receiver: &crossbeam_channel::Receiver<Message>,
@@ -4211,8 +4345,10 @@ mod tests {
                 )))
                 .unwrap();
             let doctor = receive_response(&client, &RequestId::from(50)).unwrap();
+            // The default pull carries the overlay; the folder pull is `{}`, so
+            // its own settings have no overlay and inherit the default one.
             if doctor["default"]["hasFormat"] == json!(true)
-                && doctor["folders"][0]["hasFormat"] == json!(true)
+                && doctor["folders"][0]["hasFormat"] == json!(false)
             {
                 break;
             }
