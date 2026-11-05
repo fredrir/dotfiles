@@ -11,6 +11,10 @@ pub(crate) struct Tsconfig {
     /// No tsconfig/jsconfig was found; assume the classic JSX factory may be in
     /// scope rather than risk removing `React`/`h`.
     pub missing: bool,
+    /// The config file, an `extends` target, or a referenced config could not
+    /// be read or parsed. `paths`/`baseUrl` may be incomplete, so the project
+    /// graph cannot be trusted for export fixes.
+    pub invalid: bool,
     pub jsx: Option<String>,
     pub jsx_factory: Option<String>,
     pub jsx_fragment_factory: Option<String>,
@@ -217,12 +221,15 @@ fn collect_resolution_configs(
     configs: &mut Vec<Tsconfig>,
 ) {
     let references = config.references.clone();
+    let index = configs.len();
     configs.push(config);
     if depth >= MAX_REFERENCE_DEPTH {
+        configs[index].invalid = true;
         return;
     }
     for reference in references {
         let Some(path) = resolve_config_path(&reference) else {
+            configs[index].invalid = true;
             continue;
         };
         let key = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
@@ -231,7 +238,11 @@ fn collect_resolution_configs(
         }
         let referenced = load_at(&path);
         if referenced.missing {
+            configs[index].invalid = true;
             continue;
+        }
+        if referenced.invalid {
+            configs[index].invalid = true;
         }
         collect_resolution_configs(referenced, depth + 1, visited, configs);
     }
@@ -239,13 +250,19 @@ fn collect_resolution_configs(
 
 fn load_config(path: &Path) -> Tsconfig {
     let directory = path.parent().unwrap_or(Path::new("."));
-    load_file(path, 0, &mut Vec::new()).map_or_else(
+    let mut invalid = false;
+    load_file(path, 0, &mut Vec::new(), &mut invalid).map_or_else(
         || Tsconfig {
             missing: true,
+            invalid: true,
             directory: directory.to_path_buf(),
             ..Tsconfig::default()
         },
-        |raw| raw.into_config(directory),
+        |raw| {
+            let mut config = raw.into_config(directory);
+            config.invalid = invalid;
+            config
+        },
     )
 }
 
@@ -262,35 +279,64 @@ fn missing_for(path: &Path) -> Tsconfig {
     }
 }
 
-fn load_file(path: &Path, depth: usize, stack: &mut Vec<PathBuf>) -> Option<Raw> {
+fn load_file(
+    path: &Path,
+    depth: usize,
+    stack: &mut Vec<PathBuf>,
+    invalid: &mut bool,
+) -> Option<Raw> {
     if depth > MAX_EXTENDS_DEPTH {
+        *invalid = true;
         return None;
     }
     let key = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if stack.contains(&key) {
+        *invalid = true;
         return None;
     }
     stack.push(key);
-    let result = load_file_inner(path, depth, stack);
+    let result = load_file_inner(path, depth, stack, invalid);
     stack.pop();
     result
 }
 
-fn load_file_inner(path: &Path, depth: usize, stack: &mut Vec<PathBuf>) -> Option<Raw> {
-    let text = fs::read_to_string(path).ok()?;
-    let value = jsonc_parser::parse_to_value(&text, &Default::default())
-        .ok()
-        .flatten()?;
+fn load_file_inner(
+    path: &Path,
+    depth: usize,
+    stack: &mut Vec<PathBuf>,
+    invalid: &mut bool,
+) -> Option<Raw> {
+    let Ok(text) = fs::read_to_string(path) else {
+        *invalid = true;
+        return None;
+    };
+    let value = match jsonc_parser::parse_to_value(&text, &Default::default()) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            // An empty config is valid and supplies the TypeScript defaults.
+            let mut raw = Raw::default();
+            raw.chain
+                .push(fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()));
+            return Some(raw);
+        }
+        Err(_) => {
+            *invalid = true;
+            return None;
+        }
+    };
     let jsonc_parser::JsonValue::Object(object) = value else {
+        *invalid = true;
         return None;
     };
     let directory = path.parent().unwrap_or(Path::new("."));
 
     let mut raw = Raw::default();
     for extends in extends_values(&object) {
-        if let Some(extended) = resolve_extends(directory, &extends)
-            && let Some(parent) = load_file(&extended, depth + 1, stack)
-        {
+        let Some(extended) = resolve_extends(directory, &extends) else {
+            *invalid = true;
+            continue;
+        };
+        if let Some(parent) = load_file(&extended, depth + 1, stack, invalid) {
             raw.inherit(parent);
         }
     }
@@ -612,6 +658,7 @@ impl Raw {
         chain.dedup();
         Tsconfig {
             missing: false,
+            invalid: false,
             jsx: self.jsx,
             jsx_factory: self.jsx_factory,
             jsx_fragment_factory: self.jsx_fragment_factory,
@@ -784,6 +831,70 @@ mod tests {
         assert!(config.verbatim_module_syntax);
         assert_eq!(config.no_unused_locals, Some(false));
         assert_eq!(config.no_unused_parameters, Some(false));
+    }
+
+    #[test]
+    fn malformed_configs_and_unresolved_extends_are_invalid() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(
+            root,
+            "tsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] } }"#,
+        );
+        write(root, "src/a.ts", "");
+        let config = load_for(&root.join("src/a.ts"));
+        assert!(config.invalid);
+        assert!(
+            config.missing,
+            "an unreadable config keeps JSX conservative"
+        );
+        assert!(config.paths.is_empty());
+
+        write(
+            root,
+            "tsconfig.json",
+            r#"{"extends":"./missing-base.json","compilerOptions":{"baseUrl":"."}}"#,
+        );
+        let config = load_for(&root.join("src/a.ts"));
+        assert!(config.invalid);
+        assert!(!config.missing);
+        assert!(config.base_url.is_some());
+    }
+
+    #[test]
+    fn valid_configs_are_not_invalid() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(root, "tsconfig.json", r#"{"compilerOptions":{}}"#);
+        let config = load(root);
+        assert!(!config.invalid);
+        assert!(!config.missing);
+
+        write(root, "tsconfig.json", "");
+        let config = load(root);
+        assert!(!config.invalid);
+        assert!(!config.missing);
+    }
+
+    #[test]
+    fn broken_referenced_solution_configs_mark_the_solution_invalid() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(
+            root,
+            "tsconfig.json",
+            r#"{"files":[],"references":[{"path":"./packages/a"},{"path":"./packages/missing"}]}"#,
+        );
+        write(
+            root,
+            "packages/a/tsconfig.json",
+            r#"{ "compilerOptions": {"#,
+        );
+        write(root, "src/a.ts", "");
+
+        let configs = resolution_configs_for(&root.join("src/a.ts"), root);
+        assert!(configs.iter().any(|config| config.invalid));
     }
 
     #[test]

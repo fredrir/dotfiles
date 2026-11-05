@@ -78,3 +78,41 @@ fn editor_mode_passes_through_typescript_syntax_errors_quietly() {
     assert_eq!(output.stdout, "const =");
     assert!(output.stderr.is_empty(), "{output:?}");
 }
+
+#[test]
+fn fix_unsafe_does_not_delete_a_module_with_a_malformed_tsconfig() {
+    let root = tree_pairs(&[
+        (
+            "dotfmt.dotfile",
+            "typescript {\n tailwind = off\n type_aware = false\n}\n",
+        ),
+        (
+            "package.json",
+            r#"{ "name": "bad-config", "private": true }"#,
+        ),
+        (
+            "tsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] } }"#,
+        ),
+        (
+            "src/lib.ts",
+            "export const aliased = 1;\nexport const other = 2;\n",
+        ),
+        (
+            "src/consumer.ts",
+            "import { aliased } from \"@/lib\";\nconsole.log(aliased);\n",
+        ),
+    ]);
+    let output = dotfmt(root.path())
+        .args(["--fix-unsafe", "--json", "src"])
+        .run();
+    let lib = fs::read_to_string(root.path().join("src/lib.ts")).unwrap();
+    assert_eq!(
+        lib, "export const aliased = 1;\nexport const other = 2;\n",
+        "a malformed tsconfig hides aliases, so no export may be deleted: {output:?}"
+    );
+    assert!(
+        output.stdout.contains("\"fixes\": []"),
+        "project fixes must be suppressed: {output:?}"
+    );
+}

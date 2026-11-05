@@ -1,5 +1,5 @@
 use oxc_ast::AstKind;
-use oxc_ast::ast::{Comment, Program, Statement};
+use oxc_ast::ast::{Comment, Program, Statement, TSNamespaceDeclarationBody};
 use oxc_semantic::{ReferenceFlags, Semantic, SymbolId};
 use oxc_span::{SourceType, Span};
 
@@ -232,24 +232,48 @@ fn overlaps(diagnostic_start: usize, diagnostic_end: usize, start: usize, end: u
 
 fn exported_spans(program: &Program<'_>) -> Vec<Span> {
     let mut spans = Vec::new();
-    for statement in &program.body {
-        let Statement::ExportDeclaration(declaration) = statement else {
-            continue;
-        };
-        match &declaration.declaration {
-            oxc_ast::ast::Declaration::VariableDeclaration(declaration) => {
-                for declarator in &declaration.declarations {
-                    collect_binding_spans(&declarator.id, &mut spans);
+    collect_exported_spans(&program.body, &mut spans);
+    spans
+}
+
+fn collect_exported_spans(statements: &[Statement<'_>], spans: &mut Vec<Span>) {
+    for statement in statements {
+        match statement {
+            Statement::ExportDeclaration(declaration) => match &declaration.declaration {
+                oxc_ast::ast::Declaration::VariableDeclaration(declaration) => {
+                    for declarator in &declaration.declarations {
+                        collect_binding_spans(&declarator.id, spans);
+                    }
                 }
-            }
-            declaration => {
-                if let Some(identifier) = declaration.id() {
-                    spans.push(identifier.span);
+                oxc_ast::ast::Declaration::TSNamespaceDeclaration(namespace) => {
+                    spans.push(namespace.id.span);
+                    collect_namespace_spans(&namespace.body, spans);
                 }
+                declaration => {
+                    if let Some(identifier) = declaration.id() {
+                        spans.push(identifier.span);
+                    }
+                }
+            },
+            // Members exported from a non-exported namespace are still part of
+            // the namespace's public surface and are not unused locals.
+            Statement::TSNamespaceDeclaration(namespace) => {
+                collect_namespace_spans(&namespace.body, spans);
             }
+            _ => {}
         }
     }
-    spans
+}
+
+fn collect_namespace_spans(body: &TSNamespaceDeclarationBody<'_>, spans: &mut Vec<Span>) {
+    match body {
+        TSNamespaceDeclarationBody::TSNamespaceDeclaration(namespace) => {
+            collect_namespace_spans(&namespace.body, spans);
+        }
+        TSNamespaceDeclarationBody::TSModuleBlock(block) => {
+            collect_exported_spans(&block.body, spans);
+        }
+    }
 }
 
 fn collect_binding_spans(pattern: &oxc_ast::ast::BindingPattern<'_>, spans: &mut Vec<Span>) {

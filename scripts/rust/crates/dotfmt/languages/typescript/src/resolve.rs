@@ -58,11 +58,18 @@ impl Resolver {
         if specifier.starts_with('.') {
             return resolve_target(&importer.parent()?.join(specifier));
         }
+        let configs = self.configs_for(importer);
         if specifier.starts_with('#') {
+            // TypeScript accepts `#`-prefixed aliases in `compilerOptions.paths`;
+            // those take precedence over Node `package.json#imports`.
+            for config in configs.iter() {
+                if let Some(path) = resolve_paths(config, specifier) {
+                    return Some(path);
+                }
+            }
             return resolve_package_imports(importer, specifier);
         }
 
-        let configs = self.configs_for(importer);
         for config in configs.iter() {
             if let Some(path) = resolve_paths(config, specifier) {
                 return Some(path);
@@ -170,8 +177,8 @@ fn replaceable_extensions(extension: &str) -> Option<&'static [&'static str]> {
     match extension {
         "js" => Some(&["ts", "tsx", "js"]),
         "jsx" => Some(&["tsx", "jsx"]),
-        "mjs" => Some(&["mts", "mjs"]),
-        "cjs" => Some(&["cts", "cjs"]),
+        "mjs" => Some(&["mts", "d.mts", "mjs"]),
+        "cjs" => Some(&["cts", "d.cts", "cjs"]),
         _ => None,
     }
 }
@@ -506,9 +513,9 @@ pub(crate) fn expand_glob(root: &Path, importer: &Path, pattern: &str) -> Vec<Pa
         .hidden(false)
         .follow_links(false)
         .require_git(false)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
         .parents(true)
         .filter_entry(|entry| !avoided(entry));
     for result in builder.build() {
@@ -565,7 +572,7 @@ fn matches_components(pattern: &[&str], parts: &[&str]) -> bool {
     wildcard_match(first, part) && matches_components(rest, remaining)
 }
 
-fn wildcard_match(pattern: &str, text: &str) -> bool {
+pub(crate) fn wildcard_match(pattern: &str, text: &str) -> bool {
     let pattern = pattern.as_bytes();
     let text = text.as_bytes();
     let (mut pattern_index, mut text_index) = (0, 0);

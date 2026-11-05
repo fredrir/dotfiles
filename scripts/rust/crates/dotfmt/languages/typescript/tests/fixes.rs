@@ -736,3 +736,23 @@ fn eval_blocks_import_removal_and_type_only_conversion_too() {
         analysis.fixes
     );
 }
+
+#[test]
+fn exported_namespace_members_do_not_produce_invalid_fixes() {
+    let (_directory, path) = temp_project(r#"{"compilerOptions":{}}"#);
+    let input = "export namespace N { export const x = 1; }\n";
+    fs::write(&path, input).unwrap();
+
+    let analysis = analyze(&path, input, true, true);
+    assert!(
+        analysis
+            .findings
+            .iter()
+            .all(|finding| finding.code != "unused-variable"),
+        "{:?}",
+        analysis.findings
+    );
+    let edited = apply_every_fix(input, &analysis);
+    assert_eq!(edited, input);
+    analyze(&path, &edited, true, true);
+}
