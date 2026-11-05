@@ -197,6 +197,7 @@ fn analyze_with_type_aware_adds_unused_export_findings() {
             fix: true,
             unsafe_fixes: false,
             type_aware: true,
+            project_analysis: true,
             type_diagnostics: Vec::new(),
         },
     )

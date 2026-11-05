@@ -161,6 +161,8 @@ pub fn inspect(
             json: false,
             // The LSP publishes project tsc diagnostics from its own worker.
             type_aware: Some(false),
+            // Project unused-export fixes are wired to code actions separately.
+            project_analysis: false,
         },
         languages,
         dialect: None,

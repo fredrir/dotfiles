@@ -124,6 +124,7 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
                 diff: cli.diff,
                 json: cli.json,
                 type_aware: None,
+                project_analysis: true,
             }
         } else {
             Operation::Format {

@@ -74,17 +74,19 @@ impl Session {
                 diff,
                 json,
                 type_aware,
+                project_analysis,
             } => {
-                let buffer = buffer.map(|buffer| inspect_buffer(buffer, fix, type_aware));
+                let buffer =
+                    buffer.map(|buffer| inspect_buffer(buffer, fix, type_aware, project_analysis));
                 let files = if parallel {
                     files
                         .par_iter()
-                        .map(|job| inspect_file(job, fix, diff, type_aware))
+                        .map(|job| inspect_file(job, fix, diff, type_aware, project_analysis))
                         .collect()
                 } else {
                     files
                         .iter()
-                        .map(|job| inspect_file(job, fix, diff, type_aware))
+                        .map(|job| inspect_file(job, fix, diff, type_aware, project_analysis))
                         .collect()
                 };
                 Outcome::Inspected {
@@ -177,7 +179,13 @@ fn format_buffer(job: BufferJob, clean: bool) -> BufferOutcome {
     }
 }
 
-fn inspect_file(job: &Job, fix: FixMode, diff: bool, type_aware: Option<bool>) -> InspectOutcome {
+fn inspect_file(
+    job: &Job,
+    fix: FixMode,
+    diff: bool,
+    type_aware: Option<bool>,
+    project_analysis: bool,
+) -> InspectOutcome {
     let result = (|| {
         let input = fs::read(&job.absolute)
             .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
@@ -190,6 +198,7 @@ fn inspect_file(job: &Job, fix: FixMode, diff: bool, type_aware: Option<bool>) -
             fix,
             diff,
             type_aware,
+            project_analysis,
         )?;
         if fix != FixMode::None && !diff && inspection.changed {
             dotfmt_core::file::replace(&job.absolute, inspection.after.as_bytes())
@@ -206,7 +215,12 @@ fn inspect_file(job: &Job, fix: FixMode, diff: bool, type_aware: Option<bool>) -
     }
 }
 
-fn inspect_buffer(job: BufferJob, fix: FixMode, type_aware: Option<bool>) -> InspectBufferOutcome {
+fn inspect_buffer(
+    job: BufferJob,
+    fix: FixMode,
+    type_aware: Option<bool>,
+    project_analysis: bool,
+) -> InspectBufferOutcome {
     let input = job.input;
     let result = match job.engine {
         Some(engine) => inspect(
@@ -218,6 +232,7 @@ fn inspect_buffer(job: BufferJob, fix: FixMode, type_aware: Option<bool>) -> Ins
             fix,
             false,
             type_aware,
+            project_analysis,
         )
         .map_err(|error| attach_path(error, &input.path)),
         None => Ok(Inspection {
@@ -247,6 +262,7 @@ fn inspect(
     fix: FixMode,
     diff: bool,
     type_aware: Option<bool>,
+    project_analysis: bool,
 ) -> Result<Inspection, Diagnostic> {
     let original = std::str::from_utf8(input)
         .map_err(|_| Diagnostic::new(DiagnosticKind::Syntax, "not UTF-8"))?
@@ -261,6 +277,7 @@ fn inspect(
         fix != FixMode::None,
         fix == FixMode::Unsafe,
         type_aware,
+        project_analysis,
     )?;
     let mut applied = Vec::new();
     let mut after = original.clone();
@@ -273,6 +290,7 @@ fn inspect(
                 true,
                 fix == FixMode::Unsafe,
                 type_aware,
+                project_analysis,
             )?;
             let selected: Vec<&Fix> = pass
                 .fixes

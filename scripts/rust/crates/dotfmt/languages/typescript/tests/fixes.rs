@@ -18,6 +18,7 @@ fn analyze(path: &Path, input: &str, fix: bool, unsafe_fixes: bool) -> Analysis 
             fix,
             unsafe_fixes,
             type_aware: false,
+            project_analysis: false,
             type_diagnostics: Vec::new(),
         },
     )
@@ -451,6 +452,7 @@ fn editor_type_diagnostics_gate_fixes_and_add_related_information() {
             fix: true,
             unsafe_fixes: false,
             type_aware: false,
+            project_analysis: false,
             type_diagnostics: vec![TypeDiagnostic {
                 code: 2322,
                 message: "Type 'number' is not assignable to type 'string'.".to_owned(),

@@ -305,6 +305,7 @@ impl Engine {
                 true,
                 selection.r#unsafe,
                 Some(false),
+                selection.remove_unused_exports,
             ) {
                 Ok(analysis) => analysis,
                 Err(_) => return self.format_text(path, context, input, detected, clean),
@@ -598,6 +599,7 @@ impl Engine {
         fix: bool,
         unsafe_fixes: bool,
         type_aware: Option<bool>,
+        project_analysis: bool,
     ) -> Result<dotfmt_core::edit::Analysis, Diagnostic> {
         match &self.kind {
             Kind::TypeScript(config, dialect) | Kind::Javascript(config, dialect) => {
@@ -616,6 +618,7 @@ impl Engine {
                         fix,
                         unsafe_fixes,
                         type_aware: type_aware.unwrap_or(config.type_aware),
+                        project_analysis,
                         type_diagnostics: Vec::new(),
                     },
                 )

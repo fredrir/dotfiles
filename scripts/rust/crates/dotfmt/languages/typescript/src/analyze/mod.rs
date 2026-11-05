@@ -24,7 +24,10 @@ use context::Context;
 pub struct Options {
     pub fix: bool,
     pub unsafe_fixes: bool,
+    /// Run `tsc` inside the language crate.
     pub type_aware: bool,
+    /// Include project-wide unused-export findings and fixes.
+    pub project_analysis: bool,
     /// TypeScript diagnostics forwarded by the editor, as `(code, start, end)`.
     pub type_diagnostics: Vec<TypeDiagnostic>,
 }
@@ -134,10 +137,10 @@ fn analyze_text(
             diagnostic.end,
         ));
     }
-    if options.type_aware
-        && let Ok(project_analysis) = project::unused_exports_for_analysis(path)
+    if options.project_analysis
+        && let Ok(exports) = project::unused_exports_for_analysis(path)
     {
-        analysis.extend(project_analysis);
+        analysis.extend(exports);
     }
 
     let organize = organize::plan(&context, &imports.changes);
