@@ -5,15 +5,14 @@
 //! chain, package metadata and source files. Diagnostics are errors only;
 //! unused-code codes are filtered out because dotfmt is a formatter.
 
-use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
@@ -61,19 +60,24 @@ pub struct Tsc {
     jobs: crossbeam_channel::Sender<Job>,
     cache: Arc<Mutex<HashMap<PathBuf, Cache>>>,
     state: Arc<Mutex<State>>,
-    generation: Arc<AtomicU64>,
-    /// Projects with a queued check; duplicate schedules collapse into one job.
-    pending: Arc<Mutex<HashSet<PathBuf>>>,
+    /// One generation per workspace folder; a folder reload never cancels
+    /// another folder's in-flight compiler run.
+    generations: Arc<Mutex<HashMap<PathBuf, u64>>>,
+    /// Queued checks per project, with the documents that asked for them.
+    /// Duplicate schedules for the same project/document collapse into one job.
+    pending: Arc<Mutex<HashMap<PathBuf, HashSet<PathBuf>>>>,
 }
 
 enum Job {
     Check {
         project: PathBuf,
         tsconfig: PathBuf,
+        root: PathBuf,
         generation: u64,
         settings: Settings,
     },
     Invalidate,
+    InvalidateRoot(PathBuf),
     Shutdown,
 }
 
@@ -83,13 +87,39 @@ struct Cache {
     diagnostics: Vec<(Uri, Vec<Diagnostic>)>,
 }
 
+/// Compiler discovery depends on the folder's `tsdk`, so the cache key keeps it.
+type CompilerKey = (PathBuf, Option<PathBuf>);
+
 #[derive(Default)]
 struct State {
-    compilers: HashMap<PathBuf, Option<Compiler>>,
-    versions: HashMap<PathBuf, Option<String>>,
-    logged: HashSet<PathBuf>,
+    compilers: HashMap<CompilerKey, Option<Compiler>>,
+    versions: HashMap<CompilerKey, Option<String>>,
+    logged: HashSet<CompilerKey>,
     failures: HashMap<PathBuf, u32>,
     backoff_logged: HashSet<PathBuf>,
+}
+
+impl State {
+    fn clear(&mut self) {
+        self.compilers.clear();
+        self.versions.clear();
+        self.logged.clear();
+        self.failures.clear();
+        self.backoff_logged.clear();
+    }
+
+    fn retain_root(&mut self, root: &Path) {
+        self.compilers
+            .retain(|(project, _), _| !project.starts_with(root));
+        self.versions
+            .retain(|(project, _), _| !project.starts_with(root));
+        self.logged
+            .retain(|(project, _)| !project.starts_with(root));
+        self.failures
+            .retain(|project, _| !project.starts_with(root));
+        self.backoff_logged
+            .retain(|project| !project.starts_with(root));
+    }
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -128,11 +158,11 @@ impl Tsc {
         let (jobs, receiver) = crossbeam_channel::unbounded();
         let cache = Arc::new(Mutex::new(HashMap::new()));
         let state = Arc::new(Mutex::new(State::default()));
-        let generation = Arc::new(AtomicU64::new(0));
-        let pending = Arc::new(Mutex::new(HashSet::new()));
+        let generations = Arc::new(Mutex::new(HashMap::new()));
+        let pending = Arc::new(Mutex::new(HashMap::new()));
         let cache_for_worker = Arc::clone(&cache);
         let state_for_worker = Arc::clone(&state);
-        let generation_for_worker = Arc::clone(&generation);
+        let generations_for_worker = Arc::clone(&generations);
         let pending_for_worker = Arc::clone(&pending);
         let _ = thread::Builder::new()
             .name("dotfmt-lsp-tsc".into())
@@ -141,7 +171,7 @@ impl Tsc {
                     receiver,
                     cache_for_worker,
                     state_for_worker,
-                    generation_for_worker,
+                    generations_for_worker,
                     pending_for_worker,
                     documents,
                     diagnostics,
@@ -151,7 +181,7 @@ impl Tsc {
             jobs,
             cache,
             state,
-            generation,
+            generations,
             pending,
         }
     }
@@ -161,39 +191,71 @@ impl Tsc {
             return;
         };
         let project = tsconfig.parent().unwrap_or(&root).to_path_buf();
-        if !self
-            .pending
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(project.clone())
-        {
+        let generation = self.generation_for(&root);
+        let queued = {
+            let mut pending = self
+                .pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let documents = pending.entry(project.clone()).or_default();
+            // The same document never queues a second check while its
+            // project is pending, and a second document joins the one job.
+            let first = documents.is_empty();
+            if !documents.insert(path) {
+                return;
+            }
+            first
+        };
+        if !queued {
             return;
         }
         let _ = self.jobs.send(Job::Check {
             project,
             tsconfig,
-            generation: self.generation.load(Ordering::SeqCst),
+            root,
+            generation,
             settings,
         });
     }
 
+    fn generation_for(&self, root: &Path) -> u64 {
+        *self
+            .generations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .entry(root.to_path_buf())
+            .or_insert(0)
+    }
+
+    fn bump_generation(&self, root: &Path) -> u64 {
+        let mut generations = self
+            .generations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let generation = generations.entry(root.to_path_buf()).or_insert(0);
+        *generation += 1;
+        *generation
+    }
+
     pub fn invalidate(&self) {
-        self.generation.fetch_add(1, Ordering::SeqCst);
+        let roots: Vec<PathBuf> = self
+            .generations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        for root in roots {
+            self.bump_generation(&root);
+        }
         self.cache
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clear();
-        {
-            let mut state = self
-                .state
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            state.compilers.clear();
-            state.versions.clear();
-            state.logged.clear();
-            state.failures.clear();
-            state.backoff_logged.clear();
-        }
+        self.state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
         self.pending
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -201,11 +263,31 @@ impl Tsc {
         let _ = self.jobs.send(Job::Invalidate);
     }
 
+    /// Invalidates one workspace folder's projects and compiler state.
+    ///
+    /// Other folders keep their caches, in-flight runs and diagnostics.
+    pub fn invalidate_root(&self, root: &Path) {
+        self.bump_generation(root);
+        self.cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retain(|project, _| !project.starts_with(root));
+        self.state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retain_root(root);
+        self.pending
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retain(|project, _| !project.starts_with(root));
+        let _ = self.jobs.send(Job::InvalidateRoot(root.to_path_buf()));
+    }
+
     /// Resolved compiler state for `dotfmt/doctor`. May spawn `<tsc> --version`.
-    pub fn status(&self, roots: &[PathBuf], settings: &Settings) -> Vec<ProjectStatus> {
+    pub fn status(&self, roots: &[(PathBuf, Settings)]) -> Vec<ProjectStatus> {
         roots
             .iter()
-            .map(|root| {
+            .map(|(root, settings)| {
                 let tsconfig = root_tsconfig(root);
                 let project = tsconfig
                     .as_deref()
@@ -213,9 +295,9 @@ impl Tsc {
                     .unwrap_or(root)
                     .to_path_buf();
                 let compiler = self.compiler_for(&project, settings.tsdk.as_deref());
-                let version = compiler
-                    .as_ref()
-                    .and_then(|compiler| self.version_for(&project, compiler));
+                let version = compiler.as_ref().and_then(|compiler| {
+                    self.version_for(&project, settings.tsdk.as_deref(), compiler)
+                });
                 let state = if compiler.is_none() {
                     "unavailable"
                 } else if self.backed_off(&project) {
@@ -237,24 +319,27 @@ impl Tsc {
     }
 
     fn compiler_for(&self, project: &Path, tsdk: Option<&Path>) -> Option<Compiler> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         state
             .compilers
-            .entry(project.to_path_buf())
+            .entry((project.to_path_buf(), tsdk.map(Path::to_path_buf)))
             .or_insert_with(|| discover(project, tsdk))
             .clone()
     }
 
-    fn version_for(&self, project: &Path, compiler: &Compiler) -> Option<String> {
+    fn version_for(
+        &self,
+        project: &Path,
+        tsdk: Option<&Path>,
+        compiler: &Compiler,
+    ) -> Option<String> {
+        let key = (project.to_path_buf(), tsdk.map(Path::to_path_buf));
         if let Some(version) = self
             .state
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .versions
-            .get(project)
+            .get(&key)
         {
             return version.clone();
         }
@@ -263,7 +348,7 @@ impl Tsc {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .versions
-            .insert(project.to_path_buf(), version.clone());
+            .insert(key, version.clone());
         version
     }
 
@@ -288,8 +373,8 @@ fn run(
     jobs: crossbeam_channel::Receiver<Job>,
     cache: Arc<Mutex<HashMap<PathBuf, Cache>>>,
     state: Arc<Mutex<State>>,
-    generation: Arc<AtomicU64>,
-    pending: Arc<Mutex<HashSet<PathBuf>>>,
+    generations: Arc<Mutex<HashMap<PathBuf, u64>>>,
+    pending: Arc<Mutex<HashMap<PathBuf, HashSet<PathBuf>>>>,
     documents: Arc<Mutex<Documents>>,
     diagnostics: Arc<Diagnostics>,
 ) {
@@ -298,6 +383,7 @@ fn run(
             Job::Check {
                 project,
                 tsconfig,
+                root,
                 generation: job_generation,
                 settings,
             } => {
@@ -305,16 +391,17 @@ fn run(
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .remove(&project);
-                if job_generation != generation.load(Ordering::SeqCst) {
+                if job_generation != current_generation(&generations, &root) {
                     continue;
                 }
                 check_project(
                     &project,
                     &tsconfig,
+                    &root,
                     &settings,
                     &cache,
                     &state,
-                    &generation,
+                    &generations,
                     &documents,
                     &diagnostics,
                 );
@@ -322,28 +409,41 @@ fn run(
             Job::Invalidate => {
                 diagnostics.clear_tsc();
             }
+            Job::InvalidateRoot(root) => {
+                diagnostics.clear_tsc_under(root);
+            }
             Job::Shutdown => break,
         }
     }
+}
+
+fn current_generation(generations: &Mutex<HashMap<PathBuf, u64>>, root: &Path) -> u64 {
+    generations
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(root)
+        .copied()
+        .unwrap_or(0)
 }
 
 #[allow(clippy::too_many_arguments)]
 fn check_project(
     project: &Path,
     tsconfig: &Path,
+    root: &Path,
     settings: &Settings,
     cache: &Mutex<HashMap<PathBuf, Cache>>,
     state: &Mutex<State>,
-    generation: &AtomicU64,
+    generations: &Mutex<HashMap<PathBuf, u64>>,
     documents: &Mutex<Documents>,
     diagnostics: &Diagnostics,
 ) {
-    let generation_now = generation.load(Ordering::SeqCst);
+    let generation_now = current_generation(generations, root);
     let compiler = {
         let mut state = state.lock().unwrap_or_else(|error| error.into_inner());
         state
             .compilers
-            .entry(project.to_path_buf())
+            .entry((project.to_path_buf(), settings.tsdk.clone()))
             .or_insert_with(|| discover(project, settings.tsdk.as_deref()))
             .clone()
     };
@@ -352,6 +452,7 @@ fn check_project(
             state,
             diagnostics,
             project,
+            settings.tsdk.as_deref(),
             format!("tsc: no compiler found for {}", project.display()),
         );
         return;
@@ -369,14 +470,16 @@ fn check_project(
         state,
         diagnostics,
         project,
+        settings.tsdk.as_deref(),
         String::new(),
     ) {
         let version = {
+            let key = (project.to_path_buf(), settings.tsdk.clone());
             let cached = state
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .versions
-                .get(project)
+                .get(&key)
                 .cloned();
             match cached {
                 Some(version) => version,
@@ -386,7 +489,7 @@ fn check_project(
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .versions
-                        .insert(project.to_path_buf(), version.clone());
+                        .insert(key, version.clone());
                     version
                 }
             }
@@ -397,7 +500,7 @@ fn check_project(
             version.as_deref().unwrap_or("unknown version")
         ));
     }
-    let fingerprint = fingerprint(tsconfig, project, &compiler);
+    let fingerprint = fingerprint(tsconfig, project, &compiler, settings.tsdk.as_deref());
     let cached = cache
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -416,7 +519,7 @@ fn check_project(
                 .failures
                 .remove(project);
             let entries = group(project, lines, diagnostics);
-            if generation.load(Ordering::SeqCst) == generation_now {
+            if current_generation(generations, root) == generation_now {
                 cache
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
@@ -431,25 +534,26 @@ fn check_project(
             entries
         }
     };
-    if generation.load(Ordering::SeqCst) != generation_now {
+    if current_generation(generations, root) != generation_now {
         return;
     }
     let entries = scoped(tsconfig, entries, documents, settings.tsc_scope);
     diagnostics.set_tsc(project, generation_now, entries);
 }
 
-/// Logs `message` once per project; returns whether this call was the first.
+/// Logs `message` once per project and SDK; returns whether this call was the first.
 fn log_once(
     state: &Mutex<State>,
     diagnostics: &Diagnostics,
     project: &Path,
+    tsdk: Option<&Path>,
     message: String,
 ) -> bool {
     let first = state
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .logged
-        .insert(project.to_path_buf());
+        .insert((project.to_path_buf(), tsdk.map(Path::to_path_buf)));
     if first && !message.is_empty() {
         diagnostics.log(message);
     }
@@ -531,11 +635,12 @@ fn check(
         Ok(output) => Some(parse_output(&output, project, tsconfig)),
         Err(error) => {
             let message = match error {
-                RunError::Spawn(error) => format!("failed to start ({}): {error}", compiler.program.display()),
-                RunError::Timeout => format!(
-                    "timed out after {}s and was killed",
-                    TIMEOUT.as_secs()
-                ),
+                RunError::Spawn(error) => {
+                    format!("failed to start ({}): {error}", compiler.program.display())
+                }
+                RunError::Timeout => {
+                    format!("timed out after {}s and was killed", TIMEOUT.as_secs())
+                }
             };
             let (count, backoff) = {
                 let mut state = state.lock().unwrap_or_else(|error| error.into_inner());
@@ -545,8 +650,8 @@ fn check(
                     .and_modify(|count| *count += 1)
                     .or_insert(1);
                 let count = *count;
-                let backoff = count >= MAX_FAILURES
-                    && state.backoff_logged.insert(project.to_path_buf());
+                let backoff =
+                    count >= MAX_FAILURES && state.backoff_logged.insert(project.to_path_buf());
                 (count, backoff)
             };
             diagnostics.log(format!(
@@ -724,10 +829,7 @@ fn location(line: &str) -> Option<(&str, u32, u32, &str)> {
             continue;
         };
         let rest = &line[close + 1..];
-        let Some(rest) = rest
-            .strip_prefix(": ")
-            .or_else(|| rest.strip_prefix(" - "))
-        else {
+        let Some(rest) = rest.strip_prefix(": ").or_else(|| rest.strip_prefix(" - ")) else {
             continue;
         };
         let file = &line[..open];
@@ -752,7 +854,10 @@ fn severity(rest: &str) -> Option<(DiagnosticSeverity, &str)> {
 fn windows_absolute(path: &Path) -> bool {
     let text = path.to_string_lossy();
     let bytes = text.as_bytes();
-    bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/')
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
 }
 
 fn parse_output(output: &Output, project: &Path, tsconfig: &Path) -> Vec<TscLine> {
@@ -811,7 +916,10 @@ fn group(
         .into_iter()
         .map(|(uri, mut diagnostics_for_uri)| {
             diagnostics_for_uri.sort_by_key(|diagnostic| {
-                (diagnostic.range.start.line, diagnostic.range.start.character)
+                (
+                    diagnostic.range.start.line,
+                    diagnostic.range.start.character,
+                )
             });
             let total = diagnostics_for_uri.len();
             if total > MAX_DIAGNOSTICS_PER_URI {
@@ -828,9 +936,10 @@ fn group(
         .collect()
 }
 
-fn fingerprint(tsconfig: &Path, project: &Path, compiler: &Compiler) -> u64 {
+fn fingerprint(tsconfig: &Path, project: &Path, compiler: &Compiler, tsdk: Option<&Path>) -> u64 {
     let mut hasher = DefaultHasher::new();
     compiler.hash(&mut hasher);
+    tsdk.hash(&mut hasher);
     hash_file(&mut hasher, &compiler.program);
     for config in config_chain(tsconfig) {
         hash_file(&mut hasher, &config);
@@ -1031,11 +1140,19 @@ fn compiler_at(base: &Path) -> Option<Compiler> {
     if !base.is_dir() {
         return None;
     }
-    ["lib/tsc.js", "tsc.js", "bin/tsc", "bin/tsc.cmd", "bin/tsgo", ".bin/tsc", ".bin/tsc.cmd"]
-        .into_iter()
-        .map(|relative| base.join(relative))
-        .find(|candidate| candidate.is_file())
-        .map(compiler)
+    [
+        "lib/tsc.js",
+        "tsc.js",
+        "bin/tsc",
+        "bin/tsc.cmd",
+        "bin/tsgo",
+        ".bin/tsc",
+        ".bin/tsc.cmd",
+    ]
+    .into_iter()
+    .map(|relative| base.join(relative))
+    .find(|candidate| candidate.is_file())
+    .map(compiler)
 }
 
 fn walk_up(project: &Path, relative: &Path) -> Option<Compiler> {
@@ -1143,11 +1260,7 @@ mod tests {
                 .to_vec(),
             stderr: Vec::new(),
         };
-        let lines = parse_output(
-            &output,
-            Path::new("/p"),
-            Path::new("/p/tsconfig.json"),
-        );
+        let lines = parse_output(&output, Path::new("/p"), Path::new("/p/tsconfig.json"));
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].file, Path::new("/p/tsconfig.json"));
         assert_eq!(lines[0].message, "Option 'x' is invalid.\nTry changing y.");
@@ -1164,20 +1277,25 @@ mod tests {
                 .to_vec(),
             stderr: Vec::new(),
         };
-        let lines = parse_output(
-            &output,
-            Path::new("/p"),
-            Path::new("/p/tsconfig.json"),
+        let lines = parse_output(&output, Path::new("/p"), Path::new("/p/tsconfig.json"));
+        assert_eq!(
+            lines.len(),
+            1,
+            "{:?}",
+            lines.iter().map(|line| &line.code).collect::<Vec<_>>()
         );
-        assert_eq!(lines.len(), 1, "{:?}", lines.iter().map(|line| &line.code).collect::<Vec<_>>());
         assert_eq!(lines[0].code, "TS2322");
     }
 
     #[test]
     fn ignores_prose_and_finds_the_nearest_config() {
         assert!(
-            TscLine::parse("Found 1 error.", Path::new("/p"), Path::new("/p/tsconfig.json"))
-                .is_none()
+            TscLine::parse(
+                "Found 1 error.",
+                Path::new("/p"),
+                Path::new("/p/tsconfig.json")
+            )
+            .is_none()
         );
         let temporary = tempfile::tempdir().unwrap();
         let project = temporary.path().join("project");
@@ -1209,8 +1327,12 @@ mod tests {
         let (sender, _receiver) = crossbeam_channel::unbounded();
         let workspace = Arc::new(crate::workspace::Workspace::new(vec![PathBuf::from("/p")]));
         let documents = Arc::new(Mutex::new(Documents::default()));
-        let settings = Arc::new(std::sync::RwLock::new(Settings::default()));
-        let diagnostics = Diagnostics::new(workspace, documents, sender, settings);
+        let client = Arc::new(crate::client::Client::new(sender));
+        let settings = Arc::new(crate::settings::SettingsStore::new(
+            false,
+            Settings::default(),
+        ));
+        let diagnostics = Diagnostics::new(workspace, documents, client, settings, false);
         let grouped = group(project, lines, &diagnostics);
         assert_eq!(grouped.len(), 1);
         assert_eq!(grouped[0].0, Uri::from_str("file:///p/src/a.ts").unwrap());
@@ -1276,9 +1398,9 @@ mod tests {
             node: false,
             cmd: false,
         };
-        let before = fingerprint(&config, project, &compiler);
+        let before = fingerprint(&config, project, &compiler, None);
         fs::write(&base, r#"{"compilerOptions":{"strict":true}}"#).unwrap();
-        let after = fingerprint(&config, project, &compiler);
+        let after = fingerprint(&config, project, &compiler, None);
         assert_ne!(before, after);
         assert_eq!(config_chain(&config).len(), 2);
     }
@@ -1323,19 +1445,22 @@ mod tests {
         Settings,
     ) {
         let (sender, receiver) = crossbeam_channel::unbounded();
-        let workspace = Arc::new(crate::workspace::Workspace::new(vec![project.to_path_buf()]));
+        let workspace = Arc::new(crate::workspace::Workspace::new(vec![
+            project.to_path_buf(),
+        ]));
         let documents = Arc::new(Mutex::new(Documents::default()));
         let settings = Settings {
-            trusted: true,
             tsc_scope: scope,
             ..Settings::default()
         };
-        let current = Arc::new(std::sync::RwLock::new(settings.clone()));
+        let client = Arc::new(crate::client::Client::new(sender));
+        let current = Arc::new(crate::settings::SettingsStore::new(true, settings.clone()));
         let diagnostics = Arc::new(Diagnostics::new(
             workspace,
             Arc::clone(&documents),
-            sender,
+            client,
             current,
+            false,
         ));
         let tsc = Arc::new(Tsc::new(Arc::clone(&diagnostics), Arc::clone(&documents)));
         (tsc, diagnostics, documents, receiver, settings)
@@ -1352,7 +1477,9 @@ mod tests {
             let remaining = deadline
                 .checked_duration_since(Instant::now())
                 .expect("timed out waiting for tsc diagnostics");
-            let message = receiver.recv_timeout(remaining).expect("diagnostics message");
+            let message = receiver
+                .recv_timeout(remaining)
+                .expect("diagnostics message");
             let lsp_server::Message::Notification(notification) = message else {
                 continue;
             };
@@ -1397,7 +1524,10 @@ mod tests {
             params.diagnostics[0].code,
             Some(NumberOrString::String("TS2322".into()))
         );
-        assert_eq!(params.diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
+        assert_eq!(
+            params.diagnostics[0].severity,
+            Some(DiagnosticSeverity::ERROR)
+        );
         thread::sleep(Duration::from_millis(250));
         let runs = fs::read_to_string(project.join("marker.log")).unwrap();
         assert_eq!(runs.lines().count(), 1, "{runs}");
@@ -1425,7 +1555,11 @@ mod tests {
             a.clone(),
             crate::documents::Document::new("a".into(), "typescript".into(), 1),
         );
-        tsc.schedule(project.join("src/a.ts"), project.to_path_buf(), settings.clone());
+        tsc.schedule(
+            project.join("src/a.ts"),
+            project.to_path_buf(),
+            settings.clone(),
+        );
         let params = wait_for_tsc(&receiver, &a, Duration::from_secs(10));
         assert_eq!(params.diagnostics.len(), 1);
         let deadline = Instant::now() + Duration::from_millis(300);
@@ -1458,15 +1592,22 @@ mod tests {
         }
         let a = uri::from_path(&project.join("src/a.ts"));
         let b = uri::from_path(&project.join("src/b.ts"));
-        let (tsc, _diagnostics, _documents, receiver, settings) = harness(project, TscScope::Project);
-        tsc.schedule(project.join("src/a.ts"), project.to_path_buf(), settings.clone());
+        let (tsc, _diagnostics, _documents, receiver, settings) =
+            harness(project, TscScope::Project);
+        tsc.schedule(
+            project.join("src/a.ts"),
+            project.to_path_buf(),
+            settings.clone(),
+        );
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut seen = HashSet::new();
         while seen.len() < 2 {
             let remaining = deadline
                 .checked_duration_since(Instant::now())
                 .expect("timed out waiting for project-scope diagnostics");
-            let message = receiver.recv_timeout(remaining).expect("diagnostics message");
+            let message = receiver
+                .recv_timeout(remaining)
+                .expect("diagnostics message");
             let lsp_server::Message::Notification(notification) = message else {
                 continue;
             };

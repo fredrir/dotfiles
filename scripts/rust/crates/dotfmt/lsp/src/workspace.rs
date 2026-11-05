@@ -25,7 +25,6 @@ impl Workspace {
     pub fn set_roots(&self, roots: Vec<PathBuf>) {
         let mut current = self.roots.lock().unwrap_or_else(|error| error.into_inner());
         *current = normalized(roots);
-        self.invalidate();
     }
 
     pub fn roots(&self) -> Vec<PathBuf> {
@@ -35,15 +34,20 @@ impl Workspace {
             .clone()
     }
 
-    /// The nearest workspace root containing `path`, or its directory outside one.
-    pub fn root_for(&self, path: &Path) -> PathBuf {
+    /// The nearest workspace root containing `path`, without a fallback.
+    pub fn containing_root(&self, path: &Path) -> Option<PathBuf> {
         let path = normalize(path);
-        let roots = self.roots();
-        roots
+        self.roots()
             .iter()
             .filter(|root| path.starts_with(root))
             .max_by_key(|root| root.components().count())
             .cloned()
+    }
+
+    /// The nearest workspace root containing `path`, or its directory outside one.
+    pub fn root_for(&self, path: &Path) -> PathBuf {
+        let path = normalize(path);
+        self.containing_root(&path)
             .or_else(|| {
                 path.parent()
                     .filter(|parent| !parent.as_os_str().is_empty())
@@ -72,6 +76,15 @@ impl Workspace {
             .unwrap_or_else(|error| error.into_inner())
             .clear();
     }
+
+    /// Drops the sessions for one workspace folder and any nested folders.
+    pub fn invalidate_root(&self, root: &Path) {
+        let root = normalize(root);
+        self.sessions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retain(|session_root, _| !session_root.starts_with(&root));
+    }
 }
 
 /// The same global configuration precedence as the CLI.
@@ -96,7 +109,7 @@ fn normalized(roots: Vec<PathBuf>) -> Vec<PathBuf> {
 
 /// Canonicalises existing paths, then the nearest existing parent, and
 /// otherwise removes `.`/`..` components.
-fn normalize(path: &Path) -> PathBuf {
+pub(crate) fn normalize(path: &Path) -> PathBuf {
     if let Ok(path) = std::fs::canonicalize(path) {
         return path;
     }
@@ -145,6 +158,35 @@ mod tests {
         assert_eq!(
             workspace.root_for(Path::new("/elsewhere/a.ts")),
             PathBuf::from("/elsewhere")
+        );
+    }
+
+    #[test]
+    fn invalidating_one_root_keeps_other_sessions() {
+        let workspace = Workspace::new(vec![PathBuf::from("/work/a"), PathBuf::from("/work/b")]);
+        let a = workspace.session(Path::new("/work/a/src/a.ts"));
+        let b = workspace.session(Path::new("/work/b/src/b.ts"));
+        workspace.invalidate_root(Path::new("/work/a"));
+        assert!(!Arc::ptr_eq(
+            &a,
+            &workspace.session(Path::new("/work/a/src/a.ts"))
+        ));
+        assert!(Arc::ptr_eq(
+            &b,
+            &workspace.session(Path::new("/work/b/src/b.ts"))
+        ));
+    }
+
+    #[test]
+    fn a_containing_root_does_not_fall_back_to_the_parent() {
+        let workspace = Workspace::new(vec![PathBuf::from("/work")]);
+        assert_eq!(
+            workspace.containing_root(Path::new("/work/a.ts")),
+            Some(PathBuf::from("/work"))
+        );
+        assert_eq!(
+            workspace.containing_root(Path::new("/elsewhere/a.ts")),
+            None
         );
     }
 
