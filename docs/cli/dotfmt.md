@@ -182,11 +182,11 @@ Formatting applies fixes too when `dotfmt.dotfile` enables them. All options def
 | `remove_unused_locals` | `false` | Remove unused local variables (unsafe) |
 | `remove_unused_parameters` | `false` | Remove unused parameters (unsafe) |
 
-`fixes = safe` implies `remove_unused_imports`, `convert_type_only_imports` and `organize_imports`; `fixes = unsafe` implies those plus `remove_unused_exports`, `remove_unused_locals` and `remove_unused_parameters`. A `true` option applies even with `fixes = off`. Selected fixes run before the final format, at most 3 passes, and reformatting is idempotent. The destructive options delete code, so they run only when configured; unsafe fixes stay off in untrusted workspaces.
+`fixes = safe` implies `remove_unused_imports`, `convert_type_only_imports` and `organize_imports`; `fixes = unsafe` implies those plus `remove_unused_locals` and `remove_unused_parameters`. It never implies `remove_unused_exports`, which changes public API and must be set explicitly. A `true` option applies even with `fixes = off`. Selected fixes run before the final format, at most 3 passes, and reformatting is idempotent. Fixes apply to full-document formatting and `willSaveWaitUntil` only; range, ranges and on-type formatting never apply fixes, and `--check` reports layout differences only. The destructive options delete code, so they run only when configured and trusted.
 
-`type_aware = true` (default) runs the project's `tsc --noEmit --pretty false --locale en --project <tsconfig>` once per project and keeps only errors. Unused-only codes 6133, 6192, 6196, 6198, 6199 and 6205 are filtered, so unused code is never an editor error; `--diagnose` reports it instead. `remove_unused_exports = true` lets formatting remove project-wide unused exports; `--diagnose` reports them without removing anything. Type information never blocks formatting.
+`type_aware = true` (default) runs the project's `tsc --noEmit --pretty false --locale en --project <tsconfig>` once per project and keeps only errors. Unused-only codes 6133, 6138, 6192, 6196, 6198, 6199, 6205, 7027 and 7028 are filtered, so unused code is never an editor error; `--diagnose` reports it instead. `remove_unused_exports = true` lets formatting remove project-wide unused exports; `--diagnose` reports them without removing anything. Type information never blocks formatting.
 
-`tsc` discovery: `DOTFMT_TSC`, the project's `node_modules/typescript/lib/tsc.js` under Node, `node_modules/.bin/tsc`, `@typescript/native-preview`/`tsgo`, then `tsc` on `PATH`; `dotfmt.typescript.tsdk` pins the TypeScript install used in the editor. The resolved compiler and version are logged once per project.
+`tsc` discovery: `DOTFMT_TSC`, an explicit `dotfmt.typescript.tsdk`, the project's `node_modules/typescript/lib/tsc.js` under Node, `node_modules/.bin/tsc`, `@typescript/native-preview`/`tsgo`, then `tsc` on `PATH`. The resolved compiler and version are logged once per project; three consecutive failures or timeouts back off until the compiler or configuration changes.
 
 Tailwind sorting supports TSX `className`/`class`, `cn`/`clsx`/`cva`/`twMerge`, template literals, CSS `@apply`, and HTML/markup class attributes. `tailwind = auto` engages only when the file or project uses Tailwind; `tailwind_order = project` requires the project's own Tailwind and fails with a configuration diagnostic if it cannot be resolved. The project bridge runs the official `prettier-plugin-tailwindcss` sorter through Node, caches the class order under `${XDG_CACHE_HOME:-~/.cache}/dotfmt/tailwind`, and falls back to the Rust pattern sorter for `auto`/`rust`. `tailwind_merge` is opt-in because collapsing conflicting utilities can change rendering.
 
@@ -195,7 +195,7 @@ In VS Code, the extension uses LSP for document/range/ranges formatting, `;`/`}`
 | VS Code setting | Default | Scope | Effect |
 | --- | --- | --- | --- |
 | `dotfmt.typeAware` | `true` | resource | Publish project `tsc` errors |
-| `dotfmt.diagnostics.syntax` | `true` | resource | Publish syntax and configuration errors; `false` disables them |
+| `dotfmt.diagnostics.syntax` | `true` | resource | Publish syntax and configuration errors; `false` stops publication but formatting failures still log and set status |
 | `dotfmt.diagnostics.tscScope` | `"open"` | resource | `open` publishes errors for open documents only; `project` publishes every project error |
 | `dotfmt.diagnostics.debounceMs` | `250` | resource | Diagnostic debounce, 50–2000 ms |
 | `dotfmt.typescript.tsdk` | `""` | resource | TypeScript install used for `tsc`; empty discovers the project's compiler |
