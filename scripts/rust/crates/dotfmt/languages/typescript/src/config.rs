@@ -443,8 +443,9 @@ impl Config {
     /// Fixes to apply before formatting a TypeScript or JavaScript document.
     ///
     /// `fixes = off` selects nothing on its own; `safe` enables imports and
-    /// type-only conversion; `unsafe` enables every category. Individual
-    /// booleans enable their category regardless of the mode.
+    /// type-only conversion; `unsafe` adds unused locals. Export removal is
+    /// never implied by a mode and must be requested explicitly. Parameter
+    /// removal is diagnose-only: there is no safe parameter-removal fix.
     pub fn format_fix_selection(&self) -> Option<FixSelection> {
         let mut selection = FixSelection::default();
         match self.fixes {
@@ -462,21 +463,17 @@ impl Config {
                 // mode; it must be requested explicitly with
                 // `remove_unused_exports = true`.
                 selection.remove_unused_locals = true;
-                selection.remove_unused_parameters = true;
             }
         }
         selection.remove_unused_imports |= self.remove_unused_imports;
         selection.remove_unused_exports |= self.remove_unused_exports;
         selection.remove_unused_locals |= self.remove_unused_locals;
-        selection.remove_unused_parameters |= self.remove_unused_parameters;
         selection.convert_type_only_imports |= self.convert_type_only_imports;
         selection.organize_imports |= self.organize_imports;
         selection.safe = selection.remove_unused_imports
             || selection.convert_type_only_imports
             || selection.organize_imports;
-        selection.r#unsafe = selection.remove_unused_exports
-            || selection.remove_unused_locals
-            || selection.remove_unused_parameters;
+        selection.r#unsafe = selection.remove_unused_exports || selection.remove_unused_locals;
         (selection.safe || selection.r#unsafe).then_some(selection)
     }
 }

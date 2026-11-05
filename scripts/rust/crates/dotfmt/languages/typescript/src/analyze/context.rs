@@ -42,6 +42,11 @@ impl<'a, 'p> Context<'a, 'p> {
     ) -> Self {
         let exported_spans = exported_spans(program);
         let has_eval = has_eval(semantic);
+        // `source_type_for_path` only marks `.d.ts`; `SourceType::from_path`
+        // also recognizes `.d.mts` and `.d.cts` declaration names.
+        let is_declaration = source_type.is_typescript_definition()
+            || SourceType::from_path(path)
+                .is_ok_and(|source_type| source_type.is_typescript_definition());
         Self {
             text,
             path,
@@ -51,7 +56,7 @@ impl<'a, 'p> Context<'a, 'p> {
             semantic,
             comments,
             tsconfig,
-            is_declaration: source_type.is_typescript_definition(),
+            is_declaration,
             is_typescript: source_type.is_typescript(),
             is_script: source_type.is_script(),
             has_eval,

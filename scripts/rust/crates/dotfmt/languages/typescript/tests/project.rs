@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::Path;
 
+use dotfmt_core::edit::Analysis;
 use dotfmt_typescript::analyze::{self, Options};
 use dotfmt_typescript::config::Config;
 use dotfmt_typescript::dialect::Dialect;
@@ -190,6 +191,7 @@ fn analyze_with_type_aware_adds_unused_export_findings() {
             fix: true,
             unsafe_fixes: false,
             type_aware: true,
+            organize: true,
             project_analysis: true,
             type_diagnostics: Vec::new(),
         },
@@ -873,4 +875,502 @@ fn unused_tsc_codes_are_classified_as_warnings() {
         format!("{:?}", project::type_diagnostic_severity(2322)),
         "Error"
     );
+}
+
+fn private_project() -> tempfile::TempDir {
+    let directory = tempfile::tempdir().unwrap();
+    write(directory.path(), "package.json", r#"{"private":true}"#);
+    write(
+        directory.path(),
+        "tsconfig.json",
+        r#"{"compilerOptions":{}}"#,
+    );
+    directory
+}
+
+fn apply_fix(text: &str, analysis: &Analysis) -> String {
+    let fix = analysis.fixes.first().expect("an unsafe export fix");
+    dotfmt_core::edit::apply(text, &fix.edits).unwrap()
+}
+
+fn assert_parses_and_formats(path: &Path, text: &str) {
+    analyze::analyze(
+        path,
+        text,
+        &Config::default(),
+        Dialect::Auto,
+        &Options {
+            fix: false,
+            unsafe_fixes: false,
+            type_aware: false,
+            organize: false,
+            project_analysis: false,
+            type_diagnostics: Vec::new(),
+        },
+    )
+    .expect("fixed text re-parses");
+    dotfmt_typescript::format(path, text, &Config::default(), Dialect::Auto)
+        .expect("formatting the fixed text does not remove code");
+}
+
+#[test]
+fn removes_unused_export_keyword_for_single_declaration() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/a.ts", "export const unused = 1;\n");
+    write(root, "src/use.ts", "console.log(1);\n");
+    let path = root.join("src/a.ts");
+    let input = "export const unused = 1;\n";
+
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+    let fix = &analysis.fixes[0];
+    assert_eq!(fix.title, "Remove unused export `unused`");
+    assert_eq!(fix.kind, "quickfix");
+    assert_eq!(fix.applicability, dotfmt_core::edit::Applicability::Unsafe);
+    let finding = fix.finding.as_ref().expect("fix finding");
+    assert_eq!(finding.start, analysis.findings[0].start);
+    assert_eq!(finding.end, analysis.findings[0].end);
+
+    let edited = apply_fix(input, &analysis);
+    assert_eq!(edited, "const unused = 1;\n");
+    assert_parses_and_formats(&path, &edited);
+}
+
+#[test]
+fn removes_only_the_unused_specifier_from_a_local_export() {
+    let directory = private_project();
+    let root = directory.path();
+    write(
+        root,
+        "src/a.ts",
+        "const a = 1;\nconst b = 2;\nexport { a, b };\n",
+    );
+    write(
+        root,
+        "src/use.ts",
+        "import { b } from \"./a\";\nconsole.log(b);\n",
+    );
+    let path = root.join("src/a.ts");
+
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert_eq!(
+        analysis.findings[0].message,
+        "Export `a` is never imported in this project"
+    );
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+    let edited = apply_fix("const a = 1;\nconst b = 2;\nexport { a, b };\n", &analysis);
+    let formatted =
+        dotfmt_typescript::format(&path, &edited, &Config::default(), Dialect::Auto).unwrap();
+    assert_eq!(formatted, "const a = 1;\nconst b = 2;\nexport { b };\n");
+    assert_parses_and_formats(&path, &edited);
+}
+
+#[test]
+fn deletes_a_local_export_statement_when_every_specifier_is_unused() {
+    let directory = private_project();
+    let root = directory.path();
+    write(
+        root,
+        "src/a.ts",
+        "const a = 1;\nconst b = 2;\nexport { a, b };\n",
+    );
+    write(root, "src/use.ts", "console.log(1);\n");
+    let path = root.join("src/a.ts");
+    let input = "const a = 1;\nconst b = 2;\nexport { a, b };\n";
+
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 2, "{:?}", analysis.findings);
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+    let edited = apply_fix(input, &analysis);
+    assert_eq!(edited, "const a = 1;\nconst b = 2;\n");
+    assert_parses_and_formats(&path, &edited);
+}
+
+#[test]
+fn removes_export_default_prefix_for_named_function_and_class() {
+    let directory = private_project();
+    let root = directory.path();
+    write(
+        root,
+        "src/fn.ts",
+        "export default function f() { return 1; }\n",
+    );
+    write(root, "src/class.ts", "export default class C {}\n");
+    write(root, "src/use.ts", "console.log(1);\n");
+
+    let function = project::unused_exports(&root.join("src/fn.ts")).unwrap();
+    assert_eq!(function.findings.len(), 1, "{:?}", function.findings);
+    assert_eq!(
+        function.findings[0].message,
+        "Export `default` is never imported in this project"
+    );
+    assert_eq!(function.fixes.len(), 1, "{:?}", function.fixes);
+    assert_eq!(
+        apply_fix("export default function f() { return 1; }\n", &function),
+        "function f() { return 1; }\n"
+    );
+
+    let class = project::unused_exports(&root.join("src/class.ts")).unwrap();
+    assert_eq!(class.findings.len(), 1, "{:?}", class.findings);
+    assert_eq!(class.fixes.len(), 1, "{:?}", class.fixes);
+    assert_eq!(
+        apply_fix("export default class C {}\n", &class),
+        "class C {}\n"
+    );
+}
+
+#[test]
+fn skips_export_default_expressions_and_anonymous_defaults() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/expression.ts", "export default 1;\n");
+    write(
+        root,
+        "src/anonymous.ts",
+        "export default function () { return 1; }\n",
+    );
+    write(root, "src/use.ts", "console.log(1);\n");
+
+    for file in ["src/expression.ts", "src/anonymous.ts"] {
+        let analysis = project::unused_exports(&root.join(file)).unwrap();
+        assert_eq!(
+            analysis.findings.len(),
+            1,
+            "{file}: {:?}",
+            analysis.findings
+        );
+        assert!(analysis.fixes.is_empty(), "{file}: {:?}", analysis.fixes);
+    }
+}
+
+#[test]
+fn skips_reexports_with_a_module_specifier() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/thing.ts", "export const thing = 1;\n");
+    write(root, "src/named.ts", "export { thing } from \"./thing\";\n");
+    write(root, "src/star.ts", "export * from \"./thing\";\n");
+    write(root, "src/use.ts", "console.log(1);\n");
+
+    for file in ["src/named.ts", "src/star.ts"] {
+        let analysis = project::unused_exports(&root.join(file)).unwrap();
+        assert!(
+            analysis.findings.is_empty(),
+            "{file}: {:?}",
+            analysis.findings
+        );
+        assert!(analysis.fixes.is_empty(), "{file}: {:?}", analysis.fixes);
+    }
+}
+
+#[test]
+fn skips_multi_declarator_exports_when_another_name_is_used() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/mixed.ts", "export const a = 1, b = 2;\n");
+    write(root, "src/all.ts", "export const c = 1, d = 2;\n");
+    write(
+        root,
+        "src/use.ts",
+        "import { b } from \"./mixed\";\nconsole.log(b);\n",
+    );
+
+    let mixed = project::unused_exports(&root.join("src/mixed.ts")).unwrap();
+    assert_eq!(mixed.findings.len(), 1, "{:?}", mixed.findings);
+    assert!(mixed.fixes.is_empty(), "{:?}", mixed.fixes);
+
+    let all = project::unused_exports(&root.join("src/all.ts")).unwrap();
+    assert_eq!(all.findings.len(), 2, "{:?}", all.findings);
+    assert_eq!(all.fixes.len(), 1, "{:?}", all.fixes);
+    assert_eq!(
+        apply_fix("export const c = 1, d = 2;\n", &all),
+        "const c = 1, d = 2;\n"
+    );
+}
+
+#[test]
+fn skips_fixes_that_would_touch_comments_ignore_markers_or_decorators() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/comment.ts", "export /* note */ const a = 1;\n");
+    write(
+        root,
+        "src/specifier.ts",
+        "const a = 1;\nconst b = 2;\nexport { a /* note */, b };\n",
+    );
+    write(
+        root,
+        "src/ignored.ts",
+        "// prettier-ignore\nexport const a = 1;\n",
+    );
+    write(root, "src/decorated.ts", "export @dec class C {}\n");
+    write(
+        root,
+        "src/use.ts",
+        "import { b } from \"./specifier\";\nconsole.log(b);\n",
+    );
+
+    for (file, expected) in [
+        ("src/comment.ts", 1),
+        ("src/specifier.ts", 1),
+        ("src/ignored.ts", 1),
+        ("src/decorated.ts", 1),
+    ] {
+        let analysis = project::unused_exports(&root.join(file)).unwrap();
+        assert_eq!(
+            analysis.findings.len(),
+            expected,
+            "{file}: {:?}",
+            analysis.findings
+        );
+        assert!(analysis.fixes.is_empty(), "{file}: {:?}", analysis.fixes);
+    }
+}
+
+#[test]
+fn skips_declaration_files_declare_module_and_non_private_packages() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{"name":"library","private":false}"#,
+    );
+    write(root, "tsconfig.json", r#"{"compilerOptions":{}}"#);
+    write(
+        root,
+        "src/decl.d.mts",
+        "export declare const value: number;\n",
+    );
+    write(
+        root,
+        "src/decl.d.cts",
+        "export declare const value: number;\n",
+    );
+    write(
+        root,
+        "src/ambient.ts",
+        "declare module \"m\" {\n  export const value: number;\n}\n",
+    );
+    write(root, "src/public.ts", "export const publicApi = 1;\n");
+    write(root, "src/use.ts", "console.log(1);\n");
+
+    for file in ["src/decl.d.mts", "src/decl.d.cts", "src/ambient.ts"] {
+        let analysis = project::unused_exports(&root.join(file)).unwrap();
+        assert!(
+            analysis.findings.is_empty(),
+            "{file}: {:?}",
+            analysis.findings
+        );
+        assert!(analysis.fixes.is_empty(), "{file}: {:?}", analysis.fixes);
+    }
+
+    let public = project::unused_exports(&root.join("src/public.ts")).unwrap();
+    assert_eq!(public.findings.len(), 1, "{:?}", public.findings);
+    assert!(public.fixes.is_empty(), "{:?}", public.fixes);
+}
+
+#[test]
+fn refuses_project_fixes_for_an_incomplete_graph() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/a.ts", "export const unused = 1;\n");
+    write(root, "src/broken.ts", "export const = ;\n");
+    write(root, "src/use.ts", "console.log(1);\n");
+
+    let analysis = project::unused_exports(&root.join("src/a.ts")).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+}
+
+#[test]
+fn applied_export_fixes_reparse_and_do_not_trigger_code_removal_verify() {
+    let directory = private_project();
+    let root = directory.path();
+    let input =
+        "export const a = 1;\nexport function f() { return 1; }\nexport default class C {}\n";
+    write(root, "src/a.ts", input);
+    write(root, "src/use.ts", "console.log(1);\n");
+    let path = root.join("src/a.ts");
+
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 3, "{:?}", analysis.findings);
+    assert_eq!(analysis.fixes.len(), 3, "{:?}", analysis.fixes);
+    for fix in &analysis.fixes {
+        let edited = dotfmt_core::edit::apply(input, &fix.edits).unwrap();
+        assert_parses_and_formats(&path, &edited);
+    }
+}
+
+#[test]
+fn bom_offsets_apply_to_export_fixes() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/a.ts", "\u{feff}export const unused = 1;\n");
+    write(root, "src/use.ts", "console.log(1);\n");
+    let path = root.join("src/a.ts");
+    let input = "\u{feff}export const unused = 1;\n";
+
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+    assert_eq!(apply_fix(input, &analysis), "\u{feff}const unused = 1;\n");
+}
+
+#[test]
+fn remove_unused_exports_produces_a_fix() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/a.ts", "export const unused = 1;\n");
+    write(root, "src/use.ts", "console.log(1);\n");
+
+    let analysis = project::unused_exports(&root.join("src/a.ts")).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+    assert_eq!(
+        analysis.fixes[0].applicability,
+        dotfmt_core::edit::Applicability::Unsafe
+    );
+}
+
+#[test]
+fn incomplete_graph_suppresses_unused_exports() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/a.ts", "export const unused = 1;\n");
+    write(root, "src/broken.ts", "export const = ;\n");
+    write(root, "src/use.ts", "console.log(1);\n");
+
+    assert!(!project::graph_complete(&root.join("src/a.ts")));
+    let analysis = project::unused_exports(&root.join("src/a.ts")).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+}
+
+#[test]
+fn unresolved_external_packages_do_not_incomplete_the_graph() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/a.ts", "export const a = 1;\n");
+    write(
+        root,
+        "src/use.ts",
+        "import { missing } from \"not-installed\";\nconsole.log(missing);\n",
+    );
+    assert!(project::graph_complete(&root.join("src/a.ts")));
+
+    write(
+        root,
+        "node_modules/external/package.json",
+        r#"{"name":"external","main":"index.js"}"#,
+    );
+    write(
+        root,
+        "node_modules/external/index.js",
+        "export const thing = 1;\n",
+    );
+    write(
+        root,
+        "src/use.ts",
+        "import { thing } from \"external\";\nconsole.log(thing);\n",
+    );
+    project::invalidate_root(root);
+    assert!(project::graph_complete(&root.join("src/a.ts")));
+}
+
+#[test]
+fn unresolved_local_specifiers_incomplete_the_graph() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/a.ts", "export const a = 1;\n");
+    write(
+        root,
+        "src/use.ts",
+        "import { missing } from \"./missing\";\nconsole.log(missing);\n",
+    );
+    assert!(!project::graph_complete(&root.join("src/a.ts")));
+
+    write(
+        root,
+        "src/use.ts",
+        "import { missing } from \"#missing\";\nconsole.log(missing);\n",
+    );
+    project::invalidate_root(root);
+    assert!(!project::graph_complete(&root.join("src/a.ts")));
+}
+
+#[test]
+fn declaration_consumers_keep_exports_alive() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/a.ts", "export const helper = 1;\n");
+    write(
+        root,
+        "src/types.d.ts",
+        "import { helper } from \"./a\";\nexport type Helper = typeof helper;\n",
+    );
+    write(root, "src/use.ts", "console.log(1);\n");
+
+    assert!(
+        project::unused_exports(&root.join("src/a.ts"))
+            .unwrap()
+            .findings
+            .is_empty()
+    );
+}
+
+#[test]
+fn declaration_only_module_resolution_keeps_the_graph_complete() {
+    let directory = private_project();
+    let root = directory.path();
+    write(
+        root,
+        "src/use.ts",
+        "import type { Types } from \"./types\";\nexport type X = Types;\n",
+    );
+    write(
+        root,
+        "src/types.d.ts",
+        "export interface Types { value: string }\n",
+    );
+
+    assert!(project::graph_complete(&root.join("src/use.ts")));
+}
+
+#[test]
+fn per_package_tsconfig_monorepos_refuse_project_fixes() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{"private":true,"workspaces":["packages/*"]}"#,
+    );
+    write(root, "packages/ui/package.json", r#"{"private":true}"#);
+    write(root, "packages/ui/tsconfig.json", "{}");
+    write(root, "packages/ui/src/a.ts", "export const unused = 1;\n");
+    write(root, "packages/ui/src/use.ts", "console.log(1);\n");
+
+    assert!(!project::graph_complete(&root.join("packages/ui/src/a.ts")));
+    let analysis = project::unused_exports(&root.join("packages/ui/src/a.ts")).unwrap();
+    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+}
+
+#[test]
+fn solution_style_tsconfig_with_an_outside_reference_refuses_fixes() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "tsconfig.json",
+        r#"{"files":[],"references":[{"path":"../lib"}]}"#,
+    );
+    write(root, "src/a.ts", "export const unused = 1;\n");
+    write(root, "src/use.ts", "console.log(1);\n");
+
+    assert!(!project::graph_complete(&root.join("src/a.ts")));
+    let analysis = project::unused_exports(&root.join("src/a.ts")).unwrap();
+    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
 }

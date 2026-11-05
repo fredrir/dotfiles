@@ -282,6 +282,7 @@ fn inspect(
         fix != FixMode::None,
         fix == FixMode::Unsafe,
         type_aware,
+        true,
         project_analysis,
     )?;
     let mut applied = Vec::new();
@@ -295,6 +296,7 @@ fn inspect(
                 true,
                 fix == FixMode::Unsafe,
                 type_aware,
+                true,
                 project_analysis,
             )?;
             let selected: Vec<&Fix> = pass

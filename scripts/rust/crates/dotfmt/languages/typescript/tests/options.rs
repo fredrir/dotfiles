@@ -39,6 +39,7 @@ fn project_analysis_adds_unused_export_findings_without_type_awareness() {
             fix: true,
             unsafe_fixes: false,
             type_aware: false,
+            organize: true,
             project_analysis: true,
             type_diagnostics: Vec::new(),
         },
@@ -79,6 +80,7 @@ fn type_aware_without_project_analysis_skips_unused_exports() {
             fix: true,
             unsafe_fixes: false,
             type_aware: true,
+            organize: true,
             project_analysis: false,
             type_diagnostics: vec![TypeDiagnostic {
                 code: 2322,

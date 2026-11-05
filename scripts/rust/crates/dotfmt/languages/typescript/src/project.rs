@@ -1,6 +1,6 @@
 //! Project-wide export usage analysis and TypeScript diagnostics.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -10,13 +10,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
-use dotfmt_core::edit::{Analysis, Finding, Severity, Tag};
+use dotfmt_core::edit::{Analysis, Applicability, Edit, Finding, Fix, Severity, Tag, apply};
 use ignore::{DirEntry, WalkBuilder};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, AssignmentExpression, BindingPattern, CallExpression,
-    Declaration, ExportDefaultDeclarationKind, Expression, ImportDeclarationSpecifier,
-    ImportExpression, Statement, TSExportAssignment, TSImportEqualsDeclaration, TSModuleReference,
+    Declaration, ExportDeclaration, ExportDefaultDeclaration, ExportDefaultDeclarationKind,
+    ExportNamedDeclaration, Expression, ImportDeclarationSpecifier, ImportExpression, Statement,
+    TSExportAssignment, TSImportEqualsDeclaration, TSModuleReference,
 };
 use oxc_ast_visit::{
     Visit,
@@ -26,7 +27,7 @@ use oxc_ast_visit::{
     },
 };
 use oxc_parser::Parser;
-use oxc_span::GetSpan;
+use oxc_span::{GetSpan, SourceType};
 
 use crate::TypeDiagnostic;
 use crate::dialect::Dialect;
@@ -105,7 +106,7 @@ const NODE_BUILTINS: &[&str] = &[
     "worker_threads",
     "zlib",
 ];
-const UNUSED_DIAGNOSTIC_CODES: &[u32] = &[6133, 6192, 6196, 6198, 6199, 6205];
+const UNUSED_DIAGNOSTIC_CODES: &[u32] = &[6133, 6138, 6192, 6196, 6198, 6199, 6205, 7027, 7028];
 
 /// Finds the project root by walking up to the nearest tsconfig/jsconfig or
 /// package.json.
@@ -140,16 +141,49 @@ pub fn tsconfig_for(path: &Path) -> Option<PathBuf> {
 pub fn unused_exports(path: &Path) -> Result<Analysis, Diagnostic> {
     let mut analysis = unused_exports_stripped(path)?;
     if fs::read(path).is_ok_and(|bytes| bytes.starts_with(b"\xEF\xBB\xBF")) {
-        for finding in &mut analysis.findings {
-            finding.start += '\u{feff}'.len_utf8();
-            finding.end += '\u{feff}'.len_utf8();
-        }
+        offset_analysis(&mut analysis, '\u{feff}'.len_utf8());
     }
     Ok(analysis)
 }
 
 pub(crate) fn unused_exports_for_analysis(path: &Path) -> Result<Analysis, Diagnostic> {
     unused_exports_stripped(path)
+}
+
+/// Whether `text` is exactly the file's on-disk contents (BOM stripped).
+///
+/// Project analysis reads the file for export spans and for the post-edit
+/// re-parse; a dirty buffer or an in-flight format pass has different
+/// coordinates, so project findings and fixes are skipped until the file is
+/// saved.
+pub(crate) fn buffer_matches_disk(path: &Path, text: &str) -> bool {
+    fs::read_to_string(path)
+        .is_ok_and(|disk| disk.strip_prefix('\u{feff}').unwrap_or(&disk) == text)
+}
+
+fn offset_analysis(analysis: &mut Analysis, offset: usize) {
+    for finding in &mut analysis.findings {
+        finding.start += offset;
+        finding.end += offset;
+        for related in &mut finding.related {
+            related.start += offset;
+            related.end += offset;
+        }
+    }
+    for fix in &mut analysis.fixes {
+        for edit in &mut fix.edits {
+            edit.start += offset;
+            edit.end += offset;
+        }
+        if let Some(finding) = &mut fix.finding {
+            finding.start += offset;
+            finding.end += offset;
+            for related in &mut finding.related {
+                related.start += offset;
+                related.end += offset;
+            }
+        }
+    }
 }
 
 fn unused_exports_stripped(path: &Path) -> Result<Analysis, Diagnostic> {
@@ -358,6 +392,7 @@ pub fn graph_complete(path: &Path) -> bool {
 
 #[derive(Clone, Debug)]
 struct Graph {
+    root: PathBuf,
     modules: HashMap<PathBuf, Arc<Module>>,
     entries: HashSet<PathBuf>,
     uses: HashMap<PathBuf, ModuleUses>,
@@ -367,14 +402,34 @@ struct Graph {
 #[derive(Clone, Debug, Default)]
 struct Module {
     exports: Vec<Export>,
+    comments: Vec<(usize, usize)>,
     edges: Vec<Edge>,
 }
 
+/// One exported binding plus the spans a fix needs.
+///
+/// `start`/`end` are the identifier span used by findings. `prefix` is the
+/// `export `/`export default ` range a keyword fix deletes, and `specifier` is
+/// the `export { ... }` specifier a named fix removes.
 #[derive(Clone, Debug)]
 struct Export {
     name: String,
     start: usize,
     end: usize,
+    statement_start: usize,
+    statement_end: usize,
+    prefix: Option<(usize, usize)>,
+    specifier: Option<(usize, usize)>,
+    kind: ExportKind,
+    decorated: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExportKind {
+    Keyword,
+    Specifier,
+    DefaultNamed,
+    DefaultExpression,
 }
 
 #[derive(Clone, Debug)]
@@ -401,27 +456,39 @@ impl Graph {
         if self.entries.contains(path) || is_declaration_file(path) {
             return Analysis::default();
         }
+        // Spans and safety checks are computed against the file the graph was
+        // built from. Callers must not request fixes for a dirty buffer.
+        let Ok(text) = fs::read_to_string(path) else {
+            return Analysis::default();
+        };
+        let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
         let use_site = self.uses.get(path);
         let all_used = use_site.is_some_and(|use_site| use_site.all);
         let mut analysis = Analysis::default();
+        let mut findings: Vec<Option<Finding>> = Vec::with_capacity(module.exports.len());
         for export in &module.exports {
             if all_used || use_site.is_some_and(|use_site| use_site.names.contains(&export.name)) {
+                findings.push(None);
                 continue;
             }
-            analysis.findings.push(
-                Finding::new(
-                    "unused-export",
-                    format!("Export `{}` is never imported in this project", export.name),
-                    Severity::Warning,
-                    export.start,
-                    export.end,
-                )
-                .with_tag(Tag::Unnecessary),
-            );
+            let finding = Finding::new(
+                "unused-export",
+                format!("Export `{}` is never imported in this project", export.name),
+                Severity::Warning,
+                export.start,
+                export.end,
+            )
+            .with_tag(Tag::Unnecessary);
+            findings.push(Some(finding.clone()));
+            analysis.findings.push(finding);
         }
         analysis
             .findings
             .sort_by_key(|finding| (finding.start, finding.end));
+        if !self.complete || !is_private_package(path, &self.root) {
+            return analysis;
+        }
+        export_fixes(path, text, module, &findings, &mut analysis.fixes);
         analysis
     }
 
@@ -448,13 +515,29 @@ impl Graph {
                     continue;
                 }
                 let Some(target) = resolver.resolve(&importer, &edge.specifier) else {
-                    if !ignored_specifier(&edge.specifier) {
+                    if !ignored_specifier(&edge.specifier)
+                        && local_specifier(root, &importer, &edge.specifier)
+                    {
                         self.complete = false;
                     }
                     continue;
                 };
                 let target = fs::canonicalize(&target).unwrap_or(target);
+                if inside_node_modules(&target) {
+                    // Installed packages are outside the project graph; their
+                    // imports cannot consume this project's exports.
+                    continue;
+                }
                 if !self.modules.contains_key(&target) {
+                    // A local module the graph could not include (declaration
+                    // file, generated file, or a path outside the walked root)
+                    // means an unseen consumer may exist.
+                    if !target.starts_with(root)
+                        || is_declaration_file(&target)
+                        || local_specifier(root, &importer, &edge.specifier)
+                    {
+                        self.complete = false;
+                    }
                     continue;
                 }
                 let use_site = uses.entry(target).or_default();
@@ -470,6 +553,370 @@ impl Graph {
         }
         self.uses = uses;
     }
+}
+
+/// Whether the walked root is a package nested in a larger workspace and so
+/// cannot see every consumer of its exports.
+fn graph_truncated(root: &Path) -> bool {
+    for ancestor in root.ancestors().skip(1) {
+        if ancestor.join("package.json").is_file()
+            || ancestor.join("tsconfig.json").is_file()
+            || ancestor.join("jsconfig.json").is_file()
+        {
+            return true;
+        }
+    }
+    let probe = root.join("__dotfmt_probe.ts");
+    let config = crate::tsconfig::load_for_within(&probe, root);
+    config
+        .references
+        .iter()
+        .any(|reference| !reference.starts_with(root))
+}
+
+fn inside_node_modules(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "node_modules")
+}
+
+/// Whether an unresolved specifier is expected to name a local module.
+///
+/// TypeScript treats relative paths, `#imports`, `paths` aliases and `baseUrl`
+/// lookups as local. A bare package that resolves to `node_modules` is external
+/// even when it is not part of the graph, so it cannot hide a consumer.
+fn local_specifier(root: &Path, importer: &Path, specifier: &str) -> bool {
+    let specifier = specifier.trim();
+    if specifier.is_empty() {
+        return false;
+    }
+    if specifier.starts_with('.') || specifier.starts_with('/') || specifier.starts_with('#') {
+        return true;
+    }
+    let config = crate::tsconfig::load_for_within(importer, root);
+    if config
+        .paths
+        .keys()
+        .any(|pattern| alias_matches(pattern, specifier))
+    {
+        return true;
+    }
+    if let Some(package) = node_modules_package(importer, specifier) {
+        let package = fs::canonicalize(&package).unwrap_or(package);
+        return package.starts_with(root) && !inside_node_modules(&package);
+    }
+    // `baseUrl` makes bare specifiers project-local unless an installed package
+    // already owns the name.
+    config.base_url.is_some()
+}
+
+fn alias_matches(pattern: &str, specifier: &str) -> bool {
+    match pattern.split_once('*') {
+        Some((prefix, suffix)) => {
+            specifier.len() >= prefix.len() + suffix.len()
+                && specifier.starts_with(prefix)
+                && specifier.ends_with(suffix)
+        }
+        None => pattern == specifier,
+    }
+}
+
+fn node_modules_package(importer: &Path, specifier: &str) -> Option<PathBuf> {
+    let mut parts = specifier.split('/');
+    let first = parts.next()?;
+    let name = if first.starts_with('@') {
+        format!("{first}/{}", parts.next()?)
+    } else {
+        first.to_owned()
+    };
+    let mut directory = importer.parent()?;
+    loop {
+        let package = directory.join("node_modules").join(&name);
+        if package.is_dir() {
+            return Some(package);
+        }
+        directory = directory.parent()?;
+    }
+}
+
+/// Builds one fix per unused export where a deletion is provably safe.
+///
+/// Statement-wide strategies (an all-unused specifier list or a multi-declarator
+/// declaration) attach their single edit to the first unused export so applying
+/// every fix cannot overlap.
+fn export_fixes(
+    path: &Path,
+    text: &str,
+    module: &Module,
+    findings: &[Option<Finding>],
+    fixes: &mut Vec<Fix>,
+) {
+    let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (index, export) in module.exports.iter().enumerate() {
+        groups
+            .entry(export.statement_start)
+            .or_default()
+            .push(index);
+    }
+    for indexes in groups.values() {
+        let first = &module.exports[indexes[0]];
+        let unused: Vec<usize> = indexes
+            .iter()
+            .copied()
+            .filter(|index| findings[*index].is_some())
+            .collect();
+        if unused.is_empty()
+            || first.decorated
+            || has_ignore_marker(
+                text,
+                &module.comments,
+                first.statement_start,
+                first.statement_end,
+            )
+        {
+            continue;
+        }
+        match first.kind {
+            // Deleting the whole statement would remove the value expression or
+            // an anonymous default declaration, so keep the finding only.
+            ExportKind::DefaultExpression => {}
+            ExportKind::DefaultNamed | ExportKind::Keyword => {
+                if first.kind == ExportKind::Keyword && unused.len() != indexes.len() {
+                    // A multi-declarator statement may only lose `export ` when
+                    // every name it binds is unused.
+                    continue;
+                }
+                let Some((start, end)) = first.prefix.and_then(|range| export_prefix(text, range))
+                else {
+                    continue;
+                };
+                let index = unused[0];
+                push_export_fix(
+                    path,
+                    text,
+                    module,
+                    fixes,
+                    findings[index].as_ref().expect("unused finding"),
+                    &first.name,
+                    Edit::delete(start, end),
+                );
+            }
+            ExportKind::Specifier => {
+                if unused.len() == indexes.len() {
+                    let (start, end) =
+                        statement_edit(text, first.statement_start, first.statement_end);
+                    let index = unused[0];
+                    push_export_fix(
+                        path,
+                        text,
+                        module,
+                        fixes,
+                        findings[index].as_ref().expect("unused finding"),
+                        &module.exports[index].name,
+                        Edit::delete(start, end),
+                    );
+                    continue;
+                }
+                let mut ordered = indexes.clone();
+                ordered.sort_by_key(|index| {
+                    module.exports[*index]
+                        .specifier
+                        .map_or(0, |(start, _)| start)
+                });
+                for (position, index) in ordered.iter().copied().enumerate() {
+                    let Some(finding) = findings[index].as_ref() else {
+                        continue;
+                    };
+                    let previous_kept = position > 0 && findings[ordered[position - 1]].is_none();
+                    let Some((start, end)) =
+                        specifier_removal(text, &module.exports, &ordered, position, previous_kept)
+                    else {
+                        continue;
+                    };
+                    push_export_fix(
+                        path,
+                        text,
+                        module,
+                        fixes,
+                        finding,
+                        &module.exports[index].name,
+                        Edit::delete(start, end),
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn export_prefix(text: &str, (start, end): (usize, usize)) -> Option<(usize, usize)> {
+    let prefix = text.get(start..end)?.trim();
+    matches!(prefix, "export" | "export default").then_some((start, end))
+}
+
+/// The byte range that removes one specifier from `export { ... }`.
+///
+/// Non-final specifiers take their following comma; a final specifier takes the
+/// preceding comma when the previous specifier is kept. That keeps the edits for
+/// several unused specifiers non-overlapping.
+fn specifier_removal(
+    text: &str,
+    exports: &[Export],
+    ordered: &[usize],
+    position: usize,
+    previous_kept: bool,
+) -> Option<(usize, usize)> {
+    let index = *ordered.get(position)?;
+    let (start, end) = exports[index].specifier?;
+    if text.get(start..end).is_none() {
+        return None;
+    }
+    let next_start = ordered
+        .get(position + 1)
+        .and_then(|index| exports[*index].specifier)
+        .map(|(start, _)| start);
+    let limit = next_start.unwrap_or(exports[index].statement_end);
+    let comma = text.get(end..limit)?.find(',').map(|offset| end + offset);
+    if position + 1 < ordered.len() {
+        let comma = comma?;
+        return Some((start, comma + 1));
+    }
+    let previous_comma = || {
+        let previous_end = exports[*ordered.get(position - 1)?].specifier?.1;
+        let offset = text.get(previous_end..start)?.rfind(',')?;
+        Some(previous_end + offset)
+    };
+    match (comma, previous_kept && position > 0) {
+        (Some(comma), true) => Some((previous_comma()?, comma + 1)),
+        (Some(comma), false) => Some((start, comma + 1)),
+        (None, true) => Some((previous_comma()?, end)),
+        (None, false) => Some((start, end)),
+    }
+}
+
+fn push_export_fix(
+    path: &Path,
+    text: &str,
+    module: &Module,
+    fixes: &mut Vec<Fix>,
+    finding: &Finding,
+    name: &str,
+    edit: Edit,
+) {
+    if edit.start > edit.end
+        || edit.end > text.len()
+        || module
+            .comments
+            .iter()
+            .any(|&(start, end)| start < edit.end && end > edit.start)
+        || text
+            .get(edit.start..edit.end)
+            .is_some_and(|removed| removed.contains('@'))
+    {
+        return;
+    }
+    let Ok(candidate) = apply(text, std::slice::from_ref(&edit)) else {
+        return;
+    };
+    if !reparses(path, &candidate) {
+        return;
+    }
+    fixes.push(
+        Fix::new(
+            format!("Remove unused export `{name}`"),
+            "quickfix",
+            Applicability::Unsafe,
+            vec![edit],
+        )
+        .with_finding(finding.clone()),
+    );
+}
+
+fn reparses(path: &Path, text: &str) -> bool {
+    let source_type = Dialect::Auto.source_type_for_path(path);
+    let allocator = Allocator::default();
+    Parser::new(&allocator, text, source_type)
+        .parse()
+        .diagnostics
+        .is_empty()
+}
+
+fn has_ignore_marker(text: &str, comments: &[(usize, usize)], start: usize, end: usize) -> bool {
+    comments.iter().any(|&(comment_start, comment_end)| {
+        let marker = text.get(comment_start..comment_end).is_some_and(|comment| {
+            comment.contains("prettier-ignore") || comment.contains("oxfmt-ignore")
+        });
+        marker
+            && (leading_comment(text, comment_end, start)
+                || trailing_comment(text, end, comment_start))
+    })
+}
+
+fn leading_comment(text: &str, comment_end: usize, start: usize) -> bool {
+    comment_end <= start
+        && text
+            .get(comment_end..start)
+            .is_some_and(|gap| gap.trim().is_empty() && gap.matches('\n').count() <= 1)
+}
+
+fn trailing_comment(text: &str, end: usize, comment_start: usize) -> bool {
+    comment_start >= end
+        && text
+            .get(end..comment_start)
+            .is_some_and(|gap| !gap.contains('\n'))
+}
+
+/// The byte range that removes a whole statement without touching other
+/// statements that share its line.
+fn statement_edit(text: &str, start: usize, end: usize) -> (usize, usize) {
+    let line_start = text[..start.min(text.len())]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let start = if text[line_start..start].trim().is_empty() {
+        line_start
+    } else {
+        start
+    };
+    let mut end = end;
+    while end < text.len() && matches!(text.as_bytes()[end], b' ' | b'\t' | b';') {
+        end += 1;
+    }
+    let line_end = text[end.min(text.len())..]
+        .find('\n')
+        .map_or(text.len(), |index| end + index);
+    if !text[end..line_end].trim().is_empty() {
+        return (start, end);
+    }
+    if text.as_bytes().get(end) == Some(&b'\r') {
+        end += 1;
+    }
+    if text.as_bytes().get(end) == Some(&b'\n') {
+        end += 1;
+    }
+    (start, end)
+}
+
+/// The nearest package.json decides whether a fix may remove public API.
+///
+/// A file with no package boundary inside the project root is not published as
+/// a package, so it behaves like a private package.
+fn is_private_package(path: &Path, root: &Path) -> bool {
+    let mut directory = path.parent();
+    while let Some(current) = directory {
+        let package = current.join("package.json");
+        if package.is_file() {
+            let Ok(text) = fs::read_to_string(&package) else {
+                return false;
+            };
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+                return false;
+            };
+            return value.get("private").and_then(serde_json::Value::as_bool) == Some(true);
+        }
+        if current == root {
+            break;
+        }
+        directory = current.parent();
+    }
+    true
 }
 
 #[derive(Clone, Debug, Default)]
@@ -566,7 +1013,10 @@ fn walk_source_listing(root: &Path) -> SourceListing {
         if entry.depth() == 0 || !entry.file_type().is_some_and(|kind| kind.is_file()) {
             continue;
         }
-        if is_source_file(entry.path()) || is_consumer_file(entry.path()) {
+        if is_source_file(entry.path())
+            || is_consumer_file(entry.path())
+            || is_declaration_file(entry.path())
+        {
             files.push(entry.path().to_path_buf());
         }
     }
@@ -634,7 +1084,9 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 fn build_graph(root: &Path, listing: &SourceListing) -> Graph {
     let mut modules = HashMap::new();
-    let mut complete = true;
+    // A graph rooted at a package inside a larger workspace cannot see the
+    // package's consumers, so project fixes must stay off.
+    let mut complete = !graph_truncated(root);
     for path in &listing.files {
         let Some(loaded) = load_module(path) else {
             complete = false;
@@ -647,6 +1099,7 @@ fn build_graph(root: &Path, listing: &SourceListing) -> Graph {
     }
     let entries = entry_points(root, &listing.files);
     let mut graph = Graph {
+        root: root.to_path_buf(),
         modules,
         entries,
         uses: HashMap::new(),
@@ -837,13 +1290,22 @@ fn is_import_context(prefix: &str) -> bool {
 
 fn parse_module(path: &Path, text: &str) -> Option<Module> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let source_type = Dialect::Auto.source_type_for_path(path);
+    let source_type =
+        SourceType::from_path(path).unwrap_or_else(|_| Dialect::Auto.source_type_for_path(path));
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, text, source_type).parse();
     if !parsed.diagnostics.is_empty() {
         return None;
     }
-    let mut module = Module::default();
+    let mut module = Module {
+        comments: parsed
+            .program
+            .comments
+            .iter()
+            .map(|comment| (comment.span.start as usize, comment.span.end as usize))
+            .collect(),
+        ..Module::default()
+    };
     for statement in &parsed.program.body {
         match statement {
             Statement::ImportDeclaration(declaration) => {
@@ -894,34 +1356,13 @@ fn parse_module(path: &Path, text: &str) -> Option<Module> {
                 });
             }
             Statement::ExportDeclaration(declaration) => {
-                export_declaration(&declaration.declaration, &mut module.exports);
+                collect_declaration_export(declaration, &mut module.exports);
             }
             Statement::ExportNamedDeclaration(declaration) => {
-                for specifier in &declaration.specifiers {
-                    module.exports.push(Export {
-                        name: specifier.exported.name().as_str().to_owned(),
-                        start: specifier.exported.span().start as usize,
-                        end: specifier.exported.span().end as usize,
-                    });
-                }
+                collect_named_export(declaration, &mut module.exports);
             }
-            Statement::ExportDefaultDeclaration(declaration)
-                if !matches!(
-                    declaration.declaration,
-                    ExportDefaultDeclarationKind::TSInterfaceDeclaration(_)
-                ) =>
-            {
-                let start = declaration.span.start as usize;
-                let end = declaration.span.end as usize;
-                let offset = text
-                    .get(start..end)
-                    .and_then(|text| text.find("default"))
-                    .map_or(start, |offset| start + offset);
-                module.exports.push(Export {
-                    name: "default".to_owned(),
-                    start: offset,
-                    end: offset + "default".len(),
-                });
+            Statement::ExportDefaultDeclaration(declaration) => {
+                collect_default_export(text, declaration, &mut module.exports);
             }
             _ => {}
         }
@@ -987,50 +1428,160 @@ fn import_edge(declaration: &oxc_ast::ast::ImportDeclaration<'_>) -> Option<Edge
     })
 }
 
-fn export_declaration(declaration: &Declaration<'_>, exports: &mut Vec<Export>) {
-    match declaration {
+#[derive(Clone, Copy)]
+struct ExportLayout {
+    statement_start: usize,
+    statement_end: usize,
+    prefix: (usize, usize),
+    kind: ExportKind,
+    decorated: bool,
+}
+
+fn collect_declaration_export(declaration: &ExportDeclaration<'_>, exports: &mut Vec<Export>) {
+    let layout = ExportLayout {
+        statement_start: declaration.span.start as usize,
+        statement_end: declaration.span.end as usize,
+        prefix: (
+            declaration.span.start as usize,
+            declaration.declaration.span().start as usize,
+        ),
+        kind: ExportKind::Keyword,
+        decorated: matches!(
+            &declaration.declaration,
+            Declaration::ClassDeclaration(class) if !class.decorators.is_empty()
+        ),
+    };
+    match &declaration.declaration {
         Declaration::VariableDeclaration(declaration) => {
             for declarator in &declaration.declarations {
-                collect_binding_exports(&declarator.id, exports);
+                collect_binding_exports(&declarator.id, layout, exports);
             }
         }
-        _ => {
+        declaration => {
             if let Some(identifier) = declaration.id() {
-                exports.push(Export {
-                    name: identifier.name.as_str().to_owned(),
-                    start: identifier.span.start as usize,
-                    end: identifier.span.end as usize,
-                });
+                push_export(
+                    exports,
+                    identifier.name.as_str().to_owned(),
+                    identifier.span.start as usize,
+                    identifier.span.end as usize,
+                    layout,
+                );
             }
         }
     }
 }
 
-fn collect_binding_exports(pattern: &BindingPattern<'_>, exports: &mut Vec<Export>) {
+fn collect_named_export(declaration: &ExportNamedDeclaration<'_>, exports: &mut Vec<Export>) {
+    let statement_start = declaration.span.start as usize;
+    let statement_end = declaration.span.end as usize;
+    for specifier in &declaration.specifiers {
+        let exported = specifier.exported.span();
+        exports.push(Export {
+            name: specifier.exported.name().as_str().to_owned(),
+            start: exported.start as usize,
+            end: exported.end as usize,
+            statement_start,
+            statement_end,
+            prefix: None,
+            specifier: Some((specifier.span.start as usize, specifier.span.end as usize)),
+            kind: ExportKind::Specifier,
+            decorated: false,
+        });
+    }
+}
+
+fn collect_default_export(
+    text: &str,
+    declaration: &ExportDefaultDeclaration<'_>,
+    exports: &mut Vec<Export>,
+) {
+    let kind = match &declaration.declaration {
+        ExportDefaultDeclarationKind::FunctionDeclaration(function) if function.id.is_some() => {
+            ExportKind::DefaultNamed
+        }
+        ExportDefaultDeclarationKind::ClassDeclaration(class) if class.id.is_some() => {
+            ExportKind::DefaultNamed
+        }
+        ExportDefaultDeclarationKind::TSInterfaceDeclaration(_) => return,
+        _ => ExportKind::DefaultExpression,
+    };
+    let statement_start = declaration.span.start as usize;
+    let statement_end = declaration.span.end as usize;
+    let offset = text
+        .get(statement_start..statement_end)
+        .and_then(|text| text.find("default"))
+        .map_or(statement_start, |offset| statement_start + offset);
+    exports.push(Export {
+        name: "default".to_owned(),
+        start: offset,
+        end: offset + "default".len(),
+        statement_start,
+        statement_end,
+        prefix: Some((
+            statement_start,
+            declaration.declaration.span().start as usize,
+        )),
+        specifier: None,
+        kind,
+        decorated: matches!(
+            &declaration.declaration,
+            ExportDefaultDeclarationKind::ClassDeclaration(class)
+                if !class.decorators.is_empty()
+        ),
+    });
+}
+
+fn push_export(
+    exports: &mut Vec<Export>,
+    name: String,
+    start: usize,
+    end: usize,
+    layout: ExportLayout,
+) {
+    exports.push(Export {
+        name,
+        start,
+        end,
+        statement_start: layout.statement_start,
+        statement_end: layout.statement_end,
+        prefix: Some(layout.prefix),
+        specifier: None,
+        kind: layout.kind,
+        decorated: layout.decorated,
+    });
+}
+
+fn collect_binding_exports(
+    pattern: &BindingPattern<'_>,
+    layout: ExportLayout,
+    exports: &mut Vec<Export>,
+) {
     match pattern {
-        BindingPattern::BindingIdentifier(identifier) => exports.push(Export {
-            name: identifier.name.as_str().to_owned(),
-            start: identifier.span.start as usize,
-            end: identifier.span.end as usize,
-        }),
+        BindingPattern::BindingIdentifier(identifier) => push_export(
+            exports,
+            identifier.name.as_str().to_owned(),
+            identifier.span.start as usize,
+            identifier.span.end as usize,
+            layout,
+        ),
         BindingPattern::ObjectPattern(pattern) => {
             for property in &pattern.properties {
-                collect_binding_exports(&property.value, exports);
+                collect_binding_exports(&property.value, layout, exports);
             }
             if let Some(rest) = &pattern.rest {
-                collect_binding_exports(&rest.argument, exports);
+                collect_binding_exports(&rest.argument, layout, exports);
             }
         }
         BindingPattern::ArrayPattern(pattern) => {
             for element in pattern.elements.iter().flatten() {
-                collect_binding_exports(element, exports);
+                collect_binding_exports(element, layout, exports);
             }
             if let Some(rest) = &pattern.rest {
-                collect_binding_exports(&rest.argument, exports);
+                collect_binding_exports(&rest.argument, layout, exports);
             }
         }
         BindingPattern::AssignmentPattern(pattern) => {
-            collect_binding_exports(&pattern.left, exports);
+            collect_binding_exports(&pattern.left, layout, exports);
         }
     }
 }

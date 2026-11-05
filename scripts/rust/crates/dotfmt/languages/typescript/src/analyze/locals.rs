@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use super::context::Context;
 use dotfmt_core::edit::{Analysis, Applicability, Edit, Finding, Fix, Severity, Tag};
 use oxc_ast::AstKind;
 use oxc_ast::ast::{
@@ -7,9 +8,6 @@ use oxc_ast::ast::{
     VariableDeclarationKind,
 };
 use oxc_semantic::SymbolFlags;
-use oxc_span::SourceType;
-
-use super::context::Context;
 
 pub(crate) fn analyze<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) {
     unused_variables(context, analysis);
@@ -123,7 +121,7 @@ fn unused_variables<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) 
 }
 
 fn unused_parameters<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) {
-    if is_declaration_file(context) {
+    if context.is_declaration {
         return;
     }
     let scoping = context.scoping();
@@ -182,7 +180,7 @@ fn unused_parameters<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis)
 }
 
 fn unused_type_parameters<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) {
-    if is_declaration_file(context) {
+    if context.is_declaration {
         return;
     }
     let scoping = context.scoping();
@@ -257,14 +255,6 @@ fn unused_local_severity(enabled: Option<bool>) -> Severity {
     } else {
         Severity::Information
     }
-}
-
-/// `SourceType` only marks `.d.ts` as a definition, so `.d.mts` and `.d.cts`
-/// need the full path check to stay free of declaration-level findings.
-fn is_declaration_file(context: &Context<'_, '_>) -> bool {
-    context.is_declaration
-        || SourceType::from_path(context.path)
-            .is_ok_and(|source_type| source_type.is_typescript_definition())
 }
 
 /// Whether the parameter's own signature is a value function with a body.

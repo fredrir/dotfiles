@@ -12,6 +12,13 @@ use std::sync::Arc;
 
 const REPAIR: &str = "repair";
 
+/// Export removal changes public API; the editor host clears process trust for
+/// untrusted workspaces and `DOTFMT_TRUSTED=0` does the same for the CLI.
+fn export_fixes_trusted() -> bool {
+    dotfmt_tailwind::bridge::trusted()
+        && std::env::var_os("DOTFMT_TRUSTED").is_none_or(|value| value != "0" && value != "false")
+}
+
 #[derive(Clone)]
 pub struct Engine {
     kind: Kind,
@@ -300,12 +307,13 @@ impl Engine {
         let mut formatted = None;
         for _ in 0..3 {
             let analysis = match self.analyze(
-                path,
+                context,
                 current.as_bytes(),
                 true,
                 selection.r#unsafe,
                 Some(false),
-                selection.remove_unused_exports,
+                selection.organize_imports,
+                selection.remove_unused_exports && export_fixes_trusted(),
             ) {
                 Ok(analysis) => analysis,
                 Err(_) => return self.format_text(path, context, input, detected, clean),
@@ -599,6 +607,7 @@ impl Engine {
         fix: bool,
         unsafe_fixes: bool,
         type_aware: Option<bool>,
+        organize: bool,
         project_analysis: bool,
     ) -> Result<dotfmt_core::edit::Analysis, Diagnostic> {
         match &self.kind {
@@ -618,6 +627,7 @@ impl Engine {
                         fix,
                         unsafe_fixes,
                         type_aware: type_aware.unwrap_or(config.type_aware),
+                        organize,
                         project_analysis,
                         type_diagnostics: Vec::new(),
                     },

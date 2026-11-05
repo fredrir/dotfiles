@@ -17,6 +17,7 @@ use crate::tsconfig::{self, Tsconfig};
 
 pub(crate) const SOURCE_EXTENSIONS: &[&str] =
     &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
+const DECLARATION_EXTENSIONS: &[&str] = &["d.ts", "d.mts", "d.cts"];
 const AVOIDED_DIRECTORIES: &[&str] = &[
     "node_modules",
     "dist",
@@ -128,7 +129,19 @@ fn resolve_extensionless(path: &Path) -> Option<PathBuf> {
             return canonicalize(candidate);
         }
     }
+    for extension in DECLARATION_EXTENSIONS {
+        let candidate = append_extension(path, extension);
+        if candidate.is_file() {
+            return canonicalize(candidate);
+        }
+    }
     for extension in SOURCE_EXTENSIONS {
+        let candidate = path.join(format!("index.{extension}"));
+        if candidate.is_file() {
+            return canonicalize(candidate);
+        }
+    }
+    for extension in DECLARATION_EXTENSIONS {
         let candidate = path.join(format!("index.{extension}"));
         if candidate.is_file() {
             return canonicalize(candidate);
