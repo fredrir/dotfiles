@@ -330,6 +330,24 @@ fn unknown_settings_name_the_source_and_line() {
 }
 
 #[test]
+fn quote_style_auto_variants_map_to_preferred_quotes() {
+    for (value, expected) in [
+        ("auto", Quotes::PreferDouble),
+        ("auto-prefer-double", Quotes::PreferDouble),
+        ("auto-prefer-single", Quotes::PreferSingle),
+    ] {
+        for key in ["quotes", "quote_style"] {
+            let config = config(&[(key, value)]);
+            assert_eq!(
+                std::mem::discriminant(&config.quotes),
+                std::mem::discriminant(&expected),
+                "{key}={value}"
+            );
+        }
+    }
+}
+
+#[test]
 fn invalid_values_are_rejected_with_the_key_name() {
     for (key, value, expected) in [
         ("indent", "many", "number"),

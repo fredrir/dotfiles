@@ -56,10 +56,8 @@ pub fn format(
     // The second pass is skipped for large stylesheets to avoid doubling an
     // already expensive malva parse.
     let mut output = if dialect == Dialect::Less || text.len() <= 64 * 1024 {
-        match format_text(&first, dialect.syntax(), &config.malva_options()) {
-            Ok(second) if second == first => first,
-            _ => text.clone(),
-        }
+        let second = format_text(&first, dialect.syntax(), &config.malva_options());
+        second_pass(first, &text, second)?
     } else {
         first
     };
@@ -92,6 +90,18 @@ fn syntax(text: &str, error: malva::Error) -> Diagnostic {
     let malva::Error::Parser(parser_error, _, _) = error;
     let (line, column) = line_column(text, parser_error.span.start);
     diagnostic.with_location(line, Some(column))
+}
+
+fn second_pass(
+    first: String,
+    text: &str,
+    second: Result<String, malva::Error>,
+) -> Result<String, Diagnostic> {
+    match second {
+        Ok(second) if second == first => Ok(first),
+        Ok(_) => Ok(text.to_owned()),
+        Err(error) => Err(syntax(&first, error)),
+    }
 }
 
 fn line_column(text: &str, offset: usize) -> (usize, usize) {
@@ -205,4 +215,33 @@ fn sass_nesting_violation(text: &str) -> Option<(usize, usize)> {
         offset += raw_line.len() + 1;
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parser_error() -> malva::Error {
+        format_text(
+            "a {",
+            malva::Syntax::Css,
+            &malva::config::FormatOptions::default(),
+        )
+        .unwrap_err()
+    }
+
+    #[test]
+    fn an_unstable_second_pass_keeps_the_input() {
+        let selected = second_pass("formatted".into(), "input", Ok("different".into())).unwrap();
+        assert_eq!(selected, "input");
+    }
+
+    #[test]
+    fn a_second_pass_error_is_returned_as_a_diagnostic() {
+        let error = second_pass("a {".into(), "input", Err(parser_error())).unwrap_err();
+        assert_eq!(error.kind, DiagnosticKind::Syntax);
+        assert!(error.message.contains("syntax error"), "{error}");
+        assert!(error.line.is_some());
+        assert!(error.column.is_some());
+    }
 }

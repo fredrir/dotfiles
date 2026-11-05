@@ -30,6 +30,40 @@ fn markdown_table_autosizing_can_be_enabled_and_overridden_locally() {
 }
 
 #[test]
+fn global_quote_style_auto_variants_are_accepted_by_every_engine() {
+    for (value, quote) in [
+        ("auto", '"'),
+        ("auto-prefer-double", '"'),
+        ("auto-prefer-single", '\''),
+    ] {
+        let root = tree_pairs(&[
+            ("a.ts", "const x = \"a\";\nexport { x };\n"),
+            ("a.json", "{\"a\":1}"),
+        ]);
+        fs::write(
+            root.path().join("dotfmt.dotfile"),
+            format!(
+                "{{\n quote_style = {value}\n}}\ntypescript {{}}\njson {{}}\ncss {{}}\nhtml {{}}\n"
+            ),
+        )
+        .unwrap();
+        let output = dotfmt(root.path()).arg(".").run();
+        assert!(output.success(), "{value}: {output:?}");
+        assert_eq!(
+            fs::read_to_string(root.path().join("a.ts")).unwrap(),
+            format!("const x = {quote}a{quote};\nexport {{ x }};\n"),
+            "{value}"
+        );
+        assert!(
+            fs::read_to_string(root.path().join("a.json"))
+                .unwrap()
+                .contains("\"a\": 1"),
+            "{value}"
+        );
+    }
+}
+
+#[test]
 fn nearer_global_values_override_parent_language_values_and_local_language_wins() {
     let root = tree_pairs(&[
         (

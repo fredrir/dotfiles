@@ -192,10 +192,12 @@ impl Config {
             }
             "quote_style" => {
                 self.quote_style = match value {
-                    "double" => QuoteStyle::Double,
-                    "single" => QuoteStyle::Single,
+                    "double" | "auto" | "auto-prefer-double" => QuoteStyle::Double,
+                    "single" | "auto-prefer-single" => QuoteStyle::Single,
                     other => {
-                        return Err(format!("quote_style must be double or single, not {other}"));
+                        return Err(format!(
+                            "quote_style must be double, single, auto, auto-prefer-double or auto-prefer-single, not {other}"
+                        ));
                     }
                 }
             }
