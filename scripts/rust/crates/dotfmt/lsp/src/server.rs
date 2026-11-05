@@ -4462,6 +4462,131 @@ mod tests {
     }
 
     #[test]
+    fn empty_native_strings_in_a_full_pull_inherit_and_format() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("dotfmt.dotfile"), "css {}\n").unwrap();
+        let text = ".card{color:red;}\n";
+        let path = root.join("a.css");
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "rootUri": uri::from_path(root),
+                    "capabilities": { "workspace": { "configuration": true } },
+                }),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(1)).unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        let request = receive_request(&client, "workspace/configuration").expect("pull");
+        client
+            .sender
+            .send(Message::Response(Response::new_ok(
+                request.id,
+                json!([
+                    {
+                        "format": {
+                            "css": { "block_selector_linebreak": "", "quotes": "" }
+                        }
+                    },
+                    {}
+                ]),
+            )))
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            assert!(
+                Instant::now() < deadline,
+                "empty native strings were never applied"
+            );
+            client
+                .sender
+                .send(Message::Request(Request::new(
+                    RequestId::from(50),
+                    DOCTOR_REQUEST.into(),
+                    json!(null),
+                )))
+                .unwrap();
+            let doctor = receive_response(&client, &RequestId::from(50)).unwrap();
+            if doctor["default"]["hasFormat"] == json!(true)
+                && doctor["folders"][0]["hasFormat"] == json!(false)
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                DidOpenTextDocument::METHOD.into(),
+                json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "css",
+                        "version": 1,
+                        "text": text
+                    }
+                }),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(51),
+                Formatting::METHOD.into(),
+                json!({
+                    "textDocument": { "uri": uri },
+                    "options": { "tabSize": 2, "insertSpaces": true }
+                }),
+            )))
+            .unwrap();
+        let edits: Vec<TextEdit> =
+            serde_json::from_value(receive_response(&client, &RequestId::from(51)).unwrap())
+                .unwrap();
+        assert_eq!(
+            apply_edits(text, &edits),
+            ".card {\n  color: red;\n}\n",
+            "empty native strings produced a configuration error"
+        );
+
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(52),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(52));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+    }
+
+    #[test]
     fn invalid_native_overlay_logs_and_falls_back() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path();

@@ -795,6 +795,86 @@ fn overlay_null_values_are_inherited() {
 }
 
 #[test]
+fn overlay_empty_strings_are_inherited() {
+    let root = tempfile::tempdir().unwrap();
+    config(
+        root.path(),
+        "css { block_selector_linebreak = always\n quotes = single }\n",
+    );
+    let empty = ConfigOverlay::from_json(
+        &json!({
+            "global": {"quote_style": ""},
+            "css": {"block_selector_linebreak": "", "quotes": ""},
+        }),
+        root.path(),
+    )
+    .unwrap();
+    assert!(empty.is_empty());
+    let effective = overlaid_resolver(root.path(), empty)
+        .for_directory(root.path())
+        .unwrap();
+    assert_eq!(
+        effective.settings(Language::Css)["block_selector_linebreak"].value,
+        "always"
+    );
+    assert_eq!(effective.settings(Language::Css)["quotes"].value, "single");
+    assert_eq!(effective.sources(), [root.path().join(CONFIG_NAME)]);
+}
+
+#[test]
+fn overlay_empty_arrays_are_inherited() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "typescript {}\n");
+    let empty = ConfigOverlay::from_json(
+        &json!({
+            "typescript": {
+                "tailwind_functions": [],
+                "tailwind_attributes": [null, ""],
+                "import_internal": [""],
+            }
+        }),
+        root.path(),
+    )
+    .unwrap();
+    assert!(empty.is_empty());
+    let effective = overlaid_resolver(root.path(), empty)
+        .for_directory(root.path())
+        .unwrap();
+    let settings = effective.settings(Language::TypeScript);
+    assert!(!settings.contains_key("tailwind_functions"));
+    assert!(!settings.contains_key("tailwind_attributes"));
+    assert!(!settings.contains_key("import_internal"));
+    assert_eq!(effective.sources(), [root.path().join(CONFIG_NAME)]);
+}
+
+#[test]
+fn overlay_preserves_nonempty_strings_and_arrays() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "css {}\ntypescript {}\n");
+    let effective = overlaid_resolver(
+        root.path(),
+        overlay(
+            root.path(),
+            json!({
+                "css": {"block_selector_linebreak": "wrap", "quotes": "single"},
+                "typescript": {"tailwind_functions": ["cn", "clsx"]},
+            }),
+        ),
+    )
+    .for_directory(root.path())
+    .unwrap();
+    assert_eq!(
+        effective.settings(Language::Css)["block_selector_linebreak"].value,
+        "wrap"
+    );
+    assert_eq!(effective.settings(Language::Css)["quotes"].value, "single");
+    assert_eq!(
+        effective.settings(Language::TypeScript)["tailwind_functions"].value,
+        "cn,clsx"
+    );
+}
+
+#[test]
 fn overlay_rejects_unknown_blocks_and_invalid_values() {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join(".vscode/settings.json");
