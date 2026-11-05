@@ -1,6 +1,6 @@
 [package]
 name              = "dotfmt-lsp"
-version = "0.3.0"
+version = "0.4.0"
 description       = "Language server for dotfmt formatting, diagnostics, fixes and type-aware actions"
 edition.workspace = true
 license.workspace = true

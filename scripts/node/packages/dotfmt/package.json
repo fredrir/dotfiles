@@ -2,7 +2,7 @@
   "name": "dotfmt",
   "displayName": "dotfmt",
   "description": "Formatter for config, data, markup, TypeScript/TSX, JavaScript/JSX, CSS and Tailwind; errors-only diagnostics, never lints or hints",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "fredrir",
   "license": "MIT",
   "private": true,
