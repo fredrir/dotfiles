@@ -458,7 +458,9 @@ impl Config {
                 selection.remove_unused_imports = true;
                 selection.convert_type_only_imports = true;
                 selection.organize_imports = true;
-                selection.remove_unused_exports = true;
+                // Export removal changes public API and is never implied by a
+                // mode; it must be requested explicitly with
+                // `remove_unused_exports = true`.
                 selection.remove_unused_locals = true;
                 selection.remove_unused_parameters = true;
             }

@@ -114,9 +114,14 @@ fn format_file(job: &Job, check: bool, clean: bool) -> FileOutcome {
     let result = (|| {
         let input = fs::read(&job.absolute)
             .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
-        let formatted = job
-            .engine
-            .format(&job.path, &job.absolute, &input, job.markdown, clean)?;
+        let formatted = if check {
+            // `--check` must report layout differences, not fix differences.
+            job.engine
+                .format_text(&job.path, &job.absolute, &input, job.markdown, clean)?
+        } else {
+            job.engine
+                .format(&job.path, &job.absolute, &input, job.markdown, clean)?
+        };
         let (changed, repairs) = match formatted {
             Formatted::Text { text, repairs } => {
                 let changed = text.as_bytes() != input;
