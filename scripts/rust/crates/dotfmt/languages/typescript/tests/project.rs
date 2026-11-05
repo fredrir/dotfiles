@@ -1395,7 +1395,7 @@ fn declaration_only_module_resolution_keeps_the_graph_complete() {
 }
 
 #[test]
-fn per_package_tsconfig_monorepos_refuse_project_fixes() {
+fn per_package_tsconfig_monorepos_allow_project_fixes() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
     write(
@@ -1408,8 +1408,392 @@ fn per_package_tsconfig_monorepos_refuse_project_fixes() {
     write(root, "packages/ui/src/a.ts", "export const unused = 1;\n");
     write(root, "packages/ui/src/use.ts", "console.log(1);\n");
 
-    assert!(!project::graph_complete(&root.join("packages/ui/src/a.ts")));
+    assert!(project::graph_complete(&root.join("packages/ui/src/a.ts")));
     let analysis = project::unused_exports(&root.join("packages/ui/src/a.ts")).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+}
+
+#[test]
+fn discover_root_prefers_a_package_workspace_root() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{"private":true,"workspaces":["packages/*"]}"#,
+    );
+    write(root, "packages/ui/package.json", r#"{"private":true}"#);
+    write(root, "packages/ui/tsconfig.json", "{}");
+    write(root, "packages/ui/src/a.ts", "");
+
+    assert_eq!(
+        project::discover_root(&root.join("packages/ui/src/a.ts")),
+        Some(root.to_path_buf())
+    );
+}
+
+#[test]
+fn discover_root_recognizes_workspace_marker_files() {
+    for marker in ["pnpm-workspace.yaml", "turbo.json", "lerna.json"] {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let contents = if marker == "pnpm-workspace.yaml" {
+            "packages:\n  - packages/*\n"
+        } else {
+            "{}"
+        };
+        write(root, marker, contents);
+        write(root, "packages/ui/package.json", r#"{"private":true}"#);
+        write(root, "packages/ui/tsconfig.json", "{}");
+        write(root, "packages/ui/src/a.ts", "");
+
+        assert_eq!(
+            project::discover_root(&root.join("packages/ui/src/a.ts")),
+            Some(root.to_path_buf()),
+            "{marker}"
+        );
+    }
+}
+
+#[test]
+fn discover_root_prefers_a_solution_tsconfig_root() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "tsconfig.json",
+        r#"{"files":[],"references":[{"path":"./packages/ui"}]}"#,
+    );
+    write(root, "packages/ui/tsconfig.json", "{}");
+    write(root, "packages/ui/package.json", r#"{"private":true}"#);
+    write(root, "packages/ui/src/a.ts", "");
+
+    assert_eq!(
+        project::discover_root(&root.join("packages/ui/src/a.ts")),
+        Some(root.to_path_buf())
+    );
+}
+
+#[test]
+fn discover_root_keeps_the_package_root_without_a_workspace() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "packages/ui/tsconfig.json", "{}");
+    write(root, "packages/ui/src/a.ts", "");
+
+    assert_eq!(
+        project::discover_root(&root.join("packages/ui/src/a.ts")),
+        Some(root.join("packages/ui"))
+    );
+}
+
+#[test]
+fn workspace_root_counts_cross_package_relative_imports() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{"private":true,"workspaces":["packages/*"]}"#,
+    );
+    write(root, "packages/ui/package.json", r#"{"private":true}"#);
+    write(root, "packages/ui/tsconfig.json", "{}");
+    write(
+        root,
+        "packages/ui/src/helper.ts",
+        "export const helper = 1;\nexport const unused = 2;\n",
+    );
+    write(root, "packages/app/package.json", r#"{"private":true}"#);
+    write(root, "packages/app/tsconfig.json", "{}");
+    write(
+        root,
+        "packages/app/src/use.ts",
+        "import { helper } from \"../../ui/src/helper\";\nconsole.log(helper);\n",
+    );
+
+    let path = root.join("packages/ui/src/helper.ts");
+    assert!(project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert!(analysis.findings[0].message.contains("unused"));
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+    assert_eq!(analysis.fixes[0].title, "Remove unused export `unused`");
+}
+
+#[test]
+fn solution_style_root_unions_referenced_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "tsconfig.json",
+        r#"{"files":[],"references":[{"path":"./packages/ui"},{"path":"./packages/app"},{"path":"./packages/lib"}]}"#,
+    );
+    write(root, "packages/ui/package.json", r#"{"private":true}"#);
+    write(
+        root,
+        "packages/ui/tsconfig.json",
+        r#"{"compilerOptions":{"baseUrl":".","paths":{"@ui/*":["src/*"]}}}"#,
+    );
+    write(
+        root,
+        "packages/ui/src/helper.ts",
+        "export const helper = 1;\nexport const unused = 2;\n",
+    );
+    write(root, "packages/app/package.json", r#"{"private":true}"#);
+    write(root, "packages/app/tsconfig.json", "{}");
+    write(root, "packages/lib/package.json", r#"{"private":true}"#);
+    write(
+        root,
+        "packages/lib/tsconfig.json",
+        r#"{"compilerOptions":{"baseUrl":"src"}}"#,
+    );
+    write(root, "packages/lib/src/deep.ts", "export const deep = 1;\n");
+    write(
+        root,
+        "src/use.ts",
+        "import { helper } from \"@ui/helper\";\nconsole.log(helper);\n",
+    );
+    write(
+        root,
+        "src/base.ts",
+        "import { deep } from \"deep\";\nconsole.log(deep);\n",
+    );
+
+    let path = root.join("packages/ui/src/helper.ts");
+    assert_eq!(
+        project::discover_root(&path),
+        Some(root.to_path_buf()),
+        "the solution config is the workspace root"
+    );
+    assert!(project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert!(analysis.findings[0].message.contains("unused"));
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+
+    let deep = root.join("packages/lib/src/deep.ts");
+    assert!(project::graph_complete(&deep));
+    assert_eq!(unused_codes(&deep), Vec::<String>::new());
+}
+
+#[cfg(unix)]
+#[test]
+fn pnpm_workspace_root_counts_package_name_imports() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "pnpm-workspace.yaml", "packages:\n  - packages/*\n");
+    write(
+        root,
+        "packages/ui/package.json",
+        r#"{"name":"@repo/ui","private":true,"main":"./src/index.ts"}"#,
+    );
+    write(root, "packages/ui/tsconfig.json", "{}");
+    write(
+        root,
+        "packages/ui/src/index.ts",
+        "export { helper } from \"./helper\";\n",
+    );
+    write(
+        root,
+        "packages/ui/src/helper.ts",
+        "export const helper = 1;\nexport const unused = 2;\n",
+    );
+    write(
+        root,
+        "packages/app/package.json",
+        r#"{"name":"@repo/app","private":true}"#,
+    );
+    write(root, "packages/app/tsconfig.json", "{}");
+    write(
+        root,
+        "packages/app/src/use.ts",
+        "import { helper } from \"@repo/ui\";\nconsole.log(helper);\n",
+    );
+    fs::create_dir_all(root.join("node_modules/@repo")).unwrap();
+    symlink(root.join("packages/ui"), root.join("node_modules/@repo/ui")).unwrap();
+
+    let path = root.join("packages/ui/src/helper.ts");
+    assert!(project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert!(analysis.findings[0].message.contains("unused"));
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+}
+
+#[test]
+fn workspace_root_keeps_nested_package_entry_points() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{"private":true,"workspaces":["packages/*"]}"#,
+    );
+    write(
+        root,
+        "packages/ui/package.json",
+        r#"{"private":true,"main":"./dist/index.js","module":"./dist/module.js","types":"./dist/types.js","exports":{"./extra":"./dist/extra.js"},"bin":{"tool":"./dist/cli.js"}}"#,
+    );
+    for file in [
+        "packages/ui/src/index.ts",
+        "packages/ui/src/module.ts",
+        "packages/ui/src/types.ts",
+        "packages/ui/src/extra.ts",
+        "packages/ui/src/cli.ts",
+    ] {
+        write(root, file, "export const entry = 1;\n");
+    }
+    write(
+        root,
+        "packages/ui/src/other.ts",
+        "export const other = 1;\n",
+    );
+
+    for file in [
+        "packages/ui/src/index.ts",
+        "packages/ui/src/module.ts",
+        "packages/ui/src/types.ts",
+        "packages/ui/src/extra.ts",
+        "packages/ui/src/cli.ts",
+    ] {
+        assert_eq!(
+            unused_codes(&root.join(file)),
+            Vec::<String>::new(),
+            "{file}"
+        );
+    }
+    assert_eq!(
+        unused_codes(&root.join("packages/ui/src/other.ts")).len(),
+        1,
+        "a non-entry file in a nested package is still reported"
+    );
+}
+
+#[test]
+fn workspace_root_does_not_treat_package_directories_as_framework_folders() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{"private":true,"workspaces":["packages/*"]}"#,
+    );
+    write(root, "packages/app/package.json", r#"{"private":true}"#);
+    write(root, "packages/app/tsconfig.json", "{}");
+    write(
+        root,
+        "packages/app/src/unrelated/page.ts",
+        "export const page = 1;\n",
+    );
+    write(
+        root,
+        "packages/app/src/pages/api.ts",
+        "export const handler = 1;\n",
+    );
+    write(root, "packages/web/tsconfig.json", "{}");
+    write(
+        root,
+        "packages/web/src/unrelated/page.ts",
+        "export const page = 1;\n",
+    );
+    write(
+        root,
+        "packages/web/src/pages/api.ts",
+        "export const handler = 1;\n",
+    );
+
+    for file in [
+        "packages/app/src/unrelated/page.ts",
+        "packages/web/src/unrelated/page.ts",
+    ] {
+        assert_eq!(
+            unused_codes(&root.join(file)).len(),
+            1,
+            "{file}: a file named page outside app/ is not a route"
+        );
+    }
+    for file in [
+        "packages/app/src/pages/api.ts",
+        "packages/web/src/pages/api.ts",
+    ] {
+        assert_eq!(
+            unused_codes(&root.join(file)),
+            Vec::<String>::new(),
+            "{file}: framework folders are relative to the project, not the workspace root"
+        );
+    }
+}
+
+#[test]
+fn workspace_root_ignores_an_unrelated_ancestor_package() {
+    let outer = tempfile::tempdir().unwrap();
+    write(outer.path(), "package.json", r#"{"private":true}"#);
+    let root = outer.path().join("repo");
+    write(
+        &root,
+        "package.json",
+        r#"{"private":true,"workspaces":["packages/*"]}"#,
+    );
+    write(&root, "packages/ui/package.json", r#"{"private":true}"#);
+    write(&root, "packages/ui/tsconfig.json", "{}");
+    write(&root, "packages/ui/src/a.ts", "export const unused = 1;\n");
+    write(&root, "packages/ui/src/use.ts", "console.log(1);\n");
+
+    let path = root.join("packages/ui/src/a.ts");
+    assert_eq!(project::discover_root(&path), Some(root.clone()));
+    assert!(project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+}
+
+#[test]
+fn workspace_root_keeps_the_private_package_check_per_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{"private":true,"workspaces":["packages/*"]}"#,
+    );
+    write(
+        root,
+        "packages/ui/package.json",
+        r#"{"private":false}"#,
+    );
+    write(root, "packages/ui/tsconfig.json", "{}");
+    write(root, "packages/ui/src/a.ts", "export const unused = 1;\n");
+    write(root, "packages/ui/src/use.ts", "console.log(1);\n");
+
+    let analysis = project::unused_exports(&root.join("packages/ui/src/a.ts")).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+}
+
+#[test]
+fn nested_workspace_roots_stay_incomplete() {
+    let outer = tempfile::tempdir().unwrap();
+    write(
+        outer.path(),
+        "package.json",
+        r#"{"private":true,"workspaces":["repo/*"]}"#,
+    );
+    let root = outer.path().join("repo");
+    write(&root, "pnpm-workspace.yaml", "packages:\n  - packages/*\n");
+    write(&root, "packages/ui/package.json", r#"{"private":true}"#);
+    write(&root, "packages/ui/tsconfig.json", "{}");
+    write(&root, "packages/ui/src/a.ts", "export const unused = 1;\n");
+    write(&root, "packages/ui/src/use.ts", "console.log(1);\n");
+
+    let path = root.join("packages/ui/src/a.ts");
+    assert_eq!(project::discover_root(&path), Some(root.clone()));
+    assert!(!project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
     assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
 }
 
