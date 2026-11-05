@@ -46,7 +46,9 @@ impl Config {
             "dialect" => self.dialect = value.parse::<Dialect>()?,
             "indent" => self.indent = indent(value)?,
             "final_newline" => self.final_newline = flag(key, value)?,
-            "quote_style" if value == "double" => {}
+            // JSON always emits double quotes; the documented setting is
+            // accepted for every layer and value, but has no effect.
+            "quote_style" => {}
             other => return Err(format!("unknown setting: {other}")),
         }
         Ok(())

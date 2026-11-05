@@ -122,6 +122,20 @@ fn every_documented_option_changes_the_configuration() {
 }
 
 #[test]
+fn quote_style_auto_variants_resolve_for_global_and_local_settings() {
+    for (value, expected) in [
+        ("auto", QuoteStyle::Double),
+        ("auto-prefer-double", QuoteStyle::Double),
+        ("auto-prefer-single", QuoteStyle::Single),
+    ] {
+        for global in [true, false] {
+            let config = Config::from_settings(&settings("quote_style", value, global)).unwrap();
+            assert_eq!(config.quote_style, expected, "{value} global={global}");
+        }
+    }
+}
+
+#[test]
 fn invalid_enum_values_are_rejected() {
     for (key, value) in [
         ("indent", "25"),

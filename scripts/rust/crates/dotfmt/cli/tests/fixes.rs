@@ -7,7 +7,7 @@ use std::fs;
 use testkit::tree_pairs;
 
 #[test]
-fn fixes_remove_unused_imports_and_variables_and_preserve_side_effects() {
+fn safe_fixes_keep_unused_locals_and_unsafe_fixes_remove_them() {
     let root = tree_pairs(&[
         (
             "dotfmt.dotfile",
@@ -23,6 +23,12 @@ fn fixes_remove_unused_imports_and_variables_and_preserve_side_effects() {
     let text = fs::read_to_string(root.path().join("a.ts")).unwrap();
     assert!(text.contains("import \"./side\";"), "{text}");
     assert!(!text.contains("unused"), "{text}");
+    assert!(text.contains("const dead = 42;"), "{text}");
+    assert!(text.contains("export const live = 1;"), "{text}");
+
+    let output = dotfmt(root.path()).args(["--fix-unsafe", "a.ts"]).run();
+    assert!(output.success(), "{output:?}");
+    let text = fs::read_to_string(root.path().join("a.ts")).unwrap();
     assert!(!text.contains("dead"), "{text}");
     assert!(text.contains("export const live = 1;"), "{text}");
 }

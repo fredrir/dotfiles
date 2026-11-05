@@ -142,6 +142,24 @@ fn settings_cover_layout_options_and_tailwind_attributes() {
 }
 
 #[test]
+fn quote_style_auto_variants_map_to_double_or_single() {
+    for (value, expected) in [
+        ("auto", Quotes::Double),
+        ("auto-prefer-double", Quotes::Double),
+        ("auto-prefer-single", Quotes::Single),
+    ] {
+        for key in ["quotes", "quote_style"] {
+            let config = Config::from_settings(&settings(&[(key, value)])).unwrap();
+            assert_eq!(
+                std::mem::discriminant(&config.quotes),
+                std::mem::discriminant(&expected),
+                "{key}={value}"
+            );
+        }
+    }
+}
+
+#[test]
 fn invalid_option_values_name_the_setting() {
     for (key, value, expected) in [
         ("indent_type", "wide", "indent_type must be spaces or tabs"),

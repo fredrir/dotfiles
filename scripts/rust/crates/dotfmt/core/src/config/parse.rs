@@ -292,12 +292,27 @@ impl Parser<'_> {
             let start = self.offset;
             let line = self.line;
             let mut separator = false;
+            let mut previous_space = true;
+            // A structural closing brace ends the block after a pattern or a
+            // separator. A same-line brace group stays literal pattern data,
+            // so `*.min.js}` closes the block while `file{a,b}` does not.
+            let mut braces = 0usize;
             for token in scan(&self.source[start..], QuoteMode::Start) {
                 let ch = token.character;
-                if ch == '\n' || (ch == '}' && token.is_structural() && separator) {
+                if ch == '\n' {
                     break;
                 }
+                if ch == '}' && token.is_structural() {
+                    if braces > 0 {
+                        braces -= 1;
+                    } else if separator || !previous_space {
+                        break;
+                    }
+                } else if ch == '{' && token.is_structural() {
+                    braces += 1;
+                }
                 separator = ch.is_whitespace() && token.is_structural();
+                previous_space = ch.is_whitespace();
                 self.bump();
             }
             let pattern = &self.source[start..self.offset];
