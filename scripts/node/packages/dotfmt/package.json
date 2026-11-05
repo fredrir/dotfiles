@@ -215,6 +215,12 @@
           "scope": "resource",
           "markdownDescription": "Apply configured fixes during `textDocument/willSaveWaitUntil` and full-document formatting. Range formatting, on-type formatting, paste and formatting-only code action requests never apply fixes. `unsafe` adds unused-local removal; it never removes unused exports unless `remove_unused_exports` is set explicitly in `dotfmt.dotfile`, and export removal requires a trusted workspace. `remove_unused_parameters` is diagnose-only."
         },
+        "dotfmt.codeActions.unusedExports": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "Offer **Remove unused export (unsafe)** quick fixes from project-wide analysis. This is an unsafe quick fix and requires a trusted workspace; unused exports are never published as diagnostics."
+        },
         "dotfmt.formatExtra": {
           "type": "object",
           "default": {},

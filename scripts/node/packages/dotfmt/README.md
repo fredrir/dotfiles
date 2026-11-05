@@ -78,7 +78,7 @@ organize_imports = false
 
 Configured fixes apply only to full-document formatting and `textDocument/willSaveWaitUntil`. Range formatting, on-type formatting, paste formatting and formatting requested through a code action never apply them; explicit fix actions (`source.fixAll.dotfmt`, **dotfmt: Fix All**) apply fixes directly.
 
-The implemented import and local-variable categories are available interactively through code actions and **dotfmt: Fix All**. Export removal is format-time or CLI (`dotfmt --fix-unsafe`), and parameter removal is diagnose-only. Unsafe fixes are hidden in untrusted workspaces.
+The implemented import and local-variable categories are available interactively through code actions and **dotfmt: Fix All**. Project-wide unused exports are offered as the unsafe quick fix **Remove unused export (unsafe)** when `dotfmt.codeActions.unusedExports` is on (the default) and the workspace is trusted; export removal is also available at format time and through `dotfmt --fix-unsafe`. Parameter removal is diagnose-only. Unsafe fixes are hidden in untrusted workspaces.
 
 ## Type-aware diagnostics
 
@@ -101,6 +101,7 @@ The implemented import and local-variable categories are available interactively
 | `dotfmt.diagnostics.debounceMs` | number, 50..2000                      | `250`    | resource            | Delay before tsc checks rerun after an edit                                            |
 | `dotfmt.typescript.tsdk`        | string                                | `""`     | resource            | TypeScript package dir, `lib` dir or `tsc.js`; empty auto-discovers                 |
 | `dotfmt.fixes.onSave`           | `"off"` \| `"safe"` \| `"unsafe"`     | `"off"`  | resource            | Apply configured fixes through `willSaveWaitUntil` and full-document formatting        |
+| `dotfmt.codeActions.unusedExports` | boolean                            | `true`   | resource            | Offer **Remove unused export (unsafe)** quick fixes from project-wide analysis; trusted workspaces only |
 | `dotfmt.format.*`               | generated                             | unset    | resource            | Native overlay for every formatting option; unset inherits `dotfmt.dotfile`             |
 | `dotfmt.formatExtra`            | object                                | `{}`     | resource            | Free-form overlay for advanced options; lower precedence than `dotfmt.format.*`         |
 | `dotfmt.path`                   | string                                | `""`     | machine-overridable | CLI binary used by status and doctor; empty uses the bundled one                       |
@@ -134,7 +135,7 @@ The implemented import and local-variable categories are available interactively
 | `dotfmt.openConfig`            | Open or create the nearest `dotfmt.dotfile`; without a local one, open an existing global file before prompting |
 | `dotfmt.doctor`                | Print the server report, paths, versions, trust, settings, tsc state and config chain; copy summary |
 
-**dotfmt: Doctor** calls the server's `dotfmt/doctor` request and reports the server name and version, trust, type-aware and syntax settings, tsc scope, workspace roots, and every resolved project's `tsconfig`, compiler, version and state. The extension adds its own version, server and CLI paths, workspace folders, settings and the configuration chain from `dotfmt/explain`. If an older server does not implement the request, doctor falls back to the client-known summary.
+**dotfmt: Doctor** calls the server's `dotfmt/doctor` request and reports the server name and version, trust, type-aware and syntax settings, tsc scope, the default and per-folder resolved settings, workspace roots, and every resolved project's `tsconfig`, compiler, version and state. The extension adds its own version, server and CLI paths, workspace folders, settings and the configuration chain from `dotfmt/explain`. If an older server does not implement the request, doctor falls back to the client-known summary.
 
 ## Code actions
 
@@ -142,7 +143,9 @@ The server offers quick fixes for dotfmt findings. Unsafe fixes are only listed 
 
 - `source.fixAll.dotfmt`: all safe fixes, then formatting.
 - `source.organizeImports.dotfmt`: import organization and formatting.
-- `source.format.dotfmt`: formatting only.
+- `source.format.dotfmt`: formatting only; it never applies fixes.
+
+A quick-fix request for a saved TypeScript/JavaScript file can also offer **Remove unused export (unsafe)** from project-wide analysis. That analysis runs only for code-action requests, only when `dotfmt.codeActions.unusedExports` is on and the workspace is trusted, and it never publishes diagnostics.
 
 Run them from the lightbulb menu, **dotfmt: Fix All**, **dotfmt: Organize Imports** and **dotfmt: Sort Tailwind Classes**, or on save:
 

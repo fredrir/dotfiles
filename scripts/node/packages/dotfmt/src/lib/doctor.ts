@@ -13,6 +13,23 @@ export interface DoctorProject {
   state?: string;
 }
 
+/** One resolved `dotfmt` settings section from the `dotfmt/doctor` response. */
+export interface DoctorSettings {
+  typeAware?: boolean;
+  syntax?: boolean;
+  tscScope?: string;
+  debounceMs?: number;
+  fixesOnSave?: string;
+  tsdk?: string;
+  hasFormat?: boolean;
+  hasFormatExtra?: boolean;
+}
+
+/** A workspace folder's resolved settings. */
+export interface DoctorFolder extends DoctorSettings {
+  root: string;
+}
+
 /** The language server's `dotfmt/doctor` response. */
 export interface DoctorReport {
   server: DoctorServer;
@@ -20,6 +37,8 @@ export interface DoctorReport {
   typeAware?: boolean;
   syntax?: boolean;
   tscScope?: string;
+  default?: DoctorSettings;
+  folders?: DoctorFolder[];
   roots: string[];
   projects: DoctorProject[];
 }
@@ -63,6 +82,11 @@ export function parseDoctorReport(value: unknown): DoctorReport | undefined {
     typeAware: flag(report.typeAware),
     syntax: flag(report.syntax),
     tscScope: text(report.tscScope),
+    default: settings(report.default),
+    folders: objects(report.folders).flatMap((folder) => {
+      const root = text(folder.root);
+      return root ? [{ root, ...(settings(folder) ?? {}) }] : [];
+    }),
     roots: strings(report.roots),
     projects: objects(report.projects).flatMap((project) => {
       const root = text(project.root);
@@ -97,6 +121,25 @@ export function doctorReportLines(
     `  type-aware: ${onOff(report.typeAware)}`,
     `  syntax diagnostics: ${onOff(report.syntax)}`,
     `  tsc scope: ${report.tscScope ?? "unknown"}`,
+    ...(report.default
+      ? [
+          "  default settings:",
+          ...settingsLines(report.default, shortenPath).map(
+            (line) => `    ${line}`,
+          ),
+        ]
+      : []),
+    ...(report.folders && report.folders.length > 0
+      ? [
+          "  folders:",
+          ...report.folders.flatMap((folder) => [
+            `    ${shortenPath(folder.root)}`,
+            ...settingsLines(folder, shortenPath).map(
+              (line) => `      ${line}`,
+            ),
+          ]),
+        ]
+      : []),
     `  roots: ${
       report.roots.length > 0
         ? report.roots.map(shortenPath).join(", ")
@@ -152,6 +195,37 @@ function object(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+function settings(value: unknown): DoctorSettings | undefined {
+  const found = object(value);
+  if (!found) {
+    return undefined;
+  }
+  return {
+    typeAware: flag(found?.typeAware),
+    syntax: flag(found?.syntax),
+    tscScope: text(found?.tscScope),
+    debounceMs: number(found?.debounceMs),
+    fixesOnSave: text(found?.fixesOnSave),
+    tsdk: text(found?.tsdk),
+    hasFormat: flag(found?.hasFormat),
+    hasFormatExtra: flag(found?.hasFormatExtra),
+  };
+}
+
+function settingsLines(
+  value: DoctorSettings,
+  shortenPath: (path: string) => string,
+): string[] {
+  return [
+    `type-aware: ${onOff(value.typeAware)}`,
+    `syntax diagnostics: ${onOff(value.syntax)}`,
+    `tsc scope: ${value.tscScope ?? "unknown"}`,
+    `debounce: ${value.debounceMs === undefined ? "unknown" : `${value.debounceMs} ms`}`,
+    `fixes on save: ${value.fixesOnSave ?? "unknown"}`,
+    `tsdk: ${value.tsdk ? shortenPath(value.tsdk) : "auto"}`,
+  ];
+}
+
 function objects(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value)
     ? value.flatMap((item) => {
@@ -173,6 +247,12 @@ function text(value: unknown): string | undefined {
 
 function flag(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function number(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function yesNo(value: boolean | undefined): string {
