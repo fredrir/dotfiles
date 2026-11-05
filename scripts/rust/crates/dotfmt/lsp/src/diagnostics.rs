@@ -1,13 +1,19 @@
 //! Debounced diagnostics and the per-URI view the editor receives.
 //!
-//! dotfmt publishes errors only. The worker drops every non-`Error` finding
+//! dotfmt reports errors only. The worker drops every non-`Error` finding
 //! from [`crate::analysis::inspect_errors`]; lint findings stay available to
 //! code actions and `dotfmt --diagnose`. Syntax/config errors are buffer
 //! derived, `tsc` entries describe disk files and are therefore versionless.
+//!
+//! Clients with pull diagnostics never receive `publishDiagnostics`; the
+//! store is the single source of truth, `workspace/diagnostic/refresh` asks
+//! the client to pull again, and identical sets are suppressed.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -22,15 +28,24 @@ use lsp_types::{
 };
 
 use crate::analysis;
+use crate::client::Client;
 use crate::documents::{Document, Documents};
-use crate::settings::Settings;
+use crate::settings::{Settings, SettingsStore};
 use crate::uri;
 use crate::workspace::Workspace;
+
+/// A merged dotfmt + tsc view for one URI, with a stable result id.
+#[derive(Debug, PartialEq)]
+pub struct Merged {
+    pub diagnostics: Vec<Diagnostic>,
+    pub result_id: String,
+}
 
 pub struct Diagnostics {
     pending: crossbeam_channel::Sender<Job>,
     published: Arc<Mutex<Published>>,
-    sender: crossbeam_channel::Sender<Message>,
+    client: Arc<Client>,
+    settings: Arc<SettingsStore>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -38,6 +53,8 @@ enum Job {
     Schedule(Scheduled),
     Clear(Uri),
     ClearAll,
+    ClearRoot(PathBuf),
+    ClearTscRoot(PathBuf),
     ClearTscUri(Uri),
     Shutdown,
 }
@@ -56,29 +73,36 @@ impl Diagnostics {
     pub fn new(
         workspace: Arc<Workspace>,
         documents: Arc<Mutex<Documents>>,
-        sender: crossbeam_channel::Sender<Message>,
-        settings: Arc<RwLock<Settings>>,
+        client: Arc<Client>,
+        settings: Arc<SettingsStore>,
+        pull: bool,
     ) -> Self {
         let (pending, jobs) = crossbeam_channel::unbounded();
-        let published = Arc::new(Mutex::new(Published::default()));
+        let published = Arc::new(Mutex::new(Published {
+            pull,
+            ..Published::default()
+        }));
         let worker = {
             let published = Arc::clone(&published);
             let settings = Arc::clone(&settings);
-            let sender = sender.clone();
+            let client = Arc::clone(&client);
             thread::Builder::new()
                 .name("dotfmt-lsp-diagnostics".into())
-                .spawn(move || run(jobs, workspace, documents, settings, published, sender))
+                .spawn(move || run(jobs, workspace, documents, settings, published, client))
                 .ok()
         };
         Self {
             pending,
             published,
-            sender,
+            client,
+            settings,
             worker,
         }
     }
 
-    pub fn schedule(&self, document: &Document, path: PathBuf, uri: Uri, settings: &Settings) {
+    /// Schedules one buffer with the settings of the folder that contains it.
+    pub fn schedule(&self, document: &Document, path: PathBuf, uri: Uri) {
+        let settings = self.settings.settings_for(&path);
         let _ = self.pending.send(Job::Schedule(Scheduled {
             uri,
             version: document.version,
@@ -86,14 +110,14 @@ impl Diagnostics {
             language_id: document.language().to_owned(),
             text: document.text().to_owned(),
             delay: Duration::from_millis(settings.debounce_ms),
-            settings: settings.clone(),
+            settings,
         }));
     }
 
-    pub fn schedule_all(&self, documents: &Documents, settings: &Settings) {
+    pub fn schedule_all(&self, documents: &Documents) {
         for (uri, document) in documents.iter() {
             if let Some(path) = analysis::buffer_path(uri, document.language()) {
-                self.schedule(document, path, uri.clone(), settings);
+                self.schedule(document, path, uri.clone());
             }
         }
     }
@@ -106,9 +130,19 @@ impl Diagnostics {
         let _ = self.pending.send(Job::ClearAll);
     }
 
+    /// Drops every dotfmt and tsc entry for one workspace folder.
+    pub fn clear_under(&self, root: PathBuf) {
+        let _ = self.pending.send(Job::ClearRoot(root));
+    }
+
     /// Drops disk-derived `tsc` entries for one URI, for example after an edit.
     pub fn clear_tsc_uri(&self, uri: Uri) {
         let _ = self.pending.send(Job::ClearTscUri(uri));
+    }
+
+    /// Drops disk-derived `tsc` entries for one workspace folder.
+    pub fn clear_tsc_under(&self, root: PathBuf) {
+        let _ = self.pending.send(Job::ClearTscRoot(root));
     }
 
     pub fn publish_fatal(&self, uri: Uri, text: &str, version: i32, errors: &[Fatal]) {
@@ -117,7 +151,7 @@ impl Diagnostics {
             .published
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        published.set_dotfmt(&uri, version, entries, &self.sender);
+        published.set_dotfmt(&uri, version, entries, &self.client);
     }
 
     pub fn set_tsc(&self, project: &Path, generation: u64, entries: Vec<(Uri, Vec<Diagnostic>)>) {
@@ -125,7 +159,7 @@ impl Diagnostics {
             .published
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        published.set_tsc(project, generation, entries, &self.sender);
+        published.set_tsc(project, generation, entries, &self.client);
     }
 
     pub fn clear_tsc(&self) {
@@ -133,18 +167,32 @@ impl Diagnostics {
             .published
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        published.clear_tsc(&self.sender);
+        published.clear_tsc(&self.client);
+    }
+
+    /// The merged dotfmt + tsc view for a pull request.
+    ///
+    /// `version` is the current buffer version; buffer diagnostics produced
+    /// for an older revision are dropped rather than reported as current.
+    pub fn merged(&self, uri: &Uri, version: Option<i32>) -> Merged {
+        self.published
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .merged(uri, version)
     }
 
     /// Logs to the editor's output channel; syntax failures never use popups.
     pub fn log(&self, message: impl Into<String>) {
-        let _ = self.sender.send(Message::Notification(Notification::new(
-            LogMessage::METHOD.into(),
-            LogMessageParams {
-                typ: MessageType::LOG,
-                message: message.into(),
-            },
-        )));
+        let _ = self
+            .client
+            .sender()
+            .send(Message::Notification(Notification::new(
+                LogMessage::METHOD.into(),
+                LogMessageParams {
+                    typ: MessageType::LOG,
+                    message: message.into(),
+                },
+            )));
     }
 }
 
@@ -161,9 +209,9 @@ fn run(
     jobs: crossbeam_channel::Receiver<Job>,
     workspace: Arc<Workspace>,
     documents: Arc<Mutex<Documents>>,
-    settings: Arc<RwLock<Settings>>,
+    settings: Arc<SettingsStore>,
     published: Arc<Mutex<Published>>,
-    sender: crossbeam_channel::Sender<Message>,
+    client: Arc<Client>,
 ) {
     let mut pending: HashMap<Uri, (Instant, Scheduled)> = HashMap::new();
     loop {
@@ -179,7 +227,7 @@ fn run(
             };
             if let Some(entries) = inspect(&workspace, &documents, &settings, &job) {
                 let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
-                published.set_dotfmt(&job.uri, job.version, entries, &sender);
+                published.set_dotfmt(&job.uri, job.version, entries, &client);
             }
         }
 
@@ -197,16 +245,25 @@ fn run(
             Ok(Job::Clear(uri)) => {
                 pending.remove(&uri);
                 let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
-                published.clear_dotfmt(&uri, &sender);
+                published.clear_dotfmt(&uri, &client);
             }
             Ok(Job::ClearAll) => {
                 pending.clear();
                 let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
-                published.clear_all_dotfmt(&sender);
+                published.clear_all(&client);
+            }
+            Ok(Job::ClearRoot(root)) => {
+                pending.retain(|_, (_, job)| !job.path.starts_with(&root));
+                let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
+                published.clear_under(&root, &client);
+            }
+            Ok(Job::ClearTscRoot(root)) => {
+                let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
+                published.clear_tsc_under(&root, &client);
             }
             Ok(Job::ClearTscUri(uri)) => {
                 let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
-                published.clear_tsc_uri(&uri, &sender);
+                published.clear_tsc_uri(&uri, &client);
             }
             Ok(Job::Shutdown) => break,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
@@ -218,7 +275,7 @@ fn run(
 fn inspect(
     workspace: &Workspace,
     documents: &Mutex<Documents>,
-    settings: &RwLock<Settings>,
+    settings: &SettingsStore,
     job: &Scheduled,
 ) -> Option<Vec<(Uri, Vec<Diagnostic>)>> {
     let current = documents
@@ -229,13 +286,9 @@ fn inspect(
     if current != Some(job.version) {
         return None;
     }
-    // A configuration change reschedules every document. Drop a result that
-    // was produced from a snapshot the user has already replaced.
-    let latest = settings
-        .read()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone();
-    if latest != job.settings {
+    // A configuration change reschedules every affected document. Drop a
+    // result that was produced from a snapshot the user has already replaced.
+    if settings.settings_for(&job.path) != job.settings {
         return None;
     }
     let session = workspace.session(&job.path);
@@ -413,12 +466,22 @@ struct Entry {
     diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Clone, PartialEq)]
+struct Sent {
+    version: Option<i32>,
+    diagnostics: Vec<Diagnostic>,
+}
+
 #[derive(Default)]
 struct Published {
+    /// Pull clients re-request diagnostics; pushing would duplicate the set.
+    pull: bool,
     dotfmt: HashMap<Uri, Entry>,
     owners: HashMap<Uri, Vec<Uri>>,
     tsc: HashMap<Uri, Vec<Diagnostic>>,
     projects: HashMap<PathBuf, TscProject>,
+    /// The last set sent to (or pulled by) the client, for diff suppression.
+    last: HashMap<Uri, Sent>,
 }
 
 struct TscProject {
@@ -432,7 +495,7 @@ impl Published {
         owner: &Uri,
         version: i32,
         entries: Vec<(Uri, Vec<Diagnostic>)>,
-        sender: &crossbeam_channel::Sender<Message>,
+        client: &Client,
     ) {
         if self
             .dotfmt
@@ -474,24 +537,68 @@ impl Published {
             );
         }
         self.owners.insert(owner.clone(), aliases);
-        publish(&affected, &self.dotfmt, &self.tsc, sender, true);
+        self.publish(&affected, client);
     }
 
-    fn clear_dotfmt(&mut self, owner: &Uri, sender: &crossbeam_channel::Sender<Message>) {
+    fn clear_dotfmt(&mut self, owner: &Uri, client: &Client) {
         let mut affected = self.owners.remove(owner).unwrap_or_default();
         affected.push(owner.clone());
         for uri in &affected {
             self.dotfmt.remove(uri);
         }
-        publish(&affected, &self.dotfmt, &self.tsc, sender, true);
+        self.publish(&affected, client);
     }
 
-    fn clear_all_dotfmt(&mut self, sender: &crossbeam_channel::Sender<Message>) {
+    fn clear_all(&mut self, client: &Client) {
         let mut affected: Vec<Uri> = self.dotfmt.keys().cloned().collect();
         affected.extend(self.owners.keys().cloned());
+        affected.extend(self.last.keys().cloned());
         self.dotfmt.clear();
         self.owners.clear();
-        publish(&affected, &self.dotfmt, &self.tsc, sender, true);
+        self.tsc.clear();
+        self.projects.clear();
+        self.publish(&affected, client);
+    }
+
+    fn clear_under(&mut self, root: &Path, client: &Client) {
+        let mut affected = Vec::new();
+        self.dotfmt.retain(|uri, _| {
+            let under = is_under(uri, root);
+            if under {
+                affected.push(uri.clone());
+            }
+            !under
+        });
+        self.owners.retain(|owner, aliases| {
+            let under = is_under(owner, root);
+            if under {
+                affected.push(owner.clone());
+                affected.extend(aliases.iter().cloned());
+            }
+            !under
+        });
+        self.tsc.retain(|uri, _| {
+            let under = is_under(uri, root);
+            if under {
+                affected.push(uri.clone());
+            }
+            !under
+        });
+        self.projects.retain(|project, project_entries| {
+            let under = project.starts_with(root);
+            if under {
+                affected.extend(project_entries.uris.iter().cloned());
+            }
+            !under
+        });
+        self.last.retain(|uri, _| {
+            let under = is_under(uri, root);
+            if under {
+                affected.push(uri.clone());
+            }
+            !under
+        });
+        self.publish(&affected, client);
     }
 
     fn set_tsc(
@@ -499,7 +606,7 @@ impl Published {
         project: &Path,
         generation: u64,
         entries: Vec<(Uri, Vec<Diagnostic>)>,
-        sender: &crossbeam_channel::Sender<Message>,
+        client: &Client,
     ) {
         if self
             .projects
@@ -531,66 +638,125 @@ impl Published {
                 uris: owned,
             },
         );
-        publish(&affected, &self.dotfmt, &self.tsc, sender, true);
+        self.publish(&affected, client);
     }
 
-    fn clear_tsc_uri(&mut self, uri: &Uri, sender: &crossbeam_channel::Sender<Message>) {
+    fn clear_tsc_uri(&mut self, uri: &Uri, client: &Client) {
         self.tsc.remove(uri);
         for project in self.projects.values_mut() {
             project.uris.retain(|owned| owned != uri);
         }
-        // A compiler clear is not tied to a document version; a versioned
-        // notification could be discarded as stale and leave tsc errors behind.
-        publish(
-            std::slice::from_ref(uri),
-            &self.dotfmt,
-            &self.tsc,
-            sender,
-            false,
-        );
+        self.publish(std::slice::from_ref(uri), client);
     }
 
-    fn clear_tsc(&mut self, sender: &crossbeam_channel::Sender<Message>) {
+    fn clear_tsc_under(&mut self, root: &Path, client: &Client) {
+        let mut affected = Vec::new();
+        self.tsc.retain(|uri, _| {
+            let under = is_under(uri, root);
+            if under {
+                affected.push(uri.clone());
+            }
+            !under
+        });
+        self.projects.retain(|project, project_entries| {
+            let under = project.starts_with(root);
+            if under {
+                affected.extend(project_entries.uris.iter().cloned());
+            }
+            !under
+        });
+        self.publish(&affected, client);
+    }
+
+    fn clear_tsc(&mut self, client: &Client) {
         let mut affected: Vec<Uri> = self.tsc.keys().cloned().collect();
-        affected.extend(self.projects.values().flat_map(|project| project.uris.iter().cloned()));
+        affected.extend(
+            self.projects
+                .values()
+                .flat_map(|project| project.uris.iter().cloned()),
+        );
         self.tsc.clear();
         self.projects.clear();
-        publish(&affected, &self.dotfmt, &self.tsc, sender, true);
+        self.publish(&affected, client);
     }
-}
 
-fn publish(
-    affected: &[Uri],
-    dotfmt: &HashMap<Uri, Entry>,
-    tsc: &HashMap<Uri, Vec<Diagnostic>>,
-    sender: &crossbeam_channel::Sender<Message>,
-    stamp_version: bool,
-) {
-    let mut seen = HashSet::new();
-    for uri in affected {
-        if !seen.insert(uri) {
-            continue;
-        }
-        let dotfmt_entry = dotfmt.get(uri);
-        let tsc_entries = tsc.get(uri);
+    fn merged(&self, uri: &Uri, version: Option<i32>) -> Merged {
+        let dotfmt_entry = self.dotfmt.get(uri).filter(|entry| {
+            !matches!(
+                (entry.version, version),
+                (Some(stored), Some(current)) if stored != current
+            )
+        });
         let mut diagnostics = dotfmt_entry
             .map(|entry| entry.diagnostics.clone())
             .unwrap_or_default();
-        if let Some(tsc) = tsc_entries {
+        if let Some(tsc) = self.tsc.get(uri) {
             diagnostics.extend(tsc.iter().cloned());
         }
-        // `tsc` results describe the file on disk and carry no document
-        // version. Never stamp the merged notification with a buffer version.
-        let version = match (dotfmt_entry, tsc_entries.filter(|entries| !entries.is_empty())) {
-            (Some(entry), None) if stamp_version => entry.version,
-            _ => None,
-        };
-        let notification = Notification::new(
-            PublishDiagnostics::METHOD.into(),
-            PublishDiagnosticsParams::new(uri.clone(), diagnostics, version),
-        );
-        let _ = sender.send(Message::Notification(notification));
+        let mut hasher = DefaultHasher::new();
+        serde_json::to_string(&diagnostics)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        Merged {
+            result_id: format!("{}:{:x}", version.unwrap_or(-1), hasher.finish()),
+            diagnostics,
+        }
     }
+
+    /// Sends one notification per URI whose set changed, or asks a pull client
+    /// to refresh when any merged set changed.
+    fn publish(&mut self, affected: &[Uri], client: &Client) {
+        let mut seen = HashSet::new();
+        let mut changed = false;
+        let mut notifications = Vec::new();
+        for uri in affected {
+            if !seen.insert(uri.clone()) {
+                continue;
+            }
+            let dotfmt_entry = self.dotfmt.get(uri);
+            let tsc_entries = self.tsc.get(uri).filter(|entries| !entries.is_empty());
+            let mut diagnostics = dotfmt_entry
+                .map(|entry| entry.diagnostics.clone())
+                .unwrap_or_default();
+            if let Some(tsc) = tsc_entries {
+                diagnostics.extend(tsc.iter().cloned());
+            }
+            // `tsc` results describe the file on disk and carry no document
+            // version. Never stamp the merged notification with a buffer version.
+            let version = match (dotfmt_entry, tsc_entries) {
+                (Some(entry), None) => entry.version,
+                _ => None,
+            };
+            let sent = Sent {
+                version,
+                diagnostics,
+            };
+            if self.last.get(uri) == Some(&sent) {
+                continue;
+            }
+            changed = true;
+            notifications.push((uri.clone(), sent.clone()));
+            self.last.insert(uri.clone(), sent);
+        }
+        if !changed {
+            return;
+        }
+        if self.pull {
+            let _ = client.send_request("workspace/diagnostic/refresh", ());
+            return;
+        }
+        for (uri, sent) in notifications {
+            let notification = Notification::new(
+                PublishDiagnostics::METHOD.into(),
+                PublishDiagnosticsParams::new(uri, sent.diagnostics, sent.version),
+            );
+            let _ = client.sender().send(Message::Notification(notification));
+        }
+    }
+}
+
+fn is_under(uri: &Uri, root: &Path) -> bool {
+    uri::path(uri).is_some_and(|path| path.starts_with(root))
 }
 
 #[cfg(test)]
@@ -633,7 +799,7 @@ mod tests {
         let workspace = Workspace::new(vec![root.to_path_buf()]);
         let documents = Mutex::new(Documents::default());
         documents.lock().unwrap().open(uri.clone(), document);
-        let settings = RwLock::new(Settings::default());
+        let settings = SettingsStore::new(false, Settings::default());
         let job = scheduled(uri.clone(), path, text, 1);
         let entries = inspect(&workspace, &documents, &settings, &job).expect("inspection");
         entries
@@ -688,18 +854,30 @@ mod tests {
         assert_eq!(diagnostic.source.as_deref(), Some("dotfmt"));
     }
 
+    fn harness(pull: bool) -> (Published, Arc<Client>, crossbeam_channel::Receiver<Message>) {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let client = Arc::new(Client::new(sender));
+        (
+            Published {
+                pull,
+                ..Published::default()
+            },
+            client,
+            receiver,
+        )
+    }
+
     #[test]
     fn repeated_publishes_replace_the_previous_view() {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        let mut published = Published::default();
+        let (mut published, client, receiver) = harness(false);
         let uri = Uri::from_str("file:///tmp/a.json").unwrap();
         published.set_dotfmt(
             &uri,
             1,
             vec![(uri.clone(), vec![Diagnostic::default()])],
-            &sender,
+            &client,
         );
-        published.set_dotfmt(&uri, 2, vec![(uri.clone(), Vec::new())], &sender);
+        published.set_dotfmt(&uri, 2, vec![(uri.clone(), Vec::new())], &client);
         let _first = receiver.recv().unwrap();
         let second = receiver.recv().unwrap();
         let Message::Notification(notification) = second else {
@@ -712,16 +890,15 @@ mod tests {
 
     #[test]
     fn an_older_document_version_cannot_replace_a_newer_one() {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        let mut published = Published::default();
+        let (mut published, client, receiver) = harness(false);
         let uri = Uri::from_str("file:///tmp/a.json").unwrap();
-        published.set_dotfmt(&uri, 5, vec![(uri.clone(), Vec::new())], &sender);
+        published.set_dotfmt(&uri, 5, vec![(uri.clone(), Vec::new())], &client);
         let _ = receiver.recv().unwrap();
         published.set_dotfmt(
             &uri,
             4,
             vec![(uri.clone(), vec![Diagnostic::default()])],
-            &sender,
+            &client,
         );
         assert!(
             receiver.recv_timeout(Duration::from_millis(50)).is_err(),
@@ -731,16 +908,15 @@ mod tests {
 
     #[test]
     fn tsc_entries_make_the_published_version_versionless() {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        let mut published = Published::default();
+        let (mut published, client, receiver) = harness(false);
         let uri = Uri::from_str("file:///tmp/a.ts").unwrap();
-        published.set_dotfmt(&uri, 3, vec![(uri.clone(), Vec::new())], &sender);
+        published.set_dotfmt(&uri, 3, vec![(uri.clone(), Vec::new())], &client);
         let _ = receiver.recv().unwrap();
         published.set_tsc(
             Path::new("/tmp"),
             1,
             vec![(uri.clone(), vec![Diagnostic::default()])],
-            &sender,
+            &client,
         );
         let message = receiver.recv().unwrap();
         let Message::Notification(notification) = message else {
@@ -749,6 +925,116 @@ mod tests {
         let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
         assert_eq!(params.version, None);
         assert_eq!(params.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn identical_tsc_sets_are_published_once() {
+        let (mut published, client, receiver) = harness(false);
+        let uri = Uri::from_str("file:///tmp/a.ts").unwrap();
+        let entries = vec![(uri.clone(), vec![Diagnostic::default()])];
+        published.set_tsc(Path::new("/tmp"), 1, entries.clone(), &client);
+        let _ = receiver.recv().unwrap();
+        published.set_tsc(Path::new("/tmp"), 2, entries, &client);
+        assert!(
+            receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+            "an identical tsc set was published twice"
+        );
+    }
+
+    #[test]
+    fn identical_pull_sets_do_not_ask_for_refresh() {
+        let (mut published, client, receiver) = harness(true);
+        let uri = Uri::from_str("file:///tmp/a.ts").unwrap();
+        let entries = vec![(uri.clone(), vec![Diagnostic::default()])];
+        published.set_tsc(Path::new("/tmp"), 1, entries.clone(), &client);
+        let refresh = receiver.recv().unwrap();
+        let Message::Request(request) = refresh else {
+            panic!("expected refresh request");
+        };
+        assert_eq!(request.method, "workspace/diagnostic/refresh");
+        published.set_tsc(Path::new("/tmp"), 2, entries, &client);
+        assert!(
+            receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+            "an identical pull set asked for a refresh"
+        );
+        assert!(
+            !receiver.try_iter().any(|message| matches!(
+                message,
+                Message::Notification(notification)
+                    if notification.method == "textDocument/publishDiagnostics"
+            )),
+            "pull mode published diagnostics"
+        );
+    }
+
+    #[test]
+    fn clearing_one_root_keeps_another_roots_entries() {
+        let (mut published, client, receiver) = harness(false);
+        let a = Uri::from_str("file:///work/a/a.ts").unwrap();
+        let b = Uri::from_str("file:///work/b/b.ts").unwrap();
+        published.set_tsc(
+            Path::new("/work/a"),
+            1,
+            vec![(a.clone(), vec![Diagnostic::default()])],
+            &client,
+        );
+        published.set_tsc(
+            Path::new("/work/b"),
+            1,
+            vec![(b.clone(), vec![Diagnostic::default()])],
+            &client,
+        );
+        let _ = receiver.recv().unwrap();
+        let _ = receiver.recv().unwrap();
+        published.clear_under(Path::new("/work/a"), &client);
+        let message = receiver.recv().unwrap();
+        let Message::Notification(notification) = message else {
+            panic!("expected diagnostics notification");
+        };
+        let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
+        assert_eq!(params.uri, a);
+        assert!(params.diagnostics.is_empty());
+        assert!(
+            receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+            "clearing one root published for another"
+        );
+        assert_eq!(published.tsc.get(&b).map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn merged_reports_include_both_sources_and_a_stable_result_id() {
+        let (mut published, client, _receiver) = harness(true);
+        let uri = Uri::from_str("file:///work/a.ts").unwrap();
+        published.set_dotfmt(
+            &uri,
+            4,
+            vec![(uri.clone(), vec![Diagnostic::default()])],
+            &client,
+        );
+        published.set_tsc(
+            Path::new("/work"),
+            1,
+            vec![(uri.clone(), vec![Diagnostic::default()])],
+            &client,
+        );
+        let merged = published.merged(&uri, Some(4));
+        assert_eq!(merged.diagnostics.len(), 2);
+        assert_eq!(merged, published.merged(&uri, Some(4)));
+        assert_ne!(merged.result_id, published.merged(&uri, Some(5)).result_id);
+    }
+
+    #[test]
+    fn a_stale_buffer_version_is_not_reported_by_pull() {
+        let (mut published, client, _receiver) = harness(true);
+        let uri = Uri::from_str("file:///work/a.ts").unwrap();
+        published.set_dotfmt(
+            &uri,
+            4,
+            vec![(uri.clone(), vec![Diagnostic::default()])],
+            &client,
+        );
+        assert!(published.merged(&uri, Some(5)).diagnostics.is_empty());
+        assert_eq!(published.merged(&uri, Some(4)).diagnostics.len(), 1);
     }
 
     #[test]
@@ -776,8 +1062,7 @@ mod tests {
         let diagnostics = inspect_ts(root, text);
         assert!(
             diagnostics.iter().all(|diagnostic| {
-                diagnostic.code
-                    != Some(NumberOrString::String("unused-export".into()))
+                diagnostic.code != Some(NumberOrString::String("unused-export".into()))
             }),
             "{diagnostics:?}"
         );
@@ -809,10 +1094,13 @@ mod tests {
         let workspace = Workspace::new(vec![root.to_path_buf()]);
         let documents = Mutex::new(Documents::default());
         documents.lock().unwrap().open(uri.clone(), document);
-        let settings = RwLock::new(Settings {
-            syntax_diagnostics: false,
-            ..Settings::default()
-        });
+        let settings = SettingsStore::new(
+            false,
+            Settings {
+                syntax_diagnostics: false,
+                ..Settings::default()
+            },
+        );
         let mut job = scheduled(uri.clone(), path, text, 1);
         job.settings.syntax_diagnostics = false;
         let entries = inspect(&workspace, &documents, &settings, &job).expect("inspection");
@@ -832,11 +1120,37 @@ mod tests {
         let workspace = Workspace::new(vec![root.to_path_buf()]);
         let documents = Mutex::new(Documents::default());
         documents.lock().unwrap().open(uri.clone(), document);
-        let settings = RwLock::new(Settings {
-            syntax_diagnostics: false,
-            ..Settings::default()
-        });
+        let settings = SettingsStore::new(
+            false,
+            Settings {
+                syntax_diagnostics: false,
+                ..Settings::default()
+            },
+        );
         let job = scheduled(uri, path, text, 1);
         assert!(inspect(&workspace, &documents, &settings, &job).is_none());
+    }
+
+    #[test]
+    fn per_folder_settings_are_used_by_the_worker() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(root, "dotfmt.dotfile", "typescript {}\n");
+        let text = "const = ;\n";
+        let path = root.join("src/a.ts");
+        write(root, "src/a.ts", text);
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let workspace = Workspace::new(vec![root.to_path_buf()]);
+        let documents = Mutex::new(Documents::default());
+        documents.lock().unwrap().open(uri.clone(), document);
+        let store = SettingsStore::new(false, Settings::default());
+        store.configure_folder(
+            root,
+            &serde_json::json!({ "dotfmt.diagnostics.syntax": false }),
+        );
+        let mut job = scheduled(uri, path, text, 1);
+        job.settings.syntax_diagnostics = false;
+        assert!(inspect(&workspace, &documents, &store, &job).is_some());
     }
 }

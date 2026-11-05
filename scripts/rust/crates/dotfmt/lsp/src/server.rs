@@ -1,11 +1,11 @@
 //! The dotfmt language server.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 
 use dotfmt::app::{FixMode, Selection};
@@ -18,19 +18,23 @@ use lsp_types::notification::{
     Notification as _,
 };
 use lsp_types::request::{
-    CodeActionRequest, ExecuteCommand, Formatting, OnTypeFormatting, RangeFormatting, Request as _,
-    WillSaveWaitUntil,
+    CodeActionRequest, DocumentDiagnosticRequest, ExecuteCommand, Formatting, OnTypeFormatting,
+    RangeFormatting, Request as _, WillSaveWaitUntil,
 };
 use lsp_types::{
     CodeActionKind, CodeActionOptions, CodeActionOrCommand, CodeActionParams,
-    CodeActionProviderCapability, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
-    DocumentOnTypeFormattingOptions, DocumentOnTypeFormattingParams, DocumentRangeFormattingParams,
-    ExecuteCommandOptions, ExecuteCommandParams, InitializeParams, NumberOrString, OneOf,
-    PositionEncodingKind, Range, SaveOptions, ServerCapabilities, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Uri,
-    WillSaveTextDocumentParams, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+    CodeActionProviderCapability, DiagnosticOptions, DiagnosticServerCapabilities,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
+    DocumentFormattingParams, DocumentOnTypeFormattingOptions, DocumentOnTypeFormattingParams,
+    DocumentRangeFormattingParams, ExecuteCommandOptions, ExecuteCommandParams,
+    FullDocumentDiagnosticReport, InitializeParams, NumberOrString, OneOf, PositionEncodingKind,
+    Range, RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport,
+    SaveOptions, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit,
+    UnchangedDocumentDiagnosticReport, Uri, WillSaveTextDocumentParams,
+    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -42,7 +46,7 @@ use crate::client::Client;
 use crate::diagnostics::Diagnostics;
 use crate::documents::{Document, Documents};
 use crate::edits;
-use crate::settings::{FixesOnSave, Settings, TscScope};
+use crate::settings::{FixesOnSave, Settings, SettingsStore};
 use crate::tsc::Tsc;
 use crate::uri;
 use crate::workspace::Workspace;
@@ -97,12 +101,6 @@ pub fn serve() -> std::result::Result<std::process::ExitCode, String> {
 pub fn run(connection: &Connection) -> Result<()> {
     let (id, raw) = connection.initialize_start()?;
     let params: InitializeParams = serde_json::from_value(raw)?;
-    let supports_configuration = params
-        .capabilities
-        .workspace
-        .as_ref()
-        .and_then(|workspace| workspace.configuration)
-        .unwrap_or(false);
     let server = Arc::new(Server::new(connection.sender.clone(), &params));
     server.start();
     connection.initialize_finish(id, server.initialization_result())?;
@@ -110,25 +108,12 @@ pub fn run(connection: &Connection) -> Result<()> {
     // registration happens immediately afterwards; a duplicate `initialized`
     // later is guarded by `watchers_registered`.
     server.register_watchers();
-    let trust = server.settings().trusted;
+    let trust = server.settings.trusted();
     server.log(format!(
         "dotfmt trust: {}",
         if trust { "trusted" } else { "untrusted" }
     ));
-
-    if supports_configuration {
-        let client = Arc::clone(&server.client);
-        let configured = Arc::clone(&server);
-        thread::spawn(move || {
-            if let Ok(value) = client.request(
-                "workspace/configuration",
-                json!({ "items": [{ "section": "dotfmt" }] }),
-            ) && let Some(settings) = value.get(0)
-            {
-                configured.configure(settings);
-            }
-        });
-    }
+    server.pull_settings();
 
     let mut shutting_down = false;
     for message in &connection.receiver {
@@ -171,10 +156,17 @@ pub fn run(connection: &Connection) -> Result<()> {
 pub struct Server {
     documents: Arc<Mutex<Documents>>,
     workspace: Arc<Workspace>,
-    settings: Arc<RwLock<Settings>>,
+    settings: Arc<SettingsStore>,
     client: Arc<Client>,
     diagnostics: Arc<Diagnostics>,
     tsc: Arc<Tsc>,
+    /// The client advertises `textDocument/diagnostic`; pull owns publication.
+    pull: bool,
+    supports_configuration: bool,
+    /// Folders with a `workspace/configuration` request in flight.
+    folder_requests: Mutex<HashSet<PathBuf>>,
+    /// Orders overlapping settings pulls; older responses are discarded.
+    settings_epoch: AtomicU64,
     capabilities: EditCapabilities,
     in_flight: Mutex<HashMap<RequestId, Arc<RequestState>>>,
     queued: Mutex<HashMap<(Uri, &'static str), RequestId>>,
@@ -230,14 +222,34 @@ impl Server {
         if let Some(options) = &params.initialization_options {
             settings.apply(options);
         }
-        settings.apply_environment();
-        dotfmt_tailwind::bridge::set_trusted(settings.trusted);
-        let settings = Arc::new(RwLock::new(settings));
+        let trusted = params
+            .initialization_options
+            .as_ref()
+            .and_then(Settings::trust)
+            .or_else(SettingsStore::trust_from_environment)
+            .unwrap_or(false);
+        dotfmt_tailwind::bridge::set_trusted(trusted);
+        let settings = Arc::new(SettingsStore::new(false, settings));
+        settings.set_trusted(trusted);
+        let pull = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.diagnostic.as_ref())
+            .is_some();
+        let supports_configuration = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.configuration)
+            .unwrap_or(false);
+        let client = Arc::new(Client::new(sender));
         let diagnostics = Arc::new(Diagnostics::new(
             Arc::clone(&workspace),
             Arc::clone(&documents),
-            sender.clone(),
+            Arc::clone(&client),
             Arc::clone(&settings),
+            pull,
         ));
         let tsc = Arc::new(Tsc::new(Arc::clone(&diagnostics), Arc::clone(&documents)));
         let workspace_edit = params
@@ -258,9 +270,13 @@ impl Server {
             documents,
             workspace,
             settings,
-            client: Arc::new(Client::new(sender)),
+            client,
             diagnostics,
             tsc,
+            pull,
+            supports_configuration,
+            folder_requests: Mutex::new(HashSet::new()),
+            settings_epoch: AtomicU64::new(0),
             capabilities,
             in_flight: Mutex::new(HashMap::new()),
             queued: Mutex::new(HashMap::new()),
@@ -290,7 +306,7 @@ impl Server {
 
     fn initialization_result(&self) -> Value {
         let mut capabilities =
-            serde_json::to_value(capabilities()).expect("server capabilities serialize");
+            serde_json::to_value(capabilities(self.pull)).expect("server capabilities serialize");
         capabilities["documentRangeFormattingProvider"] = json!({ "rangesSupport": true });
         json!({
             "capabilities": capabilities,
@@ -298,70 +314,193 @@ impl Server {
         })
     }
 
-    fn settings(&self) -> Settings {
-        self.settings
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone()
+    fn trusted(&self) -> bool {
+        self.settings.trusted()
+    }
+
+    fn settings_for(&self, path: &Path) -> Settings {
+        self.settings.settings_for(path)
+    }
+
+    fn settings_for_uri(&self, uri: &Uri) -> Settings {
+        self.settings.settings_for_uri(uri)
+    }
+
+    fn settings_for_root(&self, root: &Path) -> Settings {
+        self.settings.settings_for_root(root)
     }
 
     fn log(&self, message: impl Into<String>) {
         self.diagnostics.log(message);
     }
 
-    fn configure(&self, value: &Value) {
-        let changed = {
-            let mut settings = self
-                .settings
-                .write()
-                .unwrap_or_else(|error| error.into_inner());
-            let before = settings.clone();
-            settings.apply(value);
-            settings.apply_environment();
-            *settings != before
-        };
-        dotfmt_tailwind::bridge::set_trusted(self.settings().trusted);
-        if changed {
-            self.reload();
+    /// Applies a push-only `didChangeConfiguration` payload to the default.
+    ///
+    /// Clients without `workspace/configuration` cannot scope values per
+    /// folder, so the payload is treated as the workspace default.
+    fn configure_push(&self, value: &Value) {
+        if self.settings.apply_default(value) {
+            self.reload_all();
         }
     }
 
-    fn reload(&self) {
+    /// Pulls the default and one configuration per workspace folder.
+    ///
+    /// A pull is only applied when no newer pull has started; only folders
+    /// whose settings changed are reloaded.
+    fn pull_settings(self: &Arc<Self>) {
+        if !self.supports_configuration {
+            return;
+        }
+        let roots = self.workspace.roots();
+        let epoch = self.settings_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        let mut items = vec![json!({ "section": "dotfmt" })];
+        {
+            let mut pending = self
+                .folder_requests
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            for root in &roots {
+                items.push(json!({
+                    "section": "dotfmt",
+                    "scopeUri": uri::from_path(root),
+                }));
+                pending.insert(root.clone());
+            }
+        }
+        let client = Arc::clone(&self.client);
+        let server = Arc::clone(self);
+        thread::spawn(move || {
+            let result = client.request("workspace/configuration", json!({ "items": items }));
+            let current = server.settings_epoch.load(Ordering::SeqCst) == epoch;
+            if current && let Ok(value) = result {
+                let default_changed = value
+                    .get(0)
+                    .is_some_and(|settings| server.settings.configure_default(settings));
+                let mut changed = Vec::new();
+                for (index, root) in roots.iter().enumerate() {
+                    let Some(settings) = value.get(index + 1) else {
+                        continue;
+                    };
+                    if server.settings.configure_folder(root, settings) {
+                        changed.push(root.clone());
+                    }
+                }
+                if default_changed {
+                    server.reload_all();
+                }
+                for root in changed {
+                    server.reload_folder(&root);
+                }
+            }
+            let mut pending = server
+                .folder_requests
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            for root in &roots {
+                pending.remove(root);
+            }
+        });
+    }
+
+    /// Requests one folder's configuration after a `didOpen` beat the initial pull.
+    fn request_folder(self: &Arc<Self>, root: PathBuf) {
+        if !self.supports_configuration {
+            return;
+        }
+        if !self
+            .folder_requests
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(root.clone())
+        {
+            return;
+        }
+        let client = Arc::clone(&self.client);
+        let server = Arc::clone(self);
+        thread::spawn(move || {
+            let known = server.settings.has_folder(&root);
+            let requested = root.clone();
+            let result = client.request(
+                "workspace/configuration",
+                json!({
+                    "items": [{
+                        "section": "dotfmt",
+                        "scopeUri": uri::from_path(&requested),
+                    }]
+                }),
+            );
+            if let Ok(value) = result
+                && let Some(settings) = value.get(0)
+                && (server.settings.configure_folder(&root, settings) || !known)
+            {
+                server.reload_folder(&root);
+            }
+            server
+                .folder_requests
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(&root);
+        });
+    }
+
+    /// Rebuilds everything: trust, the default configuration or a global config file.
+    fn reload_all(&self) {
         self.workspace.invalidate();
         self.diagnostics.clear_all();
         self.tsc.invalidate();
-        let settings = self.settings();
         // Snapshot under the lock, then reschedule without holding it so
         // request handlers and diagnostics are not blocked by the clone.
-        let snapshot = {
-            let documents = self
-                .documents
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            let mut snapshot = Documents::default();
-            for (uri, document) in documents.iter() {
-                snapshot.open(uri.clone(), document.clone());
-            }
-            snapshot
-        };
-        self.diagnostics.schedule_all(&snapshot, &settings);
+        let snapshot = self.document_snapshot(|_| true);
+        self.diagnostics.schedule_all(&snapshot);
         for (uri, _) in snapshot.iter() {
-            self.schedule_tsc(uri.clone(), &settings);
+            self.schedule_tsc(uri.clone());
         }
     }
 
-    /// Invalidates compiler results and immediately rechecks every open document.
-    fn reschedule_tsc(&self, settings: &Settings) {
-        self.tsc.invalidate();
-        let uris: Vec<Uri> = self
+    /// Reloads one workspace folder without touching another folder's state.
+    fn reload_folder(&self, root: &Path) {
+        let root = crate::workspace::normalize(root);
+        self.workspace.invalidate_root(&root);
+        self.diagnostics.clear_under(root.clone());
+        self.tsc.invalidate_root(&root);
+        let snapshot = self.document_snapshot(|path| path.starts_with(&root));
+        for (uri, document) in snapshot.iter() {
+            if let Some(path) = analysis::buffer_path(uri, document.language()) {
+                self.diagnostics.schedule(document, path, uri.clone());
+            }
+            self.schedule_tsc(uri.clone());
+        }
+    }
+
+    fn document_snapshot(&self, keep: impl Fn(&Path) -> bool) -> Documents {
+        let documents = self
             .documents
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .iter()
-            .map(|(uri, _)| uri.clone())
-            .collect();
-        for uri in uris {
-            self.schedule_tsc(uri, settings);
+            .unwrap_or_else(|error| error.into_inner());
+        let mut snapshot = Documents::default();
+        for (uri, document) in documents.iter() {
+            let Some(path) = analysis::buffer_path(uri, document.language()) else {
+                continue;
+            };
+            if keep(&path) {
+                snapshot.open(uri.clone(), document.clone());
+            }
+        }
+        snapshot
+    }
+
+    /// Invalidates compiler results and rechecks the open documents of one
+    /// root, or every root when `root` is `None`.
+    fn reschedule_tsc(&self, root: Option<&Path>) {
+        match root {
+            Some(root) => self.tsc.invalidate_root(root),
+            None => self.tsc.invalidate(),
+        }
+        let snapshot =
+            self.document_snapshot(|path| root.is_none_or(|root| path.starts_with(root)));
+        for (uri, _) in snapshot.iter() {
+            self.schedule_tsc(uri.clone());
         }
     }
 
@@ -445,7 +584,7 @@ impl Server {
         }
     }
 
-    fn run_request(&self, job: RequestJob) {
+    fn run_request(self: &Arc<Self>, job: RequestJob) {
         let RequestJob {
             request,
             state,
@@ -519,7 +658,7 @@ impl Server {
     }
 
     fn handle(
-        &self,
+        self: &Arc<Self>,
         method: &str,
         params: &Value,
         state: &RequestState,
@@ -574,8 +713,7 @@ impl Server {
                 let document = self.document(&uri)?;
                 let path = self.path(&uri, &document)?;
                 let range = on_type_range(&document, &path, params.text_document_position.position);
-                let edits =
-                    self.format_document(&uri, &document, &[range], false, Some(state))?;
+                let edits = self.format_document(&uri, &document, &[range], false, Some(state))?;
                 Ok(json!(Some(edits)))
             }
             CodeActionRequest::METHOD => {
@@ -586,6 +724,7 @@ impl Server {
                 let params: ExecuteCommandParams = parse(params)?;
                 self.execute(params, state)
             }
+            DocumentDiagnosticRequest::METHOD => self.diagnostic(params),
             DOCTOR_REQUEST => Ok(self.doctor()),
             EXPLAIN_REQUEST => self.explain(params.clone()),
             FORMAT_TEXT_REQUEST => self.format_text(params.clone()),
@@ -596,6 +735,67 @@ impl Server {
         }
     }
 
+    /// Pull diagnostics: the merged dotfmt + tsc error set for one URI.
+    ///
+    /// The report always contains both sources so a pull client never loses
+    /// tsc entries to a dotfmt-only response. Unsupported documents report an
+    /// empty full set rather than an error.
+    fn diagnostic(&self, params: &Value) -> std::result::Result<Value, RpcError> {
+        let params: DocumentDiagnosticParams = parse(params)?;
+        let uri = params.text_document.uri;
+        let version = self
+            .documents
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&uri)
+            .map(|document| document.version);
+        if !self.supported_document(&uri) {
+            return Ok(serde_json::to_value(DocumentDiagnosticReport::Full(
+                RelatedFullDocumentDiagnosticReport {
+                    related_documents: None,
+                    full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                        result_id: Some("unsupported".into()),
+                        items: Vec::new(),
+                    },
+                },
+            ))
+            .map_err(|error| RpcError::invalid_params(error.to_string()))?);
+        }
+        let merged = self.diagnostics.merged(&uri, version);
+        let report = if params.previous_result_id.as_deref() == Some(merged.result_id.as_str()) {
+            DocumentDiagnosticReport::Unchanged(RelatedUnchangedDocumentDiagnosticReport {
+                related_documents: None,
+                unchanged_document_diagnostic_report: UnchangedDocumentDiagnosticReport {
+                    result_id: merged.result_id,
+                },
+            })
+        } else {
+            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                related_documents: None,
+                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                    result_id: Some(merged.result_id),
+                    items: merged.diagnostics,
+                },
+            })
+        };
+        serde_json::to_value(report).map_err(|error| RpcError::invalid_params(error.to_string()))
+    }
+
+    fn supported_document(&self, uri: &Uri) -> bool {
+        let language = self
+            .documents
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(uri)
+            .map(|document| document.language().to_owned());
+        language
+            .as_deref()
+            .map(|language| supported(uri, language))
+            .unwrap_or_else(|| {
+                uri::path(uri).is_some_and(|path| Language::for_path(&path).is_some())
+            })
+    }
+
     fn format_document(
         &self,
         uri: &Uri,
@@ -604,16 +804,16 @@ impl Server {
         request_fixes: bool,
         state: Option<&RequestState>,
     ) -> std::result::Result<Vec<TextEdit>, RpcError> {
-        let settings = self.settings();
         // Configured dotfmt.dotfile fixes are only for full-document formatting
         // and require explicit trust; range/on-type formatting never applies
         // them.
-        let fixes = request_fixes && ranges.is_empty() && settings.trusted;
+        let fixes = request_fixes && ranges.is_empty() && self.trusted();
         let path = self.path(uri, document)?;
         let languages = analysis::forced(&path, uri, document.language());
         let session = self.workspace.session(&path);
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
-        let output = match analysis::format(&mut session, &path, document.text(), languages, fixes) {
+        let output = match analysis::format(&mut session, &path, document.text(), languages, fixes)
+        {
             Ok(output) => output,
             Err(errors) => {
                 self.publish_fatal(uri, document.text(), document.version, &errors);
@@ -639,9 +839,9 @@ impl Server {
         uri: &Uri,
         document: &Document,
     ) -> std::result::Result<Vec<TextEdit>, RpcError> {
-        let settings = self.settings();
-        let mode = settings.fixes_on_save;
         let path = self.path(uri, document)?;
+        let settings = self.settings_for(&path);
+        let mode = settings.fixes_on_save;
         let languages = analysis::forced(&path, uri, document.language());
         let session = self.workspace.session(&path);
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
@@ -651,18 +851,22 @@ impl Server {
             let fix = match mode {
                 FixesOnSave::Off => unreachable!(),
                 FixesOnSave::Safe => FixMode::Safe,
-                FixesOnSave::Unsafe if settings.trusted => FixMode::Unsafe,
+                FixesOnSave::Unsafe if self.trusted() => FixMode::Unsafe,
                 FixesOnSave::Unsafe => FixMode::Safe,
             };
-            let inspection =
-                match analysis::inspect(&mut session, &path, document.text(), languages.clone(), fix)
-                {
-                    Ok(inspection) => inspection,
-                    Err(errors) => {
-                        self.publish_fatal(uri, document.text(), document.version, &errors);
-                        return Ok(Vec::new());
-                    }
-                };
+            let inspection = match analysis::inspect(
+                &mut session,
+                &path,
+                document.text(),
+                languages.clone(),
+                fix,
+            ) {
+                Ok(inspection) => inspection,
+                Err(errors) => {
+                    self.publish_fatal(uri, document.text(), document.version, &errors);
+                    return Ok(Vec::new());
+                }
+            };
             source = inspection.after;
             on_save_fixes = true;
         }
@@ -673,7 +877,7 @@ impl Server {
             &path,
             &source,
             languages.clone(),
-            settings.trusted,
+            self.trusted(),
         ) {
             Ok(text) => text,
             Err(errors) => {
@@ -683,19 +887,14 @@ impl Server {
         };
         if !on_save_fixes {
             // `fixes.onSave = off` must not turn will-save into format-on-save.
-            let plain = match analysis::format(
-                &mut session,
-                &path,
-                document.text(),
-                languages,
-                false,
-            ) {
-                Ok(text) => text,
-                Err(errors) => {
-                    self.publish_fatal(uri, document.text(), document.version, &errors);
-                    return Ok(Vec::new());
-                }
-            };
+            let plain =
+                match analysis::format(&mut session, &path, document.text(), languages, false) {
+                    Ok(text) => text,
+                    Err(errors) => {
+                        self.publish_fatal(uri, document.text(), document.version, &errors);
+                        return Ok(Vec::new());
+                    }
+                };
             if formatted == plain {
                 return Ok(Vec::new());
             }
@@ -710,7 +909,6 @@ impl Server {
         state: &RequestState,
     ) -> std::result::Result<Vec<CodeActionOrCommand>, RpcError> {
         let uri = params.text_document.uri;
-        let settings = self.settings();
         let document = self.document(&uri)?;
         let path = self.path(&uri, &document)?;
         let languages = analysis::forced(&path, &uri, document.language());
@@ -799,7 +997,7 @@ impl Server {
             uri: &uri,
             range: params.range,
             only,
-            trusted: settings.trusted,
+            trusted: self.trusted(),
             fixes: &fixes,
             format: format.as_deref(),
             fix_all: fix_all.as_deref(),
@@ -809,13 +1007,14 @@ impl Server {
     }
 
     fn execute(
-        &self,
+        self: &Arc<Self>,
         params: ExecuteCommandParams,
         state: &RequestState,
     ) -> std::result::Result<Value, RpcError> {
         let command = params.command.as_str();
         if command == RELOAD_CONFIG {
-            self.reload();
+            self.reload_all();
+            self.pull_settings();
             return Ok(Value::Null);
         }
         let argument = params.arguments.first();
@@ -834,7 +1033,6 @@ impl Server {
             .and_then(Value::as_str)
             .and_then(|value| value.parse().ok())
             .ok_or_else(|| RpcError::invalid_params("command needs a document URI"))?;
-        let settings = self.settings();
         let document = self.document(&uri)?;
         let path = self.path(&uri, &document)?;
         let languages = analysis::forced(&path, &uri, document.language());
@@ -847,7 +1045,7 @@ impl Server {
                     .get(1)
                     .and_then(Value::as_str)
                     .unwrap_or("safe");
-                let mode = if !settings.trusted || requested != "unsafe" {
+                let mode = if !self.trusted() || requested != "unsafe" {
                     FixMode::Safe
                 } else {
                     FixMode::Unsafe
@@ -903,15 +1101,16 @@ impl Server {
         let languages = language.into_iter().collect();
         let session = self.workspace.session(&path);
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
-        let text = analysis::format(&mut session, &path, &params.text, languages, false)
-            .map_err(|errors| RpcError {
+        let text = analysis::format(&mut session, &path, &params.text, languages, false).map_err(
+            |errors| RpcError {
                 code: ErrorCode::RequestFailed as i32,
                 message: errors
                     .iter()
                     .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join("\n"),
-            })?;
+            },
+        )?;
         Ok(json!(text))
     }
 
@@ -955,7 +1154,7 @@ impl Server {
         }
     }
 
-    fn notify(&self, notification: Notification) {
+    fn notify(self: &Arc<Self>, notification: Notification) {
         match notification.method.as_str() {
             "initialized" => self.register_watchers(),
             DidOpenTextDocument::METHOD => {
@@ -973,14 +1172,22 @@ impl Server {
                     if !is_supported {
                         return;
                     }
-                    let settings = self.settings();
-                    self.diagnostics.schedule(
-                        &document,
-                        self.document_path(&item.uri, &document),
-                        item.uri.clone(),
-                        &settings,
-                    );
-                    self.schedule_tsc(item.uri, &settings);
+                    let path = self.document_path(&item.uri, &document);
+                    self.diagnostics
+                        .schedule(&document, path.clone(), item.uri.clone());
+                    self.schedule_tsc(item.uri);
+                    // The initial pull may have raced this open, and a folder
+                    // may have been added after `initialized`.
+                    if let Some(root) = self.workspace.containing_root(&path)
+                        && (!self.settings.has_folder(&root)
+                            || self
+                                .folder_requests
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner())
+                                .contains(&root))
+                    {
+                        self.request_folder(root);
+                    }
                 }
             }
             DidChangeTextDocument::METHOD => {
@@ -1036,8 +1243,7 @@ impl Server {
                             if supported(&uri, snapshot.language())
                                 && let Some(path) = analysis::buffer_path(&uri, snapshot.language())
                             {
-                                let settings = self.settings();
-                                self.diagnostics.schedule(&snapshot, path, uri, &settings);
+                                self.diagnostics.schedule(&snapshot, path, uri);
                             }
                         }
                     }
@@ -1047,13 +1253,13 @@ impl Server {
                 if let Ok(params) =
                     serde_json::from_value::<DidCloseTextDocumentParams>(notification.params)
                 {
-                    let settings = self.settings();
+                    let settings = self.settings_for_uri(&params.text_document.uri);
                     self.documents
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .close(&params.text_document.uri);
                     self.diagnostics.clear(params.text_document.uri.clone());
-                    if settings.tsc_scope == TscScope::Open {
+                    if settings.tsc_scope == crate::settings::TscScope::Open {
                         self.diagnostics.clear_tsc_uri(params.text_document.uri);
                     }
                 }
@@ -1080,41 +1286,77 @@ impl Server {
                         }
                         document.clone()
                     };
-                    let settings = self.settings();
                     if supported(&uri, snapshot.language())
                         && let Some(path) = analysis::buffer_path(&uri, snapshot.language())
                     {
-                        self.diagnostics
-                            .schedule(&snapshot, path, uri.clone(), &settings);
+                        self.diagnostics.schedule(&snapshot, path, uri.clone());
                     }
-                    self.schedule_tsc(uri, &settings);
+                    self.schedule_tsc(uri);
                 }
             }
             DidChangeConfiguration::METHOD => {
-                if let Ok(params) =
+                if self.supports_configuration {
+                    // Pull is authoritative; `params.settings` can be stale and
+                    // does not carry per-folder scopes.
+                    self.pull_settings();
+                } else if let Ok(params) =
                     serde_json::from_value::<DidChangeConfigurationParams>(notification.params)
                 {
-                    self.configure(&params.settings);
+                    self.configure_push(&params.settings);
                 }
             }
             DidChangeWatchedFiles::METHOD => {
                 if let Ok(params) =
                     serde_json::from_value::<DidChangeWatchedFilesParams>(notification.params)
                 {
-                    let config = params.changes.iter().any(|change| {
-                        uri::path(&change.uri).is_some_and(|path| is_config_file(&path))
-                    });
-                    if config {
-                        self.reload();
-                    } else if params.changes.iter().any(|change| {
-                        uri::path(&change.uri).is_some_and(|path| is_tsc_config_file(&path))
-                    }) {
-                        // A compiler configuration change invalidates cached
-                        // results and rechecks every open document.
-                        let settings = self.settings();
-                        self.reschedule_tsc(&settings);
+                    let global_config = crate::workspace::global_config();
+                    let mut config_roots = HashSet::new();
+                    let mut tsc_roots = HashSet::new();
+                    let mut all_config = false;
+                    let mut all_tsc = false;
+                    for change in &params.changes {
+                        let Some(path) = uri::path(&change.uri) else {
+                            continue;
+                        };
+                        let root = self.workspace.containing_root(&path);
+                        if is_config_file(&path) {
+                            match root {
+                                Some(root) if global_config.as_deref() != Some(path.as_path()) => {
+                                    config_roots.insert(root);
+                                }
+                                _ => all_config = true,
+                            }
+                        } else if is_tsc_config_file(&path) {
+                            match root {
+                                Some(root) => {
+                                    tsc_roots.insert(root);
+                                }
+                                None => all_tsc = true,
+                            }
+                        } else {
+                            match root {
+                                Some(root) => {
+                                    tsc_roots.insert(root);
+                                }
+                                None => all_tsc = true,
+                            }
+                        }
+                    }
+                    if all_config {
+                        self.reload_all();
                     } else {
-                        self.tsc.invalidate();
+                        for root in config_roots {
+                            self.reload_folder(&root);
+                        }
+                    }
+                    if !all_config {
+                        if all_tsc {
+                            self.reschedule_tsc(None);
+                        } else {
+                            for root in tsc_roots {
+                                self.reschedule_tsc(Some(&root));
+                            }
+                        }
                     }
                 }
             }
@@ -1123,18 +1365,36 @@ impl Server {
                     serde_json::from_value::<DidChangeWorkspaceFoldersParams>(notification.params)
                 {
                     let mut roots = self.workspace.roots();
+                    let mut affected = Vec::new();
                     for folder in params.event.removed {
-                        if let Some(path) = uri::path(&folder.uri) {
-                            roots.retain(|root| root != &path);
-                        }
+                        let Some(path) = uri::path(&folder.uri) else {
+                            continue;
+                        };
+                        let root = crate::workspace::normalize(&path);
+                        roots.retain(|candidate| candidate != &root);
+                        self.settings.remove_folder(&root);
+                        affected.push(root);
                     }
+                    let mut added = false;
                     for folder in params.event.added {
-                        if let Some(path) = uri::path(&folder.uri) {
-                            roots.push(path);
+                        let Some(path) = uri::path(&folder.uri) else {
+                            continue;
+                        };
+                        let root = crate::workspace::normalize(&path);
+                        roots.push(root.clone());
+                        if !self.settings.has_folder(&root) {
+                            self.settings.set_folder(root.clone(), Settings::default());
                         }
+                        affected.push(root);
+                        added = true;
                     }
                     self.workspace.set_roots(roots);
-                    self.reload();
+                    for root in affected {
+                        self.reload_folder(&root);
+                    }
+                    if added {
+                        self.pull_settings();
+                    }
                 }
             }
             _ => {}
@@ -1179,8 +1439,8 @@ impl Server {
         analysis::buffer_path(uri, document.language()).unwrap_or_else(|| PathBuf::from("stdin"))
     }
 
-    fn schedule_tsc(&self, uri: Uri, settings: &Settings) {
-        if !settings.trusted || !settings.type_aware {
+    fn schedule_tsc(&self, uri: Uri) {
+        if !self.trusted() {
             return;
         }
         let Some(path) = uri::path(&uri) else {
@@ -1189,15 +1449,22 @@ impl Server {
         if !analysis::is_typescript(&path) {
             return;
         }
-        self.tsc.schedule(
-            path.clone(),
-            self.workspace.root_for(&path),
-            settings.clone(),
-        );
+        let settings = self.settings_for(&path);
+        if !settings.type_aware {
+            return;
+        }
+        self.tsc
+            .schedule(path.clone(), self.workspace.root_for(&path), settings);
     }
 
-    fn publish_fatal(&self, uri: &Uri, text: &str, version: i32, errors: &[dotfmt_core::diagnostic::Diagnostic]) {
-        if self.settings().syntax_diagnostics {
+    fn publish_fatal(
+        &self,
+        uri: &Uri,
+        text: &str,
+        version: i32,
+        errors: &[dotfmt_core::diagnostic::Diagnostic],
+    ) {
+        if self.settings_for_uri(uri).syntax_diagnostics {
             self.diagnostics
                 .publish_fatal(uri.clone(), text, version, errors);
         } else {
@@ -1209,18 +1476,31 @@ impl Server {
     }
 
     fn doctor(&self) -> Value {
-        let settings = self.settings();
         let roots = self.workspace.roots();
-        let projects = self.tsc.status(&roots, &settings);
+        let default = self.settings.default_settings();
+        let folders: Vec<(PathBuf, Settings)> = roots
+            .iter()
+            .map(|root| (root.clone(), self.settings_for_root(root)))
+            .collect();
+        let projects = self.tsc.status(&folders);
         json!({
             "server": {
                 "name": "dotfmt-lsp",
                 "version": env!("CARGO_PKG_VERSION"),
             },
-            "trusted": settings.trusted,
-            "typeAware": settings.type_aware,
-            "syntax": settings.syntax_diagnostics,
-            "tscScope": settings.tsc_scope.as_str(),
+            "trusted": self.trusted(),
+            "typeAware": default.type_aware,
+            "syntax": default.syntax_diagnostics,
+            "tscScope": default.tsc_scope.as_str(),
+            "default": settings_json(&default),
+            "folders": folders
+                .iter()
+                .map(|(root, settings)| {
+                    let mut value = settings_json(settings);
+                    value["root"] = json!(root.display().to_string());
+                    value
+                })
+                .collect::<Vec<_>>(),
             "roots": roots
                 .iter()
                 .map(|root| root.display().to_string())
@@ -1243,6 +1523,17 @@ impl Server {
                 .collect::<Vec<_>>(),
         })
     }
+}
+
+fn settings_json(settings: &Settings) -> Value {
+    json!({
+        "typeAware": settings.type_aware,
+        "syntax": settings.syntax_diagnostics,
+        "tscScope": settings.tsc_scope.as_str(),
+        "debounceMs": settings.debounce_ms,
+        "fixesOnSave": settings.fixes_on_save.as_str(),
+        "tsdk": settings.tsdk.as_ref().map(|path| path.display().to_string()),
+    })
 }
 
 #[derive(Deserialize)]
@@ -1348,8 +1639,16 @@ fn is_tsc_config_file(path: &Path) -> bool {
         .is_some_and(|name| name.starts_with("tsconfig.") || name.starts_with("jsconfig."))
 }
 
-fn capabilities() -> ServerCapabilities {
+fn capabilities(pull: bool) -> ServerCapabilities {
     ServerCapabilities {
+        diagnostic_provider: pull.then(|| {
+            DiagnosticServerCapabilities::Options(DiagnosticOptions {
+                identifier: Some("dotfmt".into()),
+                inter_file_dependencies: true,
+                workspace_diagnostics: false,
+                ..DiagnosticOptions::default()
+            })
+        }),
         position_encoding: Some(PositionEncodingKind::UTF16),
         text_document_sync: Some(TextDocumentSyncCapability::Options(
             TextDocumentSyncOptions {
@@ -1520,7 +1819,7 @@ mod tests {
     fn server_with_options(
         root: &Path,
         options: Value,
-    ) -> (Server, crossbeam_channel::Receiver<Message>) {
+    ) -> (Arc<Server>, crossbeam_channel::Receiver<Message>) {
         let (sender, receiver) = crossbeam_channel::unbounded();
         let mut value = json!({
             "processId": null,
@@ -1531,11 +1830,45 @@ mod tests {
             value["initializationOptions"] = options;
         }
         let params: InitializeParams = serde_json::from_value(value).unwrap();
-        (Server::new(sender, &params), receiver)
+        (Arc::new(Server::new(sender, &params)), receiver)
     }
 
-    fn test_server(root: &Path) -> Server {
+    fn test_server(root: &Path) -> Arc<Server> {
         server_with_options(root, Value::Null).0
+    }
+
+    fn server_with_roots(
+        roots: &[&Path],
+        options: Value,
+        capabilities: Value,
+    ) -> (Arc<Server>, crossbeam_channel::Receiver<Message>) {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let folders: Vec<Value> = roots
+            .iter()
+            .enumerate()
+            .map(|(index, root)| {
+                json!({ "uri": uri::from_path(root), "name": format!("root-{index}") })
+            })
+            .collect();
+        let mut value = json!({
+            "processId": null,
+            "capabilities": capabilities,
+            "workspaceFolders": folders,
+        });
+        if !options.is_null() {
+            value["initializationOptions"] = options;
+        }
+        let params: InitializeParams = serde_json::from_value(value).unwrap();
+        (Arc::new(Server::new(sender, &params)), receiver)
+    }
+
+    fn receive_request(client: &Connection, method: &str) -> Option<Request> {
+        loop {
+            match client.receiver.recv_timeout(Duration::from_secs(5)).ok()? {
+                Message::Request(request) if request.method == method => return Some(request),
+                _ => continue,
+            }
+        }
     }
 
     fn receive_notification(client: &Connection, method: &str) -> Option<lsp_server::Notification> {
@@ -1928,21 +2261,25 @@ mod tests {
     fn defaults_to_untrusted_and_accepts_explicit_initialization_trust() {
         let temporary = tempfile::tempdir().unwrap();
         let server = test_server(temporary.path());
-        assert!(!server.settings().trusted);
+        assert!(!server.trusted());
         let (server, _) = server_with_options(temporary.path(), json!({ "trusted": true }));
-        assert!(server.settings().trusted);
+        assert!(server.trusted());
         let (server, _) =
             server_with_options(temporary.path(), json!({ "dotfmt": { "trusted": true } }));
-        assert!(server.settings().trusted);
+        assert!(server.trusted());
     }
 
     #[test]
-    fn configuration_can_enable_trust() {
+    fn folder_configuration_cannot_enable_trust() {
         let temporary = tempfile::tempdir().unwrap();
         let server = test_server(temporary.path());
-        assert!(!server.settings().trusted);
-        server.configure(&json!({ "dotfmt.trusted": true }));
-        assert!(server.settings().trusted);
+        assert!(!server.trusted());
+        server
+            .settings
+            .configure_folder(temporary.path(), &json!({ "dotfmt.trusted": true }));
+        assert!(!server.trusted());
+        server.configure_push(&json!({ "dotfmt.trusted": true }));
+        assert!(!server.trusted());
     }
 
     #[test]
@@ -2543,7 +2880,6 @@ mod tests {
         assert_eq!(after[2], "  \"b\": 2,");
     }
 
-
     #[cfg(unix)]
     fn write_fake_tsc(root: &Path, output: &str) {
         let directory = root.join("node_modules/.bin");
@@ -2583,9 +2919,10 @@ mod tests {
             let params: lsp_types::PublishDiagnosticsParams =
                 serde_json::from_value(notification.params).unwrap();
             if &params.uri == uri
-                && params.diagnostics.iter().any(|diagnostic| {
-                    diagnostic.source.as_deref() == Some("dotfmt(tsc)")
-                })
+                && params
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.source.as_deref() == Some("dotfmt(tsc)"))
             {
                 return params;
             }
@@ -2593,7 +2930,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn open_typescript(server: &Server, root: &Path, text: &str) -> (PathBuf, Uri) {
+    fn open_typescript(server: &Arc<Server>, root: &Path, text: &str) -> (PathBuf, Uri) {
         let path = root.join("src/a.ts");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, text).unwrap();
@@ -2707,10 +3044,7 @@ mod tests {
             .handle(DOCTOR_REQUEST, &Value::Null, &RequestState::default())
             .unwrap();
         assert_eq!(value["server"]["name"], json!("dotfmt-lsp"));
-        assert_eq!(
-            value["server"]["version"],
-            json!(env!("CARGO_PKG_VERSION"))
-        );
+        assert_eq!(value["server"]["version"], json!(env!("CARGO_PKG_VERSION")));
         assert_eq!(value["trusted"], json!(true));
         assert_eq!(value["typeAware"], json!(true));
         assert_eq!(value["syntax"], json!(true));
@@ -2721,6 +3055,16 @@ mod tests {
             std::fs::canonicalize(roots[0].as_str().unwrap()).unwrap(),
             std::fs::canonicalize(root).unwrap()
         );
+        assert_eq!(value["default"]["typeAware"], json!(true));
+        assert_eq!(value["default"]["syntax"], json!(true));
+        let folders = value["folders"].as_array().unwrap();
+        assert_eq!(folders.len(), 1);
+        assert_eq!(
+            std::fs::canonicalize(folders[0]["root"].as_str().unwrap()).unwrap(),
+            std::fs::canonicalize(root).unwrap()
+        );
+        assert_eq!(folders[0]["typeAware"], json!(true));
+        assert_eq!(folders[0]["fixesOnSave"], json!("off"));
         let projects = value["projects"].as_array().unwrap();
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0]["state"], json!("ok"));
@@ -2935,5 +3279,676 @@ mod tests {
                 action.title
             );
         }
+    }
+
+    #[test]
+    fn diagnostic_provider_is_advertised_only_for_pull_clients() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "rootUri": uri::from_path(temporary.path()),
+                    "capabilities": {},
+                }),
+            )))
+            .unwrap();
+        let initialize = receive_response(&client, &RequestId::from(1)).unwrap();
+        assert!(
+            initialize["capabilities"]
+                .get("diagnosticProvider")
+                .is_none()
+        );
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(2),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(2));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+
+        let temporary = tempfile::tempdir().unwrap();
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "rootUri": uri::from_path(temporary.path()),
+                    "capabilities": { "textDocument": { "diagnostic": {} } },
+                }),
+            )))
+            .unwrap();
+        let initialize = receive_response(&client, &RequestId::from(1)).unwrap();
+        assert_eq!(
+            initialize["capabilities"]["diagnosticProvider"]["identifier"],
+            json!("dotfmt")
+        );
+        assert_eq!(
+            initialize["capabilities"]["diagnosticProvider"]["interFileDependencies"],
+            json!(true)
+        );
+        assert_eq!(
+            initialize["capabilities"]["diagnosticProvider"]["workspaceDiagnostics"],
+            json!(false)
+        );
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(2),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(2));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pull_diagnostics_return_the_merged_set_and_refresh_after_tsc() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        write_fake_tsc(
+            root,
+            "echo \"src/a.ts(1,1): error TS2322: Type 'string' is not assignable to type 'number'.\"",
+        );
+        let text = "const = ;\n";
+        let path = root.join("src/a.ts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "rootUri": uri::from_path(root),
+                    "capabilities": { "textDocument": { "diagnostic": {} } },
+                    "initializationOptions": { "trusted": true },
+                }),
+            )))
+            .unwrap();
+        let initialize = receive_response(&client, &RequestId::from(1)).unwrap();
+        assert_eq!(
+            initialize["capabilities"]["diagnosticProvider"]["identifier"],
+            json!("dotfmt")
+        );
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                DidOpenTextDocument::METHOD.into(),
+                json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "typescript",
+                        "version": 1,
+                        "text": text,
+                    }
+                }),
+            )))
+            .unwrap();
+
+        let mut saw_refresh = false;
+        let mut saw_push = false;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut id = 100;
+        let (result_id, items) = loop {
+            assert!(
+                Instant::now() < deadline,
+                "pull never saw both dotfmt and tsc diagnostics"
+            );
+            client
+                .sender
+                .send(Message::Request(Request::new(
+                    RequestId::from(id),
+                    DocumentDiagnosticRequest::METHOD.into(),
+                    json!({ "textDocument": { "uri": uri } }),
+                )))
+                .unwrap();
+            let response = loop {
+                let message = client
+                    .receiver
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("pull response");
+                match message {
+                    Message::Response(response) if response.id == RequestId::from(id) => {
+                        break response.response_result.expect("pull result");
+                    }
+                    Message::Request(request)
+                        if request.method == "workspace/diagnostic/refresh" =>
+                    {
+                        saw_refresh = true;
+                    }
+                    Message::Notification(notification)
+                        if notification.method == "textDocument/publishDiagnostics" =>
+                    {
+                        saw_push = true;
+                    }
+                    _ => {}
+                }
+            };
+            if response["kind"] == json!("full") {
+                let items = response["items"].as_array().cloned().unwrap_or_default();
+                let dotfmt = items.iter().any(|item| item["source"] == json!("dotfmt"));
+                let tsc = items
+                    .iter()
+                    .any(|item| item["source"] == json!("dotfmt(tsc)"));
+                if dotfmt && tsc {
+                    break (response["resultId"].as_str().unwrap().to_owned(), items);
+                }
+            }
+            id += 1;
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        assert!(saw_refresh, "tsc completion did not ask for a refresh");
+        assert!(!saw_push, "the pull client received push diagnostics");
+        assert!(
+            items
+                .iter()
+                .all(|item| item["severity"].as_u64() == Some(1)),
+            "non-error diagnostics were reported: {items:?}"
+        );
+
+        id += 1;
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(id),
+                DocumentDiagnosticRequest::METHOD.into(),
+                json!({
+                    "textDocument": { "uri": uri },
+                    "previousResultId": result_id,
+                }),
+            )))
+            .unwrap();
+        let unchanged = receive_response(&client, &RequestId::from(id)).unwrap();
+        assert_eq!(unchanged["kind"], json!("unchanged"));
+        assert_eq!(unchanged["resultId"], json!(result_id));
+
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                DidCloseTextDocument::METHOD.into(),
+                json!({ "textDocument": { "uri": uri } }),
+            )))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            assert!(
+                Instant::now() < deadline,
+                "closed document kept its diagnostics"
+            );
+            id += 1;
+            client
+                .sender
+                .send(Message::Request(Request::new(
+                    RequestId::from(id),
+                    DocumentDiagnosticRequest::METHOD.into(),
+                    json!({ "textDocument": { "uri": uri } }),
+                )))
+                .unwrap();
+            let response = receive_response(&client, &RequestId::from(id)).unwrap();
+            if response["kind"] == json!("full")
+                && response["items"].as_array().is_some_and(Vec::is_empty)
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(2),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(2));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn pull_diagnostics_report_unsupported_documents_as_empty() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("notes.txt");
+        let uri = uri::from_path(&path);
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "rootUri": uri::from_path(temporary.path()),
+                    "capabilities": { "textDocument": { "diagnostic": {} } },
+                }),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(1)).unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                DidOpenTextDocument::METHOD.into(),
+                json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "plaintext",
+                        "version": 1,
+                        "text": "hello\n",
+                    }
+                }),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(2),
+                DocumentDiagnosticRequest::METHOD.into(),
+                json!({ "textDocument": { "uri": uri } }),
+            )))
+            .unwrap();
+        let report = receive_response(&client, &RequestId::from(2)).unwrap();
+        assert_eq!(report["kind"], json!("full"));
+        assert_eq!(report["items"], json!([]));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(3),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(3));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn push_mode_still_publishes_diagnostics_without_pull() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        write_fake_tsc(
+            root,
+            "echo \"src/a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.\"",
+        );
+        let (server, receiver) = server_with_options(root, json!({ "trusted": true }));
+        let (_path, uri) = open_typescript(&server, root, "const value: number = 'x';\n");
+        let params = wait_for_tsc_diagnostics(&receiver, &uri);
+        assert_eq!(
+            params.diagnostics[0].code,
+            Some(NumberOrString::String("TS2322".into()))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn per_folder_type_aware_controls_tsc_for_each_root() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root_a = temporary.path().join("a");
+        let root_b = temporary.path().join("b");
+        for root in [&root_a, &root_b] {
+            std::fs::create_dir_all(root).unwrap();
+            std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+            std::fs::write(root.join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+            write_fake_tsc(
+                root,
+                "echo \"src/a.ts(1,1): error TS2322: Type 'string' is not assignable.\"",
+            );
+        }
+        let (server, receiver) =
+            server_with_roots(&[&root_a, &root_b], json!({ "trusted": true }), json!({}));
+        server
+            .settings
+            .configure_folder(&root_a, &json!({ "dotfmt.typeAware": false }));
+        let (_path_a, _uri_a) = open_typescript(&server, &root_a, "const value: number = 'x';\n");
+        let (_path_b, uri_b) = open_typescript(&server, &root_b, "const value: number = 'x';\n");
+        wait_for_tsc_diagnostics(&receiver, &uri_b);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            !root_a.join("marker.log").exists(),
+            "a folder with typeAware=false ran tsc"
+        );
+        assert!(
+            root_b.join("marker.log").exists(),
+            "the typeAware folder never ran tsc"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn changing_one_folder_does_not_clear_another_folders_diagnostics() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root_a = temporary.path().join("a");
+        let root_b = temporary.path().join("b");
+        for root in [&root_a, &root_b] {
+            std::fs::create_dir_all(root).unwrap();
+            std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+            std::fs::write(root.join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+            write_fake_tsc(
+                root,
+                "echo \"src/a.ts(1,1): error TS2322: Type 'string' is not assignable.\"",
+            );
+        }
+        let (server, receiver) =
+            server_with_roots(&[&root_a, &root_b], json!({ "trusted": true }), json!({}));
+        let (_path_a, uri_a) = open_typescript(&server, &root_a, "const value: number = 'x';\n");
+        let (_path_b, uri_b) = open_typescript(&server, &root_b, "const value: number = 'x';\n");
+        wait_for_tsc_diagnostics(&receiver, &uri_a);
+        wait_for_tsc_diagnostics(&receiver, &uri_b);
+        assert!(
+            !server
+                .diagnostics
+                .merged(&uri_b, None)
+                .diagnostics
+                .is_empty()
+        );
+
+        assert!(
+            server
+                .settings
+                .configure_folder(&root_a, &json!({ "dotfmt.diagnostics.debounceMs": 1000 }),)
+        );
+        server.reload_folder(&root_a);
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            if let Ok(Message::Notification(notification)) = receiver.recv_timeout(remaining)
+                && notification.method == "textDocument/publishDiagnostics"
+            {
+                let params: lsp_types::PublishDiagnosticsParams =
+                    serde_json::from_value(notification.params).unwrap();
+                assert_ne!(
+                    params.uri, uri_b,
+                    "reloading one folder republished another folder's URI"
+                );
+            }
+        }
+        assert!(
+            !server
+                .diagnostics
+                .merged(&uri_b, None)
+                .diagnostics
+                .is_empty(),
+            "reloading one folder cleared another folder's tsc entries"
+        );
+    }
+
+    #[test]
+    fn configuration_pulls_are_per_folder_and_ignore_did_change_payloads() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root_a = temporary.path().join("a");
+        let root_b = temporary.path().join("b");
+        std::fs::create_dir_all(&root_a).unwrap();
+        std::fs::create_dir_all(&root_b).unwrap();
+        let folders: Vec<Value> = [&root_a, &root_b]
+            .into_iter()
+            .enumerate()
+            .map(|(index, root)| {
+                json!({ "uri": uri::from_path(root), "name": format!("root-{index}") })
+            })
+            .collect();
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "capabilities": { "workspace": { "configuration": true } },
+                    "workspaceFolders": folders,
+                }),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(1)).unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+
+        let request = receive_request(&client, "workspace/configuration").expect("pull");
+        let items = request.params["items"].as_array().unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0]["section"], json!("dotfmt"));
+        assert!(items[0].get("scopeUri").is_none());
+        assert_eq!(items[1]["scopeUri"], json!(uri::from_path(&root_a)));
+        assert_eq!(items[2]["scopeUri"], json!(uri::from_path(&root_b)));
+        client
+            .sender
+            .send(Message::Response(Response::new_ok(
+                request.id,
+                json!([
+                    {},
+                    { "dotfmt.typeAware": false },
+                    {}
+                ]),
+            )))
+            .unwrap();
+
+        let folders = |client: &Connection| loop {
+            client
+                .sender
+                .send(Message::Request(Request::new(
+                    RequestId::from(50),
+                    "dotfmt/doctor".into(),
+                    json!(null),
+                )))
+                .unwrap();
+            let doctor = receive_response(client, &RequestId::from(50)).unwrap();
+            break doctor["folders"].as_array().cloned().unwrap_or_default();
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            assert!(
+                Instant::now() < deadline,
+                "folder settings were never pulled"
+            );
+            let folders = folders(&client);
+            if folders[0]["typeAware"] == json!(false) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                DidChangeConfiguration::METHOD.into(),
+                json!({ "settings": { "dotfmt.typeAware": false } }),
+            )))
+            .unwrap();
+        let request = receive_request(&client, "workspace/configuration").expect("repull");
+        assert_eq!(request.params["items"].as_array().unwrap().len(), 3);
+        client
+            .sender
+            .send(Message::Response(Response::new_ok(
+                request.id,
+                json!([
+                    {},
+                    { "dotfmt.typeAware": false },
+                    { "dotfmt.diagnostics.syntax": false }
+                ]),
+            )))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            assert!(
+                Instant::now() < deadline,
+                "re-pulled settings were never applied"
+            );
+            let folders = folders(&client);
+            if folders[1]["syntax"] == json!(false) {
+                assert_eq!(folders[0]["typeAware"], json!(false));
+                assert_eq!(folders[1]["typeAware"], json!(true));
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(2),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(2));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn did_open_requests_a_missing_folder_configuration() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let text = "const value=1;\n";
+        let path = root.join("src/a.ts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let params: InitializeParams = serde_json::from_value(json!({
+            "processId": null,
+            "rootUri": uri::from_path(root),
+            "capabilities": { "workspace": { "configuration": true } },
+        }))
+        .unwrap();
+        let server = Arc::new(Server::new(sender, &params));
+        let responder = {
+            let client = Arc::clone(&server.client);
+            let receiver = receiver.clone();
+            let expected = uri::from_path(root);
+            std::thread::spawn(move || {
+                let request = loop {
+                    match receiver
+                        .recv_timeout(Duration::from_secs(5))
+                        .expect("configuration request")
+                    {
+                        Message::Request(request)
+                            if request.method == "workspace/configuration" =>
+                        {
+                            break request;
+                        }
+                        _ => continue,
+                    }
+                };
+                assert_eq!(
+                    request.params["items"][0]["scopeUri"],
+                    json!(expected),
+                    "the folder request did not carry its scopeUri"
+                );
+                client.response(Response::new_ok(
+                    request.id,
+                    json!([{ "dotfmt.diagnostics.syntax": false }]),
+                ));
+            })
+        };
+        server.notify(Notification::new(
+            DidOpenTextDocument::METHOD.into(),
+            json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "typescript",
+                    "version": 1,
+                    "text": text,
+                }
+            }),
+        ));
+        responder.join().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && server.settings_for_root(root).syntax_diagnostics {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!server.settings_for_root(root).syntax_diagnostics);
     }
 }
