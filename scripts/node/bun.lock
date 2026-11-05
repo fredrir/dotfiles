@@ -32,9 +32,9 @@
     },
     "packages/dotfmt": {
       "name": "dotfmt",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
-        "diff": "^9.0.0",
+        "vscode-languageclient": "^11.0.0",
       },
       "devDependencies": {
         "@types/vscode": "^1.145.0",
@@ -288,8 +288,6 @@
     "default-browser-id": ["default-browser-id@5.0.1", "", {}, "sha512-x1VCxdX4t+8wVfd1so/9w+vQ4vx7lKd2Qp5tDRutErwmR85OgmfX7RlLRMWafRMY7hbEiXIbudNrjOAPa/hL8Q=="],
 
     "define-lazy-prop": ["define-lazy-prop@3.0.0", "", {}, "sha512-N+MeXYoqr3pOgn8xfyRPREN7gHakLYjhsHhWGT3fWAiL4IkAt0iDw14QiiEm2bE30c5XX5q0FtAA3CK5f9/BUg=="],
-
-    "diff": ["diff@9.0.0", "", {}, "sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw=="],
 
     "dot-code": ["dot-code@workspace:packages/dot-code"],
 

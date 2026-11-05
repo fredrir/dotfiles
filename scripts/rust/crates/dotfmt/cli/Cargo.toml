@@ -1,7 +1,7 @@
 [package]
 name              = "dotfmt"
 version.workspace = true
-description       = "Unified configurable formatter for config files, JSON, LaTeX, Lua, Markdown, TOML, and YAML"
+description       = "Unified configurable formatter for config, JSON, LaTeX, Lua, Markdown, TOML, YAML, TypeScript, JavaScript, CSS, HTML and Tailwind"
 edition.workspace = true
 license.workspace = true
 
@@ -12,6 +12,7 @@ workspace = true
 clap.workspace        = true
 workstation           = { workspace = true, features = ["walk"] }
 dotfmt-core.workspace = true
+ignore.workspace      = true
 rayon.workspace       = true
 dotfmt-bib            = { path = "../languages/bib" }
 dotfmt-conf           = { path = "../languages/conf" }
@@ -25,6 +26,13 @@ dotfmt-markdown       = { path = "../languages/markdown" }
 dotfmt-plist          = { path = "../languages/plist" }
 dotfmt-toml           = { path = "../languages/toml" }
 dotfmt-yaml           = { path = "../languages/yaml" }
+dotfmt-typescript     = { path = "../languages/typescript" }
+dotfmt-css            = { path = "../languages/css" }
+dotfmt-html           = { path = "../languages/html" }
+dotfmt-tailwind       = { path = "../tailwind" }
+serde.workspace       = true
+serde_json.workspace  = true
+similar.workspace     = true
 
 [dev-dependencies]
 testkit.workspace  = true

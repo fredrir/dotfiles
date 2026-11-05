@@ -14,6 +14,10 @@ fn language_aliases_and_default_stdin_paths_agree_with_detection() {
     assert_eq!(Language::parse("biblatex"), Ok(Language::Bib));
     assert_eq!(Language::parse("dotenv"), Ok(Language::Env));
     assert_eq!(Language::parse("gitignore"), Ok(Language::Ignore));
+    assert_eq!(Language::parse("tsx"), Ok(Language::TypeScript));
+    assert_eq!(Language::parse("jsx"), Ok(Language::Javascript));
+    assert_eq!(Language::parse("scss"), Ok(Language::Css));
+    assert_eq!(Language::parse("vue"), Ok(Language::Html));
     for language in Language::ALL {
         assert_eq!(Language::parse(language.name()), Ok(language));
         assert_eq!(Language::for_path(language.default_stdin()), Some(language));
@@ -77,6 +81,13 @@ fn native_dialects_and_case_insensitive_extensions_are_detected() {
         ("config.TOML", Language::Toml),
         ("config.yaml", Language::Yaml),
         ("config.YML", Language::Yaml),
+        ("component.tsx", Language::TypeScript),
+        ("module.mts", Language::TypeScript),
+        ("script.JSX", Language::Javascript),
+        ("style.scss", Language::Css),
+        ("style.pcss", Language::Css),
+        ("page.html", Language::Html),
+        ("page.vue", Language::Html),
     ] {
         assert_eq!(
             Language::for_path(Path::new(path)),

@@ -1,0 +1,22 @@
+[package]
+name              = "dotfmt-css"
+version.workspace = true
+description       = "Format CSS, SCSS, Sass and Less with Tailwind-aware class sorting"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dotfmt-core.workspace = true
+dotfmt-tailwind.workspace = true
+malva.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true
+
+[[bench]]
+name = "format"
+harness = false

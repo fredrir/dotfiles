@@ -25,6 +25,11 @@ members = [
   "crates/dotfmt/languages/plist",
   "crates/dotfmt/languages/toml",
   "crates/dotfmt/languages/yaml",
+  "crates/dotfmt/languages/typescript",
+  "crates/dotfmt/languages/css",
+  "crates/dotfmt/languages/html",
+  "crates/dotfmt/tailwind",
+  "crates/dotfmt/lsp",
   "crates/git/gdd",
   "crates/git/dogit",
   "crates/git/gdelta",
@@ -70,7 +75,7 @@ edition      = "2024"
 license      = "MIT"
 version      = "0.1.0"
 publish      = false
-rust-version = "1.88"
+rust-version = "1.97"
 
 [workspace.lints.rust]
 unsafe_code            = "deny"
@@ -98,6 +103,11 @@ tachyonfx            = { version = "0.25.1", default-features = false, features 
 tempfile             = "3"
 workstation          = { path = "crates/workstation" }
 dotfmt-core          = { path = "crates/dotfmt/core" }
+dotfmt-typescript    = { path = "crates/dotfmt/languages/typescript" }
+dotfmt-css           = { path = "crates/dotfmt/languages/css" }
+dotfmt-html          = { path = "crates/dotfmt/languages/html" }
+dotfmt-tailwind      = { path = "crates/dotfmt/tailwind" }
+dotfmt-lsp           = { path = "crates/dotfmt/lsp" }
 dot-code-case        = { path = "crates/dot-code/case" }
 dot-code-core        = { path = "crates/dot-code/core" }
 dot-code-typescript  = { path = "crates/dot-code/typescript" }
@@ -120,7 +130,32 @@ zsh-build            = { path = "crates/zsh/build" }
 unicode-width        = "0.2"
 unicode-segmentation = "1.13"
 similar              = "2"
+thiserror            = "2"
+anyhow               = "1"
+ignore               = "0.4"
+jsonc-parser         = "0.34"
+line-index           = "0.1.2"
+lsp-server           = "0.10"
+lsp-types            = "0.97"
+malva                = "0.16"
+markup_fmt           = "0.27"
+rustywind_core       = "0.7"
+criterion            = "0.7"
+proptest             = "1"
 sysinfo_backend      = { package = "sysinfo", version = "0.39.6", default-features = false }
+
+# Oxc is not published as a library; the formatter is pinned to the oxfmt 0.76
+# release tag so formatting behaviour cannot drift under the workspace.
+oxc_allocator       = { git = "https://github.com/oxc-project/oxc", rev = "f3fcdcc61b08e9880476279ba21a363967940fa4" }
+oxc_ast             = { git = "https://github.com/oxc-project/oxc", rev = "f3fcdcc61b08e9880476279ba21a363967940fa4" }
+oxc_ast_visit       = { git = "https://github.com/oxc-project/oxc", rev = "f3fcdcc61b08e9880476279ba21a363967940fa4" }
+oxc_diagnostics     = { git = "https://github.com/oxc-project/oxc", rev = "f3fcdcc61b08e9880476279ba21a363967940fa4" }
+oxc_formatter       = { git = "https://github.com/oxc-project/oxc", rev = "f3fcdcc61b08e9880476279ba21a363967940fa4", features = ["detect_code_removal"] }
+oxc_formatter_core  = { git = "https://github.com/oxc-project/oxc", rev = "f3fcdcc61b08e9880476279ba21a363967940fa4" }
+oxc_parser          = { git = "https://github.com/oxc-project/oxc", rev = "f3fcdcc61b08e9880476279ba21a363967940fa4" }
+oxc_semantic        = { git = "https://github.com/oxc-project/oxc", rev = "f3fcdcc61b08e9880476279ba21a363967940fa4" }
+oxc_span            = { git = "https://github.com/oxc-project/oxc", rev = "f3fcdcc61b08e9880476279ba21a363967940fa4" }
+oxc_syntax          = { git = "https://github.com/oxc-project/oxc", rev = "f3fcdcc61b08e9880476279ba21a363967940fa4" }
 
 gix-glob   = "0.27.1"
 gix-ignore = "0.22.1"

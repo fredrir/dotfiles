@@ -1,0 +1,20 @@
+[package]
+name              = "dotfmt-html"
+version.workspace = true
+description       = "Format HTML, Vue, Svelte and Astro with embedded CSS and TypeScript formatting"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace     = true
+dotfmt-core.workspace = true
+dotfmt-css.workspace = true
+dotfmt-tailwind.workspace = true
+dotfmt-typescript.workspace = true
+markup_fmt.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

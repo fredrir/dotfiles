@@ -209,11 +209,20 @@ fn editor_ambiguous_mappings_fail_and_unmapped_files_pass_through() {
         "dotfmt.dotfile",
         "json {\n include {\n  *.foo\n }\n}\nyaml {\n include {\n  *.foo\n }\n}\n",
     )]);
-    let output = dotfmt(root.path()).args(["-e", "a.foo"]).stdin("a: 1\n").run();
+    let output = dotfmt(root.path())
+        .args(["-e", "a.foo"])
+        .stdin("a: 1\n")
+        .run();
     assert_eq!(output.code(), Some(1), "{output:?}");
     assert_eq!(output.stdout, "a: 1\n");
-    assert!(output.stderr.contains("ambiguous language mapping"), "{output:?}");
-    let output = dotfmt(root.path()).args(["-e", "a.bar"]).stdin("a: 1\n").run();
+    assert!(
+        output.stderr.contains("ambiguous language mapping"),
+        "{output:?}"
+    );
+    let output = dotfmt(root.path())
+        .args(["-e", "a.bar"])
+        .stdin("a: 1\n")
+        .run();
     assert!(output.success(), "{output:?}");
     assert_eq!(output.stdout, "a: 1\n");
     assert!(output.stderr.is_empty(), "{output:?}");

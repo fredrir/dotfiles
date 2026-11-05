@@ -14,6 +14,12 @@ fn help_completions_and_metadata_describe_the_unified_cli() {
     for flag in [
         "--check",
         "--clean",
+        "--fix",
+        "--fix-unsafe",
+        "--diff",
+        "--diagnose",
+        "--json",
+        "--migrate",
         "--add",
         "--sync",
         "--dialect",
@@ -37,7 +43,7 @@ fn help_completions_and_metadata_describe_the_unified_cli() {
     assert!(output.stdout.contains("\"--lang\""));
     assert!(
         output.stdout.contains(
-            "\"choices\":[\"bibtex\",\"biblatex\",\"bib\",\"conf\",\"dotenv\",\"env\",\"gitignore\",\"ignore\",\"ini\",\"json\",\"tex\",\"latex\",\"lua\",\"md\",\"markdown\",\"plist\",\"toml\",\"yml\",\"yaml\"]"
+            "\"choices\":[\"bibtex\",\"biblatex\",\"bib\",\"conf\",\"dotenv\",\"env\",\"gitignore\",\"ignore\",\"ini\",\"json\",\"tex\",\"latex\",\"lua\",\"md\",\"markdown\",\"plist\",\"toml\",\"yml\",\"yaml\",\"ts\",\"tsx\",\"typescript\",\"js\",\"jsx\",\"javascript\",\"scss\",\"sass\",\"less\",\"css\",\"htm\",\"vue\",\"svelte\",\"astro\",\"html\"]"
         ),
         "{output:?}"
     );
@@ -68,6 +74,9 @@ fn add_prompts_and_sync_only_updates_an_existing_unified_config() {
         "plist {",
         "toml {",
         "yaml {",
+        "typescript {",
+        "css {",
+        "html {",
     ] {
         assert!(bundled.contains(language));
     }

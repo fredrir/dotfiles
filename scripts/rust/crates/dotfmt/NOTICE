@@ -1,0 +1,12 @@
+dotfmt
+Copyright (c) fredrir and contributors
+
+This product includes software developed by third parties. The following
+notice is retained for the Apache-2.0 licensed component:
+
+rustywind_core
+Copyright (c) Avencera and contributors
+Licensed under the Apache License, Version 2.0.
+https://github.com/avencera/rustywind
+
+Other components and their licenses are listed in THIRD_PARTY_LICENSES.md.

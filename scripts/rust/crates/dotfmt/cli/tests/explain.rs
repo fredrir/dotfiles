@@ -34,9 +34,18 @@ fn explain_reports_language_dialect_and_configuration_chain() {
             nested.display()
         )
     );
-    assert!(explain(root.path(), &["--explain", "a.json"]).starts_with("language json\ndialect  auto\n"));
-    assert!(explain(root.path(), &["--explain", ".ssh/config"]).starts_with("language ini\ndialect  ssh\n"));
-    assert!(explain(root.path(), &["--explain", "notes.md"]).starts_with("language markdown\ndialect  gfm\n"));
+    assert!(
+        explain(root.path(), &["--explain", "a.json"])
+            .starts_with("language json\ndialect  auto\n")
+    );
+    assert!(
+        explain(root.path(), &["--explain", ".ssh/config"])
+            .starts_with("language ini\ndialect  ssh\n")
+    );
+    assert!(
+        explain(root.path(), &["--explain", "notes.md"])
+            .starts_with("language markdown\ndialect  gfm\n")
+    );
 }
 
 #[test]
@@ -59,15 +68,35 @@ fn explain_reports_why_a_file_is_skipped() {
 fn explain_honors_forced_languages_and_dialects_and_reports_configuration_errors() {
     let root = tree_pairs(&[("dotfmt.dotfile", CONFIG)]);
     assert!(
-        explain(root.path(), &["-l", "json", "--dialect", "jsonl", "--explain", "Untitled-1"])
-            .starts_with("language json\ndialect  jsonl\n")
+        explain(
+            root.path(),
+            &[
+                "-l",
+                "json",
+                "--dialect",
+                "jsonl",
+                "--explain",
+                "Untitled-1"
+            ]
+        )
+        .starts_with("language json\ndialect  jsonl\n")
     );
-    let output = dotfmt(root.path()).args(["-l", "toml", "--explain", "a.toml"]).run();
+    let output = dotfmt(root.path())
+        .args(["-l", "toml", "--explain", "a.toml"])
+        .run();
     assert_eq!(output.code(), Some(1), "{output:?}");
-    assert!(output.stderr.contains("toml is not configured"), "{output:?}");
+    assert!(
+        output.stderr.contains("toml is not configured"),
+        "{output:?}"
+    );
     let root = tree_pairs(&[("dotfmt.dotfile", "json {\n  bogus = 1\n}\n")]);
     let output = dotfmt(root.path()).args(["--explain", "a.json"]).run();
     assert_eq!(output.code(), Some(1), "{output:?}");
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.contains("dotfmt.dotfile:2: unknown setting: bogus"), "{output:?}");
+    assert!(
+        output
+            .stderr
+            .contains("dotfmt.dotfile:2: unknown setting: bogus"),
+        "{output:?}"
+    );
 }

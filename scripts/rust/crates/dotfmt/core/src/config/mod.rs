@@ -140,7 +140,8 @@ impl Effective {
                 continue;
             }
             if included == Some(false)
-                || filters.is_some_and(|(_, excluded)| excluded.matches(path, true).unwrap_or(false))
+                || filters
+                    .is_some_and(|(_, excluded)| excluded.matches(path, true).unwrap_or(false))
             {
                 excluded = true;
                 continue;

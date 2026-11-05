@@ -171,6 +171,96 @@ yaml {
   excluded_files {}
 }
 
+
+typescript {
+  enabled               = true
+  dialect               = auto
+  width                 = 80
+  indent                = 2
+  indent_type           = spaces
+  line_endings          = unix
+  final_newline         = true
+  quote_style           = double
+  jsx_quote_style       = double
+  quote_properties      = as-needed
+  semicolons            = always
+  trailing_commas       = all
+  arrow_parentheses     = always
+  bracket_spacing       = true
+  bracket_same_line     = false
+  attribute_position    = auto
+  expand                = auto
+  jsdoc                 = false
+  embedded_css          = true
+  sort_imports          = false
+  import_order          = asc
+  import_internal       = "~/, @/"
+  import_side_effects   = false
+  import_newlines       = true
+  import_partition_by_newline = false
+  import_partition_by_comment = false
+  import_groups         = default
+  type_aware            = true
+  verify                = true
+  tailwind              = auto
+  tailwind_order        = auto
+  tailwind_dedupe       = true
+  tailwind_merge        = false
+  tailwind_functions    = "cn, clsx, cva, twMerge"
+  tailwind_attributes   = "class, className"
+
+  included_files {}
+  excluded_files {}
+}
+
+# JavaScript is opt-in: add this block to format .js/.jsx/.mjs/.cjs.
+# javascript {
+#   enabled = true
+# }
+
+css {
+  enabled                     = true
+  dialect                     = auto
+  width                       = 80
+  indent                      = 2
+  indent_type                 = spaces
+  line_endings                = unix
+  final_newline               = true
+  hex_case                    = lower
+  quotes                      = double
+  format_comments             = false
+  align_comments              = true
+  single_line_block_threshold = none
+  tailwind                    = auto
+  tailwind_order              = auto
+  tailwind_dedupe             = true
+  tailwind_merge              = false
+
+  included_files {}
+  excluded_files {}
+}
+
+html {
+  enabled                   = true
+  dialect                   = auto
+  width                     = 80
+  indent                    = 2
+  indent_type               = spaces
+  line_endings              = unix
+  final_newline             = true
+  quotes                    = double
+  format_comments           = false
+  closing_bracket_same_line = false
+  max_attrs_per_line        = none
+  script_indent             = true
+  style_indent              = true
+  tailwind                  = auto
+  tailwind_dedupe           = true
+
+  included_files {}
+  excluded_files {}
+}
+
 # gitignore syntax
 # an empty block will reset inherited rules
 included_files { # empty = all configured languages

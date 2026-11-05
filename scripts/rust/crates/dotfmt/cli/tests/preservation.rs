@@ -29,8 +29,7 @@ fn lua_bom_and_backticks_in_literals_are_preserved() {
 
 #[test]
 fn formatting_bare_braces_preserves_the_dotfile_readers_entries() {
-    let original =
-        "packages {\nlib{foo,bar}\n${HOME}/foo\nlib{}\njson{foo,bar}\nlib{ foo,bar}\n}\nempty {\n}\n";
+    let original = "packages {\nlib{foo,bar}\n${HOME}/foo\nlib{}\njson{foo,bar}\nlib{ foo,bar}\n}\nempty {\n}\n";
     let root = tree_pairs(&[
         ("dotfmt.dotfile", "conf {}\n"),
         ("packages.dotfile", original),

@@ -1,34 +1,28 @@
 import * as vscode from "vscode";
-import { watchConfigs } from "./config";
-import { Dotfmt } from "./dotfmt";
-import { Formatter } from "./format";
-import { SELECTOR } from "./lib/languages";
-import { Reporter } from "./report";
+import { Client, cliPath, message } from "./client";
+import { registerCommands } from "./commands";
+import { PasteFormatter } from "./paste";
+import { SECTION, SELECTOR } from "./lib/languages";
 import { Status } from "./status";
+
+let manager: Client | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel("dotfmt", { log: true });
-  const reporter = new Reporter(log);
-  const dotfmt = new Dotfmt(context.extensionPath, log, reporter);
-  const status = new Status(dotfmt);
-  const formatter = new Formatter(dotfmt);
+  const client = new Client(context, log);
+  const status = new Status(client, cliPath(context));
+  manager = client;
 
   context.subscriptions.push(
     log,
-    reporter,
-    dotfmt,
+    client,
     status,
-    vscode.languages.registerDocumentFormattingEditProvider(
+    vscode.languages.registerDocumentPasteEditProvider(
       SELECTOR,
-      formatter,
-    ),
-    vscode.languages.registerDocumentRangeFormattingEditProvider(
-      SELECTOR,
-      formatter,
-    ),
-    vscode.commands.registerCommand("dotfmt.showOutput", () => log.show(true)),
-    dotfmt.onDidFormat(({ document, failure }) =>
-      status.formatted(document, failure),
+      new PasteFormatter(client),
+      {
+        providedPasteEditKinds: [vscode.DocumentDropOrPasteEditKind.Text],
+      },
     ),
     vscode.window.onDidChangeActiveTextEditor(() => void status.refresh()),
     vscode.workspace.onDidOpenTextDocument((document) => {
@@ -36,7 +30,38 @@ export function activate(context: vscode.ExtensionContext): void {
         void status.refresh();
       }
     }),
-    ...watchConfigs(dotfmt, reporter, status),
+    vscode.workspace.onDidSaveTextDocument(() => {
+      status.invalidate();
+    }),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration(`${SECTION}.server.path`)) {
+        void client.restart().then(
+          () => status.invalidate(),
+          (error: unknown) =>
+            log.error(`server restart failed: ${message(error)}`),
+        );
+      } else if (event.affectsConfiguration(SECTION)) {
+        status.invalidate();
+      }
+    }),
+    vscode.workspace.onDidGrantWorkspaceTrust(() => {
+      void client.restart().then(
+        () => status.invalidate(),
+        (error: unknown) =>
+          log.error(`server restart failed: ${message(error)}`),
+      );
+    }),
   );
+  registerCommands(context, client, log);
+
+  log.info(`CLI: ${cliPath(context)}`);
+  client.start().catch((error: unknown) => {
+    log.error(`language server failed to start: ${message(error)}`);
+  });
   void status.refresh();
+}
+
+export async function deactivate(): Promise<void> {
+  await manager?.stop();
+  manager = undefined;
 }

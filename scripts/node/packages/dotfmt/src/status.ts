@@ -1,17 +1,29 @@
 import * as vscode from "vscode";
-import type { Dotfmt, Explanation, Result } from "./dotfmt";
-import { range, tildify, type Failure } from "./failure";
+import { message, type Client } from "./client";
 import { CONFIG_NAME, SECTION, SELECTOR } from "./lib/languages";
+
+interface Explanation {
+  language?: string;
+  dialect?: string;
+  skipped?: string;
+  configs: string[];
+  error?: string;
+}
+
+type Result = { ok: true; value: Explanation } | { ok: false; failure: string };
 
 export class Status implements vscode.Disposable {
   private readonly item = vscode.languages.createLanguageStatusItem(
     SECTION,
     SELECTOR,
   );
-  private readonly cache = new Map<string, Result<Explanation>>();
+  private readonly cache = new Map<string, Result>();
   private generation = 0;
 
-  public constructor(private readonly dotfmt: Dotfmt) {
+  public constructor(
+    private readonly client: Client,
+    private readonly cli: string,
+  ) {
     this.item.name = "dotfmt";
     this.item.text = "dotfmt";
   }
@@ -31,7 +43,7 @@ export class Status implements vscode.Disposable {
     let result = this.cache.get(key);
     if (!result) {
       this.item.busy = true;
-      result = await this.dotfmt.explain(document);
+      result = await this.explain(document);
       this.cache.set(key, result);
     }
     if (generation === this.generation) {
@@ -40,24 +52,25 @@ export class Status implements vscode.Disposable {
     }
   }
 
-  public formatted(document: vscode.TextDocument, failure?: Failure): void {
-    if (document !== vscode.window.activeTextEditor?.document) {
-      return;
-    }
-    if (failure) {
-      this.generation++;
-      this.item.busy = false;
-      this.fail(failure);
-    } else if (this.item.severity === vscode.LanguageStatusSeverity.Error) {
-      void this.refresh();
-    }
-  }
-
   public dispose(): void {
     this.item.dispose();
   }
 
-  private show(result: Result<Explanation>): void {
+  private async explain(document: vscode.TextDocument): Promise<Result> {
+    try {
+      const value = await this.client.request<Explanation>("dotfmt/explain", {
+        textDocument: { uri: document.uri.toString() },
+        languageId: document.languageId,
+      });
+      return value.error
+        ? { ok: false, failure: value.error }
+        : { ok: true, value };
+    } catch (error) {
+      return { ok: false, failure: message(error) };
+    }
+  }
+
+  private show(result: Result): void {
     if (!result.ok) {
       this.fail(result.failure);
       return;
@@ -76,24 +89,27 @@ export class Status implements vscode.Disposable {
           title: CONFIG_NAME,
           command: "vscode.open",
           arguments: [vscode.Uri.file(nearest)],
-          tooltip: configs.map(tildify).join("\n"),
+          tooltip: [
+            ...configs.map(tildify),
+            `dotfmt: ${tildify(this.cli)}`,
+          ].join("\n"),
         }
       : undefined;
   }
 
-  private fail(failure: Failure): void {
-    const location = failure.locations[0];
+  private fail(failure: string): void {
     this.item.severity = vscode.LanguageStatusSeverity.Error;
-    this.item.detail = failure.message;
-    this.item.command = location
-      ? {
-          title: "Open",
-          command: "vscode.open",
-          arguments: [
-            vscode.Uri.file(location.file),
-            { selection: range(location) },
-          ],
-        }
-      : { title: "Show Output", command: "dotfmt.showOutput" };
+    this.item.detail = failure;
+    this.item.command = {
+      title: "Show Output",
+      command: "dotfmt.showOutput",
+    };
   }
+}
+
+function tildify(file: string): string {
+  const home = process.env.HOME;
+  return home && (file === home || file.startsWith(`${home}/`))
+    ? `~${file.slice(home.length)}`
+    : file;
 }

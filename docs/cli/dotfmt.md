@@ -25,6 +25,11 @@ dotfmt --explain ~/.ssh/config
 dotfmt -c -l md note.md
 dotfmt --add .
 dotfmt --sync .
+dotfmt --diagnose src/
+dotfmt --fix src/
+dotfmt --fix --diff src/
+dotfmt --diagnose --json src/App.tsx
+dotfmt --migrate prettier > dotfmt.dotfile
 ```
 
 Editor mode uses the filename for language detection and local configuration, reads the buffer from stdin, and writes formatted text to stdout. Syntax errors in the buffer return the original input unchanged, with no diagnostics and exit status `0`. Configuration, I/O and internal errors also return the original input, but report the error and exit `1`. Use `--verbose` to diagnose syntax errors; `--check` retains normal failure status. It never writes the named file. Conform uses one formatter for all supported filetypes:
@@ -41,7 +46,7 @@ dialect  ssh
 config   ~/.config/dotfmt/dotfmt.dotfile
 ```
 
-The [VS Code extension](../../scripts/node/packages/dotfmt/README.md) uses editor mode and `--explain`.
+The [VS Code extension](../../scripts/node/packages/dotfmt/README.md) runs the `dotfmt-lsp` language server for formatting, ranges, on-type formatting, diagnostics and code actions. Other editors can keep using editor mode (`--editor`) and `--explain`.
 
 Selection uses filenames and `dotfmt.dotfile`, not the editor's filetype. A `.json` file with comments is formatted as JSONC, keeping its comments and trailing commas; `dialect = json` in the applicable `json` block drops them instead. Map extensionless names through that block's `include` rules.
 
@@ -147,7 +152,23 @@ excluded_files {
 | Ambiguous mappings | Error; select the language explicitly |
 | Custom extensions | Must contain syntax understood by the assigned engine |
 
-The shipped config enables all twelve languages. `dotfile sync` installs it. `--add` and `--sync` use that single configuration file.
+The shipped config enables fifteen languages: the twelve config/data languages plus TypeScript, CSS and HTML/embedded markup. JavaScript is a separate, opt-in language because adding it by default would start formatting every `.js`/`.jsx` file on upgrade. `dotfile sync` installs the shipped config. `--add` and `--sync` use that single configuration file.
+
+Discovery honors the nearest `.prettierignore` for Prettier compatibility. Explicitly named files still require `--lang` when their filename is unfamiliar; use `included_files` for custom mappings.
+
+## TypeScript, CSS, HTML, Tailwind and fixes
+
+TypeScript/TSX, JavaScript/JSX, CSS/SCSS/Sass/Less and HTML/Vue/Svelte/Astro use the same configuration and selection rules as every other language. The formatter is quiet by design: syntax errors leave the file untouched, `--editor` passes the original buffer through and exits `0`, and only dotfmt's own configuration/I/O/internal failures are reported.
+
+Formatting never deletes code. `--fix` applies only `Safe` fixes; `--fix-unsafe` also applies `Unsafe` fixes and requires an explicit flag. `--diagnose` reports findings without editing and exits `1` when findings remain. Quick fixes cover unused imports (a bare `import "module"` preserves side effects), type-only import conversion, organize imports and a conservative unused-variable removal. Exported declarations, `.d.ts` files, classic JSX factory bindings, decorator metadata, impure initializers and files containing `eval`/`new Function` are protected. Fixes are applied as byte-range edits, then the result is formatted, reparsed and re-analyzed up to a bounded fixpoint. `--fix --diff` prints the exact change instead of writing it.
+
+`type_aware = true` runs the project's `tsc --noEmit` for project-wide diagnostics and builds an export/import graph for unused-export findings. TypeScript diagnostics with codes already covered by a dotfmt finding are collapsed, so an unused import or variable is reported once with its fix. Type information gates destructive fixes; it never blocks formatting.
+
+Tailwind sorting supports TSX `className`/`class`, `cn`/`clsx`/`cva`/`twMerge`, template literals, CSS `@apply`, and HTML/markup class attributes. `tailwind = auto` engages only when the file or project uses Tailwind; `tailwind_order = project` requires the project's own Tailwind and fails with a configuration diagnostic if it cannot be resolved. The project bridge runs the official `prettier-plugin-tailwindcss` sorter through Node, caches the class order under `${XDG_CACHE_HOME:-~/.cache}/dotfmt/tailwind`, and falls back to the Rust pattern sorter for `auto`/`rust`. `tailwind_merge` is opt-in because collapsing conflicting utilities can change rendering.
+
+In VS Code, the extension uses LSP for document/range/ranges formatting, `;`/`}` on-type formatting, diagnostics, quick fixes, `source.fixAll.dotfmt`, `source.organizeImports.dotfmt` and `source.format.dotfmt`. `dotfmt.fixes.onSave` is applied through `textDocument/willSaveWaitUntil`, before the file is written; it is off by default. Unsafe fixes are hidden in untrusted workspaces.
+
+`--migrate prettier` reads `package.json#prettier` and JSON `.prettierrc` files and prints a starting configuration; JavaScript configs and unsupported plugins are reported, not guessed. The nearest `.prettierignore` is honored during discovery.
 
 ## Languages and settings
 
@@ -165,13 +186,17 @@ The shipped config enables all twelve languages. `dotfile sync` installs it. `--
 | `plist` | `.plist` | None; XML plists are formatted, binary and OpenStep plists pass through unchanged |
 | `toml` | `.toml` | None |
 | `yaml` (`yml`) | `.yaml`, `.yml` | None |
+| `typescript` (`ts`, `tsx`) | `.ts`, `.tsx`, `.mts`, `.cts` | `auto`, `ts`, `tsx` |
+| `javascript` (`js`, `jsx`) | `.js`, `.jsx`, `.mjs`, `.cjs` | `auto`, `js`, `jsx`; opt-in block |
+| `css` | `.css`, `.scss`, `.sass`, `.less`, `.pcss` | `auto`, `css`, `scss`, `sass`, `less` |
+| `html` | `.html`, `.htm`, `.xhtml`, `.vue`, `.svelte`, `.astro` | `auto`, `html`, `vue`, `svelte`, `astro`, `angular`, `xml` |
 
 | Global setting | Application |
 | --- | --- |
 | `final_newline` | All languages |
-| `indent` | Bib, Conf blocks, Ini (Git and SSH), JSON, LaTeX, Lua, Plist, TOML, YAML |
-| `width` | Bib and LaTeX wrapping, Lua line wrapping, Markdown table layout, YAML flow collections and TOML arrays/inline tables; accepted and ignored by Env, Ignore, Ini and Plist |
-| `quote_style` | Lua and YAML quote selection; JSON always emits double quotes; Bib, conf, env, ignore, ini, LaTeX, Markdown, plist and TOML preserve quoting and ignore it |
+| `indent` | Bib, Conf blocks, Ini (Git and SSH), JSON, LaTeX, Lua, Plist, TOML, YAML, TypeScript, CSS, HTML |
+| `width` | Bib and LaTeX wrapping, Lua line wrapping, Markdown table layout, YAML flow collections, TOML arrays/inline tables, and TypeScript/CSS/HTML line breaking; accepted and ignored by Env, Ignore, Ini and Plist |
+| `quote_style` | Lua and YAML quote selection, and TypeScript/HTML string quoting; JSON always emits double quotes; Bib, conf, env, ignore, ini, LaTeX, Markdown, plist and TOML preserve quoting and ignore it |
 | `repair` | All languages; defaults to `true`; the new config engines do not repair, so malformed input is reported instead |
 
 | Language | Additional settings |
@@ -188,6 +213,10 @@ The shipped config enables all twelve languages. `dotfile sync` installs it. `--
 | Plist | `indent`, `indent_type`, `line_endings`, `blank_lines`, `data_width`, `prolog`, `self_closing`, `sort_keys` (must be `false`) |
 | TOML | `line_endings`, `allowed_blank_lines`, `align_entries`, `align_comments`, `align_single_comments`, `array_trailing_comma`, `array_auto_expand`, `array_auto_collapse`, `compact_arrays`, `compact_inline_tables`, `compact_entries`, `inline_table_expand`, `indent_tables`, `indent_entries`, `reorder_keys`, `format_comments` |
 | YAML | `line_endings`, `indent_sequences`, `trailing_comma`, `brace_spacing`, `bracket_spacing`, `dash_spacing`, `prefer_single_line`, `format_comments` |
+| TypeScript | `dialect`, `indent_type`, `line_endings`, `quote_style`, `jsx_quote_style`, `quote_properties`, `semicolons`, `trailing_commas`, `arrow_parentheses`, `bracket_spacing`, `bracket_same_line`, `attribute_position`, `expand`, `jsdoc`, `embedded_css`, `sort_imports`, `import_order`, `import_internal`, `import_side_effects`, `import_newlines`, `import_partition_by_newline`, `import_partition_by_comment`, `type_aware`, `verify`, `tailwind`, `tailwind_order`, `tailwind_dedupe`, `tailwind_merge`, `tailwind_functions`, `tailwind_attributes`, `tailwind_stylesheet`, `tailwind_config` |
+| JavaScript | Same settings as TypeScript; add `javascript {}` to opt in |
+| CSS | `dialect`, `indent_type`, `line_endings`, `hex_case`, `quotes`, `format_comments`, `align_comments`, `single_line_block_threshold`, `tailwind`, `tailwind_order`, `tailwind_dedupe`, `tailwind_merge`, `tailwind_stylesheet`, `tailwind_config` |
+| HTML | `dialect`, `indent_type`, `line_endings`, `quotes`, `format_comments`, `closing_bracket_same_line`, `max_attrs_per_line`, `script_indent`, `style_indent`, `tailwind`, `tailwind_dedupe`, `tailwind_stylesheet`, `tailwind_config` |
 
 Markdown table dividers use three dashes by default, preserving alignment colons. Set `autosize_table = true` in the `markdown` block to size dividers to aligned columns; compact tables keep three dashes.
 
@@ -205,4 +234,6 @@ Ini preserves section order, duplicate keys, comments, quoting, inline marker by
 | Editor syntax error, without `--verbose` or `--check` | `0` (original input) |
 | Editor configuration, I/O or internal error | `1` (original input) |
 | Formatting, configuration, I/O failure or check differences | `1` |
+| `--diagnose` with findings | `1` |
+| `--diagnose` clean, or `--fix` completed | `0` |
 | CLI usage error | `2` |

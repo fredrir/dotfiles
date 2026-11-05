@@ -14,10 +14,14 @@ pub enum Language {
     Plist,
     Toml,
     Yaml,
+    TypeScript,
+    Javascript,
+    Css,
+    Html,
 }
 
 impl Language {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 16] = [
         Self::Bib,
         Self::Conf,
         Self::Env,
@@ -30,6 +34,10 @@ impl Language {
         Self::Plist,
         Self::Toml,
         Self::Yaml,
+        Self::TypeScript,
+        Self::Javascript,
+        Self::Css,
+        Self::Html,
     ];
 
     pub fn name(self) -> &'static str {
@@ -46,6 +54,10 @@ impl Language {
             Self::Plist => "plist",
             Self::Toml => "toml",
             Self::Yaml => "yaml",
+            Self::TypeScript => "typescript",
+            Self::Javascript => "javascript",
+            Self::Css => "css",
+            Self::Html => "html",
         }
     }
 
@@ -63,6 +75,10 @@ impl Language {
             Self::Plist => &["plist"],
             Self::Toml => &["toml"],
             Self::Yaml => &["yaml", "yml"],
+            Self::TypeScript => &["typescript", "ts", "tsx"],
+            Self::Javascript => &["javascript", "js", "jsx"],
+            Self::Css => &["css", "scss", "sass", "less"],
+            Self::Html => &["html", "htm", "vue", "svelte", "astro"],
         }
     }
 
@@ -107,6 +123,10 @@ impl Language {
             Self::Plist => &["plist"],
             Self::Toml => &["toml"],
             Self::Yaml => &["yaml", "yml"],
+            Self::TypeScript => &["ts", "tsx", "mts", "cts"],
+            Self::Javascript => &["js", "jsx", "mjs", "cjs"],
+            Self::Css => &["css", "scss", "sass", "less", "pcss"],
+            Self::Html => &["html", "htm", "xhtml", "vue", "svelte", "astro"],
         }
     }
 
@@ -174,6 +194,10 @@ impl Language {
             Self::Plist => "stdin.plist",
             Self::Toml => "stdin.toml",
             Self::Yaml => "stdin.yaml",
+            Self::TypeScript => "stdin.ts",
+            Self::Javascript => "stdin.js",
+            Self::Css => "stdin.css",
+            Self::Html => "stdin.html",
         })
     }
 
@@ -182,10 +206,27 @@ impl Language {
             .into_iter()
             .find(|language| language.aliases().contains(&value))
             .ok_or_else(|| {
-                format!(
-                    "unknown language '{value}'; expected bib (bibtex, biblatex), conf, env (dotenv), ignore (gitignore), ini, json, latex (tex), lua, markdown (md), plist, toml, or yaml (yml)"
-                )
+                let expected = Self::ALL
+                    .iter()
+                    .map(|language| language.describe())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("unknown language '{value}'; expected {expected}")
             })
+    }
+
+    fn describe(self) -> String {
+        let aliases = self
+            .aliases()
+            .iter()
+            .copied()
+            .filter(|alias| *alias != self.name())
+            .collect::<Vec<_>>();
+        if aliases.is_empty() {
+            self.name().to_owned()
+        } else {
+            format!("{} ({})", self.name(), aliases.join(", "))
+        }
     }
 
     pub fn for_path(path: &Path) -> Option<Self> {

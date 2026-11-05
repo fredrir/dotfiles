@@ -12,13 +12,37 @@ pub struct Cli {
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]
     pub targets: Vec<PathBuf>,
 
-    /// Select configured languages: bib (bibtex, biblatex), conf, env (dotenv), ignore (gitignore), ini, json, latex (tex), lua, md, markdown, plist, toml, yml or yaml.
+    /// Select configured languages: bib, conf, css (scss, sass, less), env, html (htm, vue, svelte, astro), ignore, ini, javascript (js, jsx), json, latex, lua, markdown, plist, toml, typescript (ts, tsx), or yaml.
     #[arg(short = 'l', long = "lang", value_delimiter = ',', value_parser = language(), value_name = "LANGUAGE")]
     pub languages: Vec<Language>,
 
+    /// Print a dotfmt.dotfile migrated from another formatter; currently prettier.
+    #[arg(long, value_name = "SOURCE", value_parser = ["prettier"], conflicts_with_all = ["add", "sync", "editor", "explain", "owns", "fix", "fix_unsafe", "diff", "diagnose", "json", "check", "clean"])]
+    pub migrate: Option<String>,
+
     /// Check formatting without writing.
-    #[arg(long, conflicts_with_all = ["add", "sync"])]
+    #[arg(long, conflicts_with_all = ["add", "sync", "fix", "fix_unsafe", "diagnose"])]
     pub check: bool,
+
+    /// Apply safe fixes (unused imports, type-only imports, import ordering) and format.
+    #[arg(long, conflicts_with_all = ["check", "clean", "owns", "editor", "add", "sync", "diagnose"])]
+    pub fix: bool,
+
+    /// Apply safe and unsafe fixes, including code removal. Implies --fix.
+    #[arg(long, conflicts_with_all = ["check", "clean", "owns", "editor", "add", "sync", "diagnose"])]
+    pub fix_unsafe: bool,
+
+    /// Print a unified diff instead of writing when used with --fix.
+    #[arg(long, conflicts_with_all = ["check", "clean", "owns", "editor", "add", "sync"])]
+    pub diff: bool,
+
+    /// Report findings without writing or fixing.
+    #[arg(long, conflicts_with_all = ["check", "clean", "owns", "editor", "add", "sync"])]
+    pub diagnose: bool,
+
+    /// Emit machine-readable JSON for --diagnose/--fix.
+    #[arg(long, conflicts_with_all = ["check", "clean", "owns", "editor", "add", "sync"])]
+    pub json: bool,
 
     /// Format Markdown and strip all Markdown formatting; requires --lang markdown.
     #[arg(short = 'c', long, conflicts_with_all = ["add", "sync", "owns"])]
@@ -32,7 +56,7 @@ pub struct Cli {
     #[arg(short = 's', long, conflicts_with_all = ["stdin", "editor", "languages", "dialect"])]
     pub sync: bool,
 
-    /// Select a dialect for one language (auto, jsonc, luau, gfm, ...).
+    /// Select a dialect for one language (auto, tsx, scss, jsonc, luau, gfm, ...).
     #[arg(long, value_name = "DIALECT")]
     pub dialect: Option<String>,
 

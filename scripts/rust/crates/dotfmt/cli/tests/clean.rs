@@ -57,7 +57,9 @@ fn clean_formats_and_strips_markdown_formatting() {
 #[test]
 fn clean_settles_and_check_reports_stripping_as_a_difference() {
     let root = tree_pairs(&[("dotfmt.dotfile", CONFIG), ("a.md", "**bold**\n")]);
-    let output = dotfmt(root.path()).args(["--clean", "-l", "md", "a.md"]).run();
+    let output = dotfmt(root.path())
+        .args(["--clean", "-l", "md", "a.md"])
+        .run();
     assert!(output.success(), "{output:?}");
     assert_eq!(
         fs::read_to_string(root.path().join("a.md")).unwrap(),

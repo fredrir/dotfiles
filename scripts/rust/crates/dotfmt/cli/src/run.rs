@@ -2,7 +2,9 @@ use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use dotfmt::app::{Buffer, Operation, Options, Outcome, Request, Selection, Session};
+use dotfmt::app::{
+    Buffer, FixMode, Inspection, Operation, Options, Outcome, Request, Selection, Session,
+};
 use dotfmt::render::{self, Mode};
 use dotfmt_core::config::Resolver;
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
@@ -13,25 +15,39 @@ use crate::args::Cli;
 pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
     cli.languages.sort();
     cli.languages.dedup();
+    if let Some(source) = &cli.migrate {
+        return crate::migrate::run(&cli, source);
+    }
     if cli.add || cli.sync {
         return crate::placement::run(&cli);
     }
     if let Some(path) = &cli.explain {
         return explain(&cli, path);
     }
+    let inspect = cli.fix || cli.fix_unsafe || cli.diagnose;
+    if cli.diff && !cli.fix && !cli.fix_unsafe {
+        return Err("--diff requires --fix or --fix-unsafe".into());
+    }
+    if cli.json && !inspect {
+        return Err("--json requires --diagnose, --fix or --fix-unsafe".into());
+    }
     if cli.editor {
         cli.quiet |= !cli.verbose;
         if cli.targets.len() > 1 {
             return Err("--editor accepts one filename for standard input".into());
         }
-        if cli.targets.first().is_some_and(|path| path != Path::new("-")) {
+        if cli
+            .targets
+            .first()
+            .is_some_and(|path| path != Path::new("-"))
+        {
             cli.stdin = cli.targets.pop();
         }
     }
     let streamed = cli.stdin.is_some()
         || cli.editor
         || cli.targets.iter().any(|path| path == Path::new("-"))
-        || (cli.targets.is_empty() && !cli.check && !io::stdin().is_terminal());
+        || (cli.targets.is_empty() && !cli.check && !inspect && !io::stdin().is_terminal());
     let operation = if cli.owns {
         Operation::Owns {
             paths: read_input()?
@@ -68,7 +84,7 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
             None
         };
         if cli.targets.is_empty() && !streamed {
-            if cli.check {
+            if cli.check || inspect {
                 cli.targets.push(PathBuf::from("."));
             } else {
                 workstation::cli::command::<Cli>()
@@ -78,10 +94,28 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
                 return Ok(ExitCode::SUCCESS);
             }
         }
-        Operation::Format {
-            targets: cli.targets.clone(),
-            buffer,
-            check: cli.check,
+        if inspect {
+            let fix = if cli.fix_unsafe {
+                FixMode::Unsafe
+            } else if cli.fix {
+                FixMode::Safe
+            } else {
+                FixMode::None
+            };
+            Operation::Inspect {
+                targets: cli.targets.clone(),
+                buffer,
+                fix,
+                diff: cli.diff,
+                json: cli.json,
+                type_aware: None,
+            }
+        } else {
+            Operation::Format {
+                targets: cli.targets.clone(),
+                buffer,
+                check: cli.check,
+            }
         }
     };
     let options = Options {
@@ -132,6 +166,26 @@ pub fn run(mut cli: Cli) -> Result<ExitCode, String> {
             io::stdout()
                 .write_all(&output)
                 .map_err(|error| format!("stdout: {error}"))?;
+        }
+        Outcome::Inspected {
+            files,
+            buffer,
+            unreadable,
+            fix,
+            diff,
+            json,
+            type_aware: _,
+        } => {
+            report_inspection(
+                &files,
+                buffer.as_ref(),
+                unreadable,
+                fix,
+                diff,
+                json,
+                cli.quiet,
+                cli.verbose,
+            )?;
         }
         Outcome::Formatted {
             files,
@@ -249,6 +303,10 @@ fn unexpected(outcome: &Result<Outcome, Vec<Diagnostic>>) -> Vec<&Diagnostic> {
             .filter_map(|buffer| buffer.result.as_ref().err())
             .collect(),
         Ok(Outcome::Owned(_)) => Vec::new(),
+        Ok(Outcome::Inspected { buffer, .. }) => buffer
+            .iter()
+            .filter_map(|buffer| buffer.result.as_ref().err())
+            .collect(),
     };
     errors
         .into_iter()
@@ -297,5 +355,261 @@ fn append_path(output: &mut Vec<u8>, path: &Path) -> Result<(), String> {
     {
         output.extend_from_slice(path.to_str().ok_or("filename is not UTF-8")?.as_bytes());
         Ok(())
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn report_inspection(
+    files: &[dotfmt::app::InspectOutcome],
+    buffer: Option<&dotfmt::app::InspectBufferOutcome>,
+    unreadable: usize,
+    fix: FixMode,
+    diff: bool,
+    json: bool,
+    quiet: bool,
+    verbose: bool,
+) -> Result<(), String> {
+    if json {
+        let value = inspection_json(files, buffer, fix);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?
+        );
+        return Ok(());
+    }
+    let mut errors = Vec::new();
+    for file in files {
+        match &file.result {
+            Ok(inspection) => report_one(
+                &file.path.display().to_string(),
+                inspection,
+                fix,
+                diff,
+                quiet,
+                verbose,
+                &mut errors,
+            )?,
+            Err(error) => errors.push(format!("{}: {error}", file.path.display())),
+        }
+    }
+    if let Some(buffer) = buffer {
+        match &buffer.result {
+            Ok(inspection) => {
+                report_one(
+                    &buffer.path.display().to_string(),
+                    inspection,
+                    fix,
+                    diff,
+                    quiet,
+                    verbose,
+                    &mut errors,
+                )?;
+                if fix != FixMode::None && !diff {
+                    io::stdout()
+                        .write_all(inspection.after.as_bytes())
+                        .map_err(|error| format!("stdout: {error}"))?;
+                }
+            }
+            Err(error) => errors.push(format!("{}: {error}", buffer.path.display())),
+        }
+    }
+    if unreadable > 0 {
+        errors.push(format!("{unreadable} unreadable directories"));
+    }
+    errors.sort();
+    errors.dedup();
+    for error in &errors {
+        eprintln!("dotfmt: {error}");
+    }
+    Ok(())
+}
+
+fn report_one(
+    path: &str,
+    inspection: &Inspection,
+    fix: FixMode,
+    diff: bool,
+    quiet: bool,
+    verbose: bool,
+    _errors: &mut Vec<String>,
+) -> Result<(), String> {
+    let text = inspection
+        .before
+        .strip_prefix('\u{feff}')
+        .unwrap_or(&inspection.before);
+    let index = dotfmt_core::position::LineIndex::new(text);
+    for finding in &inspection.findings {
+        let position = index.position(text, finding.start);
+        let severity = match finding.severity {
+            dotfmt_core::edit::Severity::Error => "error",
+            dotfmt_core::edit::Severity::Warning => "warning",
+            dotfmt_core::edit::Severity::Information => "info",
+            dotfmt_core::edit::Severity::Hint => "hint",
+        };
+        if !quiet {
+            eprintln!(
+                "dotfmt: {path}:{}:{}: {severity} [{}] {}",
+                position.line + 1,
+                position.character + 1,
+                finding.code,
+                finding.message
+            );
+        }
+        if verbose {
+            for related in &finding.related {
+                let position = index.position(text, related.start);
+                eprintln!(
+                    "dotfmt: {path}:{}:{}: {}",
+                    position.line + 1,
+                    position.character + 1,
+                    related.message
+                );
+            }
+        }
+    }
+    if diff {
+        if let Some(diff) = &inspection.diff {
+            print!("{diff}");
+        }
+    } else if fix != FixMode::None && !quiet {
+        let remaining = inspection.findings.len();
+        if inspection.changed {
+            eprintln!(
+                "dotfmt: {path}: applied {} fix(es){}",
+                inspection.applied.len(),
+                if remaining == 0 {
+                    String::new()
+                } else {
+                    format!("; {remaining} finding(s) need review")
+                }
+            );
+        } else if remaining == 0 {
+            eprintln!("dotfmt: {path}: clean");
+        } else {
+            eprintln!("dotfmt: {path}: {remaining} finding(s) need review");
+        }
+    }
+    if fix == FixMode::None && inspection.findings.is_empty() && verbose && !quiet {
+        eprintln!("dotfmt: {path}: clean");
+    }
+    if fix == FixMode::None && !inspection.fixes.is_empty() && !quiet {
+        let safe = inspection
+            .fixes
+            .iter()
+            .filter(|fix| fix.applicability == dotfmt_core::edit::Applicability::Safe)
+            .count();
+        let unsafe_fixes = inspection.fixes.len() - safe;
+        eprintln!(
+            "dotfmt: {path}: {safe} safe and {unsafe_fixes} unsafe fix(es) available; use --fix or --fix-unsafe"
+        );
+    }
+    Ok(())
+}
+
+fn inspection_json(
+    files: &[dotfmt::app::InspectOutcome],
+    buffer: Option<&dotfmt::app::InspectBufferOutcome>,
+    fix: FixMode,
+) -> serde_json::Value {
+    let mut entries = Vec::new();
+    for file in files {
+        entries.push(inspection_entry(
+            &file.path.display().to_string(),
+            file.language.name(),
+            &file.result,
+        ));
+    }
+    if let Some(buffer) = buffer {
+        entries.push(inspection_entry(
+            &buffer.path.display().to_string(),
+            buffer
+                .language
+                .map_or("unmapped", |language| language.name()),
+            &buffer.result,
+        ));
+    }
+    serde_json::json!({
+        "version": 1,
+        "mode": match fix {
+            FixMode::None => "diagnose",
+            FixMode::Safe => "fix",
+            FixMode::Unsafe => "fix-unsafe",
+        },
+        "files": entries,
+    })
+}
+
+fn inspection_entry(
+    path: &str,
+    language: &str,
+    result: &Result<Inspection, Diagnostic>,
+) -> serde_json::Value {
+    match result {
+        Err(error) => serde_json::json!({
+            "path": path,
+            "language": language,
+            "error": error.to_string(),
+        }),
+        Ok(inspection) => {
+            let text = inspection
+                .before
+                .strip_prefix('\u{feff}')
+                .unwrap_or(&inspection.before);
+            let index = dotfmt_core::position::LineIndex::new(text);
+            let range = |start: usize, end: usize| {
+                let start = index.position(text, start);
+                let end = index.position(text, end);
+                serde_json::json!({
+                    "start": {"line": start.line, "character": start.character},
+                    "end": {"line": end.line, "character": end.character},
+                })
+            };
+            let findings: Vec<serde_json::Value> = inspection
+                .findings
+                .iter()
+                .map(|finding| {
+                    serde_json::json!({
+                        "code": finding.code,
+                        "message": finding.message,
+                        "severity": match finding.severity {
+                            dotfmt_core::edit::Severity::Error => "error",
+                            dotfmt_core::edit::Severity::Warning => "warning",
+                            dotfmt_core::edit::Severity::Information => "info",
+                            dotfmt_core::edit::Severity::Hint => "hint",
+                        },
+                        "range": range(finding.start, finding.end),
+                        "tags": finding.tags,
+                        "related": finding.related.iter().map(|related| serde_json::json!({
+                            "range": range(related.start, related.end),
+                            "message": related.message,
+                        })).collect::<Vec<_>>(),
+                    })
+                })
+                .collect();
+            let fixes: Vec<serde_json::Value> = inspection
+                .fixes
+                .iter()
+                .map(|fix| {
+                    serde_json::json!({
+                        "title": fix.title,
+                        "kind": fix.kind,
+                        "applicability": fix.applicability,
+                        "diagnosticCode": fix.finding.as_ref().map(|finding| finding.code.clone()),
+                        "edits": fix.edits.iter().map(|edit| serde_json::json!({
+                            "range": range(edit.start, edit.end),
+                            "newText": edit.new_text,
+                        })).collect::<Vec<_>>(),
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "path": path,
+                "language": language,
+                "findings": findings,
+                "fixes": fixes,
+                "applied": inspection.applied,
+                "changed": inspection.changed,
+            })
+        }
     }
 }

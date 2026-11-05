@@ -33,6 +33,23 @@ pub enum Operation {
     Owns {
         paths: Vec<PathBuf>,
     },
+    Inspect {
+        targets: Vec<PathBuf>,
+        buffer: Option<Buffer>,
+        fix: FixMode,
+        diff: bool,
+        json: bool,
+        /// Override the configured type-aware analysis (the LSP runs tsc itself).
+        type_aware: Option<bool>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FixMode {
+    #[default]
+    None,
+    Safe,
+    Unsafe,
 }
 
 #[derive(Clone, Debug)]
@@ -124,6 +141,31 @@ pub struct FileOutcome {
 }
 
 #[derive(Clone, Debug)]
+pub struct Inspection {
+    pub findings: Vec<dotfmt_core::edit::Finding>,
+    pub fixes: Vec<dotfmt_core::edit::Fix>,
+    pub applied: Vec<String>,
+    pub before: String,
+    pub after: String,
+    pub changed: bool,
+    pub diff: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct InspectOutcome {
+    pub path: PathBuf,
+    pub language: Language,
+    pub result: Result<Inspection, Diagnostic>,
+}
+
+#[derive(Clone, Debug)]
+pub struct InspectBufferOutcome {
+    pub path: PathBuf,
+    pub language: Option<Language>,
+    pub result: Result<Inspection, Diagnostic>,
+}
+
+#[derive(Clone, Debug)]
 pub struct BufferChange {
     pub output: Vec<u8>,
     pub change: Change,
@@ -152,12 +194,43 @@ pub enum Outcome {
         check: bool,
     },
     Owned(Vec<PathBuf>),
+    Inspected {
+        files: Vec<InspectOutcome>,
+        buffer: Option<InspectBufferOutcome>,
+        unreadable: usize,
+        fix: FixMode,
+        diff: bool,
+        json: bool,
+        /// Override the configured type-aware analysis (the LSP runs tsc itself).
+        type_aware: Option<bool>,
+    },
 }
 
 impl Outcome {
     pub fn failed(&self) -> bool {
         match self {
             Self::Owned(_) => false,
+            Self::Inspected {
+                files,
+                buffer,
+                unreadable,
+                fix,
+                ..
+            } => {
+                *unreadable > 0
+                    || files.iter().any(|file| match &file.result {
+                        Err(_) => true,
+                        Ok(inspection) => {
+                            matches!(fix, FixMode::None) && !inspection.findings.is_empty()
+                        }
+                    })
+                    || buffer.as_ref().is_some_and(|buffer| match &buffer.result {
+                        Err(_) => true,
+                        Ok(inspection) => {
+                            matches!(fix, FixMode::None) && !inspection.findings.is_empty()
+                        }
+                    })
+            }
             Self::Formatted {
                 files,
                 buffer,

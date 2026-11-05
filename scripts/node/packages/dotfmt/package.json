@@ -1,8 +1,8 @@
 {
   "name": "dotfmt",
   "displayName": "dotfmt",
-  "description": "Quiet formatting for config, data and markup files",
-  "version": "0.1.1",
+  "description": "Quiet formatting for config, data, markup, TypeScript/TSX, JavaScript/JSX, CSS and Tailwind",
+  "version": "0.2.0",
   "publisher": "fredrir",
   "license": "MIT",
   "private": true,
@@ -15,7 +15,7 @@
     "deploy": "bun deploy.ts"
   },
   "dependencies": {
-    "diff": "^9.0.0"
+    "vscode-languageclient": "^11.0.0"
   },
   "devDependencies": {
     "@types/vscode": "^1.145.0",
@@ -32,33 +32,46 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
+    "onLanguage:astro",
     "onLanguage:bibtex",
     "onLanguage:chatagent",
+    "onLanguage:css",
     "onLanguage:dockercompose",
     "onLanguage:dotenv",
+    "onLanguage:html",
     "onLanguage:ignore",
     "onLanguage:ini",
     "onLanguage:instructions",
+    "onLanguage:javascript",
+    "onLanguage:javascriptreact",
     "onLanguage:json",
     "onLanguage:jsonc",
     "onLanguage:jsonl",
     "onLanguage:latex",
+    "onLanguage:less",
     "onLanguage:lua",
     "onLanguage:markdown",
     "onLanguage:prompt",
     "onLanguage:properties",
+    "onLanguage:sass",
+    "onLanguage:scss",
     "onLanguage:skill",
+    "onLanguage:svelte",
     "onLanguage:tex",
     "onLanguage:toml",
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact",
+    "onLanguage:vue",
     "onLanguage:yaml",
     "onStartupFinished"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "Workspace settings cannot choose the dotfmt binary.",
+      "description": "Workspace settings cannot choose the dotfmt or language server binary. Unsafe fixes stay disabled; formatting still works.",
       "restrictedConfigurations": [
-        "dotfmt.path"
+        "dotfmt.path",
+        "dotfmt.server.path"
       ]
     },
     "virtualWorkspaces": {
@@ -89,8 +102,38 @@
     ],
     "commands": [
       {
+        "command": "dotfmt.fixAll",
+        "title": "Fix All",
+        "category": "dotfmt"
+      },
+      {
+        "command": "dotfmt.organizeImports",
+        "title": "Organize Imports",
+        "category": "dotfmt"
+      },
+      {
+        "command": "dotfmt.sortTailwind",
+        "title": "Sort Tailwind Classes",
+        "category": "dotfmt"
+      },
+      {
+        "command": "dotfmt.restartServer",
+        "title": "Restart Language Server",
+        "category": "dotfmt"
+      },
+      {
         "command": "dotfmt.showOutput",
         "title": "Show Output",
+        "category": "dotfmt"
+      },
+      {
+        "command": "dotfmt.setAsDefaultFormatter",
+        "title": "Set as Default Formatter",
+        "category": "dotfmt"
+      },
+      {
+        "command": "dotfmt.openConfig",
+        "title": "Open Configuration",
         "category": "dotfmt"
       }
     ],
@@ -101,7 +144,43 @@
           "type": "string",
           "default": "",
           "scope": "machine-overridable",
-          "description": "dotfmt binary; empty uses the bundled one"
+          "description": "dotfmt CLI binary shown in the output log for manual checks; empty uses the bundled one"
+        },
+        "dotfmt.server.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "dotfmt language server binary; empty uses the bundled one"
+        },
+        "dotfmt.typeAware": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run tsc --noEmit for project-wide TypeScript diagnostics on open and save"
+        },
+        "dotfmt.fixes.onSave": {
+          "type": "string",
+          "enum": [
+            "off",
+            "safe",
+            "unsafe"
+          ],
+          "enumDescriptions": [
+            "Do not fix on save",
+            "Apply safe fixes and formatting on save",
+            "Apply safe and unsafe fixes and formatting on save"
+          ],
+          "default": "off",
+          "markdownDescription": "Apply the selected fixes through `textDocument/willSaveWaitUntil`, before the file is written. Alternatively use `editor.codeActionsOnSave` with `source.fixAll.dotfmt`, `source.organizeImports.dotfmt` or `source.format.dotfmt`."
+        },
+        "dotfmt.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace communication with the dotfmt language server"
         }
       }
     }

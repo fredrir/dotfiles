@@ -18,6 +18,7 @@ pub struct Engine {
 }
 
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 enum Kind {
     Bib(dotfmt_bib::config::Config),
     Conf(dotfmt_conf::config::Config),
@@ -37,6 +38,16 @@ enum Kind {
     Plist(dotfmt_plist::config::Config),
     Toml(dotfmt_toml::config::Config),
     Yaml(dotfmt_yaml::config::Config),
+    TypeScript(
+        dotfmt_typescript::config::Config,
+        dotfmt_typescript::dialect::Dialect,
+    ),
+    Javascript(
+        dotfmt_typescript::config::Config,
+        dotfmt_typescript::dialect::Dialect,
+    ),
+    Css(dotfmt_css::config::Config, dotfmt_css::dialect::Dialect),
+    Html(dotfmt_html::config::Config, dotfmt_html::dialect::Dialect),
 }
 
 pub enum Formatted {
@@ -97,6 +108,22 @@ impl Engine {
             Language::Plist => Kind::Plist(dotfmt_plist::config::Config::from_settings(settings)?),
             Language::Toml => Kind::Toml(dotfmt_toml::config::Config::from_settings(settings)?),
             Language::Yaml => Kind::Yaml(dotfmt_yaml::config::Config::from_settings(settings)?),
+            Language::TypeScript => Kind::TypeScript(
+                dotfmt_typescript::config::Config::from_settings(settings)?,
+                dotfmt_typescript::dialect::Dialect::Auto,
+            ),
+            Language::Javascript => Kind::Javascript(
+                dotfmt_typescript::config::Config::from_settings(settings)?,
+                dotfmt_typescript::dialect::Dialect::Auto,
+            ),
+            Language::Css => Kind::Css(
+                dotfmt_css::config::Config::from_settings(settings)?,
+                dotfmt_css::dialect::Dialect::Auto,
+            ),
+            Language::Html => Kind::Html(
+                dotfmt_html::config::Config::from_settings(settings)?,
+                dotfmt_html::dialect::Dialect::Auto,
+            ),
         };
         Self { kind, repair }.with_dialect(dialect)
     }
@@ -133,6 +160,22 @@ impl Engine {
                 if !value.eq_ignore_ascii_case("auto") {
                     return Err(configuration(format!("yaml has no {value:?} dialect")));
                 }
+            }
+            Kind::TypeScript(_, dialect) => {
+                *dialect = dotfmt_typescript::dialect::Dialect::parse(value, true)
+                    .map_err(configuration)?;
+            }
+            Kind::Javascript(_, dialect) => {
+                *dialect = dotfmt_typescript::dialect::Dialect::parse(value, true)
+                    .map_err(configuration)?;
+            }
+            Kind::Css(_, dialect) => {
+                *dialect =
+                    dotfmt_css::dialect::Dialect::parse(value, true).map_err(configuration)?;
+            }
+            Kind::Html(_, dialect) => {
+                *dialect =
+                    dotfmt_html::dialect::Dialect::parse(value, true).map_err(configuration)?;
             }
             Kind::Ignore(_, dialect) => {
                 *dialect =
@@ -176,6 +219,10 @@ impl Engine {
             | Kind::Plist(_)
             | Kind::Toml(_)
             | Kind::Yaml(_) => None,
+            Kind::TypeScript(config, dialect) => Some(dialect.resolve(config.dialect, path).name()),
+            Kind::Javascript(config, dialect) => Some(dialect.resolve(config.dialect, path).name()),
+            Kind::Css(config, dialect) => Some(dialect.resolve(config.dialect, path).name()),
+            Kind::Html(config, dialect) => Some(dialect.resolve(config.dialect, path).name()),
             Kind::Ignore(config, dialect) => Some(
                 dialect
                     .resolve(
@@ -302,6 +349,188 @@ impl Engine {
                 |text| dotfmt_yaml::format(text, config),
                 dotfmt_yaml::repair,
             ),
+            Kind::TypeScript(config, dialect) => {
+                let mut config = config.clone();
+                self.prepare_tailwind(
+                    path,
+                    utf8(input)?,
+                    &mut config.tailwind,
+                    &mut config.tailwind_sorter,
+                )?;
+                let dialect = dialect.resolve(config.dialect, path);
+                unrepaired(dotfmt_typescript::format(
+                    path,
+                    utf8(input)?,
+                    &config,
+                    dialect,
+                )?)
+            }
+            Kind::Javascript(config, dialect) => {
+                let mut config = config.clone();
+                self.prepare_tailwind(
+                    path,
+                    utf8(input)?,
+                    &mut config.tailwind,
+                    &mut config.tailwind_sorter,
+                )?;
+                let dialect = dialect.resolve(config.dialect, path);
+                unrepaired(dotfmt_typescript::format(
+                    path,
+                    utf8(input)?,
+                    &config,
+                    dialect,
+                )?)
+            }
+            Kind::Css(config, dialect) => {
+                let mut config = config.clone();
+                self.prepare_tailwind(
+                    path,
+                    utf8(input)?,
+                    &mut config.tailwind,
+                    &mut config.tailwind_sorter,
+                )?;
+                let dialect = dialect.resolve(config.dialect, path);
+                unrepaired(dotfmt_css::format(path, utf8(input)?, &config, dialect)?)
+            }
+            Kind::Html(config, dialect) => {
+                let mut config = config.clone();
+                self.prepare_tailwind(
+                    path,
+                    utf8(input)?,
+                    &mut config.tailwind,
+                    &mut config.tailwind_sorter,
+                )?;
+                let dialect = dialect.resolve(config.dialect, path);
+                unrepaired(dotfmt_html::format(path, utf8(input)?, &config, dialect)?)
+            }
+        }
+    }
+
+    /// Resolve the project's Tailwind order once per format call.
+    ///
+    /// `Mode::Auto` only engages for projects that actually use Tailwind. A
+    /// missing Node/Tailwind falls back to the Rust pattern sorter; the
+    /// `tailwind_order = project` setting turns that into a diagnostic instead.
+    fn prepare_tailwind(
+        &self,
+        path: &Path,
+        input: &str,
+        config: &mut dotfmt_tailwind::Config,
+        sorter: &mut Option<dotfmt_tailwind::Sorter>,
+    ) -> Result<(), Diagnostic> {
+        if sorter.is_some() || matches!(config.mode, dotfmt_tailwind::Mode::Off) {
+            return Ok(());
+        }
+        let root = path.parent().unwrap_or(Path::new("."));
+        let source_uses_tailwind = input.contains("@import \"tailwindcss\"")
+            || input.contains("@tailwind")
+            || input.contains("@theme")
+            || input.contains("@utility");
+        if matches!(config.mode, dotfmt_tailwind::Mode::Auto)
+            && !source_uses_tailwind
+            && !dotfmt_tailwind::bridge::is_tailwind_project(root)
+        {
+            return Ok(());
+        }
+        let trusted = dotfmt_tailwind::bridge::trusted()
+            && std::env::var_os("DOTFMT_TRUSTED")
+                .is_none_or(|value| value != "0" && value != "false");
+        if !trusted {
+            // Project Tailwind may run project JavaScript; untrusted editors
+            // get the deterministic Rust order and never the merge bridge.
+            let mut safe = config.clone();
+            safe.merge = false;
+            *sorter = Some(
+                dotfmt_tailwind::Sorter::new(Arc::new(dotfmt_tailwind::OrderTable::empty()), safe)
+                    .with_project_root(root),
+            );
+            return Ok(());
+        }
+        if matches!(config.order, dotfmt_tailwind::OrderSource::Rust) {
+            *sorter = Some(
+                dotfmt_tailwind::Sorter::new(
+                    Arc::new(dotfmt_tailwind::OrderTable::empty()),
+                    config.clone(),
+                )
+                .with_project_root(root),
+            );
+            return Ok(());
+        }
+        let classes = dotfmt_tailwind::extract::candidates(input);
+        match dotfmt_tailwind::bridge::project_order(
+            root,
+            config.stylesheet.as_deref(),
+            config.config_file.as_deref(),
+            &classes,
+        ) {
+            Ok(table) => {
+                *sorter = Some(
+                    dotfmt_tailwind::Sorter::new(Arc::new(table), config.clone())
+                        .with_project_root(root),
+                );
+                Ok(())
+            }
+            Err(error) => {
+                if matches!(config.order, dotfmt_tailwind::OrderSource::Project) {
+                    return Err(Diagnostic::new(
+                        DiagnosticKind::Configuration,
+                        format!("tailwind order: {error}"),
+                    )
+                    .with_path(path));
+                }
+                *sorter = Some(
+                    dotfmt_tailwind::Sorter::new(
+                        Arc::new(dotfmt_tailwind::OrderTable::empty()),
+                        config.clone(),
+                    )
+                    .with_project_root(root),
+                );
+                Ok(())
+            }
+        }
+    }
+
+    /// Findings and explicit fixes for one document.
+    pub fn analyze(
+        &self,
+        path: &Path,
+        input: &[u8],
+        fix: bool,
+        unsafe_fixes: bool,
+        type_aware: Option<bool>,
+    ) -> Result<dotfmt_core::edit::Analysis, Diagnostic> {
+        match &self.kind {
+            Kind::TypeScript(config, dialect) | Kind::Javascript(config, dialect) => {
+                let text = utf8(input)?;
+                let (text, _) = match text.strip_prefix('\u{feff}') {
+                    Some(text) => (text, true),
+                    None => (text, false),
+                };
+                let dialect = dialect.resolve(config.dialect, path);
+                dotfmt_typescript::analyze(
+                    path,
+                    text,
+                    config,
+                    dialect,
+                    &dotfmt_typescript::analyze::Options {
+                        fix,
+                        unsafe_fixes,
+                        type_aware: type_aware.unwrap_or(config.type_aware),
+                        type_diagnostics: Vec::new(),
+                    },
+                )
+            }
+            Kind::Css(config, dialect) => {
+                let dialect = dialect.resolve(config.dialect, path);
+                dotfmt_css::format(path, utf8(input)?, config, dialect)?;
+                Ok(dotfmt_core::edit::Analysis::default())
+            }
+            Kind::Html(config, dialect) => {
+                let dialect = dialect.resolve(config.dialect, path);
+                dotfmt_html::format(path, utf8(input)?, config, dialect)?;
+                Ok(dotfmt_core::edit::Analysis::default())
+            }
+            _ => Ok(dotfmt_core::edit::Analysis::default()),
         }
     }
 

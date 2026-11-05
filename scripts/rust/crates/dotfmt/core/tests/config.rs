@@ -442,7 +442,11 @@ fn selection_explains_skipped_files_and_sources_list_applied_layers() {
         .unwrap();
     assert_eq!(
         effective.sources(),
-        [global, root.path().join(CONFIG_NAME), nested.join(CONFIG_NAME)]
+        [
+            global,
+            root.path().join(CONFIG_NAME),
+            nested.join(CONFIG_NAME)
+        ]
     );
     for (name, expected) in [
         ("a.json", Selection::Language(Language::Json)),
@@ -454,7 +458,9 @@ fn selection_explains_skipped_files_and_sources_list_applied_layers() {
         ("a.unknown", Selection::Unmapped),
     ] {
         assert_eq!(
-            effective.selection(&root.path().join(name), &[], None).unwrap(),
+            effective
+                .selection(&root.path().join(name), &[], None)
+                .unwrap(),
             expected,
             "{name}"
         );

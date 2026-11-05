@@ -5,37 +5,48 @@ import { $ } from "bun";
 
 const root = import.meta.dir;
 const cargo = path.resolve(root, "../../../rust");
-const binary = "dotfmt";
+const packages = ["dotfmt", "dotfmt-lsp"];
 
 export const TARGETS = {
   "darwin-arm64": "aarch64-apple-darwin",
   "linux-x64": "x86_64-unknown-linux-musl",
+  "win32-x64": "x86_64-pc-windows-gnu",
 } as const;
 
 export type Platform = keyof typeof TARGETS;
 
+const DEFAULT_PLATFORMS: Platform[] = ["darwin-arm64", "linux-x64"];
+
 const isPlatform = (name: string): name is Platform => name in TARGETS;
 
-export async function build(
-  platforms: Platform[] = Object.keys(TARGETS).filter(isPlatform),
-): Promise<void> {
+const executable = (name: string, platform: Platform): string =>
+  platform.startsWith("win32") ? `${name}.exe` : name;
+
+export async function build(platforms: Platform[] = DEFAULT_PLATFORMS): Promise<void> {
   const targets = platforms.flatMap((platform) => [
     "--target",
     TARGETS[platform],
   ]);
+  const selected = packages.flatMap((name) => ["--package", name]);
 
-  await $`cargo zigbuild --locked --release --package ${binary} ${targets}`.cwd(
-    cargo,
-  );
+  await $`cargo zigbuild --locked --release ${selected} ${targets}`.cwd(cargo);
 
   await rm(path.join(root, "bin"), { recursive: true, force: true });
   for (const platform of platforms) {
     const directory = path.join(root, "bin", platform);
     await mkdir(directory, { recursive: true });
-    await cp(
-      path.join(cargo, "target", TARGETS[platform], "release", binary),
-      path.join(directory, binary),
-    );
+    for (const name of packages) {
+      await cp(
+        path.join(
+          cargo,
+          "target",
+          TARGETS[platform],
+          "release",
+          executable(name, platform),
+        ),
+        path.join(directory, executable(name, platform)),
+      );
+    }
   }
 
   const bundle = await Bun.build({

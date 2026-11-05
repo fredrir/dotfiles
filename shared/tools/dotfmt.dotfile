@@ -71,3 +71,34 @@ bib {
   trailing_comma  = false
   blank_lines     = 1
 }
+
+typescript {
+  width                 = 80
+  final_newline         = true
+  quote_style           = double
+  jsx_quote_style       = double
+  semicolons            = always
+  trailing_commas       = all
+  arrow_parentheses     = always
+  bracket_spacing       = true
+  sort_imports          = false
+  tailwind              = auto
+  tailwind_dedupe       = true
+  tailwind_functions    = "cn, clsx, cva, twMerge"
+  tailwind_attributes   = "class, className"
+  type_aware            = true
+}
+
+css {
+  width           = 80
+  final_newline   = true
+  tailwind        = auto
+  tailwind_dedupe = true
+}
+
+html {
+  width           = 80
+  final_newline   = true
+  tailwind        = auto
+  tailwind_dedupe = true
+}

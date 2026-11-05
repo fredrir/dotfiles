@@ -52,6 +52,15 @@ pub(super) enum Work {
         clean: bool,
     },
     Owns(Vec<PathBuf>),
+    Inspect {
+        files: Vec<Job>,
+        buffer: Option<BufferJob>,
+        unreadable: usize,
+        fix: super::FixMode,
+        diff: bool,
+        json: bool,
+        type_aware: Option<bool>,
+    },
 }
 
 pub(super) struct Job {
@@ -82,7 +91,7 @@ impl Session {
         let mut unreadable = 0;
         let mut parallel = false;
         let input = match &mut request.operation {
-            Operation::Format { buffer, .. } => buffer.take(),
+            Operation::Format { buffer, .. } | Operation::Inspect { buffer, .. } => buffer.take(),
             Operation::Owns { .. } => None,
         };
         match &request.operation {
@@ -110,7 +119,7 @@ impl Session {
                     }
                 }
             }
-            Operation::Format { targets, .. } => {
+            Operation::Format { targets, .. } | Operation::Inspect { targets, .. } => {
                 if let Some(input) = input {
                     match self.select_buffer(&request, input) {
                         Ok(selected) => {
@@ -151,7 +160,7 @@ impl Session {
                     }
                     let mut visited = HashSet::new();
                     for candidate in found.candidates {
-                        if !candidate.absolute.is_file() {
+                        if !candidate.absolute.is_file() || prettier_ignored(&candidate.absolute) {
                             continue;
                         }
                         let config = match self.resolver.for_file(&candidate.path) {
@@ -411,20 +420,60 @@ impl Session {
         if !errors.is_empty() {
             return Err(ordered(errors));
         }
-        let Operation::Format { check, .. } = request.operation else {
-            unreachable!()
-        };
-        Ok(Plan {
-            work: Work::Format {
-                files: jobs,
-                buffer,
-                unreadable,
-                check,
-                clean: request.clean,
-            },
-            parallel,
-        })
+        match request.operation {
+            Operation::Format { check, .. } => Ok(Plan {
+                work: Work::Format {
+                    files: jobs,
+                    buffer,
+                    unreadable,
+                    check,
+                    clean: request.clean,
+                },
+                parallel,
+            }),
+            Operation::Inspect {
+                fix,
+                diff,
+                json,
+                type_aware,
+                ..
+            } => Ok(Plan {
+                work: Work::Inspect {
+                    files: jobs,
+                    buffer,
+                    unreadable,
+                    fix,
+                    diff,
+                    json,
+                    type_aware,
+                },
+                parallel,
+            }),
+            Operation::Owns { .. } => unreachable!(),
+        }
     }
+}
+
+/// Prettier compatibility: honor the nearest `.prettierignore` during discovery.
+fn prettier_ignored(path: &Path) -> bool {
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    let mut directory = Some(parent);
+    while let Some(current) = directory {
+        let ignore = current.join(".prettierignore");
+        if ignore.is_file() {
+            let mut builder = ignore::gitignore::GitignoreBuilder::new(current);
+            builder.add(&ignore);
+            if let Ok(patterns) = builder.build()
+                && patterns.matched(path, false).is_ignore()
+            {
+                return true;
+            }
+        }
+        directory = current.parent();
+    }
+    false
 }
 
 fn enabled(config: &Effective, languages: &mut BTreeSet<Language>) {

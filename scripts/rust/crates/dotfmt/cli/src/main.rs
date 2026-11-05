@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod args;
+mod migrate;
 mod placement;
 mod run;
 
