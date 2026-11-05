@@ -528,7 +528,9 @@ function checkCoverage(schema: Schema): boolean {
     if (!existsSync(file)) {
       continue;
     }
-    const keys = matchArms(readFileSync(file, "utf8"), "fn set(");
+    // Guarded and unguarded arms can name the same key (`indent if global`
+    // plus `indent`); coverage counts distinct keys, not arms.
+    const keys = [...new Set(matchArms(readFileSync(file, "utf8"), "fn set("))];
     for (const language of SHARED_CONFIGS[crate] ?? [crate]) {
       const options = schema.languages[language];
       if (!options) {
