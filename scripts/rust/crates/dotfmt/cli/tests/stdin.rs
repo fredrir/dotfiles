@@ -184,7 +184,6 @@ fn editor_formatting_errors_succeed_silently_and_preserve_the_buffer() {
 #[test]
 fn editor_configuration_errors_fail_and_preserve_the_buffer() {
     for (config, diagnostic) in [
-        ("", "configured"),
         ("lua {", "dotfmt.dotfile:1:"),
         ("lua { indent = bad }\n", "dotfmt.dotfile:1: "),
     ] {

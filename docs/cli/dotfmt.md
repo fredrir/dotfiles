@@ -102,7 +102,7 @@ A repair never invents a value, so `{"a":}` stays an error.
 | 3 | Ancestor `dotfmt.dotfile` files, outermost to nearest |
 | 4 | CLI dialect override |
 
-Each layer applies globals, then language settings. Only specified values replace inherited values. A nearer global value replaces an outer language value. Empty language blocks enable inherited defaults; `enabled = false` disables a language. `--lang` selects configured languages; it does not enable disabled or absent blocks.
+Each layer applies globals, then language settings. Only specified values replace inherited values. A nearer global value replaces an outer language value. Empty language blocks enable inherited defaults; `enabled = false` disables a language. If no language block is declared anywhere, the shipped default set is enabled: every config/data/markup language including TypeScript, CSS and HTML, but not JavaScript. Any explicit language block keeps the legacy subset semantics. `--lang` selects configured languages; it does not enable disabled or absent blocks.
 
 ```text
 {
@@ -158,7 +158,7 @@ excluded_files {
 | Ambiguous mappings | Error; select the language explicitly |
 | Custom extensions | Must contain syntax understood by the assigned engine |
 
-The shipped config enables fifteen languages: the twelve config/data languages plus TypeScript, CSS and HTML/embedded markup. JavaScript is a separate, opt-in language because adding it by default would start formatting every `.js`/`.jsx` file on upgrade. `dotfile sync` installs the shipped config. `--add` and `--sync` use that single configuration file.
+The shipped config enables fifteen languages: the twelve config/data languages plus TypeScript, CSS and HTML/embedded markup. JavaScript is a separate, opt-in language because adding it by default would start formatting every `.js`/`.jsx` file on upgrade. The same defaults apply when no language block is declared at all, so `dotfmt` works without writing a config first. `dotfile sync` installs the shipped config; `--add` and `--sync` use that single configuration file.
 
 Discovery honors the nearest `.prettierignore` for Prettier compatibility. Explicitly named files still require `--lang` when their filename is unfamiliar; use `included_files` for custom mappings.
 

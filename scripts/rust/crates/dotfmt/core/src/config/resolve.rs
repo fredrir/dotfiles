@@ -14,6 +14,7 @@ pub struct Resolver {
     base: OnceLock<Resolution>,
     directories: Mutex<HashMap<PathBuf, Cached>>,
     overlaid: Mutex<HashMap<PathBuf, Cached>>,
+    finalized: Mutex<HashMap<PathBuf, Cached>>,
 }
 
 impl Default for Resolver {
@@ -56,6 +57,7 @@ impl Resolver {
             base: OnceLock::new(),
             directories: Mutex::new(HashMap::new()),
             overlaid: Mutex::new(HashMap::new()),
+            finalized: Mutex::new(HashMap::new()),
         }
     }
 
@@ -66,10 +68,22 @@ impl Resolver {
 
     pub fn for_directory(&self, path: &Path) -> Resolution {
         let directory = self.absolute_path(path)?;
-        match &self.overlay {
-            Some(overlay) => self.overlaid_directory(&directory, overlay),
-            None => self.file_directory(&directory),
+        let effective = match &self.overlay {
+            Some(overlay) => self.overlaid_directory(&directory, overlay)?,
+            None => self.file_directory(&directory)?,
+        };
+        if effective.has_language_blocks() {
+            return Ok(effective);
         }
+        // No layer selected a language: use the shipped default set and cache
+        // it so an unconfigured workspace does not clone the map per file.
+        let cell = cache_entry(&self.finalized, &directory)?;
+        cell.get_or_init(|| {
+            let mut effective = (*effective).clone();
+            effective.enable_default_languages();
+            Ok(Arc::new(effective))
+        })
+        .clone()
     }
 
     fn file_directory(&self, directory: &Path) -> Resolution {

@@ -48,6 +48,9 @@ pub struct Effective {
     excludes: Patterns,
     language_filters: BTreeMap<Language, (Patterns, Patterns)>,
     sources: Vec<PathBuf>,
+    /// Whether any layer declared a language block. A workspace with none gets
+    /// the shipped default language set instead of requiring configuration.
+    has_language_blocks: bool,
 }
 
 /// Why a file is or is not formatted under an effective configuration.
@@ -80,6 +83,7 @@ impl Default for Effective {
             excludes: Patterns::default(),
             language_filters: BTreeMap::new(),
             sources: Vec::new(),
+            has_language_blocks: false,
         }
     }
 }
@@ -177,6 +181,7 @@ impl Effective {
     }
 
     fn apply(&mut self, layer: Layer) {
+        self.has_language_blocks |= layer.languages.values().any(|local| !local.is_empty());
         self.sources.extend(layer.source);
         for config in self.languages.values_mut() {
             config.settings.extend(layer.global.clone());
@@ -201,6 +206,21 @@ impl Effective {
             return;
         }
         self.apply(overlay.layer);
+    }
+
+    /// Enables the shipped default language set when no layer declared a
+    /// language block. JavaScript remains opt-in, matching the shipped config.
+    pub(super) fn enable_default_languages(&mut self) {
+        if self.has_language_blocks {
+            return;
+        }
+        for (&language, config) in &mut self.languages {
+            config.enabled = language != Language::Javascript;
+        }
+    }
+
+    fn has_language_blocks(&self) -> bool {
+        self.has_language_blocks
     }
 }
 

@@ -2387,6 +2387,29 @@ mod tests {
     }
 
     #[test]
+    fn an_unconfigured_workspace_formats_with_default_languages() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let missing = temporary.path().join("missing/dotfmt.dotfile");
+        let text = "{\"a\":1}\n";
+        let path = root.join("a.json");
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "json".into(), 1);
+        let (server, _receiver) =
+            server_with_options(root, json!({ "trusted": true, "globalConfig": missing }));
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let edits = server
+            .format_document(&uri, &document, &[], false, None)
+            .unwrap();
+        assert!(!edits.is_empty(), "default languages did not format json");
+        assert_eq!(apply_edits(text, &edits), "{\n  \"a\": 1\n}\n");
+    }
+
+    #[test]
     fn initialization_global_config_formats_without_environment() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().join("workspace");
@@ -2428,6 +2451,9 @@ mod tests {
         let root_b = temporary.path().join("b");
         std::fs::create_dir_all(&root_a).unwrap();
         std::fs::create_dir_all(&root_b).unwrap();
+        for root in [&root_a, &root_b] {
+            std::fs::write(root.join("dotfmt.dotfile"), "json { enabled = false }\n").unwrap();
+        }
         let missing = temporary.path().join("missing/dotfmt.dotfile");
         let (server, receiver) = server_with_roots(
             &[&root_a, &root_b],

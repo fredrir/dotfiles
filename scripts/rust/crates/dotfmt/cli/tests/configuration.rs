@@ -117,12 +117,15 @@ fn nearer_global_values_override_parent_language_values_and_local_language_wins(
 }
 
 #[test]
-fn missing_or_disabled_language_blocks_are_actionable_errors() {
+fn missing_language_configuration_uses_defaults_but_disabled_blocks_still_fail() {
     let root = tree_pairs(&[("a.json", "{}")]);
     let output = dotfmt(root.path()).args(["-l", "json", "a.json"]).run();
-    assert_eq!(output.code(), Some(1), "{output:?}");
-    assert!(output.stderr.contains("not configured"), "{output:?}");
-    assert!(output.stderr.contains("--add"), "{output:?}");
+    assert!(output.success(), "{output:?}");
+    assert_ne!(
+        fs::read_to_string(root.path().join("a.json")).unwrap(),
+        "{}",
+        "{output:?}"
+    );
     fs::write(
         root.path().join("dotfmt.dotfile"),
         "json {\n enabled = false\n}\n",

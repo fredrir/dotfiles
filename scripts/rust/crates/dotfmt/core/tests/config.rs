@@ -27,6 +27,69 @@ fn overlaid_resolver(root: &Path, overlay: ConfigOverlay) -> Resolver {
 }
 
 #[test]
+fn an_unconfigured_workspace_uses_the_shipped_default_language_set() {
+    let root = tempfile::tempdir().unwrap();
+    let effective = resolver(root.path()).for_directory(root.path()).unwrap();
+    for language in [
+        Language::Json,
+        Language::Lua,
+        Language::TypeScript,
+        Language::Css,
+        Language::Html,
+    ] {
+        assert!(
+            effective.languages[&language].enabled,
+            "{language:?} should be enabled by default"
+        );
+    }
+    assert!(
+        !effective.languages[&Language::Javascript].enabled,
+        "JavaScript must stay opt-in"
+    );
+}
+
+#[test]
+fn only_global_or_filter_settings_also_use_the_default_languages() {
+    let root = tempfile::tempdir().unwrap();
+    config(
+        root.path(),
+        "{\n width = 100\n}\nexcluded_files { vendor/ }\n",
+    );
+    let effective = resolver(root.path()).for_directory(root.path()).unwrap();
+    assert!(effective.languages[&Language::Json].enabled);
+    assert!(effective.languages[&Language::TypeScript].enabled);
+    assert!(!effective.languages[&Language::Javascript].enabled);
+}
+
+#[test]
+fn an_explicit_language_block_keeps_legacy_subset_semantics() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "json {}\n");
+    let effective = resolver(root.path()).for_directory(root.path()).unwrap();
+    assert!(effective.languages[&Language::Json].enabled);
+    assert!(!effective.languages[&Language::Lua].enabled);
+    assert!(!effective.languages[&Language::TypeScript].enabled);
+}
+
+#[test]
+fn all_null_native_language_blocks_do_not_suppress_defaults() {
+    let root = tempfile::tempdir().unwrap();
+    let overlay = overlay(
+        root.path(),
+        json!({
+            "json": {"enabled": null, "indent": null},
+            "typescript": {"enabled": null, "quote_style": ""}
+        }),
+    );
+    let effective = overlaid_resolver(root.path(), overlay)
+        .for_directory(root.path())
+        .unwrap();
+    assert!(effective.languages[&Language::Json].enabled);
+    assert!(effective.languages[&Language::TypeScript].enabled);
+    assert!(!effective.languages[&Language::Javascript].enabled);
+}
+
+#[test]
 fn nearer_global_overrides_outer_language_and_nearest_language_wins() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().join("project");
