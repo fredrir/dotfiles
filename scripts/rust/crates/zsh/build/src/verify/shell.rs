@@ -9,7 +9,6 @@ use std::os::fd::AsFd;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::time::{Duration, Instant};
 
 use nix::errno::Errno;
 use nix::fcntl::{FcntlArg, OFlag, fcntl};
@@ -18,8 +17,6 @@ use pty_process::Size;
 use pty_process::blocking::{Command, Pty, open};
 
 use crate::quote;
-
-const TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Startup files the scratch `ZDOTDIR` links to their copies in `~`.
 const LINKED: &[&str] = &[".zshenv", ".zprofile", ".zlogin", ".zlogout", ".zkbd"];
@@ -129,7 +126,7 @@ pub fn run(
     let mut child = command
         .spawn(pts)
         .map_err(|error| format!("{label}: {}: {error}", zsh.display()))?;
-    let deadline = Instant::now() + TIMEOUT;
+
     let status = loop {
         drain(&pty).map_err(|error| format!("{label}: pty: {error}"))?;
         if let Some(status) = child
@@ -137,11 +134,6 @@ pub fn run(
             .map_err(|error| format!("{label}: {error}"))?
         {
             break status;
-        }
-        if Instant::now() > deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("{label}: no dump within {}s", TIMEOUT.as_secs()));
         }
     };
     match std::fs::read(scratch.join("dump")) {
