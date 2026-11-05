@@ -151,9 +151,11 @@ pub fn run(connection: &Connection) -> Result<()> {
             Message::Response(response) => server.client.response(response),
         }
     }
-    // Kill an in-flight compiler before `serve` joins the stdio threads: the
-    // tsc worker holds a `Client` clone through `Diagnostics` until its child
-    // is gone, and the writer thread waits for every clone to drop.
+    // Wake configuration pulls first: they hold `Arc<Server>` and `Arc<Client>`
+    // while waiting for a response, and the writer thread waits for every
+    // `Client` clone to drop. Then kill an in-flight compiler, which holds the
+    // other long-lived `Client` clone through `Diagnostics`.
+    server.client.shutdown();
     server.tsc.shutdown();
     Ok(())
 }
