@@ -1,6 +1,6 @@
 [package]
 name              = "dotfmt"
-version.workspace = true
+version = "0.3.0"
 description       = "Unified configurable formatter for config, JSON, LaTeX, Lua, Markdown, TOML, YAML, TypeScript, JavaScript, CSS, HTML and Tailwind"
 edition.workspace = true
 license.workspace = true
