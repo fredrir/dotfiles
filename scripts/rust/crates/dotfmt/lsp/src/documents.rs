@@ -35,11 +35,13 @@ impl Documents {
     }
 }
 
+#[derive(Debug)]
 pub struct Document {
     text: String,
     language: String,
     pub version: i32,
     index: LineIndex,
+    desynchronised: bool,
 }
 
 impl Clone for Document {
@@ -49,6 +51,7 @@ impl Clone for Document {
             language: self.language.clone(),
             version: self.version,
             index: LineIndex::new(&self.text),
+            desynchronised: self.desynchronised,
         }
     }
 }
@@ -60,7 +63,14 @@ impl Document {
             text,
             language,
             version,
+            desynchronised: false,
         }
+    }
+
+    /// Whether an incremental change could not be applied. The buffer no
+    /// longer matches the editor until a full-text change or `didOpen`.
+    pub fn is_desynchronised(&self) -> bool {
+        self.desynchronised
     }
 
     pub fn text(&self) -> &str {
@@ -73,13 +83,19 @@ impl Document {
 
     /// Applies an incremental change; a change without a range replaces the text.
     ///
-    /// Invalid ranges leave the document unchanged, which is the only safe
-    /// answer when an editor sends a position that cannot be resolved.
+    /// Invalid ranges leave the document unchanged and mark it desynchronised,
+    /// which is the only safe answer when an editor sends a position that cannot
+    /// be resolved. A full-text change clears the flag.
     pub fn change(&mut self, change: TextDocumentContentChangeEvent) -> bool {
         match change.range {
-            None => self.text = change.text,
+            None => {
+                self.text = change.text;
+                self.desynchronised = false;
+            }
+            Some(_) if self.desynchronised => return false,
             Some(range) => {
                 let Some(range) = self.range(range) else {
+                    self.desynchronised = true;
                     return false;
                 };
                 self.text.replace_range(range, &change.text);
@@ -179,11 +195,17 @@ mod tests {
     }
 
     #[test]
-    fn invalid_ranges_leave_the_document_alone() {
+    fn invalid_ranges_leave_the_document_alone_and_desynchronise_it() {
         let mut document = Document::new("a😀\n".into(), "json".into(), 1);
         assert!(!document.change(change(Some(range((9, 0), (9, 1))), "x")));
         assert!(!document.change(change(Some(range((0, 2), (0, 3))), "x")));
         assert_eq!(document.text(), "a😀\n");
+        assert!(document.is_desynchronised());
+        assert!(!document.change(change(Some(range((0, 0), (0, 1))), "x")));
+        assert_eq!(document.text(), "a😀\n");
+        assert!(document.change(change(None, "recovered\n")));
+        assert!(!document.is_desynchronised());
+        assert_eq!(document.text(), "recovered\n");
     }
 
     #[test]

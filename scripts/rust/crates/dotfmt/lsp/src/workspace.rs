@@ -4,7 +4,7 @@
 //! whenever `dotfmt.dotfile` files or editor settings change.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use dotfmt::app::Session;
@@ -37,14 +37,18 @@ impl Workspace {
 
     /// The nearest workspace root containing `path`, or its directory outside one.
     pub fn root_for(&self, path: &Path) -> PathBuf {
+        let path = normalize(path);
         let roots = self.roots();
         roots
             .iter()
             .filter(|root| path.starts_with(root))
             .max_by_key(|root| root.components().count())
             .cloned()
-            .or_else(|| roots.first().cloned())
-            .or_else(|| path.parent().map(Path::to_path_buf))
+            .or_else(|| {
+                path.parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                    .map(Path::to_path_buf)
+            })
             .unwrap_or_else(|| PathBuf::from("."))
     }
 
@@ -71,7 +75,7 @@ impl Workspace {
 }
 
 /// The same global configuration precedence as the CLI.
-fn global_config() -> Option<PathBuf> {
+pub fn global_config() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
@@ -84,10 +88,42 @@ fn global_config() -> Option<PathBuf> {
 }
 
 fn normalized(roots: Vec<PathBuf>) -> Vec<PathBuf> {
-    let mut roots = roots;
+    let mut roots: Vec<PathBuf> = roots.iter().map(|root| normalize(root)).collect();
     roots.sort();
     roots.dedup();
     roots
+}
+
+/// Canonicalises existing paths, then the nearest existing parent, and
+/// otherwise removes `.`/`..` components.
+fn normalize(path: &Path) -> PathBuf {
+    if let Ok(path) = std::fs::canonicalize(path) {
+        return path;
+    }
+    if let (Some(parent), Some(name)) = (path.parent(), path.file_name())
+        && let Ok(parent) = std::fs::canonicalize(parent)
+    {
+        return parent.join(name);
+    }
+    lexical(path)
+}
+
+fn lexical(path: &Path) -> PathBuf {
+    let mut output = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => output.push(prefix.as_os_str()),
+            Component::RootDir => output.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !output.pop() {
+                    output.push("..");
+                }
+            }
+            Component::Normal(part) => output.push(part),
+        }
+    }
+    output
 }
 
 #[cfg(test)]
@@ -108,7 +144,28 @@ mod tests {
         );
         assert_eq!(
             workspace.root_for(Path::new("/elsewhere/a.ts")),
-            PathBuf::from("/work")
+            PathBuf::from("/elsewhere")
         );
+    }
+
+    #[test]
+    fn normalises_roots_and_queries_before_containment() {
+        let workspace = Workspace::new(vec![PathBuf::from("/work/project/../project/")]);
+        assert_eq!(
+            workspace.root_for(Path::new("/work/project/./src/../src/a.ts")),
+            PathBuf::from("/work/project")
+        );
+    }
+
+    #[test]
+    fn canonicalises_an_existing_root() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("project");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let file = root.join("src").join("a.ts");
+        std::fs::write(&file, "").unwrap();
+        let canonical = std::fs::canonicalize(&root).unwrap();
+        let workspace = Workspace::new(vec![root.join("..").join("project")]);
+        assert_eq!(workspace.root_for(&file), canonical);
     }
 }
