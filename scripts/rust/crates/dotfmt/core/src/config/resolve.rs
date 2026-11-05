@@ -10,8 +10,10 @@ type Cached = Arc<OnceLock<Resolution>>;
 pub struct Resolver {
     cwd: PathBuf,
     global: Option<PathBuf>,
+    overlay: Option<ConfigOverlay>,
     base: OnceLock<Resolution>,
     directories: Mutex<HashMap<PathBuf, Cached>>,
+    overlaid: Mutex<HashMap<PathBuf, Cached>>,
 }
 
 impl Default for Resolver {
@@ -36,11 +38,24 @@ impl Resolver {
 
     /// Constructs an isolated resolver without changing the process environment.
     pub fn with_paths(cwd: PathBuf, global_config: Option<PathBuf>) -> Self {
+        Self::with_paths_overlay(cwd, global_config, None)
+    }
+
+    /// Constructs a resolver that applies native editor settings after every
+    /// configuration file layer. The file-config cache stays overlay-free and
+    /// the overlay is applied once to each final directory configuration.
+    pub fn with_paths_overlay(
+        cwd: PathBuf,
+        global_config: Option<PathBuf>,
+        overlay: Option<ConfigOverlay>,
+    ) -> Self {
         Self {
             cwd,
             global: global_config,
+            overlay: overlay.filter(|overlay| !overlay.is_empty()),
             base: OnceLock::new(),
             directories: Mutex::new(HashMap::new()),
+            overlaid: Mutex::new(HashMap::new()),
         }
     }
 
@@ -51,21 +66,17 @@ impl Resolver {
 
     pub fn for_directory(&self, path: &Path) -> Resolution {
         let directory = self.absolute_path(path)?;
-        let cell = self
-            .directories
-            .lock()
-            .map_err(|_| {
-                Diagnostic::new(
-                    DiagnosticKind::Internal,
-                    "configuration cache lock poisoned",
-                )
-            })?
-            .entry(directory.clone())
-            .or_default()
-            .clone();
+        match &self.overlay {
+            Some(overlay) => self.overlaid_directory(&directory, overlay),
+            None => self.file_directory(&directory),
+        }
+    }
+
+    fn file_directory(&self, directory: &Path) -> Resolution {
+        let cell = cache_entry(&self.directories, directory)?;
         cell.get_or_init(|| {
             let inherited = if let Some(parent) = directory.parent() {
-                self.for_directory(parent)?
+                self.file_directory(parent)?
             } else {
                 self.base
                     .get_or_init(|| {
@@ -86,11 +97,21 @@ impl Resolver {
             if self.global.as_ref() == Some(&config) {
                 return Ok(inherited);
             }
-            let Some(layer) = read_layer(&config, &directory)? else {
+            let Some(layer) = read_layer(&config, directory)? else {
                 return Ok(inherited);
             };
             let mut effective = (*inherited).clone();
             effective.apply(layer);
+            Ok(Arc::new(effective))
+        })
+        .clone()
+    }
+
+    fn overlaid_directory(&self, directory: &Path, overlay: &ConfigOverlay) -> Resolution {
+        let cell = cache_entry(&self.overlaid, directory)?;
+        cell.get_or_init(|| {
+            let mut effective = (*self.file_directory(directory)?).clone();
+            effective.apply_overlay(overlay.clone());
             Ok(Arc::new(effective))
         })
         .clone()
@@ -101,6 +122,23 @@ impl Resolver {
     pub fn absolute_path(&self, path: &Path) -> Result<PathBuf, Diagnostic> {
         absolute(&self.cwd, path)
     }
+}
+
+fn cache_entry(
+    directories: &Mutex<HashMap<PathBuf, Cached>>,
+    directory: &Path,
+) -> Result<Cached, Diagnostic> {
+    Ok(directories
+        .lock()
+        .map_err(|_| {
+            Diagnostic::new(
+                DiagnosticKind::Internal,
+                "configuration cache lock poisoned",
+            )
+        })?
+        .entry(directory.to_path_buf())
+        .or_default()
+        .clone())
 }
 
 pub(super) fn absolute(cwd: &Path, path: &Path) -> Result<PathBuf, Diagnostic> {

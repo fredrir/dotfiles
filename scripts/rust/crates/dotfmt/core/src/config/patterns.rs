@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use ignore::gitignore::Gitignore;
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct Patterns(Vec<Arc<PatternLayer>>);
@@ -10,6 +10,36 @@ pub(super) struct Patterns(Vec<Arc<PatternLayer>>);
 pub(super) struct PatternLayer {
     pub(super) root: PathBuf,
     pub(super) matcher: Gitignore,
+}
+
+/// Adds a gitignore-style pattern. globset also implements shell brace
+/// alternatives; gitignore treats braces literally, including an unmatched
+/// opening brace.
+pub(super) fn add_pattern(
+    builder: &mut GitignoreBuilder,
+    source: &Path,
+    pattern: &str,
+) -> Result<(), ignore::Error> {
+    let mut literal = String::with_capacity(pattern.len());
+    let mut escaped = false;
+    let mut class = false;
+    for ch in pattern.chars() {
+        if !escaped {
+            if ch == '[' {
+                class = true;
+            }
+            if ch == ']' {
+                class = false;
+            }
+            if !class && matches!(ch, '{' | '}') {
+                literal.push('\\');
+            }
+        }
+        literal.push(ch);
+        escaped = ch == '\\' && !escaped;
+    }
+    builder.add_line(Some(source.to_path_buf()), &literal)?;
+    Ok(())
 }
 
 impl Patterns {

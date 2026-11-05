@@ -4,8 +4,10 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use dotfmt_core::config::{CONFIG_NAME, Resolver, Selection};
+use dotfmt_core::config::{CONFIG_NAME, ConfigOverlay, Effective, Resolver, Selection};
+use dotfmt_core::diagnostic::DiagnosticKind;
 use dotfmt_core::language::Language;
+use serde_json::json;
 
 fn config(directory: &Path, source: &str) {
     fs::create_dir_all(directory).unwrap();
@@ -14,6 +16,14 @@ fn config(directory: &Path, source: &str) {
 
 fn resolver(directory: &Path) -> Resolver {
     Resolver::with_paths(directory.to_path_buf(), None)
+}
+
+fn overlay(root: &Path, value: serde_json::Value) -> ConfigOverlay {
+    ConfigOverlay::from_json(&value, root).unwrap()
+}
+
+fn overlaid_resolver(root: &Path, overlay: ConfigOverlay) -> Resolver {
+    Resolver::with_paths_overlay(root.to_path_buf(), None, Some(overlay))
 }
 
 #[test]
@@ -481,4 +491,323 @@ fn discovery_preserves_the_supplied_symlink_path() {
         .for_file(&project.join("init.lua"))
         .unwrap();
     assert_eq!(effective.settings(Language::Lua)["width"].value, "80");
+}
+
+#[test]
+fn overlay_global_settings_override_file_layers() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "{ width = 80 }\njson {}\n");
+    let source = root.path().join(".vscode/settings.json");
+    let value = json!({"global": {"width": 120, "final_newline": false}});
+    let mut direct = Effective::default();
+    direct.apply_overlay(overlay(root.path(), value.clone()));
+    assert_eq!(direct.settings(Language::Lua)["width"].value, "120");
+    let effective = overlaid_resolver(root.path(), overlay(root.path(), value))
+        .for_directory(root.path())
+        .unwrap();
+    let width = &effective.settings(Language::Json)["width"];
+    assert_eq!(width.value, "120");
+    assert!(width.global);
+    assert_eq!(width.source, source);
+    assert_eq!(width.line, 0);
+    assert_eq!(
+        effective.settings(Language::Json)["final_newline"].value,
+        "false"
+    );
+    assert_eq!(effective.sources().last(), Some(&source));
+}
+
+#[test]
+fn overlay_language_settings_override_file_layers() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "{ width = 80 }\nlua {}\n");
+    let effective = overlaid_resolver(
+        root.path(),
+        overlay(
+            root.path(),
+            json!({"lua": {"width": 100, "quote_style": "single"}}),
+        ),
+    )
+    .for_directory(root.path())
+    .unwrap();
+    let width = &effective.settings(Language::Lua)["width"];
+    assert_eq!(width.value, "100");
+    assert!(!width.global);
+    assert_eq!(
+        effective.settings(Language::Lua)["quote_style"].value,
+        "single"
+    );
+    assert_eq!(effective.settings(Language::Json)["width"].value, "80");
+}
+
+#[test]
+fn overlay_overrides_nearest_dotfile_once() {
+    let root = tempfile::tempdir().unwrap();
+    let nested = root.path().join("nested");
+    config(root.path(), "{ width = 80 }\nlua {}\n");
+    config(&nested, "lua { width = 100 }\n");
+    let source = root.path().join(".vscode/settings.json");
+    let effective = overlaid_resolver(
+        root.path(),
+        overlay(root.path(), json!({"lua": {"width": 140}})),
+    )
+    .for_file(&nested.join("init.lua"))
+    .unwrap();
+    assert_eq!(effective.settings(Language::Lua)["width"].value, "140");
+    assert_eq!(effective.settings(Language::Lua)["width"].source, source);
+    assert_eq!(
+        effective.sources(),
+        [
+            root.path().join(CONFIG_NAME),
+            nested.join(CONFIG_NAME),
+            source,
+        ]
+    );
+}
+
+#[test]
+fn overlay_includes_and_excludes_restrict_selection() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "json {}\nconf {}\n");
+    let effective = overlaid_resolver(
+        root.path(),
+        overlay(
+            root.path(),
+            json!({
+                "included_files": ["src/**"],
+                "excluded_files": ["vendor/**"],
+            }),
+        ),
+    )
+    .for_directory(root.path())
+    .unwrap();
+    for (file, expected) in [
+        ("src/a.json", Some(Language::Json)),
+        ("src/vendor/a.json", Some(Language::Json)),
+        ("other.json", None),
+        ("vendor/b.json", None),
+        ("src/a.conf", Some(Language::Conf)),
+    ] {
+        assert_eq!(
+            effective.select(&root.path().join(file), None).unwrap(),
+            expected,
+            "{file}"
+        );
+    }
+}
+
+#[test]
+fn overlay_language_filters_add_extensions_and_empty_arrays_clear() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "lua {}\njson {}\nexcluded_files { *.json }\n");
+    let filtered = overlaid_resolver(
+        root.path(),
+        overlay(root.path(), json!({"lua": {"include": ["*.custom"]}})),
+    )
+    .for_directory(root.path())
+    .unwrap();
+    assert_eq!(
+        filtered
+            .select(&root.path().join("a.custom"), None)
+            .unwrap(),
+        Some(Language::Lua)
+    );
+    let cleared = overlaid_resolver(
+        root.path(),
+        overlay(root.path(), json!({"excluded_files": []})),
+    )
+    .for_directory(root.path())
+    .unwrap();
+    assert_eq!(
+        cleared.select(&root.path().join("a.json"), None).unwrap(),
+        Some(Language::Json)
+    );
+}
+
+#[test]
+fn overlay_enabled_only_changes_when_explicit() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "json {}\nlua {}\n");
+    let disabled = overlaid_resolver(
+        root.path(),
+        overlay(root.path(), json!({"json": {"enabled": false}})),
+    )
+    .for_directory(root.path())
+    .unwrap();
+    assert_eq!(
+        disabled
+            .selection(&root.path().join("a.json"), &[], None)
+            .unwrap(),
+        Selection::Disabled(Language::Json)
+    );
+
+    let disabled_root = tempfile::tempdir().unwrap();
+    config(disabled_root.path(), "json { enabled = false }\nlua {}\n");
+    let enabled = overlaid_resolver(
+        disabled_root.path(),
+        overlay(
+            disabled_root.path(),
+            json!({"json": {"enabled": true, "indent": 3}}),
+        ),
+    )
+    .for_directory(disabled_root.path())
+    .unwrap();
+    assert_eq!(
+        enabled
+            .selection(&disabled_root.path().join("a.json"), &[], None)
+            .unwrap(),
+        Selection::Language(Language::Json)
+    );
+    assert_eq!(enabled.settings(Language::Json)["indent"].value, "3");
+    let settings_only = overlaid_resolver(
+        disabled_root.path(),
+        overlay(disabled_root.path(), json!({"json": {"indent": 3}})),
+    )
+    .for_directory(disabled_root.path())
+    .unwrap();
+    assert_eq!(
+        settings_only
+            .selection(&disabled_root.path().join("a.json"), &[], None)
+            .unwrap(),
+        Selection::Disabled(Language::Json)
+    );
+}
+
+#[test]
+fn overlay_converts_numbers_booleans_and_arrays_to_settings() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "typescript {}\n");
+    let effective = overlaid_resolver(
+        root.path(),
+        overlay(
+            root.path(),
+            json!({
+                "typescript": {
+                    "width": 100,
+                    "remove_unused_exports": true,
+                    "tailwind_functions": ["cn", "clsx"],
+                    "some_future_option": false,
+                }
+            }),
+        ),
+    )
+    .for_directory(root.path())
+    .unwrap();
+    let settings = effective.settings(Language::TypeScript);
+    assert_eq!(settings["width"].value, "100");
+    assert_eq!(settings["remove_unused_exports"].value, "true");
+    assert_eq!(settings["tailwind_functions"].value, "cn,clsx");
+    assert_eq!(settings["some_future_option"].value, "false");
+    assert_eq!(
+        settings["width"].source,
+        root.path().join(".vscode/settings.json")
+    );
+}
+
+#[test]
+fn overlay_null_values_are_inherited() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "{ width = 80 }\njson {}\n");
+    let empty = ConfigOverlay::from_json(
+        &json!({
+            "global": {"width": null},
+            "lua": null,
+            "included_files": null,
+        }),
+        root.path(),
+    )
+    .unwrap();
+    assert!(empty.is_empty());
+    let effective = overlaid_resolver(root.path(), empty)
+        .for_directory(root.path())
+        .unwrap();
+    assert_eq!(effective.settings(Language::Json)["width"].value, "80");
+    assert_eq!(effective.sources(), [root.path().join(CONFIG_NAME)]);
+
+    let nulls = ConfigOverlay::from_json(
+        &json!({"json": {"indent": null, "enabled": null}}),
+        root.path(),
+    )
+    .unwrap();
+    assert!(nulls.is_empty());
+    let effective = overlaid_resolver(root.path(), nulls)
+        .for_directory(root.path())
+        .unwrap();
+    assert!(!effective.settings(Language::Json).contains_key("indent"));
+    assert_eq!(effective.sources(), [root.path().join(CONFIG_NAME)]);
+}
+
+#[test]
+fn overlay_rejects_unknown_blocks_and_invalid_values() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join(".vscode/settings.json");
+    for (value, expected) in [
+        (json!({"python": {}}), "unknown language"),
+        (json!({"width": 80}), "unknown language"),
+        (json!([]), "must be an object"),
+        (json!({"global": 80}), "global must be an object"),
+        (json!({"json": 80}), "json must be an object"),
+        (
+            json!({"json": {"enabled": "yes"}}),
+            "enabled must be true or false",
+        ),
+        (
+            json!({"included_files": "src"}),
+            "must be an array of strings",
+        ),
+        (json!({"json": {"include": [1]}}), "entries must be strings"),
+        (
+            json!({"json": {"tailwind_functions": [["cn"]]}}),
+            "must be a string",
+        ),
+        (
+            json!({"json": {"tailwind_functions": {"cn": true}}}),
+            "must be a string",
+        ),
+    ] {
+        let error = ConfigOverlay::from_json(&value, root.path()).unwrap_err();
+        assert!(error.to_string().contains(expected), "{value}: {error}");
+        assert!(
+            error.to_string().contains(&source.display().to_string()),
+            "{error}"
+        );
+        assert_eq!(error.kind, DiagnosticKind::Configuration, "{value}");
+    }
+}
+
+#[test]
+fn overlay_invalid_patterns_are_configuration_diagnostics() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join(".vscode/settings.json");
+    let error =
+        ConfigOverlay::from_json(&json!({"included_files": ["[z-a]"]}), root.path()).unwrap_err();
+    assert!(
+        error.to_string().contains("invalid included_files pattern"),
+        "{error}"
+    );
+    assert!(
+        error.to_string().contains(&source.display().to_string()),
+        "{error}"
+    );
+    assert_eq!(error.kind, DiagnosticKind::Configuration);
+}
+
+#[test]
+fn empty_overlay_is_a_no_op() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "{ width = 80 }\njson {}\n");
+    let empty = ConfigOverlay::from_json(&json!({}), root.path()).unwrap();
+    assert!(empty.is_empty());
+    let mut direct = Effective::default();
+    direct.apply_overlay(empty.clone());
+    assert!(direct.sources().is_empty());
+    let plain = resolver(root.path()).for_directory(root.path()).unwrap();
+    let overlaid = overlaid_resolver(root.path(), empty)
+        .for_directory(root.path())
+        .unwrap();
+    assert_eq!(
+        overlaid.settings(Language::Json)["width"].value,
+        plain.settings(Language::Json)["width"].value
+    );
+    assert_eq!(overlaid.sources(), plain.sources());
 }
