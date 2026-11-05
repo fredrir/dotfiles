@@ -46,17 +46,18 @@ impl Session {
                 unreadable,
                 check,
                 clean,
+                fixes,
             } => {
-                let buffer = buffer.map(|buffer| format_buffer(buffer, clean));
+                let buffer = buffer.map(|buffer| format_buffer(buffer, clean, fixes));
                 let files = if parallel {
                     files
                         .par_iter()
-                        .map(|job| format_file(job, check, clean))
+                        .map(|job| format_file(job, check, clean, fixes))
                         .collect()
                 } else {
                     files
                         .iter()
-                        .map(|job| format_file(job, check, clean))
+                        .map(|job| format_file(job, check, clean, fixes))
                         .collect()
                 };
                 Outcome::Formatted {
@@ -110,12 +111,12 @@ impl Session {
     }
 }
 
-fn format_file(job: &Job, check: bool, clean: bool) -> FileOutcome {
+fn format_file(job: &Job, check: bool, clean: bool, fixes: bool) -> FileOutcome {
     let result = (|| {
         let input = fs::read(&job.absolute)
             .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
-        let formatted = if check {
-            // `--check` must report layout differences, not fix differences.
+        // `--check` and editor range/paste paths must report layout only.
+        let formatted = if check || !fixes {
             job.engine
                 .format_text(&job.path, &job.absolute, &input, job.markdown, clean)?
         } else {
@@ -143,12 +144,15 @@ fn format_file(job: &Job, check: bool, clean: bool) -> FileOutcome {
     }
 }
 
-fn format_buffer(job: BufferJob, clean: bool) -> BufferOutcome {
+fn format_buffer(job: BufferJob, clean: bool, fixes: bool) -> BufferOutcome {
     let input = job.input;
     let absolute = job.absolute;
     let result = match job.engine {
-        Some(engine) => engine
-            .format(&input.path, &absolute, &input.input, job.markdown, clean)
+        Some(engine) => (if fixes {
+            engine.format(&input.path, &absolute, &input.input, job.markdown, clean)
+        } else {
+            engine.format_text(&input.path, &absolute, &input.input, job.markdown, clean)
+        })
             .map(|formatted| match formatted {
                 Formatted::Text { text, repairs } => {
                     let output = text.into_bytes();

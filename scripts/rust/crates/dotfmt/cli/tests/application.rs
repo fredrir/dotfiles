@@ -14,6 +14,7 @@ fn format(targets: &[&str], buffer: Option<Buffer>) -> Request {
             targets: targets.iter().map(PathBuf::from).collect(),
             buffer,
             check: false,
+            fixes: true,
         },
         languages: Vec::new(),
         dialect: None,

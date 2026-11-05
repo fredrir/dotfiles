@@ -1,5 +1,7 @@
 //! Server-side view of the `dotfmt` configuration section.
 
+use std::path::PathBuf;
+
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -21,11 +23,47 @@ impl FixesOnSave {
     }
 }
 
+/// Which TypeScript files receive `tsc` diagnostics.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TscScope {
+    /// Publish compiler errors only for documents open in the editor.
+    #[default]
+    Open,
+    /// Publish compiler errors for every file in the project.
+    Project,
+}
+
+impl TscScope {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "open" => Some(Self::Open),
+            "project" => Some(Self::Project),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Project => "project",
+        }
+    }
+}
+
+pub const DEBOUNCE_MIN_MS: u64 = 50;
+pub const DEBOUNCE_MAX_MS: u64 = 2000;
+pub const DEBOUNCE_DEFAULT_MS: u64 = 250;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub trusted: bool,
     pub type_aware: bool,
+    pub syntax_diagnostics: bool,
+    pub tsc_scope: TscScope,
+    pub debounce_ms: u64,
     pub fixes_on_save: FixesOnSave,
+    /// Explicit TypeScript SDK: a package directory, its `lib` directory, or `tsc.js`.
+    pub tsdk: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -33,7 +71,11 @@ impl Default for Settings {
         Self {
             trusted: false,
             type_aware: true,
+            syntax_diagnostics: true,
+            tsc_scope: TscScope::Open,
+            debounce_ms: DEBOUNCE_DEFAULT_MS,
             fixes_on_save: FixesOnSave::Off,
+            tsdk: None,
         }
     }
 }
@@ -44,6 +86,8 @@ impl Settings {
     /// Both nested (`{"dotfmt": {"fixes": {"onSave": "safe"}}}`) and flat
     /// dotted keys (`"dotfmt.fixes.onSave"`) are accepted. Trust is only ever
     /// enabled by an explicit `true`; absent values keep the current setting.
+    /// `initializationOptions.tsdk` is accepted as well as
+    /// `dotfmt.typescript.tsdk`.
     pub fn apply(&mut self, value: &Value) {
         let value = value
             .get("dotfmt")
@@ -55,10 +99,28 @@ impl Settings {
         if let Some(type_aware) = lookup(value, &["typeAware"]).and_then(Value::as_bool) {
             self.type_aware = type_aware;
         }
+        if let Some(syntax) = lookup(value, &["diagnostics", "syntax"]).and_then(Value::as_bool) {
+            self.syntax_diagnostics = syntax;
+        }
+        if let Some(scope) = lookup(value, &["diagnostics", "tscScope"]).and_then(Value::as_str)
+            && let Some(scope) = TscScope::parse(scope)
+        {
+            self.tsc_scope = scope;
+        }
+        if let Some(debounce) = lookup(value, &["diagnostics", "debounceMs"]).and_then(Value::as_u64)
+        {
+            self.debounce_ms = debounce.clamp(DEBOUNCE_MIN_MS, DEBOUNCE_MAX_MS);
+        }
         if let Some(mode) = lookup(value, &["fixes", "onSave"]).and_then(Value::as_str)
             && let Some(mode) = FixesOnSave::parse(mode)
         {
             self.fixes_on_save = mode;
+        }
+        let tsdk = lookup(value, &["typescript", "tsdk"])
+            .or_else(|| value.get("tsdk"))
+            .and_then(Value::as_str);
+        if let Some(tsdk) = tsdk {
+            self.tsdk = (!tsdk.is_empty()).then(|| PathBuf::from(tsdk));
         }
     }
 
@@ -87,10 +149,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_to_untrusted() {
-        assert!(!Settings::default().trusted);
-        assert!(Settings::default().type_aware);
-        assert_eq!(Settings::default().fixes_on_save, FixesOnSave::Off);
+    fn defaults_to_untrusted_and_errors_only() {
+        let settings = Settings::default();
+        assert!(!settings.trusted);
+        assert!(settings.type_aware);
+        assert!(settings.syntax_diagnostics);
+        assert_eq!(settings.tsc_scope, TscScope::Open);
+        assert_eq!(settings.debounce_ms, DEBOUNCE_DEFAULT_MS);
+        assert_eq!(settings.fixes_on_save, FixesOnSave::Off);
+        assert_eq!(settings.tsdk, None);
     }
 
     #[test]
@@ -100,11 +167,21 @@ mod tests {
             "dotfmt": {
                 "trusted": true,
                 "typeAware": false,
+                "diagnostics": {
+                    "syntax": false,
+                    "tscScope": "project",
+                    "debounceMs": 500
+                },
+                "typescript": { "tsdk": "/opt/ts" },
                 "fixes": { "onSave": "safe" }
             }
         }));
         assert!(settings.trusted);
         assert!(!settings.type_aware);
+        assert!(!settings.syntax_diagnostics);
+        assert_eq!(settings.tsc_scope, TscScope::Project);
+        assert_eq!(settings.debounce_ms, 500);
+        assert_eq!(settings.tsdk, Some(PathBuf::from("/opt/ts")));
         assert_eq!(settings.fixes_on_save, FixesOnSave::Safe);
         settings.apply(&json!({ "dotfmt": { "fixes": { "onSave": "unsafe" } } }));
         assert!(settings.trusted);
@@ -119,10 +196,18 @@ mod tests {
         settings.apply(&json!({
             "dotfmt.typeAware": false,
             "dotfmt.fixes.onSave": "safe",
-            "dotfmt.trusted": true
+            "dotfmt.trusted": true,
+            "dotfmt.diagnostics.syntax": false,
+            "dotfmt.diagnostics.tscScope": "project",
+            "dotfmt.diagnostics.debounceMs": 75,
+            "dotfmt.typescript.tsdk": "/sdk"
         }));
         assert!(settings.trusted);
         assert!(!settings.type_aware);
+        assert!(!settings.syntax_diagnostics);
+        assert_eq!(settings.tsc_scope, TscScope::Project);
+        assert_eq!(settings.debounce_ms, 75);
+        assert_eq!(settings.tsdk, Some(PathBuf::from("/sdk")));
         assert_eq!(settings.fixes_on_save, FixesOnSave::Safe);
     }
 
@@ -132,11 +217,32 @@ mod tests {
         settings.apply(&json!({
             "dotfmt": {
                 "typeAware": false,
-                "fixes.onSave": "unsafe"
+                "fixes.onSave": "unsafe",
+                "diagnostics.tscScope": "project"
             }
         }));
         assert!(!settings.type_aware);
         assert_eq!(settings.fixes_on_save, FixesOnSave::Unsafe);
+        assert_eq!(settings.tsc_scope, TscScope::Project);
+    }
+
+    #[test]
+    fn initialisation_options_accept_a_top_level_tsdk() {
+        let mut settings = Settings::default();
+        settings.apply(&json!({ "trusted": true, "tsdk": "/sdk" }));
+        assert!(settings.trusted);
+        assert_eq!(settings.tsdk, Some(PathBuf::from("/sdk")));
+        settings.apply(&json!({ "tsdk": "" }));
+        assert_eq!(settings.tsdk, None);
+    }
+
+    #[test]
+    fn debounce_is_clamped() {
+        let mut settings = Settings::default();
+        settings.apply(&json!({ "dotfmt.diagnostics.debounceMs": 1 }));
+        assert_eq!(settings.debounce_ms, DEBOUNCE_MIN_MS);
+        settings.apply(&json!({ "dotfmt.diagnostics.debounceMs": 99_999 }));
+        assert_eq!(settings.debounce_ms, DEBOUNCE_MAX_MS);
     }
 
     #[test]

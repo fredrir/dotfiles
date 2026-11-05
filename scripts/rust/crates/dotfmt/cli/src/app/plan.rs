@@ -50,6 +50,7 @@ pub(super) enum Work {
         unreadable: usize,
         check: bool,
         clean: bool,
+        fixes: bool,
     },
     Owns(Vec<PathBuf>),
     Inspect {
@@ -471,13 +472,14 @@ impl Session {
             return Err(ordered(errors));
         }
         match request.operation {
-            Operation::Format { check, .. } => Ok(Plan {
+            Operation::Format { check, fixes, .. } => Ok(Plan {
                 work: Work::Format {
                     files: jobs,
                     buffer,
                     unreadable,
                     check,
                     clean: request.clean,
+                    fixes,
                 },
                 parallel,
             }),

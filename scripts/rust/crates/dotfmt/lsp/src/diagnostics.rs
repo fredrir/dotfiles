@@ -1,12 +1,16 @@
 //! Debounced diagnostics and the per-URI view the editor receives.
+//!
+//! dotfmt publishes errors only. The worker drops every non-`Error` finding
+//! from [`crate::analysis::inspect_errors`]; lint findings stay available to
+//! code actions and `dotfmt --diagnose`. Syntax/config errors are buffer
+//! derived, `tsc` entries describe disk files and are therefore versionless.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use dotfmt::app::FixMode;
 use dotfmt_core::diagnostic::Diagnostic as Fatal;
 use dotfmt_core::edit::{Finding, Severity, Tag};
 use dotfmt_core::position::LineIndex;
@@ -19,10 +23,9 @@ use lsp_types::{
 
 use crate::analysis;
 use crate::documents::{Document, Documents};
+use crate::settings::Settings;
 use crate::uri;
 use crate::workspace::Workspace;
-
-const DEBOUNCE: Duration = Duration::from_millis(200);
 
 pub struct Diagnostics {
     pending: crossbeam_channel::Sender<Job>,
@@ -35,16 +38,18 @@ enum Job {
     Schedule(Scheduled),
     Clear(Uri),
     ClearAll,
+    ClearTscUri(Uri),
     Shutdown,
 }
 
 struct Scheduled {
     uri: Uri,
-    version: Option<i32>,
+    version: i32,
     path: PathBuf,
     language_id: String,
     text: String,
     delay: Duration,
+    settings: Settings,
 }
 
 impl Diagnostics {
@@ -52,15 +57,17 @@ impl Diagnostics {
         workspace: Arc<Workspace>,
         documents: Arc<Mutex<Documents>>,
         sender: crossbeam_channel::Sender<Message>,
+        settings: Arc<RwLock<Settings>>,
     ) -> Self {
         let (pending, jobs) = crossbeam_channel::unbounded();
         let published = Arc::new(Mutex::new(Published::default()));
         let worker = {
             let published = Arc::clone(&published);
+            let settings = Arc::clone(&settings);
             let sender = sender.clone();
             thread::Builder::new()
                 .name("dotfmt-lsp-diagnostics".into())
-                .spawn(move || run(jobs, workspace, documents, published, sender))
+                .spawn(move || run(jobs, workspace, documents, settings, published, sender))
                 .ok()
         };
         Self {
@@ -71,21 +78,22 @@ impl Diagnostics {
         }
     }
 
-    pub fn schedule(&self, document: &Document, path: PathBuf, uri: Uri) {
+    pub fn schedule(&self, document: &Document, path: PathBuf, uri: Uri, settings: &Settings) {
         let _ = self.pending.send(Job::Schedule(Scheduled {
             uri,
-            version: Some(document.version),
+            version: document.version,
             path,
             language_id: document.language().to_owned(),
             text: document.text().to_owned(),
-            delay: DEBOUNCE,
+            delay: Duration::from_millis(settings.debounce_ms),
+            settings: settings.clone(),
         }));
     }
 
-    pub fn schedule_all(&self, documents: &Documents) {
+    pub fn schedule_all(&self, documents: &Documents, settings: &Settings) {
         for (uri, document) in documents.iter() {
             if let Some(path) = analysis::buffer_path(uri, document.language()) {
-                self.schedule(document, path, uri.clone());
+                self.schedule(document, path, uri.clone(), settings);
             }
         }
     }
@@ -98,21 +106,26 @@ impl Diagnostics {
         let _ = self.pending.send(Job::ClearAll);
     }
 
-    pub fn publish_fatal(&self, uri: Uri, text: &str, errors: &[Fatal]) {
+    /// Drops disk-derived `tsc` entries for one URI, for example after an edit.
+    pub fn clear_tsc_uri(&self, uri: Uri) {
+        let _ = self.pending.send(Job::ClearTscUri(uri));
+    }
+
+    pub fn publish_fatal(&self, uri: Uri, text: &str, version: i32, errors: &[Fatal]) {
         let entries = fatal_entries(&uri, text, errors);
         let mut published = self
             .published
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        published.set_dotfmt(&uri, entries, &self.sender);
+        published.set_dotfmt(&uri, version, entries, &self.sender);
     }
 
-    pub fn set_tsc(&self, project: &Path, entries: Vec<(Uri, Vec<Diagnostic>)>) {
+    pub fn set_tsc(&self, project: &Path, generation: u64, entries: Vec<(Uri, Vec<Diagnostic>)>) {
         let mut published = self
             .published
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        published.set_tsc(project, entries, &self.sender);
+        published.set_tsc(project, generation, entries, &self.sender);
     }
 
     pub fn clear_tsc(&self) {
@@ -148,6 +161,7 @@ fn run(
     jobs: crossbeam_channel::Receiver<Job>,
     workspace: Arc<Workspace>,
     documents: Arc<Mutex<Documents>>,
+    settings: Arc<RwLock<Settings>>,
     published: Arc<Mutex<Published>>,
     sender: crossbeam_channel::Sender<Message>,
 ) {
@@ -163,9 +177,9 @@ fn run(
             let Some((_, job)) = pending.remove(&uri) else {
                 continue;
             };
-            if let Some(entries) = inspect(&workspace, &documents, &job) {
+            if let Some(entries) = inspect(&workspace, &documents, &settings, &job) {
                 let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
-                published.set_dotfmt(&job.uri, entries, &sender);
+                published.set_dotfmt(&job.uri, job.version, entries, &sender);
             }
         }
 
@@ -190,6 +204,10 @@ fn run(
                 let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
                 published.clear_all_dotfmt(&sender);
             }
+            Ok(Job::ClearTscUri(uri)) => {
+                let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
+                published.clear_tsc_uri(&uri, &sender);
+            }
             Ok(Job::Shutdown) => break,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
@@ -200,6 +218,7 @@ fn run(
 fn inspect(
     workspace: &Workspace,
     documents: &Mutex<Documents>,
+    settings: &RwLock<Settings>,
     job: &Scheduled,
 ) -> Option<Vec<(Uri, Vec<Diagnostic>)>> {
     let current = documents
@@ -207,65 +226,58 @@ fn inspect(
         .unwrap_or_else(|error| error.into_inner())
         .get(&job.uri)
         .map(|document| document.version);
-    if current != job.version {
+    if current != Some(job.version) {
+        return None;
+    }
+    // A configuration change reschedules every document. Drop a result that
+    // was produced from a snapshot the user has already replaced.
+    let latest = settings
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone();
+    if latest != job.settings {
         return None;
     }
     let session = workspace.session(&job.path);
     let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
     let languages = analysis::forced(&job.path, &job.uri, &job.language_id);
-    match analysis::inspect(&mut session, &job.path, &job.text, languages, FixMode::None) {
-        Ok(inspection) => {
-            let mut found = inspection.findings;
-            append_project_unused_exports(&job.path, &mut found);
-            let diagnostics = findings(&job.uri, &job.text, &found);
-            Some(if diagnostics.is_empty() {
-                vec![(job.uri.clone(), Vec::new())]
+    match analysis::inspect_errors(&mut session, &job.path, &job.text, languages) {
+        Ok(found) => {
+            let diagnostics = if job.settings.syntax_diagnostics {
+                findings(&job.uri, &job.text, &found)
             } else {
-                vec![(job.uri.clone(), diagnostics)]
-            })
+                Vec::new()
+            };
+            Some(vec![(job.uri.clone(), diagnostics)])
         }
-        Err(errors) => Some(fatal_entries(&job.uri, &job.text, &errors)),
+        Err(errors) => Some(if job.settings.syntax_diagnostics {
+            fatal_entries(&job.uri, &job.text, &errors)
+        } else {
+            vec![(job.uri.clone(), Vec::new())]
+        }),
     }
 }
 
-/// Adds project-wide unused-export findings for TypeScript/JavaScript files.
-/// The export graph is built in Rust from source files, so this stays safe in
-/// an untrusted workspace and never starts Node or `tsc`.
-fn append_project_unused_exports(path: &Path, findings: &mut Vec<Finding>) {
-    if !analysis::is_typescript(path) || !path.is_file() {
-        return;
-    }
-    let Ok(project) = dotfmt_typescript::project::unused_exports(path) else {
-        return;
-    };
-    for finding in project.findings {
-        let duplicate = findings.iter().any(|existing| {
-            existing.code == finding.code
-                && existing.start == finding.start
-                && existing.end == finding.end
-        });
-        if !duplicate {
-            findings.push(finding);
-        }
-    }
-}
-
-/// Converts findings in one buffer to LSP diagnostics.
+/// Converts findings in one buffer to LSP diagnostics for code actions.
+///
+/// The diagnostics publish path filters findings to [`Severity::Error`] before
+/// calling this. Hints are never mapped to `DiagnosticSeverity::HINT`.
 pub fn findings(uri: &Uri, text: &str, findings: &[Finding]) -> Vec<Diagnostic> {
     let index = LineIndex::new(text);
     findings
         .iter()
-        .map(|finding| {
+        .filter_map(|finding| {
+            let severity = match finding.severity {
+                Severity::Error => DiagnosticSeverity::ERROR,
+                Severity::Warning => DiagnosticSeverity::WARNING,
+                Severity::Information => DiagnosticSeverity::INFORMATION,
+                Severity::Hint => return None,
+            };
             let start = clamp(text, finding.start);
             let end = clamp(text, finding.end).max(start);
-            Diagnostic {
+            Some(Diagnostic {
                 range: range(&index, text, start, end),
-                severity: Some(match finding.severity {
-                    Severity::Error => DiagnosticSeverity::ERROR,
-                    Severity::Warning => DiagnosticSeverity::WARNING,
-                    Severity::Information => DiagnosticSeverity::INFORMATION,
-                    Severity::Hint => DiagnosticSeverity::HINT,
-                }),
+                severity: Some(severity),
                 code: Some(NumberOrString::String(finding.code.clone())),
                 source: Some("dotfmt".into()),
                 message: finding.message.clone(),
@@ -298,7 +310,7 @@ pub fn findings(uri: &Uri, text: &str, findings: &[Finding]) -> Vec<Diagnostic> 
                         .collect()
                 }),
                 ..Diagnostic::default()
-            }
+            })
         })
         .collect()
 }
@@ -395,38 +407,74 @@ fn next_position(text: &str, start: usize) -> usize {
         .unwrap_or(end.max(start))
 }
 
+struct Entry {
+    /// `Some` only when every diagnostic in the entry is buffer derived.
+    version: Option<i32>,
+    diagnostics: Vec<Diagnostic>,
+}
+
 #[derive(Default)]
 struct Published {
-    dotfmt: HashMap<Uri, Vec<Diagnostic>>,
+    dotfmt: HashMap<Uri, Entry>,
     owners: HashMap<Uri, Vec<Uri>>,
     tsc: HashMap<Uri, Vec<Diagnostic>>,
-    projects: HashMap<PathBuf, Vec<Uri>>,
+    projects: HashMap<PathBuf, TscProject>,
+}
+
+struct TscProject {
+    generation: u64,
+    uris: Vec<Uri>,
 }
 
 impl Published {
     fn set_dotfmt(
         &mut self,
         owner: &Uri,
+        version: i32,
         entries: Vec<(Uri, Vec<Diagnostic>)>,
         sender: &crossbeam_channel::Sender<Message>,
     ) {
+        if self
+            .dotfmt
+            .get(owner)
+            .and_then(|entry| entry.version)
+            .is_some_and(|stored| stored > version)
+        {
+            return;
+        }
         let mut affected = self.owners.remove(owner).unwrap_or_default();
         affected.push(owner.clone());
         for uri in &affected {
             self.dotfmt.remove(uri);
         }
         let mut aliases = Vec::new();
+        let mut includes_owner = false;
         for (uri, diagnostics) in entries {
             aliases.push(uri.clone());
             affected.push(uri.clone());
-            if diagnostics.is_empty() {
-                self.dotfmt.remove(&uri);
-            } else {
-                self.dotfmt.insert(uri, diagnostics);
+            let is_owner = uri == *owner;
+            includes_owner |= is_owner;
+            if is_owner || !diagnostics.is_empty() {
+                self.dotfmt.insert(
+                    uri,
+                    Entry {
+                        version: is_owner.then_some(version),
+                        diagnostics,
+                    },
+                );
             }
         }
+        if !includes_owner {
+            self.dotfmt.insert(
+                owner.clone(),
+                Entry {
+                    version: Some(version),
+                    diagnostics: Vec::new(),
+                },
+            );
+        }
         self.owners.insert(owner.clone(), aliases);
-        publish(&affected, &self.dotfmt, &self.tsc, sender);
+        publish(&affected, &self.dotfmt, &self.tsc, sender, true);
     }
 
     fn clear_dotfmt(&mut self, owner: &Uri, sender: &crossbeam_channel::Sender<Message>) {
@@ -435,7 +483,7 @@ impl Published {
         for uri in &affected {
             self.dotfmt.remove(uri);
         }
-        publish(&affected, &self.dotfmt, &self.tsc, sender);
+        publish(&affected, &self.dotfmt, &self.tsc, sender, true);
     }
 
     fn clear_all_dotfmt(&mut self, sender: &crossbeam_channel::Sender<Message>) {
@@ -443,16 +491,28 @@ impl Published {
         affected.extend(self.owners.keys().cloned());
         self.dotfmt.clear();
         self.owners.clear();
-        publish(&affected, &self.dotfmt, &self.tsc, sender);
+        publish(&affected, &self.dotfmt, &self.tsc, sender, true);
     }
 
     fn set_tsc(
         &mut self,
         project: &Path,
+        generation: u64,
         entries: Vec<(Uri, Vec<Diagnostic>)>,
         sender: &crossbeam_channel::Sender<Message>,
     ) {
-        let mut affected = self.projects.remove(project).unwrap_or_default();
+        if self
+            .projects
+            .get(project)
+            .is_some_and(|stored| stored.generation > generation)
+        {
+            return;
+        }
+        let mut affected = self
+            .projects
+            .remove(project)
+            .map(|project| project.uris)
+            .unwrap_or_default();
         for uri in &affected {
             self.tsc.remove(uri);
         }
@@ -464,35 +524,70 @@ impl Published {
                 self.tsc.insert(uri, diagnostics);
             }
         }
-        self.projects.insert(project.to_path_buf(), owned);
-        publish(&affected, &self.dotfmt, &self.tsc, sender);
+        self.projects.insert(
+            project.to_path_buf(),
+            TscProject {
+                generation,
+                uris: owned,
+            },
+        );
+        publish(&affected, &self.dotfmt, &self.tsc, sender, true);
+    }
+
+    fn clear_tsc_uri(&mut self, uri: &Uri, sender: &crossbeam_channel::Sender<Message>) {
+        self.tsc.remove(uri);
+        for project in self.projects.values_mut() {
+            project.uris.retain(|owned| owned != uri);
+        }
+        // A compiler clear is not tied to a document version; a versioned
+        // notification could be discarded as stale and leave tsc errors behind.
+        publish(
+            std::slice::from_ref(uri),
+            &self.dotfmt,
+            &self.tsc,
+            sender,
+            false,
+        );
     }
 
     fn clear_tsc(&mut self, sender: &crossbeam_channel::Sender<Message>) {
         let mut affected: Vec<Uri> = self.tsc.keys().cloned().collect();
-        affected.extend(self.projects.values().flatten().cloned());
+        affected.extend(self.projects.values().flat_map(|project| project.uris.iter().cloned()));
         self.tsc.clear();
         self.projects.clear();
-        publish(&affected, &self.dotfmt, &self.tsc, sender);
+        publish(&affected, &self.dotfmt, &self.tsc, sender, true);
     }
 }
 
 fn publish(
     affected: &[Uri],
-    dotfmt: &HashMap<Uri, Vec<Diagnostic>>,
+    dotfmt: &HashMap<Uri, Entry>,
     tsc: &HashMap<Uri, Vec<Diagnostic>>,
     sender: &crossbeam_channel::Sender<Message>,
+    stamp_version: bool,
 ) {
     let mut seen = HashSet::new();
     for uri in affected {
         if !seen.insert(uri) {
             continue;
         }
-        let mut diagnostics = dotfmt.get(uri).cloned().unwrap_or_default();
-        diagnostics.extend(tsc.get(uri).cloned().unwrap_or_default());
+        let dotfmt_entry = dotfmt.get(uri);
+        let tsc_entries = tsc.get(uri);
+        let mut diagnostics = dotfmt_entry
+            .map(|entry| entry.diagnostics.clone())
+            .unwrap_or_default();
+        if let Some(tsc) = tsc_entries {
+            diagnostics.extend(tsc.iter().cloned());
+        }
+        // `tsc` results describe the file on disk and carry no document
+        // version. Never stamp the merged notification with a buffer version.
+        let version = match (dotfmt_entry, tsc_entries.filter(|entries| !entries.is_empty())) {
+            (Some(entry), None) if stamp_version => entry.version,
+            _ => None,
+        };
         let notification = Notification::new(
             PublishDiagnostics::METHOD.into(),
-            PublishDiagnosticsParams::new(uri.clone(), diagnostics, None),
+            PublishDiagnosticsParams::new(uri.clone(), diagnostics, version),
         );
         let _ = sender.send(Message::Notification(notification));
     }
@@ -515,6 +610,36 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(path, text).unwrap();
+    }
+
+    fn scheduled(uri: Uri, path: PathBuf, text: &str, version: i32) -> Scheduled {
+        Scheduled {
+            uri,
+            version,
+            path,
+            language_id: "typescript".into(),
+            text: text.into(),
+            delay: Duration::from_millis(0),
+            settings: Settings::default(),
+        }
+    }
+
+    fn inspect_ts(root: &Path, text: &str) -> Vec<Diagnostic> {
+        write(root, "dotfmt.dotfile", "typescript {}\n");
+        let path = root.join("src/a.ts");
+        write(root, "src/a.ts", text);
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let workspace = Workspace::new(vec![root.to_path_buf()]);
+        let documents = Mutex::new(Documents::default());
+        documents.lock().unwrap().open(uri.clone(), document);
+        let settings = RwLock::new(Settings::default());
+        let job = scheduled(uri.clone(), path, text, 1);
+        let entries = inspect(&workspace, &documents, &settings, &job).expect("inspection");
+        entries
+            .into_iter()
+            .find_map(|(target, diagnostics)| (target == uri).then_some(diagnostics))
+            .expect("diagnostics for the open file")
     }
 
     #[test]
@@ -546,6 +671,13 @@ mod tests {
     }
 
     #[test]
+    fn hints_are_never_mapped_to_lsp_diagnostics() {
+        let uri = Uri::from_str("file:///tmp/a.json").unwrap();
+        let finding = Finding::new("hint", "hint", Severity::Hint, 0, 1);
+        assert!(findings(&uri, "a\n", &[finding]).is_empty());
+    }
+
+    #[test]
     fn fatal_errors_use_one_based_lines_and_byte_columns() {
         let uri = Uri::from_str("file:///tmp/a.json").unwrap();
         let error = Fatal::new(dotfmt_core::diagnostic::DiagnosticKind::Syntax, "bad")
@@ -563,10 +695,11 @@ mod tests {
         let uri = Uri::from_str("file:///tmp/a.json").unwrap();
         published.set_dotfmt(
             &uri,
+            1,
             vec![(uri.clone(), vec![Diagnostic::default()])],
             &sender,
         );
-        published.set_dotfmt(&uri, vec![(uri.clone(), Vec::new())], &sender);
+        published.set_dotfmt(&uri, 2, vec![(uri.clone(), Vec::new())], &sender);
         let _first = receiver.recv().unwrap();
         let second = receiver.recv().unwrap();
         let Message::Notification(notification) = second else {
@@ -574,53 +707,136 @@ mod tests {
         };
         let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
         assert!(params.diagnostics.is_empty());
+        assert_eq!(params.version, Some(2));
     }
 
     #[test]
-    fn project_unused_exports_become_lsp_diagnostics() {
+    fn an_older_document_version_cannot_replace_a_newer_one() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut published = Published::default();
+        let uri = Uri::from_str("file:///tmp/a.json").unwrap();
+        published.set_dotfmt(&uri, 5, vec![(uri.clone(), Vec::new())], &sender);
+        let _ = receiver.recv().unwrap();
+        published.set_dotfmt(
+            &uri,
+            4,
+            vec![(uri.clone(), vec![Diagnostic::default()])],
+            &sender,
+        );
+        assert!(
+            receiver.recv_timeout(Duration::from_millis(50)).is_err(),
+            "stale result was published"
+        );
+    }
+
+    #[test]
+    fn tsc_entries_make_the_published_version_versionless() {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let mut published = Published::default();
+        let uri = Uri::from_str("file:///tmp/a.ts").unwrap();
+        published.set_dotfmt(&uri, 3, vec![(uri.clone(), Vec::new())], &sender);
+        let _ = receiver.recv().unwrap();
+        published.set_tsc(
+            Path::new("/tmp"),
+            1,
+            vec![(uri.clone(), vec![Diagnostic::default()])],
+            &sender,
+        );
+        let message = receiver.recv().unwrap();
+        let Message::Notification(notification) = message else {
+            panic!("expected diagnostics notification");
+        };
+        let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
+        assert_eq!(params.version, None);
+        assert_eq!(params.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn no_lint_findings_are_published_from_a_typescript_buffer() {
+        let directory = tempfile::tempdir().unwrap();
+        let text = "import { unused } from \"./mod\";\n\
+                    import type { Only } from \"./mod\";\n\
+                    function f(unusedParam: number) {}\n\
+                    export const value = 1;\n";
+        let diagnostics = inspect_ts(directory.path(), text);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn project_unused_exports_are_not_lsp_diagnostics() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
-        write(root, "dotfmt.dotfile", "typescript {}\n");
         write(root, "package.json", "{\"private\":true}\n");
         let text = "export const consumed = 1;\nexport const orphan = 2;\n";
-        let path = root.join("src/a.ts");
-        write(root, "src/a.ts", text);
         write(
             root,
             "src/use.ts",
             "import { consumed } from \"./a\";\nconsole.log(consumed);\n",
         );
+        let diagnostics = inspect_ts(root, text);
+        assert!(
+            diagnostics.iter().all(|diagnostic| {
+                diagnostic.code
+                    != Some(NumberOrString::String("unused-export".into()))
+            }),
+            "{diagnostics:?}"
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
 
+    #[test]
+    fn syntax_errors_remain_error_diagnostics() {
+        let directory = tempfile::tempdir().unwrap();
+        let diagnostics = inspect_ts(directory.path(), "const = ;\n");
+        assert!(!diagnostics.is_empty());
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR))
+        );
+    }
+
+    #[test]
+    fn disabled_syntax_diagnostics_publish_nothing() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(root, "dotfmt.dotfile", "typescript {}\n");
+        let text = "const = ;\n";
+        let path = root.join("src/a.ts");
+        write(root, "src/a.ts", text);
         let uri = uri::from_path(&path);
         let document = Document::new(text.into(), "typescript".into(), 1);
         let workspace = Workspace::new(vec![root.to_path_buf()]);
         let documents = Mutex::new(Documents::default());
         documents.lock().unwrap().open(uri.clone(), document);
-        let job = Scheduled {
-            uri: uri.clone(),
-            version: Some(1),
-            path,
-            language_id: "typescript".into(),
-            text: text.into(),
-            delay: DEBOUNCE,
-        };
+        let settings = RwLock::new(Settings {
+            syntax_diagnostics: false,
+            ..Settings::default()
+        });
+        let mut job = scheduled(uri.clone(), path, text, 1);
+        job.settings.syntax_diagnostics = false;
+        let entries = inspect(&workspace, &documents, &settings, &job).expect("inspection");
+        assert_eq!(entries, vec![(uri, Vec::new())]);
+    }
 
-        let entries = inspect(&workspace, &documents, &job).expect("inspection");
-        let diagnostics = entries
-            .into_iter()
-            .find_map(|(target, diagnostics)| (target == uri).then_some(diagnostics))
-            .expect("diagnostics for the open file");
-        let unused: Vec<&Diagnostic> = diagnostics
-            .iter()
-            .filter(|diagnostic| {
-                diagnostic.code == Some(NumberOrString::String("unused-export".into()))
-            })
-            .collect();
-        assert_eq!(unused.len(), 1, "{diagnostics:?}");
-        assert!(unused[0].message.contains("orphan"));
-        assert!(!unused[0].message.contains("consumed"));
-        assert_eq!(unused[0].range.start, Position::new(1, 13));
-        assert_eq!(unused[0].range.end, Position::new(1, 19));
-        assert_eq!(unused[0].source.as_deref(), Some("dotfmt"));
+    #[test]
+    fn a_stale_settings_snapshot_is_dropped() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(root, "dotfmt.dotfile", "typescript {}\n");
+        let text = "const = ;\n";
+        let path = root.join("src/a.ts");
+        write(root, "src/a.ts", text);
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let workspace = Workspace::new(vec![root.to_path_buf()]);
+        let documents = Mutex::new(Documents::default());
+        documents.lock().unwrap().open(uri.clone(), document);
+        let settings = RwLock::new(Settings {
+            syntax_diagnostics: false,
+            ..Settings::default()
+        });
+        let job = scheduled(uri, path, text, 1);
+        assert!(inspect(&workspace, &documents, &settings, &job).is_none());
     }
 }
