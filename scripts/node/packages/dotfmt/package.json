@@ -1,8 +1,8 @@
 {
   "name": "dotfmt",
   "displayName": "dotfmt",
-  "description": "Quiet formatting for config, data, markup, TypeScript/TSX, JavaScript/JSX, CSS and Tailwind",
-  "version": "0.2.0",
+  "description": "Formatter for config, data, markup, TypeScript/TSX, JavaScript/JSX, CSS and Tailwind; errors only, never lints",
+  "version": "0.3.0",
   "publisher": "fredrir",
   "license": "MIT",
   "private": true,
@@ -12,7 +12,8 @@
   },
   "scripts": {
     "build": "bun build.ts",
-    "deploy": "bun deploy.ts"
+    "deploy": "bun deploy.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "vscode-languageclient": "^11.0.0"
@@ -38,6 +39,7 @@
     "onLanguage:css",
     "onLanguage:dockercompose",
     "onLanguage:dotenv",
+    "onLanguage:dotfile",
     "onLanguage:html",
     "onLanguage:ignore",
     "onLanguage:ini",
@@ -62,16 +64,16 @@
     "onLanguage:typescript",
     "onLanguage:typescriptreact",
     "onLanguage:vue",
-    "onLanguage:yaml",
-    "onStartupFinished"
+    "onLanguage:yaml"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "Workspace settings cannot choose the dotfmt or language server binary. Unsafe fixes stay disabled; formatting still works.",
+      "description": "Workspace settings cannot choose the dotfmt or language server binary or the TypeScript compiler. Type-aware checks and unsafe fixes stay disabled; formatting still works.",
       "restrictedConfigurations": [
         "dotfmt.path",
-        "dotfmt.server.path"
+        "dotfmt.server.path",
+        "dotfmt.typescript.tsdk"
       ]
     },
     "virtualWorkspaces": {
@@ -127,6 +129,11 @@
         "category": "dotfmt"
       },
       {
+        "command": "dotfmt.showStatus",
+        "title": "Show Status",
+        "category": "dotfmt"
+      },
+      {
         "command": "dotfmt.setAsDefaultFormatter",
         "title": "Set as Default Formatter",
         "category": "dotfmt"
@@ -135,27 +142,55 @@
         "command": "dotfmt.openConfig",
         "title": "Open Configuration",
         "category": "dotfmt"
+      },
+      {
+        "command": "dotfmt.doctor",
+        "title": "Doctor",
+        "category": "dotfmt"
       }
     ],
     "configuration": {
       "title": "dotfmt",
       "properties": {
-        "dotfmt.path": {
-          "type": "string",
-          "default": "",
-          "scope": "machine-overridable",
-          "description": "dotfmt CLI binary shown in the output log for manual checks; empty uses the bundled one"
-        },
-        "dotfmt.server.path": {
-          "type": "string",
-          "default": "",
-          "scope": "machine-overridable",
-          "description": "dotfmt language server binary; empty uses the bundled one"
-        },
         "dotfmt.typeAware": {
           "type": "boolean",
           "default": true,
-          "description": "Run tsc --noEmit for project-wide TypeScript diagnostics on open and save"
+          "scope": "resource",
+          "markdownDescription": "Run the TypeScript compiler for the nearest project. **Errors only**: type errors become diagnostics, and unused-code or lint findings are never published as diagnostics."
+        },
+        "dotfmt.diagnostics.syntax": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "Publish fatal syntax and configuration errors. Set to `false` to silence all dotfmt diagnostics for this resource."
+        },
+        "dotfmt.diagnostics.tscScope": {
+          "type": "string",
+          "enum": [
+            "open",
+            "project"
+          ],
+          "enumDescriptions": [
+            "Check open TypeScript/JavaScript documents only",
+            "Check every file in the TypeScript project"
+          ],
+          "default": "open",
+          "scope": "resource",
+          "markdownDescription": "Which files receive TypeScript compiler errors when `dotfmt.typeAware` is on. `open` keeps diagnostics to open documents; `project` publishes errors for the whole project."
+        },
+        "dotfmt.diagnostics.debounceMs": {
+          "type": "number",
+          "minimum": 50,
+          "maximum": 2000,
+          "default": 250,
+          "scope": "resource",
+          "markdownDescription": "Delay in milliseconds before TypeScript checks run again after an edit."
+        },
+        "dotfmt.typescript.tsdk": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Path to a TypeScript installation's `lib` directory (for example `node_modules/typescript/lib`). Empty auto-discovers the project's compiler. The workspace value is ignored in untrusted workspaces."
         },
         "dotfmt.fixes.onSave": {
           "type": "string",
@@ -170,7 +205,20 @@
             "Apply safe and unsafe fixes and formatting on save"
           ],
           "default": "off",
+          "scope": "resource",
           "markdownDescription": "Apply the selected fixes through `textDocument/willSaveWaitUntil`, before the file is written. Alternatively use `editor.codeActionsOnSave` with `source.fixAll.dotfmt`, `source.organizeImports.dotfmt` or `source.format.dotfmt`."
+        },
+        "dotfmt.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "dotfmt CLI binary shown in status and doctor; empty uses the bundled one"
+        },
+        "dotfmt.server.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "dotfmt language server binary; empty uses the bundled one"
         },
         "dotfmt.trace.server": {
           "type": "string",
@@ -180,7 +228,8 @@
             "verbose"
           ],
           "default": "off",
-          "description": "Trace communication with the dotfmt language server"
+          "scope": "window",
+          "description": "Trace LSP communication with the dotfmt language server in the dotfmt trace output channel"
         }
       }
     }

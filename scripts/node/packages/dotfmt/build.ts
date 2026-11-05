@@ -17,7 +17,7 @@ export type Platform = keyof typeof TARGETS;
 
 const DEFAULT_PLATFORMS: Platform[] = ["darwin-arm64", "linux-x64"];
 
-const isPlatform = (name: string): name is Platform => name in TARGETS;
+export const isPlatform = (name: string): name is Platform => name in TARGETS;
 
 const executable = (name: string, platform: Platform): string =>
   platform.startsWith("win32") ? `${name}.exe` : name;
@@ -96,10 +96,36 @@ export async function build(
 }
 
 if (import.meta.main) {
-  const { values } = parseArgs({ options: { host: { type: "boolean" } } });
-  const host = `${process.platform}-${process.arch}`;
-  if (values.host && !isPlatform(host)) {
-    throw new Error(`no dotfmt target for ${host}`);
+  const { values } = parseArgs({
+    options: {
+      host: { type: "boolean" },
+      target: { type: "string", multiple: true },
+    },
+  });
+  const requested = (values.target ?? [])
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const platforms: Platform[] = [];
+  for (const name of requested) {
+    if (!isPlatform(name)) {
+      throw new Error(
+        `unknown dotfmt target ${name}; expected ${Object.keys(TARGETS).join(
+          ", ",
+        )}`,
+      );
+    }
+    platforms.push(name);
   }
-  await build(values.host && isPlatform(host) ? [host] : undefined);
+  if (values.host && platforms.length > 0) {
+    throw new Error("--host and --target cannot be combined");
+  }
+  if (values.host) {
+    const host = `${process.platform}-${process.arch}`;
+    if (!isPlatform(host)) {
+      throw new Error(`no dotfmt target for ${host}`);
+    }
+    platforms.push(host);
+  }
+  await build(platforms.length > 0 ? [...new Set(platforms)] : undefined);
 }
