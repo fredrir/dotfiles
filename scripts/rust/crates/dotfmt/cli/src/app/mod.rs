@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 
 pub use dotfmt_core::config::Selection;
 
-use dotfmt_core::config::Resolver;
+use dotfmt_core::config::{ConfigOverlay, Resolver};
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use dotfmt_core::language::Language;
 
@@ -99,6 +99,17 @@ impl Session {
 
     pub fn with_paths(cwd: PathBuf, global: Option<PathBuf>) -> Self {
         Self::new(Resolver::with_paths(cwd, global), Options::default())
+    }
+
+    pub fn with_paths_overlay(
+        cwd: PathBuf,
+        global: Option<PathBuf>,
+        overlay: Option<ConfigOverlay>,
+    ) -> Self {
+        Self::new(
+            Resolver::with_paths_overlay(cwd, global, overlay),
+            Options::default(),
+        )
     }
 
     pub fn run(&mut self, request: Request) -> Result<Outcome, Vec<Diagnostic>> {

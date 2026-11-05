@@ -8,10 +8,12 @@ use crate::language::Language;
 use patterns::{PatternLayer, Patterns};
 use resolve::absolute;
 
+mod overlay;
 mod parse;
 mod patterns;
 mod resolve;
 
+pub use overlay::ConfigOverlay;
 pub use resolve::Resolver;
 
 pub const CONFIG_NAME: &str = "dotfmt.dotfile";
@@ -183,16 +185,26 @@ impl Effective {
         self.excludes.extend(layer.excludes);
         for (language, local) in layer.languages {
             let config = self.languages.entry(language).or_default();
-            config.enabled = local.enabled;
+            if let Some(enabled) = local.enabled {
+                config.enabled = enabled;
+            }
             config.settings.extend(local.settings);
             let filters = self.language_filters.entry(language).or_default();
             filters.0.extend(local.includes);
             filters.1.extend(local.excludes);
         }
     }
+
+    /// Applies native editor settings after every configuration file layer.
+    pub fn apply_overlay(&mut self, overlay: ConfigOverlay) {
+        if overlay.is_empty() {
+            return;
+        }
+        self.apply(overlay.layer);
+    }
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 struct Layer {
     source: Option<PathBuf>,
     global: Settings,
@@ -201,9 +213,28 @@ struct Layer {
     excludes: Option<Arc<PatternLayer>>,
 }
 
+impl Layer {
+    fn is_empty(&self) -> bool {
+        self.global.is_empty()
+            && self.languages.values().all(Local::is_empty)
+            && self.includes.is_none()
+            && self.excludes.is_none()
+    }
+}
+
+#[derive(Clone, Debug)]
 struct Local {
-    enabled: bool,
+    enabled: Option<bool>,
     settings: Settings,
     includes: Option<Arc<PatternLayer>>,
     excludes: Option<Arc<PatternLayer>>,
+}
+
+impl Local {
+    fn is_empty(&self) -> bool {
+        self.enabled.is_none()
+            && self.settings.is_empty()
+            && self.includes.is_none()
+            && self.excludes.is_none()
+    }
 }

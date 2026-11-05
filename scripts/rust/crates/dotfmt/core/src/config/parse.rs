@@ -122,7 +122,7 @@ impl Parser<'_> {
 
     fn settings(&mut self, global: bool) -> Result<Local, Diagnostic> {
         let mut local = Local {
-            enabled: true,
+            enabled: Some(true),
             settings: Settings::new(),
             includes: None,
             excludes: None,
@@ -169,11 +169,11 @@ impl Parser<'_> {
                     return Err(self.error(line, "duplicate setting 'enabled'"));
                 }
                 enabled_seen = true;
-                local.enabled = match value.as_str() {
+                local.enabled = Some(match value.as_str() {
                     "true" => true,
                     "false" => false,
                     _ => return Err(self.error(line, "enabled must be true or false")),
-                };
+                });
                 continue;
             }
             if global {
@@ -301,28 +301,7 @@ impl Parser<'_> {
                 self.bump();
             }
             let pattern = &self.source[start..self.offset];
-            // globset also implements shell brace alternatives; gitignore
-            // treats braces literally, including an unmatched opening brace.
-            let mut literal = String::with_capacity(pattern.len());
-            let mut escaped = false;
-            let mut class = false;
-            for ch in pattern.chars() {
-                if !escaped {
-                    if ch == '[' {
-                        class = true;
-                    }
-                    if ch == ']' {
-                        class = false;
-                    }
-                    if !class && matches!(ch, '{' | '}') {
-                        literal.push('\\');
-                    }
-                }
-                literal.push(ch);
-                escaped = ch == '\\' && !escaped;
-            }
-            builder
-                .add_line(Some(self.path.to_path_buf()), &literal)
+            super::patterns::add_pattern(&mut builder, self.path, pattern)
                 .map_err(|error| self.error(line, error))?;
         }
     }
