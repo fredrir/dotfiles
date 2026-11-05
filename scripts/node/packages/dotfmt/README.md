@@ -52,7 +52,7 @@ organize_imports = false
 
 Configured fixes apply only to full-document formatting and `textDocument/willSaveWaitUntil`. Range formatting, on-type formatting, paste formatting and formatting requested through a code action never apply them; explicit fix actions (`source.fixAll.dotfmt`, **dotfmt: Fix All**) apply fixes directly.
 
-The same categories are available interactively through code actions and **dotfmt: Fix All**. Unsafe fixes are hidden in untrusted workspaces.
+The implemented import and local-variable categories are available interactively through code actions and **dotfmt: Fix All**. Export removal is format-time or CLI (`dotfmt --fix-unsafe`), and parameter removal is diagnose-only. Unsafe fixes are hidden in untrusted workspaces.
 
 ## Type-aware diagnostics
 
