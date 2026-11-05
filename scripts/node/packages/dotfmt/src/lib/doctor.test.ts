@@ -42,6 +42,8 @@ describe("parseDoctorReport", () => {
       typeAware: true,
       syntax: false,
       tscScope: "project",
+      default: undefined,
+      folders: [],
       roots: ["/work/app", "/work/other"],
       projects: [
         {
@@ -69,9 +71,81 @@ describe("parseDoctorReport", () => {
       typeAware: undefined,
       syntax: undefined,
       tscScope: undefined,
+      default: undefined,
+      folders: [],
       roots: [],
       projects: [],
     });
+  });
+
+  test("reads the default and per-folder settings, tolerating null fields", () => {
+    const report = parseDoctorReport({
+      server: { name: "dotfmt-lsp" },
+      default: {
+        typeAware: true,
+        syntax: false,
+        tscScope: "open",
+        debounceMs: 250,
+        fixesOnSave: "off",
+        tsdk: null,
+        hasFormat: false,
+      },
+      folders: [
+        {
+          root: "/work/app",
+          typeAware: true,
+          syntax: false,
+          tscScope: "project",
+          debounceMs: 500,
+          fixesOnSave: "safe",
+          tsdk: "/sdk/typescript",
+          hasFormat: true,
+        },
+        {
+          root: "/work/other",
+          typeAware: null,
+          syntax: null,
+          tscScope: null,
+          debounceMs: null,
+          fixesOnSave: null,
+          tsdk: null,
+        },
+      ],
+    });
+    expect(report?.default).toEqual({
+      typeAware: true,
+      syntax: false,
+      tscScope: "open",
+      debounceMs: 250,
+      fixesOnSave: "off",
+      tsdk: undefined,
+      hasFormat: false,
+      hasFormatExtra: undefined,
+    });
+    expect(report?.folders).toEqual([
+      {
+        root: "/work/app",
+        typeAware: true,
+        syntax: false,
+        tscScope: "project",
+        debounceMs: 500,
+        fixesOnSave: "safe",
+        tsdk: "/sdk/typescript",
+        hasFormat: true,
+        hasFormatExtra: undefined,
+      },
+      {
+        root: "/work/other",
+        typeAware: undefined,
+        syntax: undefined,
+        tscScope: undefined,
+        debounceMs: undefined,
+        fixesOnSave: undefined,
+        tsdk: undefined,
+        hasFormat: undefined,
+        hasFormatExtra: undefined,
+      },
+    ]);
   });
 
   test("rejects a response without a server object", () => {
@@ -102,6 +176,60 @@ describe("doctorReportLines", () => {
       "      compiler: unavailable",
       "      version: unknown",
       "      state: no-tsconfig",
+    ]);
+  });
+
+  test("renders the default and per-folder settings", () => {
+    const report = parseDoctorReport({
+      server: { name: "dotfmt-lsp", version: "0.3.0" },
+      default: {
+        typeAware: true,
+        syntax: false,
+        tscScope: "open",
+        debounceMs: 250,
+        fixesOnSave: "off",
+        tsdk: null,
+      },
+      folders: [
+        {
+          root: "/work/app",
+          typeAware: true,
+          syntax: false,
+          tscScope: "project",
+          debounceMs: 500,
+          fixesOnSave: "safe",
+          tsdk: "/sdk/typescript",
+        },
+      ],
+      roots: ["/work/app"],
+    }) as DoctorReport;
+    expect(
+      doctorReportLines(report, (value) => value.replace("/work", "~")),
+    ).toEqual([
+      "server report:",
+      "  server: dotfmt-lsp 0.3.0",
+      "  trusted: unknown",
+      "  type-aware: unknown",
+      "  syntax diagnostics: unknown",
+      "  tsc scope: unknown",
+      "  default settings:",
+      "    type-aware: on",
+      "    syntax diagnostics: off",
+      "    tsc scope: open",
+      "    debounce: 250 ms",
+      "    fixes on save: off",
+      "    tsdk: auto",
+      "  folders:",
+      "    ~/app",
+      "      type-aware: on",
+      "      syntax diagnostics: off",
+      "      tsc scope: project",
+      "      debounce: 500 ms",
+      "      fixes on save: safe",
+      "      tsdk: /sdk/typescript",
+      "  roots: ~/app",
+      "  projects:",
+      "    (none)",
     ]);
   });
 

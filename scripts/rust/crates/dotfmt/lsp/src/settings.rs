@@ -86,6 +86,8 @@ pub struct Settings {
     pub tsc_scope: TscScope,
     pub debounce_ms: u64,
     pub fixes_on_save: FixesOnSave,
+    /// Offer project-wide unused-export removal as an unsafe code action.
+    pub code_actions_unused_exports: bool,
     /// Explicit TypeScript SDK: a package directory, its `lib` directory, or `tsc.js`.
     pub tsdk: Option<PathBuf>,
     /// Native `dotfmt.format` overlay, normalized to the nested dotfmt.dotfile shape.
@@ -102,6 +104,7 @@ impl Default for Settings {
             tsc_scope: TscScope::Open,
             debounce_ms: DEBOUNCE_DEFAULT_MS,
             fixes_on_save: FixesOnSave::Off,
+            code_actions_unused_exports: true,
             tsdk: None,
             format: None,
             format_extra: None,
@@ -141,6 +144,11 @@ impl Settings {
             && let Some(mode) = FixesOnSave::parse(mode)
         {
             self.fixes_on_save = mode;
+        }
+        if let Some(unused_exports) =
+            lookup(value, &["codeActions", "unusedExports"]).and_then(Value::as_bool)
+        {
+            self.code_actions_unused_exports = unused_exports;
         }
         let tsdk = lookup(value, &["typescript", "tsdk"])
             .or_else(|| value.get("tsdk"))
@@ -506,6 +514,7 @@ mod tests {
         assert_eq!(settings.tsc_scope, TscScope::Open);
         assert_eq!(settings.debounce_ms, DEBOUNCE_DEFAULT_MS);
         assert_eq!(settings.fixes_on_save, FixesOnSave::Off);
+        assert!(settings.code_actions_unused_exports);
         assert_eq!(settings.tsdk, None);
         assert_eq!(settings.format, None);
         assert_eq!(settings.format_extra, None);
@@ -523,7 +532,8 @@ mod tests {
                     "debounceMs": 500
                 },
                 "typescript": { "tsdk": "/opt/ts" },
-                "fixes": { "onSave": "safe" }
+                "fixes": { "onSave": "safe" },
+                "codeActions": { "unusedExports": false }
             }
         }));
         assert!(!settings.type_aware);
@@ -532,6 +542,7 @@ mod tests {
         assert_eq!(settings.debounce_ms, 500);
         assert_eq!(settings.tsdk, Some(PathBuf::from("/opt/ts")));
         assert_eq!(settings.fixes_on_save, FixesOnSave::Safe);
+        assert!(!settings.code_actions_unused_exports);
         settings.apply(&json!({ "dotfmt": { "fixes": { "onSave": "unsafe" } } }));
         assert_eq!(settings.fixes_on_save, FixesOnSave::Unsafe);
         settings.apply(&json!({ "dotfmt": { "fixes": { "onSave": "nonsense" } } }));
@@ -547,7 +558,8 @@ mod tests {
             "dotfmt.diagnostics.syntax": false,
             "dotfmt.diagnostics.tscScope": "project",
             "dotfmt.diagnostics.debounceMs": 75,
-            "dotfmt.typescript.tsdk": "/sdk"
+            "dotfmt.typescript.tsdk": "/sdk",
+            "dotfmt.codeActions.unusedExports": false
         }));
         assert!(!settings.type_aware);
         assert!(!settings.syntax_diagnostics);
@@ -555,6 +567,7 @@ mod tests {
         assert_eq!(settings.debounce_ms, 75);
         assert_eq!(settings.tsdk, Some(PathBuf::from("/sdk")));
         assert_eq!(settings.fixes_on_save, FixesOnSave::Safe);
+        assert!(!settings.code_actions_unused_exports);
     }
 
     #[test]

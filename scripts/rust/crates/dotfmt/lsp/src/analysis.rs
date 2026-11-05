@@ -175,6 +175,23 @@ pub fn inspect(
     languages: Vec<Language>,
     fix: FixMode,
 ) -> Result<Inspection, Vec<Diagnostic>> {
+    inspect_with_project(session, path, text, languages, fix, false)
+}
+
+/// Inspects one buffer, optionally with project-wide analysis.
+///
+/// Diagnostics keep `project_analysis` off: unused exports are not published as
+/// editor diagnostics. Code actions opt in to project analysis so an unsafe
+/// unused-export fix can be offered for a saved buffer.
+#[allow(clippy::collapsible_match, clippy::too_many_arguments)]
+pub fn inspect_with_project(
+    session: &mut Session,
+    path: &Path,
+    text: &str,
+    languages: Vec<Language>,
+    fix: FixMode,
+    project_analysis: bool,
+) -> Result<Inspection, Vec<Diagnostic>> {
     let request = Request {
         operation: Operation::Inspect {
             targets: Vec::new(),
@@ -187,9 +204,7 @@ pub fn inspect(
             json: false,
             // The LSP publishes project tsc diagnostics from its own worker.
             type_aware: Some(false),
-            // Project unused-export fixes run only through full-document
-            // formatting or the CLI; code actions stay file-local.
-            project_analysis: false,
+            project_analysis,
         },
         languages,
         dialect: None,

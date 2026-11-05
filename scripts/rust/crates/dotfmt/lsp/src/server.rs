@@ -1011,14 +1011,24 @@ impl Server {
         let session = self.workspace.session(&path);
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
         state.check()?;
-        // One inspection supplies quickfixes and the safe fix set for both
-        // fix-all and organize-imports; formatting then runs exactly once.
-        let inspection = match analysis::inspect(
+        // Project analysis is only needed when an unsafe unused-export quick
+        // fix can be returned. It is expensive, trusted-only, and never part of
+        // diagnostics or formatting.
+        let settings = self.settings_for(&path);
+        let project_analysis = analysis::is_typescript(&path)
+            && settings.code_actions_unused_exports
+            && self.trusted()
+            && (actions::wants(&only, CodeActionKind::QUICKFIX.as_str())
+                || actions::wants(&only, actions::FIX_ALL));
+        // One inspection supplies quickfixes and the safe fix set for
+        // fix-all and organize-imports.
+        let inspection = match analysis::inspect_with_project(
             &mut session,
             &path,
             document.text(),
             languages.clone(),
             FixMode::Unsafe,
+            project_analysis,
         ) {
             Ok(inspection) => inspection,
             Err(errors) => {
@@ -1044,39 +1054,51 @@ impl Server {
                 .copied()
                 .filter(|fix| fix.kind.contains("organizeImports"))
                 .collect();
-            let selected: Vec<&Fix> = if wants_fix_all {
-                safe_fixes
-            } else if wants_organize {
-                organize_fixes
-            } else {
-                Vec::new()
-            };
-            let source = if selected.is_empty() {
-                document.text().to_owned()
-            } else {
-                match apply_fixes(document.text(), &selected) {
-                    Ok(text) => text,
-                    Err(error) => {
-                        self.log(format!("apply fixes: {error}"));
-                        document.text().to_owned()
-                    }
-                }
-            };
-            match analysis::format(&mut session, &path, &source, languages, false) {
-                Ok(text) => {
-                    if wants_fix_all {
-                        fix_all = Some(text.clone());
-                    }
-                    if wants_organize {
-                        organize = Some(text.clone());
-                    }
-                    if wants_format {
-                        format = Some(text);
-                    }
-                }
+            let mut formatted = |source: &str| match analysis::format(
+                &mut session,
+                &path,
+                source,
+                languages.clone(),
+                false,
+            ) {
+                Ok(text) => Some(text),
                 Err(errors) => {
                     self.publish_fatal(&uri, document.text(), document.version, &errors);
+                    None
                 }
+            };
+            let apply_selected = |selected: &[&Fix]| -> Option<String> {
+                if selected.is_empty() {
+                    return Some(document.text().to_owned());
+                }
+                match apply_fixes(document.text(), selected) {
+                    Ok(text) => Some(text),
+                    Err(error) => {
+                        self.log(format!("apply fixes: {error}"));
+                        None
+                    }
+                }
+            };
+            // Formatting-only requests must never carry fixes. Compute the
+            // plain format once and use it for every source action without
+            // selected fixes; only fix-all may include safe fix edits.
+            let plain = formatted(document.text());
+            if wants_format {
+                format = plain.clone();
+            }
+            if wants_fix_all {
+                fix_all = match apply_selected(&safe_fixes) {
+                    Some(source) if source != document.text() => formatted(&source),
+                    Some(_) => plain.clone(),
+                    None => plain.clone(),
+                };
+            }
+            if wants_organize {
+                organize = match apply_selected(&organize_fixes) {
+                    Some(source) if source != document.text() => formatted(&source),
+                    Some(_) => plain.clone(),
+                    None => plain,
+                };
             }
         }
         state.check()?;
@@ -2011,6 +2033,72 @@ mod tests {
             output.replace_range(range, &new_text);
         }
         output
+    }
+
+    fn code_actions_for(server: &Arc<Server>, uri: &Uri, only: Value) -> Vec<CodeActionOrCommand> {
+        let result = server
+            .handle(
+                CodeActionRequest::METHOD,
+                &json!({
+                    "textDocument": { "uri": uri },
+                    "range": {
+                        "start": { "line": 0, "character": 0 },
+                        "end": { "line": 0, "character": 40 }
+                    },
+                    "context": { "diagnostics": [], "only": only }
+                }),
+                &RequestState::default(),
+            )
+            .unwrap();
+        serde_json::from_value(result).unwrap()
+    }
+
+    fn action_text(action: &CodeActionOrCommand, text: &str) -> Option<String> {
+        let CodeActionOrCommand::CodeAction(action) = action else {
+            return None;
+        };
+        let edit = action.edit.as_ref()?;
+        if let Some(changes) = &edit.changes {
+            return changes
+                .values()
+                .next()
+                .map(|edits| apply_edits(text, edits));
+        }
+        let lsp_types::DocumentChanges::Edits(document_edits) = edit.document_changes.as_ref()?
+        else {
+            return None;
+        };
+        let edits: Vec<TextEdit> = document_edits
+            .first()?
+            .edits
+            .iter()
+            .map(|edit| match edit {
+                lsp_types::OneOf::Left(edit) => edit.clone(),
+                lsp_types::OneOf::Right(annotated) => annotated.text_edit.clone(),
+            })
+            .collect();
+        Some(apply_edits(text, &edits))
+    }
+
+    fn action_titles(actions: &[CodeActionOrCommand]) -> Vec<String> {
+        actions
+            .iter()
+            .filter_map(|action| match action {
+                CodeActionOrCommand::CodeAction(action) => Some(action.title.clone()),
+                CodeActionOrCommand::Command(_) => None,
+            })
+            .collect()
+    }
+
+    fn unused_export_project(root: &Path) -> (PathBuf, Uri, String) {
+        std::fs::write(root.join("package.json"), r#"{"private":true}"#).unwrap();
+        std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        let path = root.join("src/a.ts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let text = "export const unused = 1;\n";
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        (path, uri, text.into())
     }
 
     #[test]
@@ -3434,6 +3522,133 @@ mod tests {
                 action.title
             );
         }
+    }
+
+    #[test]
+    fn code_actions_offer_unused_export_removal() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (_path, uri, text) = unused_export_project(temporary.path());
+        let (server, _receiver) = server_with_options(temporary.path(), json!({ "trusted": true }));
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), Document::new(text, "typescript".into(), 1));
+        let titles = action_titles(&code_actions_for(&server, &uri, json!(["quickfix"])));
+        assert!(
+            titles.contains(&"Remove unused export `unused` (unsafe)".to_owned()),
+            "{titles:?}"
+        );
+    }
+
+    #[test]
+    fn code_actions_skip_used_exports() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (path, uri, text) = unused_export_project(temporary.path());
+        std::fs::write(
+            path.with_file_name("use.ts"),
+            "import { unused } from \"./a\";\nconsole.log(unused);\n",
+        )
+        .unwrap();
+        let (server, _receiver) = server_with_options(temporary.path(), json!({ "trusted": true }));
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), Document::new(text, "typescript".into(), 1));
+        let titles = action_titles(&code_actions_for(&server, &uri, json!(["quickfix"])));
+        assert!(!titles.iter().any(|title| title.contains("unused export")));
+    }
+
+    #[test]
+    fn code_actions_unused_exports_setting_disables_removal() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (_path, uri, text) = unused_export_project(temporary.path());
+        let (server, _receiver) = server_with_options(
+            temporary.path(),
+            json!({ "trusted": true, "codeActions": { "unusedExports": false } }),
+        );
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), Document::new(text, "typescript".into(), 1));
+        let titles = action_titles(&code_actions_for(&server, &uri, json!(["quickfix"])));
+        assert!(!titles.iter().any(|title| title.contains("unused export")));
+    }
+
+    #[test]
+    fn code_actions_hide_unused_export_removal_untrusted() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (_path, uri, text) = unused_export_project(temporary.path());
+        let (server, _receiver) = server_with_options(temporary.path(), Value::Null);
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), Document::new(text, "typescript".into(), 1));
+        let titles = action_titles(&code_actions_for(&server, &uri, json!(["quickfix"])));
+        assert!(!titles.iter().any(|title| title.contains("unused export")));
+    }
+
+    #[test]
+    fn code_actions_do_not_run_project_analysis_for_non_typescript() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("a.json");
+        let text = "{\"a\":1}\n";
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let (server, _receiver) = server_with_options(temporary.path(), json!({ "trusted": true }));
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), Document::new(text.into(), "json".into(), 1));
+        let titles = action_titles(&code_actions_for(&server, &uri, json!(["quickfix"])));
+        assert!(!titles.iter().any(|title| title.contains("unused export")));
+    }
+
+    #[test]
+    fn formatting_action_never_applies_fixes_when_only_is_absent() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+        let path = root.join("src/a.ts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let text = "import { unused } from \"./b\";\nconsole.log( 1 );\n";
+        std::fs::write(&path, text).unwrap();
+        std::fs::write(path.with_file_name("b.ts"), "export const unused = 1;\n").unwrap();
+        let uri = uri::from_path(&path);
+        let (server, _receiver) = server_with_options(root, json!({ "trusted": true }));
+        server.documents.lock().unwrap().open(
+            uri.clone(),
+            Document::new(text.into(), "typescript".into(), 1),
+        );
+
+        let actions = code_actions_for(&server, &uri, Value::Null);
+        let format = actions
+            .iter()
+            .find(|action| {
+                matches!(action, CodeActionOrCommand::CodeAction(action) if action.title == "Format with dotfmt")
+            })
+            .expect("format action");
+        let formatted = action_text(format, text).expect("format edit");
+        assert!(
+            formatted.contains("import { unused }"),
+            "formatting applied fixes: {formatted}"
+        );
+
+        let fix_all = actions
+            .iter()
+            .find(|action| {
+                matches!(action, CodeActionOrCommand::CodeAction(action) if action.title == "Fix all with dotfmt")
+            })
+            .expect("fix-all action");
+        let fixed = action_text(fix_all, text).expect("fix-all edit");
+        assert!(
+            !fixed.contains("unused"),
+            "fix-all did not remove the unused import: {fixed}"
+        );
     }
 
     #[test]
