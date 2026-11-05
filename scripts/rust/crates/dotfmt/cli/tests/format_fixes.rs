@@ -114,9 +114,15 @@ fn format_fix_selection_follows_modes_and_individual_flags() {
     assert!(unsafe_selection.remove_unused_imports);
     assert!(unsafe_selection.convert_type_only_imports);
     assert!(unsafe_selection.organize_imports);
-    assert!(unsafe_selection.remove_unused_exports);
+    assert!(!unsafe_selection.remove_unused_exports);
     assert!(unsafe_selection.remove_unused_locals);
     assert!(unsafe_selection.remove_unused_parameters);
+
+    let exports = selection("remove_unused_exports", "true").expect("export selection");
+    assert!(!exports.safe);
+    assert!(exports.r#unsafe);
+    assert!(exports.remove_unused_exports);
+    assert!(!exports.remove_unused_imports);
 
     let imports = selection("remove_unused_imports", "true").expect("import selection");
     assert!(imports.safe);
