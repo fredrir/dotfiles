@@ -3,6 +3,7 @@ use std::path::Path;
 use super::{Repairs, configuration};
 use dotfmt_core::config::{Effective, Settings};
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
+use dotfmt_core::edit::{Fix, apply_fixes};
 use dotfmt_core::language::Language;
 use dotfmt_core::repair::Repaired;
 use std::collections::HashMap;
@@ -256,7 +257,106 @@ impl Engine {
         }
     }
 
+    /// Format a document, applying configured fixes first for TypeScript and
+    /// JavaScript. A fix that cannot be analyzed or applied never fails the
+    /// format: the raw formatter result is returned instead.
     pub fn format(
+        &self,
+        path: &Path,
+        context: &Path,
+        input: &[u8],
+        detected: dotfmt_markdown::dialect::Dialect,
+        clean: bool,
+    ) -> Result<Formatted, Diagnostic> {
+        let selection = match &self.kind {
+            Kind::TypeScript(config, _) | Kind::Javascript(config, _) => {
+                config.format_fix_selection()
+            }
+            _ => None,
+        };
+        let Some(selection) = selection else {
+            return self.format_text(path, context, input, detected, clean);
+        };
+        self.format_with_fixes(path, context, input, detected, clean, selection)
+    }
+
+    fn format_with_fixes(
+        &self,
+        path: &Path,
+        context: &Path,
+        input: &[u8],
+        detected: dotfmt_markdown::dialect::Dialect,
+        clean: bool,
+        selection: dotfmt_typescript::config::FixSelection,
+    ) -> Result<Formatted, Diagnostic> {
+        let Ok(text) = std::str::from_utf8(input) else {
+            return self.format_text(path, context, input, detected, clean);
+        };
+        let (bom, text) = match text.strip_prefix('\u{feff}') {
+            Some(text) => (true, text),
+            None => (false, text),
+        };
+        let mut current = text.to_owned();
+        let mut formatted = None;
+        for _ in 0..3 {
+            let analysis = match self.analyze(
+                path,
+                current.as_bytes(),
+                true,
+                selection.r#unsafe,
+                Some(false),
+            ) {
+                Ok(analysis) => analysis,
+                Err(_) => return self.format_text(path, context, input, detected, clean),
+            };
+            let selected: Vec<&Fix> = analysis
+                .fixes
+                .iter()
+                .filter(|fix| {
+                    selection.selects(
+                        fix.finding.as_ref().map(|finding| finding.code.as_str()),
+                        &fix.kind,
+                    )
+                })
+                .collect();
+            if selected.is_empty() {
+                break;
+            }
+            let edited = match apply_fixes(&current, &selected) {
+                Ok(edited) => edited,
+                Err(_) => return self.format_text(path, context, input, detected, clean),
+            };
+            let with_bom = if bom {
+                format!("\u{feff}{edited}")
+            } else {
+                edited
+            };
+            let result = match self.format_text(path, context, with_bom.as_bytes(), detected, clean)
+            {
+                Ok(result) => result,
+                Err(_) => return self.format_text(path, context, input, detected, clean),
+            };
+            let Formatted::Text { text, repairs } = result else {
+                return self.format_text(path, context, input, detected, clean);
+            };
+            let next = text
+                .strip_prefix('\u{feff}')
+                .map_or_else(|| text.clone(), str::to_owned);
+            let changed = next != current;
+            current = next;
+            formatted = Some(Formatted::Text { text, repairs });
+            if !changed {
+                break;
+            }
+        }
+        match formatted {
+            Some(formatted) => Ok(formatted),
+            None => self.format_text(path, context, input, detected, clean),
+        }
+    }
+
+    /// The language formatter without configured fixes.
+    pub(super) fn format_text(
         &self,
         path: &Path,
         context: &Path,

@@ -297,7 +297,7 @@ fn inspect(
                 edited
             };
             let formatted =
-                match engine.format(path, absolute, with_bom.as_bytes(), markdown, false)? {
+                match engine.format_text(path, absolute, with_bom.as_bytes(), markdown, false)? {
                     Formatted::Text { text, .. } => text,
                     Formatted::Verbatim => with_bom,
                 };
@@ -316,7 +316,7 @@ fn inspect(
         } else {
             current
         };
-        after = match engine.format(path, absolute, with_bom.as_bytes(), markdown, false)? {
+        after = match engine.format_text(path, absolute, with_bom.as_bytes(), markdown, false)? {
             Formatted::Text { text, .. } => text,
             Formatted::Verbatim => with_bom,
         };
