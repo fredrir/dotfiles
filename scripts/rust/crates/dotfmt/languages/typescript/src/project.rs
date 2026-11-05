@@ -1,39 +1,111 @@
 //! Project-wide export usage analysis and TypeScript diagnostics.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use dotfmt_core::edit::{Analysis, Finding, Severity, Tag};
 use ignore::{DirEntry, WalkBuilder};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    BindingPattern, Declaration, ExportDefaultDeclarationKind, ImportDeclarationSpecifier,
-    Statement,
+    Argument, ArrayExpressionElement, AssignmentExpression, BindingPattern, CallExpression,
+    Declaration, ExportDefaultDeclarationKind, Expression, ImportDeclarationSpecifier,
+    ImportExpression, Statement, TSExportAssignment, TSImportEqualsDeclaration, TSModuleReference,
+};
+use oxc_ast_visit::{
+    Visit,
+    walk::{
+        walk_assignment_expression, walk_call_expression, walk_import_expression,
+        walk_ts_export_assignment, walk_ts_import_equals_declaration,
+    },
 };
 use oxc_parser::Parser;
 use oxc_span::GetSpan;
 
 use crate::TypeDiagnostic;
 use crate::dialect::Dialect;
+use crate::resolve::{
+    Resolver, SOURCE_EXTENSIONS, collect_export_strings, expand_glob, resolve_target,
+};
 
-const SOURCE_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 const AVOIDED_DIRECTORIES: &[&str] = &[
     "node_modules",
     "dist",
     "build",
     ".git",
+    ".hg",
+    ".svn",
     "coverage",
     "out",
     ".next",
     ".nuxt",
+    ".svelte-kit",
+    ".angular",
+    ".turbo",
+    ".yarn",
+    ".pnpm",
+    ".vercel",
+    ".cache",
+    ".venv",
     "target",
 ];
+const SOURCE_LIST_TTL: Duration = Duration::from_millis(250);
+const MAX_SOURCE_SIZE: u64 = 4 * 1024 * 1024;
+const CONSUMER_EXTENSIONS: &[&str] = &["vue", "svelte", "astro", "mdx"];
+const NON_CODE_EXTENSIONS: &[&str] = &[
+    "css", "scss", "sass", "less", "styl", "json", "html", "svg", "png", "jpg", "jpeg", "gif",
+    "webp", "avif", "ico", "woff", "woff2", "ttf", "eot", "pdf", "txt", "yaml", "yml", "toml",
+];
+const NODE_BUILTINS: &[&str] = &[
+    "assert",
+    "buffer",
+    "child_process",
+    "cluster",
+    "console",
+    "constants",
+    "crypto",
+    "dgram",
+    "diagnostics_channel",
+    "dns",
+    "domain",
+    "events",
+    "fs",
+    "http",
+    "http2",
+    "https",
+    "inspector",
+    "module",
+    "net",
+    "os",
+    "path",
+    "perf_hooks",
+    "process",
+    "punycode",
+    "querystring",
+    "readline",
+    "repl",
+    "stream",
+    "string_decoder",
+    "sys",
+    "timers",
+    "tls",
+    "trace_events",
+    "tty",
+    "url",
+    "util",
+    "v8",
+    "vm",
+    "wasi",
+    "worker_threads",
+    "zlib",
+];
+const UNUSED_DIAGNOSTIC_CODES: &[u32] = &[6133, 6192, 6196, 6198, 6199, 6205];
 
 /// Finds the project root by walking up to the nearest tsconfig/jsconfig or
 /// package.json.
@@ -86,14 +158,19 @@ fn unused_exports_stripped(path: &Path) -> Result<Analysis, Diagnostic> {
     else {
         return Ok(Analysis::default());
     };
-    let root = fs::canonicalize(&root).unwrap_or(root);
     let graph = graph_for(&root)?;
     Ok(graph.analysis_for(&canonical))
 }
 
-/// Clears the cached project graphs and TypeScript diagnostics.
+/// Clears every cached project graph, source listing and TypeScript result.
 pub fn clear_cache() {
     if let Some(cache) = GRAPH_CACHE.get() {
+        lock(cache).clear();
+    }
+    if let Some(cache) = SOURCE_LISTINGS.get() {
+        lock(cache).clear();
+    }
+    if let Some(cache) = MODULE_CACHE.get() {
         lock(cache).clear();
     }
     if let Some(cache) = TSC_CACHE.get() {
@@ -101,45 +178,196 @@ pub fn clear_cache() {
     }
 }
 
+/// Drops the cached file list, graph and module entries for `root`.
+///
+/// Call this after creating, renaming or deleting files so lookups do not wait
+/// for the short source-listing TTL.
+pub fn invalidate_root(root: &Path) {
+    let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    if let Some(cache) = SOURCE_LISTINGS.get() {
+        lock(cache).remove(&root);
+    }
+    if let Some(cache) = GRAPH_CACHE.get() {
+        lock(cache).remove(&root);
+    }
+    if let Some(cache) = MODULE_CACHE.get() {
+        lock(cache).retain(|path, _| !path.starts_with(&root));
+    }
+}
+
+/// The severity dotfmt assigns to a TypeScript compiler diagnostic.
+///
+/// Unused-code diagnostics are reported as warnings so callers can treat them
+/// as formatter findings rather than build errors.
+pub fn type_diagnostic_severity(code: u32) -> Severity {
+    if UNUSED_DIAGNOSTIC_CODES.contains(&code) {
+        Severity::Warning
+    } else {
+        Severity::Error
+    }
+}
+
+/// Whether `code` is one of the TypeScript unused-code diagnostics.
+pub fn is_unused_diagnostic(code: u32) -> bool {
+    UNUSED_DIAGNOSTIC_CODES.contains(&code)
+}
+
+/// One resolved TypeScript compiler invocation.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TscProgram {
+    pub program: PathBuf,
+    /// Arguments placed before the standard `--noEmit ...` flags (for example
+    /// the path of `tsc.js` when the compiler is run through `node`).
+    pub arguments: Vec<String>,
+}
+
+/// Resolves the compiler used for type-aware diagnostics.
+///
+/// Order: `DOTFMT_TSC`, the nearest `node_modules/typescript/lib/tsc.js`
+/// (through `node`), the nearest `node_modules/.bin/tsc`, the nearest
+/// `@typescript/native-preview` `tsgo`, `tsgo` on `PATH`, then `tsc` on `PATH`.
+pub fn resolve_compiler(project_root: &Path) -> TscProgram {
+    if let Some(value) = std::env::var_os("DOTFMT_TSC") {
+        return compiler_program(PathBuf::from(value));
+    }
+    let root = fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
+    if let Some(path) = find_up(&root, "node_modules/typescript/lib/tsc.js") {
+        return compiler_program(path);
+    }
+    if let Some(path) = find_up(&root, "node_modules/.bin/tsc") {
+        return compiler_program(path);
+    }
+    for relative in [
+        "node_modules/@typescript/native-preview/bin/tsgo",
+        "node_modules/@typescript/native-preview/bin/tsgo.js",
+    ] {
+        if let Some(path) = find_up(&root, relative) {
+            return compiler_program(path);
+        }
+    }
+    if let Some(path) = find_on_path("tsgo") {
+        return compiler_program(path);
+    }
+    TscProgram {
+        program: PathBuf::from("tsc"),
+        arguments: Vec::new(),
+    }
+}
+
+fn compiler_program(path: PathBuf) -> TscProgram {
+    let is_script = path
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "js" | "cjs" | "mjs"
+            )
+        });
+    if is_script {
+        TscProgram {
+            program: std::env::var_os("DOTFMT_NODE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("node")),
+            arguments: vec![path.to_string_lossy().into_owned()],
+        }
+    } else {
+        TscProgram {
+            program: path,
+            arguments: Vec::new(),
+        }
+    }
+}
+
+fn find_up(start: &Path, relative: &str) -> Option<PathBuf> {
+    start
+        .ancestors()
+        .map(|directory| directory.join(relative))
+        .find(|candidate| candidate.is_file())
+}
+
+fn find_on_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for directory in std::env::split_paths(&path) {
+        let candidate = directory.join(executable_name(name));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn executable_name(name: &str) -> String {
+    #[cfg(windows)]
+    {
+        for extension in ["cmd", "exe", "bat"] {
+            let candidate = format!("{name}.{extension}");
+            if std::env::var_os("PATH").is_some_and(|path| {
+                std::env::split_paths(&path).any(|directory| directory.join(&candidate).is_file())
+            }) {
+                return candidate;
+            }
+        }
+    }
+    name.to_owned()
+}
+
 /// Runs `tsc --noEmit` for `tsconfig` and parses TypeScript diagnostics.
 ///
-/// Results are cached by project root and tsconfig modification time.
+/// Results are cached by project and invalidated by any source or tsconfig
+/// change. One compiler run is shared by every file in the project.
 pub fn type_diagnostics(
     project_root: &Path,
     tsconfig: &Path,
 ) -> Result<Vec<TypeDiagnostic>, Diagnostic> {
-    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None, None)?;
+    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None)?;
     Ok(diagnostics
         .iter()
         .map(|(_, diagnostic)| diagnostic.clone())
         .collect())
 }
 
-pub(crate) fn type_diagnostics_for(
+/// Returns the project diagnostics that belong to `path`.
+///
+/// The compiler runs once per project; subsequent calls reuse the result until
+/// a source or tsconfig file changes.
+pub fn type_diagnostics_for(
     path: &Path,
     project_root: &Path,
     tsconfig: &Path,
 ) -> Result<Vec<TypeDiagnostic>, Diagnostic> {
     let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None, Some(path))?;
+    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None)?;
     Ok(diagnostics
         .iter()
         .filter_map(|(file, diagnostic)| (file == &canonical).then_some(diagnostic.clone()))
         .collect())
 }
 
+/// Whether the project graph for `path` resolved every source file and import
+/// specifier it found. Project-wide fixes must not be applied to an incomplete
+/// graph because a missing module could still consume the exports.
+pub fn graph_complete(path: &Path) -> bool {
+    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let Some(root) = discover_root(path).or_else(|| canonical.parent().map(Path::to_path_buf))
+    else {
+        return false;
+    };
+    graph_for(&root).is_ok_and(|graph| graph.complete)
+}
+
 #[derive(Clone, Debug)]
 struct Graph {
-    modules: HashMap<PathBuf, Module>,
+    modules: HashMap<PathBuf, Arc<Module>>,
     entries: HashSet<PathBuf>,
+    uses: HashMap<PathBuf, ModuleUses>,
+    complete: bool,
 }
 
 #[derive(Clone, Debug, Default)]
 struct Module {
     exports: Vec<Export>,
     edges: Vec<Edge>,
-    used_names: BTreeSet<String>,
-    all_used: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -162,6 +390,7 @@ enum EdgeKind {
     Namespace,
     All,
     SideEffect,
+    Glob(Vec<String>),
 }
 
 impl Graph {
@@ -172,9 +401,11 @@ impl Graph {
         if self.entries.contains(path) || is_declaration_file(path) {
             return Analysis::default();
         }
+        let use_site = self.uses.get(path);
+        let all_used = use_site.is_some_and(|use_site| use_site.all);
         let mut analysis = Analysis::default();
         for export in &module.exports {
-            if module.all_used || module.used_names.contains(&export.name) {
+            if all_used || use_site.is_some_and(|use_site| use_site.names.contains(&export.name)) {
                 continue;
             }
             analysis.findings.push(
@@ -193,82 +424,9 @@ impl Graph {
             .sort_by_key(|finding| (finding.start, finding.end));
         analysis
     }
-}
 
-struct CachedGraph {
-    fingerprint: u64,
-    graph: Arc<Graph>,
-}
-
-type GraphCache = Mutex<HashMap<PathBuf, CachedGraph>>;
-
-static GRAPH_CACHE: OnceLock<GraphCache> = OnceLock::new();
-
-fn graph_for(root: &Path) -> Result<Arc<Graph>, Diagnostic> {
-    let files = source_files(root);
-    let fingerprint = fingerprint(&files);
-    let cache = GRAPH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(cached) = lock(cache).get(root)
-        && cached.fingerprint == fingerprint
-    {
-        return Ok(Arc::clone(&cached.graph));
-    }
-    let graph = Arc::new(build_graph(root, &files));
-    lock(cache).insert(
-        root.to_path_buf(),
-        CachedGraph {
-            fingerprint,
-            graph: Arc::clone(&graph),
-        },
-    );
-    Ok(graph)
-}
-
-fn fingerprint(files: &[PathBuf]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    for path in files {
-        path.hash(&mut hasher);
-        if let Ok(metadata) = fs::metadata(path) {
-            metadata.len().hash(&mut hasher);
-            metadata
-                .modified()
-                .ok()
-                .and_then(|modified| modified.duration_since(SystemTime::UNIX_EPOCH).ok())
-                .map(|duration| duration.as_nanos())
-                .hash(&mut hasher);
-        }
-    }
-    hasher.finish()
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-fn build_graph(root: &Path, files: &[PathBuf]) -> Graph {
-    let mut modules = HashMap::new();
-    let entries = entry_points(root);
-    for path in files {
-        let Ok(text) = fs::read_to_string(path) else {
-            continue;
-        };
-        if text.len() > 4 * 1024 * 1024 {
-            continue;
-        }
-        let module = parse_module(path, &text);
-        let key = fs::canonicalize(path).unwrap_or_else(|_| path.clone());
-        modules.insert(key, module);
-    }
-
-    let mut graph = Graph { modules, entries };
-    graph.resolve_edges();
-    graph
-}
-
-impl Graph {
-    fn resolve_edges(&mut self) {
+    fn resolve_edges(&mut self, root: &Path) {
+        let mut resolver = Resolver::new(root);
         let paths: Vec<PathBuf> = self.modules.keys().cloned().collect();
         let mut uses: HashMap<PathBuf, ModuleUses> = HashMap::new();
         for importer in paths {
@@ -276,7 +434,23 @@ impl Graph {
                 continue;
             };
             for edge in &module.edges {
-                let Some(target) = resolve_import(&importer, &edge.specifier) else {
+                if let EdgeKind::Glob(patterns) = &edge.kind {
+                    for pattern in patterns {
+                        for target in expand_glob(root, &importer, pattern) {
+                            let Ok(target) = fs::canonicalize(&target) else {
+                                continue;
+                            };
+                            if self.modules.contains_key(&target) {
+                                uses.entry(target).or_default().all = true;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                let Some(target) = resolver.resolve(&importer, &edge.specifier) else {
+                    if !ignored_specifier(&edge.specifier) {
+                        self.complete = false;
+                    }
                     continue;
                 };
                 let target = fs::canonicalize(&target).unwrap_or(target);
@@ -290,30 +464,94 @@ impl Graph {
                         use_site.names.insert("default".to_owned());
                     }
                     EdgeKind::Namespace | EdgeKind::All => use_site.all = true,
-                    EdgeKind::SideEffect => {}
+                    EdgeKind::SideEffect | EdgeKind::Glob(_) => {}
                 }
             }
         }
-        for (path, use_site) in uses {
-            if let Some(module) = self.modules.get_mut(&path) {
-                module.all_used = use_site.all;
-                module.used_names.extend(use_site.names);
-            }
-        }
+        self.uses = uses;
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 struct ModuleUses {
     names: BTreeSet<String>,
     all: bool,
 }
 
-fn source_files(root: &Path) -> Vec<PathBuf> {
+struct CachedGraph {
+    fingerprint: u64,
+    graph: Arc<Graph>,
+}
+
+struct SourceListing {
+    files: Vec<PathBuf>,
+    metadata: Vec<PathBuf>,
+}
+
+struct CachedListing {
+    cached_at: Instant,
+    listing: Arc<SourceListing>,
+}
+
+struct CachedModule {
+    len: u64,
+    modified: Option<SystemTime>,
+    module: Arc<Module>,
+    complete: bool,
+}
+
+type GraphCache = Mutex<HashMap<PathBuf, CachedGraph>>;
+type ListingCache = Mutex<HashMap<PathBuf, CachedListing>>;
+type ModuleCache = Mutex<HashMap<PathBuf, CachedModule>>;
+
+static GRAPH_CACHE: OnceLock<GraphCache> = OnceLock::new();
+static SOURCE_LISTINGS: OnceLock<ListingCache> = OnceLock::new();
+static MODULE_CACHE: OnceLock<ModuleCache> = OnceLock::new();
+
+fn graph_for(root: &Path) -> Result<Arc<Graph>, Diagnostic> {
+    let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let listing = source_listing(&root);
+    let fingerprint = fingerprint(&listing);
+    let cache = GRAPH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(cached) = lock(cache).get(&root)
+        && cached.fingerprint == fingerprint
+    {
+        return Ok(Arc::clone(&cached.graph));
+    }
+    let graph = Arc::new(build_graph(&root, &listing));
+    lock(cache).insert(
+        root,
+        CachedGraph {
+            fingerprint,
+            graph: Arc::clone(&graph),
+        },
+    );
+    Ok(graph)
+}
+
+fn source_listing(root: &Path) -> Arc<SourceListing> {
+    let cache = SOURCE_LISTINGS.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(cached) = lock(cache).get(root)
+        && cached.cached_at.elapsed() < SOURCE_LIST_TTL
+    {
+        return Arc::clone(&cached.listing);
+    }
+    let listing = Arc::new(walk_source_listing(root));
+    lock(cache).insert(
+        root.to_path_buf(),
+        CachedListing {
+            cached_at: Instant::now(),
+            listing: Arc::clone(&listing),
+        },
+    );
+    listing
+}
+
+fn walk_source_listing(root: &Path) -> SourceListing {
     let mut files = Vec::new();
     let mut builder = WalkBuilder::new(root);
     builder
-        .hidden(true)
+        .hidden(false)
         .follow_links(false)
         .require_git(false)
         .git_ignore(true)
@@ -328,12 +566,145 @@ fn source_files(root: &Path) -> Vec<PathBuf> {
         if entry.depth() == 0 || !entry.file_type().is_some_and(|kind| kind.is_file()) {
             continue;
         }
-        if is_source_file(entry.path()) {
+        if is_source_file(entry.path()) || is_consumer_file(entry.path()) {
             files.push(entry.path().to_path_buf());
         }
     }
     files.sort();
-    files
+
+    let mut directories = BTreeSet::from([root.to_path_buf()]);
+    for file in &files {
+        let mut directory = file.parent();
+        while let Some(current) = directory {
+            directories.insert(current.to_path_buf());
+            if current == root {
+                break;
+            }
+            directory = current.parent();
+        }
+    }
+    let mut metadata = Vec::new();
+    for directory in directories {
+        for name in [
+            "package.json",
+            "tsconfig.json",
+            "jsconfig.json",
+            "index.html",
+        ] {
+            let candidate = directory.join(name);
+            if candidate.is_file() {
+                if matches!(name, "tsconfig.json" | "jsconfig.json") {
+                    metadata.extend(crate::tsconfig::load_at(&candidate).chain);
+                }
+                metadata.push(candidate);
+            }
+        }
+    }
+    metadata.sort();
+    metadata.dedup();
+    SourceListing { files, metadata }
+}
+
+fn fingerprint(listing: &SourceListing) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for path in listing.files.iter().chain(listing.metadata.iter()) {
+        hash_file(&mut hasher, path);
+    }
+    hasher.finish()
+}
+
+fn hash_file(hasher: &mut DefaultHasher, path: &Path) {
+    path.hash(hasher);
+    if let Ok(metadata) = fs::metadata(path) {
+        metadata.len().hash(hasher);
+        metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.duration_since(SystemTime::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos())
+            .hash(hasher);
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn build_graph(root: &Path, listing: &SourceListing) -> Graph {
+    let mut modules = HashMap::new();
+    let mut complete = true;
+    for path in &listing.files {
+        let Some(loaded) = load_module(path) else {
+            complete = false;
+            continue;
+        };
+        complete &= loaded.complete;
+        if let Some(module) = loaded.module {
+            modules.insert(loaded.key, module);
+        }
+    }
+    let entries = entry_points(root, &listing.files);
+    let mut graph = Graph {
+        modules,
+        entries,
+        uses: HashMap::new(),
+        complete,
+    };
+    graph.resolve_edges(root);
+    graph
+}
+
+struct LoadedModule {
+    key: PathBuf,
+    module: Option<Arc<Module>>,
+    complete: bool,
+}
+
+fn load_module(path: &Path) -> Option<LoadedModule> {
+    let canonical = fs::canonicalize(path).ok()?;
+    let metadata = fs::metadata(path).ok()?;
+    let len = metadata.len();
+    let modified = metadata.modified().ok();
+    let cache = MODULE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(cached) = lock(cache).get(&canonical)
+        && cached.len == len
+        && cached.modified == modified
+    {
+        return Some(LoadedModule {
+            key: canonical,
+            module: Some(Arc::clone(&cached.module)),
+            complete: cached.complete,
+        });
+    }
+    let (module, complete) = if len > MAX_SOURCE_SIZE {
+        (Module::default(), false)
+    } else {
+        match fs::read_to_string(path) {
+            Ok(text) if is_consumer_file(path) => (scan_consumer_module(&text), true),
+            Ok(text) => match parse_module(path, &text) {
+                Some(module) => (module, true),
+                None => (Module::default(), false),
+            },
+            Err(_) => (Module::default(), false),
+        }
+    };
+    let module = Arc::new(module);
+    lock(cache).insert(
+        canonical.clone(),
+        CachedModule {
+            len,
+            modified,
+            module: Arc::clone(&module),
+            complete,
+        },
+    );
+    Some(LoadedModule {
+        key: canonical,
+        module: Some(module),
+        complete,
+    })
 }
 
 fn avoided(entry: &DirEntry) -> bool {
@@ -351,7 +722,7 @@ fn is_source_file(path: &Path) -> bool {
         return false;
     }
     path.extension()
-        .and_then(|extension| extension.to_str())
+        .and_then(OsStr::to_str)
         .is_some_and(|extension| {
             SOURCE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
         })
@@ -359,17 +730,118 @@ fn is_source_file(path: &Path) -> bool {
 
 fn is_declaration_file(path: &Path) -> bool {
     path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.ends_with(".d.ts"))
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| {
+            let name = name.to_ascii_lowercase();
+            name.ends_with(".d.ts")
+                || name.ends_with(".d.mts")
+                || name.ends_with(".d.cts")
+                || name.ends_with(".d.tsx")
+        })
 }
 
-fn parse_module(path: &Path, text: &str) -> Module {
+fn is_consumer_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| {
+            CONSUMER_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+        })
+}
+
+fn ignored_specifier(specifier: &str) -> bool {
+    let specifier = specifier.trim();
+    if specifier.is_empty()
+        || specifier.starts_with("node:")
+        || specifier.starts_with("http://")
+        || specifier.starts_with("https://")
+        || specifier.starts_with("data:")
+        || specifier.starts_with("virtual:")
+        || specifier.contains('?')
+    {
+        return true;
+    }
+    let package = specifier
+        .split_once('/')
+        .map_or(specifier, |(name, _)| name);
+    if NODE_BUILTINS.contains(&package) {
+        return true;
+    }
+    Path::new(specifier)
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| {
+            NON_CODE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+        })
+}
+
+/// Collects import edges from component files that are not parsed as
+/// TypeScript (`.vue`, `.svelte`, `.astro`, `.mdx`).
+fn scan_consumer_module(text: &str) -> Module {
+    let mut module = Module::default();
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        let quote = bytes[index];
+        if !matches!(quote, b'"' | b'\'' | b'`') {
+            index += 1;
+            continue;
+        }
+        let start = index + 1;
+        let mut end = start;
+        while end < bytes.len() {
+            if bytes[end] == b'\\' {
+                end += 2;
+                continue;
+            }
+            if bytes[end] == quote {
+                break;
+            }
+            if bytes[end] == b'\n' && quote != b'`' {
+                break;
+            }
+            end += 1;
+        }
+        if end < bytes.len()
+            && bytes[end] == quote
+            && let Some(specifier) = text.get(start..end)
+            && is_import_specifier(specifier)
+            && is_import_context(&text[..index])
+        {
+            module.edges.push(Edge {
+                specifier: specifier.to_owned(),
+                kind: EdgeKind::Namespace,
+            });
+        }
+        index = end.saturating_add(1);
+    }
+    module
+}
+
+fn is_import_specifier(specifier: &str) -> bool {
+    !specifier.is_empty()
+        && !specifier.contains(char::is_whitespace)
+        && !specifier.contains('\n')
+        && specifier.chars().next().is_some_and(|first| {
+            first.is_ascii_alphanumeric() || matches!(first, '.' | '/' | '@' | '#' | '~')
+        })
+}
+
+fn is_import_context(prefix: &str) -> bool {
+    let before = prefix.trim_end();
+    before.ends_with("from")
+        || before.ends_with("import")
+        || before.ends_with("require")
+        || before.ends_with("require(")
+        || before.ends_with("import(")
+}
+
+fn parse_module(path: &Path, text: &str) -> Option<Module> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let source_type = Dialect::Auto.source_type_for_path(path);
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, text, source_type).parse();
     if !parsed.diagnostics.is_empty() {
-        return Module::default();
+        return None;
     }
     let mut module = Module::default();
     for statement in &parsed.program.body {
@@ -454,7 +926,13 @@ fn parse_module(path: &Path, text: &str) -> Module {
             _ => {}
         }
     }
-    module
+    let mut dynamic = DynamicEdges {
+        text,
+        edges: Vec::new(),
+    };
+    dynamic.visit_program(&parsed.program);
+    module.edges.extend(dynamic.edges);
+    Some(module)
 }
 
 fn import_edge(declaration: &oxc_ast::ast::ImportDeclaration<'_>) -> Option<Edge> {
@@ -557,66 +1035,166 @@ fn collect_binding_exports(pattern: &BindingPattern<'_>, exports: &mut Vec<Expor
     }
 }
 
-fn resolve_import(importer: &Path, specifier: &str) -> Option<PathBuf> {
-    if !specifier.starts_with('.') {
-        return None;
-    }
-    let base = normalize(&importer.parent()?.join(specifier));
-    if base.is_file() {
-        return Some(base);
-    }
-    let mut candidates = Vec::new();
-    if let Some(extension) = base.extension().and_then(|extension| extension.to_str()) {
-        let without = base.with_extension("");
-        match extension {
-            "js" => {
-                candidates.extend(["ts", "tsx"].map(|extension| without.with_extension(extension)))
-            }
-            "jsx" => candidates.push(without.with_extension("tsx")),
-            "mjs" => candidates.push(without.with_extension("mts")),
-            "cjs" => candidates.push(without.with_extension("cts")),
-            _ => {}
-        }
-    } else {
-        for extension in SOURCE_EXTENSIONS {
-            candidates.push(base.with_extension(extension));
-        }
-        for extension in SOURCE_EXTENSIONS {
-            candidates.push(base.join(format!("index.{extension}")));
-        }
-    }
-    candidates.into_iter().find(|candidate| candidate.is_file())
+struct DynamicEdges<'t> {
+    text: &'t str,
+    edges: Vec<Edge>,
 }
 
-fn normalize(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
+impl<'a> Visit<'a> for DynamicEdges<'_> {
+    fn visit_call_expression(&mut self, expression: &CallExpression<'a>) {
+        if let Expression::Identifier(callee) = &expression.callee
+            && callee.name.as_str() == "require"
+            && let Some(argument) = expression.arguments.first()
+            && let Some(value) = string_argument(argument)
+        {
+            self.edges.push(Edge {
+                specifier: value,
+                kind: EdgeKind::Namespace,
+            });
         }
+        if is_import_meta_glob(&expression.callee) {
+            let mut patterns = Vec::new();
+            if let Some(argument) = expression.arguments.first() {
+                match argument {
+                    Argument::StringLiteral(literal) => {
+                        if let Some(value) = literal.value.as_str() {
+                            patterns.push(value.to_owned());
+                        }
+                    }
+                    Argument::ArrayExpression(array) => {
+                        for element in &array.elements {
+                            if let ArrayExpressionElement::StringLiteral(literal) = element
+                                && let Some(value) = literal.value.as_str()
+                            {
+                                patterns.push(value.to_owned());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if !patterns.is_empty() {
+                self.edges.push(Edge {
+                    specifier: String::new(),
+                    kind: EdgeKind::Glob(patterns),
+                });
+            }
+        }
+        walk_call_expression(self, expression);
     }
-    normalized
+
+    fn visit_import_expression(&mut self, expression: &ImportExpression<'a>) {
+        if let Expression::StringLiteral(literal) = &expression.source
+            && let Some(value) = literal.value.as_str()
+        {
+            self.edges.push(Edge {
+                specifier: value.to_owned(),
+                kind: EdgeKind::Namespace,
+            });
+        }
+        walk_import_expression(self, expression);
+    }
+
+    fn visit_ts_import_equals_declaration(&mut self, declaration: &TSImportEqualsDeclaration<'a>) {
+        if let TSModuleReference::ExternalModuleReference(reference) = &declaration.module_reference
+            && let Some(value) = reference.expression.value.as_str()
+        {
+            self.edges.push(Edge {
+                specifier: value.to_owned(),
+                kind: EdgeKind::Namespace,
+            });
+        }
+        walk_ts_import_equals_declaration(self, declaration);
+    }
+
+    fn visit_assignment_expression(&mut self, expression: &AssignmentExpression<'a>) {
+        if expression.left.span().source_text(self.text) == "module.exports"
+            && let Expression::StringLiteral(literal) = &expression.right
+            && let Some(value) = literal.value.as_str()
+        {
+            self.edges.push(Edge {
+                specifier: value.to_owned(),
+                kind: EdgeKind::Namespace,
+            });
+        }
+        walk_assignment_expression(self, expression);
+    }
+
+    fn visit_ts_export_assignment(&mut self, assignment: &TSExportAssignment<'a>) {
+        if let Expression::StringLiteral(literal) = &assignment.expression
+            && let Some(value) = literal.value.as_str()
+        {
+            self.edges.push(Edge {
+                specifier: value.to_owned(),
+                kind: EdgeKind::Namespace,
+            });
+        }
+        walk_ts_export_assignment(self, assignment);
+    }
 }
 
-fn entry_points(root: &Path) -> HashSet<PathBuf> {
+fn string_argument(argument: &Argument<'_>) -> Option<String> {
+    match argument {
+        Argument::StringLiteral(literal) => literal.value.as_str().map(str::to_owned),
+        _ => None,
+    }
+}
+
+fn is_import_meta_glob(expression: &Expression<'_>) -> bool {
+    if let Expression::StaticMemberExpression(member) = expression
+        && matches!(member.property.name.as_str(), "glob" | "globEager")
+        && let Expression::StaticMemberExpression(inner) = &member.object
+        && inner.property.name.as_str() == "meta"
+    {
+        return matches!(inner.object, Expression::ImportMeta(_));
+    }
+    false
+}
+
+fn entry_points(root: &Path, files: &[PathBuf]) -> HashSet<PathBuf> {
     let mut entries = HashSet::new();
-    for extension in SOURCE_EXTENSIONS {
-        if let Ok(path) = fs::canonicalize(root.join("src").join(format!("index.{extension}"))) {
-            entries.insert(path);
-        }
-        if let Ok(path) = fs::canonicalize(root.join(format!("index.{extension}"))) {
-            entries.insert(path);
+    let mut directories = BTreeSet::from([root.to_path_buf()]);
+    for file in files {
+        let mut directory = file.parent();
+        while let Some(current) = directory {
+            directories.insert(current.to_path_buf());
+            if current == root {
+                break;
+            }
+            directory = current.parent();
         }
     }
-    let Ok(package) = fs::read_to_string(root.join("package.json")) else {
-        return entries;
+    for directory in &directories {
+        package_entries(directory, &mut entries);
+        index_html_entries(directory, root, &mut entries);
+    }
+    for file in files {
+        if is_entry_file(root, file) {
+            insert_entry(&mut entries, file);
+        }
+    }
+    for extension in SOURCE_EXTENSIONS {
+        insert_entry(
+            &mut entries,
+            &root.join("src").join(format!("index.{extension}")),
+        );
+        insert_entry(&mut entries, &root.join(format!("index.{extension}")));
+    }
+    entries
+}
+
+fn insert_entry(entries: &mut HashSet<PathBuf>, path: &Path) {
+    if let Some(canonical) = resolve_target(path) {
+        entries.insert(canonical);
+    }
+}
+
+fn package_entries(directory: &Path, entries: &mut HashSet<PathBuf>) {
+    let Ok(text) = fs::read_to_string(directory.join("package.json")) else {
+        return;
     };
-    let Ok(package) = serde_json::from_str::<serde_json::Value>(&package) else {
-        return entries;
+    let Ok(package) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return;
     };
     let mut values = Vec::new();
     for key in ["main", "module", "types", "typings"] {
@@ -625,56 +1203,234 @@ fn entry_points(root: &Path) -> HashSet<PathBuf> {
         }
     }
     collect_export_strings(package.get("exports"), &mut values);
+    if let Some(bin) = package.get("bin") {
+        collect_export_strings(Some(bin), &mut values);
+    }
     for value in values {
-        let value = value.strip_prefix("./").unwrap_or(&value);
-        let path = root.join(value);
-        for candidate in entry_candidates(&path) {
-            if let Ok(candidate) = fs::canonicalize(candidate) {
-                entries.insert(candidate);
-            }
+        for candidate in package_entry_candidates(directory, &value) {
+            insert_entry(entries, &candidate);
         }
     }
-    entries
+    if package.pointer("/engines/vscode").is_some() {
+        for name in [
+            "src/extension.ts",
+            "src/extension.tsx",
+            "extension.ts",
+            "extension.tsx",
+        ] {
+            insert_entry(entries, &directory.join(name));
+        }
+    }
 }
 
-fn entry_candidates(path: &Path) -> Vec<PathBuf> {
-    let mut candidates = vec![path.to_path_buf()];
-    match path.extension().and_then(|extension| extension.to_str()) {
-        Some("js") => {
-            let without = path.with_extension("");
-            candidates.extend(["ts", "tsx"].map(|extension| without.with_extension(extension)));
-        }
-        Some("jsx") => candidates.push(path.with_extension("tsx")),
-        Some("mjs") => candidates.push(path.with_extension("mts")),
-        Some("cjs") => candidates.push(path.with_extension("cts")),
-        None => {
-            for extension in SOURCE_EXTENSIONS {
-                candidates.push(path.with_extension(extension));
-            }
-            for extension in SOURCE_EXTENSIONS {
-                candidates.push(path.join(format!("index.{extension}")));
-            }
-        }
-        _ => {}
+fn package_entry_candidates(directory: &Path, value: &str) -> Vec<PathBuf> {
+    let value = value.strip_prefix("./").unwrap_or(value);
+    if value.is_empty() || value.contains('*') || value.starts_with("http") {
+        return Vec::new();
     }
+    let mut candidates = Vec::new();
+    if let Some(source) = crate::resolve::source_directory_swap(directory, value) {
+        candidates.push(source);
+    }
+    candidates.push(directory.join(value));
     candidates
 }
 
-fn collect_export_strings(value: Option<&serde_json::Value>, values: &mut Vec<String>) {
-    match value {
-        Some(serde_json::Value::String(value)) => values.push(value.clone()),
-        Some(serde_json::Value::Array(items)) => {
-            for item in items {
-                collect_export_strings(Some(item), values);
-            }
+fn index_html_entries(directory: &Path, root: &Path, entries: &mut HashSet<PathBuf>) {
+    let Ok(text) = fs::read_to_string(directory.join("index.html")) else {
+        return;
+    };
+    for source in script_sources(&text) {
+        let source = source.trim();
+        if source.is_empty()
+            || source.starts_with("http://")
+            || source.starts_with("https://")
+            || source.starts_with("//")
+            || source.starts_with("data:")
+        {
+            continue;
         }
-        Some(serde_json::Value::Object(map)) => {
-            for value in map.values() {
-                collect_export_strings(Some(value), values);
-            }
-        }
-        _ => {}
+        let path = if let Some(relative) = source.strip_prefix('/') {
+            root.join(relative)
+        } else {
+            directory.join(source)
+        };
+        insert_entry(entries, &path);
     }
+}
+
+fn script_sources(text: &str) -> Vec<String> {
+    let mut sources = Vec::new();
+    let mut rest = text;
+    while let Some(index) = rest.find("<script") {
+        let after = &rest[index + "<script".len()..];
+        let end = after.find('>').unwrap_or(after.len());
+        let tag = &after[..end];
+        for token in tag.split_ascii_whitespace() {
+            if let Some(value) = token.strip_prefix("src=") {
+                sources.push(
+                    value
+                        .trim_matches(|character| matches!(character, '"' | '\'' | '>'))
+                        .to_owned(),
+                );
+            }
+        }
+        rest = &after[end..];
+    }
+    sources
+}
+
+fn is_entry_file(root: &Path, path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+        return false;
+    };
+    let Some(stem) = source_stem(name) else {
+        return false;
+    };
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let components: Vec<&str> = relative
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .collect();
+    let directories = &components[..components.len().saturating_sub(1)];
+    is_config_entry(stem, directories)
+        || is_test_entry(name, directories)
+        || is_script_entry(directories)
+        || is_framework_entry(stem, name, directories)
+}
+
+fn source_stem(name: &str) -> Option<&str> {
+    let (stem, extension) = name.rsplit_once('.')?;
+    SOURCE_EXTENSIONS
+        .contains(&extension.to_ascii_lowercase().as_str())
+        .then_some(stem)
+}
+
+fn is_config_entry(stem: &str, directories: &[&str]) -> bool {
+    if directories
+        .iter()
+        .any(|directory| matches!(*directory, ".storybook" | "storybook"))
+    {
+        return true;
+    }
+    stem.ends_with(".config")
+        || stem == "knexfile"
+        || stem.starts_with("knexfile.")
+        || matches!(
+            stem,
+            ".eslintrc" | ".babelrc" | ".prettierrc" | "gulpfile" | "gruntfile" | "prettier"
+        )
+}
+
+fn is_test_entry(name: &str, directories: &[&str]) -> bool {
+    let name = name.to_ascii_lowercase();
+    if [
+        ".test.",
+        ".spec.",
+        ".story.",
+        ".stories.",
+        ".bench.",
+        ".e2e.",
+    ]
+    .iter()
+    .any(|marker| name.contains(marker))
+    {
+        return true;
+    }
+    directories.iter().any(|directory| {
+        matches!(
+            *directory,
+            "__tests__"
+                | "tests"
+                | "test"
+                | "e2e"
+                | "cypress"
+                | "playwright"
+                | "storybook"
+                | ".storybook"
+                | "__mocks__"
+                | "bench"
+                | "benches"
+                | "benchmarks"
+        )
+    })
+}
+
+fn is_script_entry(directories: &[&str]) -> bool {
+    directories.iter().any(|directory| {
+        matches!(
+            *directory,
+            "bin"
+                | "scripts"
+                | "script"
+                | "migrations"
+                | "migration"
+                | "tools"
+                | "tooling"
+                | ".husky"
+        )
+    })
+}
+
+fn is_framework_entry(stem: &str, name: &str, directories: &[&str]) -> bool {
+    let under_app = directories.contains(&"app");
+    if under_app {
+        if matches!(
+            stem,
+            "page"
+                | "layout"
+                | "route"
+                | "template"
+                | "loading"
+                | "error"
+                | "not-found"
+                | "global-error"
+                | "default"
+                | "opengraph-image"
+                | "twitter-image"
+                | "icon"
+                | "apple-icon"
+                | "sitemap"
+                | "robots"
+                | "manifest"
+        ) {
+            return true;
+        }
+        if matches!(stem, "root" | "entry.client" | "entry.server") {
+            return true;
+        }
+    }
+    if directories
+        .windows(2)
+        .any(|window| window[0] == "app" && window[1] == "routes")
+    {
+        return true;
+    }
+    for (index, directory) in directories.iter().enumerate() {
+        if *directory == "pages" && (index == 0 || (index == 1 && directories[0] == "src")) {
+            return true;
+        }
+    }
+    if ["+page.", "+layout.", "+server.", "+error."]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+    {
+        return true;
+    }
+    if directories.len() == 1
+        && directories[0] == "src"
+        && matches!(stem, "main" | "main.server" | "app.config" | "app.module")
+    {
+        return true;
+    }
+    if directories.is_empty() && matches!(stem, "main" | "index") {
+        return true;
+    }
+    matches!(stem, "main" | "preload" | "renderer")
+        && (directories.is_empty()
+            || directories
+                .iter()
+                .any(|directory| matches!(*directory, "src" | "electron" | "app")))
 }
 
 static TSC_CACHE: OnceLock<TscCache> = OnceLock::new();
@@ -690,56 +1446,70 @@ struct TscCache {
 struct TscCacheKey {
     root: PathBuf,
     tsconfig: PathBuf,
-    compiler: Option<PathBuf>,
-    modified: Option<SystemTime>,
-    source_modified: Option<SystemTime>,
+    compiler: TscProgram,
+    tsconfig_fingerprint: u64,
+    source_fingerprint: u64,
 }
 
 fn cached_type_diagnostics(
     project_root: &Path,
     tsconfig: &Path,
-    compiler: Option<&Path>,
-    source: Option<&Path>,
+    compiler: Option<&TscProgram>,
 ) -> Result<SharedDiagnostics, Diagnostic> {
     let root = fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
     let tsconfig = fs::canonicalize(tsconfig).unwrap_or_else(|_| tsconfig.to_path_buf());
-    let modified = fs::metadata(&tsconfig)
-        .and_then(|metadata| metadata.modified())
-        .ok();
-    let source_modified = source
-        .and_then(|path| fs::metadata(path).ok())
-        .and_then(|metadata| metadata.modified().ok());
+    let compiler = compiler.cloned().unwrap_or_else(|| resolve_compiler(&root));
     let key = TscCacheKey {
         root: root.clone(),
         tsconfig: tsconfig.clone(),
-        compiler: compiler.map(Path::to_path_buf),
-        modified,
-        source_modified,
+        compiler,
+        tsconfig_fingerprint: tsconfig_fingerprint(&tsconfig),
+        source_fingerprint: source_fingerprint(&root),
     };
     let cache = TSC_CACHE.get_or_init(|| TscCache {
         diagnostics: Mutex::new(HashMap::new()),
     });
-    if let Some(diagnostics) = lock(&cache.diagnostics).get(&key).cloned() {
+    // Holding the lock for the duration of the run coalesces concurrent
+    // requests for the same project into one compiler invocation.
+    let mut diagnostics = lock(&cache.diagnostics);
+    if let Some(diagnostics) = diagnostics.get(&key).cloned() {
         return Ok(diagnostics);
     }
-    let diagnostics = Arc::new(run_tsc(&root, &tsconfig, compiler)?);
-    lock(&cache.diagnostics).insert(key, Arc::clone(&diagnostics));
-    Ok(diagnostics)
+    let result = Arc::new(run_tsc(&root, &tsconfig, &key.compiler)?);
+    diagnostics.retain(|cached, _| cached.root != key.root || cached.tsconfig != key.tsconfig);
+    diagnostics.insert(key, Arc::clone(&result));
+    Ok(result)
+}
+
+fn tsconfig_fingerprint(tsconfig: &Path) -> u64 {
+    let config = crate::tsconfig::load_at(tsconfig);
+    let mut hasher = DefaultHasher::new();
+    if config.chain.is_empty() {
+        hash_file(&mut hasher, tsconfig);
+    } else {
+        for file in &config.chain {
+            hash_file(&mut hasher, file);
+        }
+    }
+    hasher.finish()
+}
+
+fn source_fingerprint(root: &Path) -> u64 {
+    fingerprint(&source_listing(root))
 }
 
 fn run_tsc(
     project_root: &Path,
     tsconfig: &Path,
-    compiler: Option<&Path>,
+    compiler: &TscProgram,
 ) -> Result<DiagnosticList, Diagnostic> {
-    let tsc = compiler
-        .map(Path::to_path_buf)
-        .or_else(|| std::env::var_os("DOTFMT_TSC").map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("tsc"));
-    let output = Command::new(tsc)
+    let output = Command::new(&compiler.program)
+        .args(&compiler.arguments)
         .arg("--noEmit")
         .arg("--pretty")
         .arg("false")
+        .arg("--locale")
+        .arg("en")
         .arg("--project")
         .arg(tsconfig)
         .current_dir(project_root)
@@ -752,56 +1522,69 @@ fn run_tsc(
         })?;
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&output.stderr));
-    Ok(parse_tsc_output(project_root, &text))
+    Ok(parse_tsc_output(project_root, tsconfig, &text))
 }
 
-fn parse_tsc_output(project_root: &Path, output: &str) -> Vec<(PathBuf, TypeDiagnostic)> {
-    let mut diagnostics = Vec::new();
+#[derive(Debug)]
+struct RawDiagnostic {
+    file: Option<PathBuf>,
+    line: usize,
+    column: usize,
+    code: u32,
+    message: String,
+}
+
+fn parse_tsc_output(
+    project_root: &Path,
+    tsconfig: &Path,
+    output: &str,
+) -> Vec<(PathBuf, TypeDiagnostic)> {
+    let mut parsed: Vec<RawDiagnostic> = Vec::new();
     for line in output.lines() {
-        let Some((location, rest)) = line.split_once("): error TS") else {
-            continue;
-        };
-        let Some((file, coordinates)) = location.rsplit_once('(') else {
-            continue;
-        };
-        let Some((line_number, column)) = coordinates.split_once(',') else {
-            continue;
-        };
-        let Ok(line_number) = line_number.parse::<usize>() else {
-            continue;
-        };
-        let Ok(column) = column.parse::<usize>() else {
-            continue;
-        };
-        let code = rest
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .collect::<String>();
-        let Ok(code) = code.parse::<u32>() else {
-            continue;
-        };
-        let message = rest[code.to_string().len()..]
-            .trim_start_matches([':', ' '])
-            .to_owned();
-        let file = PathBuf::from(file);
-        let file = if file.is_absolute() {
-            file
-        } else {
-            project_root.join(file)
-        };
+        if let Some(diagnostic) = parse_diagnostic_line(line) {
+            parsed.push(diagnostic);
+        } else if line.starts_with("  ")
+            && !line.trim().is_empty()
+            && let Some(last) = parsed.last_mut()
+        {
+            if !last.message.is_empty() {
+                last.message.push('\n');
+            }
+            last.message.push_str(line.trim());
+        }
+    }
+    let tsconfig = fs::canonicalize(tsconfig).unwrap_or_else(|_| tsconfig.to_path_buf());
+    let mut diagnostics = Vec::new();
+    for raw in parsed {
+        let positioned = raw.file.is_some();
+        let file = raw.file.map_or_else(
+            || tsconfig.clone(),
+            |file| {
+                if file.is_absolute() {
+                    file
+                } else {
+                    project_root.join(file)
+                }
+            },
+        );
         let file = fs::canonicalize(&file).unwrap_or(file);
-        let Ok(source) = fs::read_to_string(&file) else {
-            continue;
-        };
-        let source = source.strip_prefix('\u{feff}').unwrap_or(&source);
-        let Some((start, end)) = span_for_line_column(source, line_number, column) else {
-            continue;
+        let (start, end) = if positioned {
+            let Ok(source) = fs::read_to_string(&file) else {
+                continue;
+            };
+            let source = source.strip_prefix('\u{feff}').unwrap_or(&source);
+            let Some((start, end)) = span_for_line_column(source, raw.line, raw.column) else {
+                continue;
+            };
+            (start, end)
+        } else {
+            (0, 0)
         };
         diagnostics.push((
             file,
             TypeDiagnostic {
-                code,
-                message,
+                code: raw.code,
+                message: raw.message,
                 start,
                 end,
             },
@@ -817,6 +1600,68 @@ fn parse_tsc_output(project_root: &Path, output: &str) -> Vec<(PathBuf, TypeDiag
     });
     diagnostics.dedup();
     diagnostics
+}
+
+fn parse_diagnostic_line(line: &str) -> Option<RawDiagnostic> {
+    let trimmed = line.trim_start();
+    if let Some((head, code, message)) = split_severity(trimmed) {
+        let (file, line_number, column) = parse_location(head)?;
+        return Some(RawDiagnostic {
+            file: Some(file),
+            line: line_number,
+            column,
+            code,
+            message,
+        });
+    }
+    let rest = trimmed
+        .strip_prefix("error TS")
+        .or_else(|| trimmed.strip_prefix("warning TS"))?;
+    let (code, message) = parse_code(rest)?;
+    Some(RawDiagnostic {
+        file: None,
+        line: 0,
+        column: 0,
+        code,
+        message,
+    })
+}
+
+fn split_severity(line: &str) -> Option<(&str, u32, String)> {
+    let (head, rest) = line
+        .split_once(": error TS")
+        .or_else(|| line.split_once(": warning TS"))?;
+    let (code, message) = parse_code(rest)?;
+    let head = head.trim_end();
+    let head = head.strip_suffix(" -").unwrap_or(head);
+    Some((head, code, message))
+}
+
+fn parse_code(rest: &str) -> Option<(u32, String)> {
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    let code = digits.parse().ok()?;
+    let message = rest[digits.len()..]
+        .trim_start_matches([':', ' '])
+        .to_owned();
+    Some((code, message))
+}
+
+fn parse_location(head: &str) -> Option<(PathBuf, usize, usize)> {
+    if let Some((file, coordinates)) = head.rsplit_once('(')
+        && let Some(coordinates) = coordinates.strip_suffix(')')
+    {
+        let (line, column) = coordinates.split_once(',')?;
+        return Some((
+            PathBuf::from(file),
+            line.parse().ok()?,
+            column.parse().ok()?,
+        ));
+    }
+    let mut parts = head.rsplitn(3, ':');
+    let column = parts.next()?.parse().ok()?;
+    let line = parts.next()?.parse().ok()?;
+    let file = parts.next()?;
+    Some((PathBuf::from(file), line, column))
 }
 
 fn span_for_line_column(source: &str, line: usize, column: usize) -> Option<(usize, usize)> {
@@ -922,13 +1767,17 @@ mod tests {
         );
         let tsconfig = root.join("tsconfig.json");
         clear_cache();
-        let diagnostics = cached_type_diagnostics(root, &tsconfig, Some(&script), None).unwrap();
+        let compiler = TscProgram {
+            program: script,
+            arguments: Vec::new(),
+        };
+        let diagnostics = cached_type_diagnostics(root, &tsconfig, Some(&compiler)).unwrap();
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].1.code, 2322);
         assert_eq!(diagnostics[0].1.start, 6);
         assert_eq!(diagnostics[0].1.end, 7);
 
-        let cached = cached_type_diagnostics(root, &tsconfig, Some(&script), None).unwrap();
+        let cached = cached_type_diagnostics(root, &tsconfig, Some(&compiler)).unwrap();
         assert_eq!(cached, diagnostics);
         assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 1);
     }
@@ -937,6 +1786,35 @@ mod tests {
     fn parser_ignores_unrelated_lines() {
         let root = Path::new("/tmp/project");
         let output = "warning: something\n\n";
-        assert!(parse_tsc_output(root, output).is_empty());
+        assert!(parse_tsc_output(root, &root.join("tsconfig.json"), output).is_empty());
+    }
+
+    #[test]
+    fn parser_keeps_positionless_and_continuation_lines() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::write(root.join("a.ts"), "const x: number = \"s\";\n").unwrap();
+        let output = concat!(
+            "error TS18003: No inputs were found in config file.\n",
+            "  The config file has no input files.\n",
+            "a.ts(1,7): error TS2322: Type 'string' is not assignable.\n",
+            "  Types of property 'x' are incompatible.\n",
+        );
+        let diagnostics = parse_tsc_output(root, &root.join("tsconfig.json"), output);
+        let positionless = diagnostics
+            .iter()
+            .find(|(_, diagnostic)| diagnostic.code == 18003)
+            .expect("positionless diagnostic");
+        assert!(positionless.1.message.contains("No inputs"));
+        assert!(positionless.1.message.contains("no input files"));
+        let positioned = diagnostics
+            .iter()
+            .find(|(_, diagnostic)| diagnostic.code == 2322)
+            .expect("positioned diagnostic");
+        assert!(
+            positioned.1.message.contains("Types of property"),
+            "continuation line should be kept: {}",
+            positioned.1.message
+        );
     }
 }
