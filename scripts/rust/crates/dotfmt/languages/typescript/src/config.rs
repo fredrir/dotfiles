@@ -29,6 +29,37 @@ pub enum FixMode {
     Unsafe,
 }
 
+/// Fix categories enabled while formatting. `safe` and `unsafe` summarize the
+/// selected categories; the category flags decide which fixes are applied.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FixSelection {
+    pub safe: bool,
+    pub r#unsafe: bool,
+    pub remove_unused_imports: bool,
+    pub remove_unused_exports: bool,
+    pub remove_unused_locals: bool,
+    pub remove_unused_parameters: bool,
+    pub convert_type_only_imports: bool,
+    pub organize_imports: bool,
+}
+
+impl FixSelection {
+    /// Whether a fix belongs to an enabled category.
+    pub fn selects(&self, code: Option<&str>, kind: &str) -> bool {
+        if kind.contains("organizeImports") {
+            return self.organize_imports;
+        }
+        match code {
+            Some("unused-import") => self.remove_unused_imports,
+            Some("type-only-import") => self.convert_type_only_imports,
+            Some("unused-variable" | "unused-class-member") => self.remove_unused_locals,
+            Some("unused-parameter" | "unused-type-parameter") => self.remove_unused_parameters,
+            Some("unused-export") => self.remove_unused_exports,
+            _ => false,
+        }
+    }
+}
+
 /// Layout and feature choices for TypeScript, TSX, JavaScript and JSX.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -59,6 +90,12 @@ pub struct Config {
     pub import_groups: Option<Vec<Vec<oxc_formatter::GroupEntry>>>,
     pub tailwind: dotfmt_tailwind::Config,
     pub fixes: FixMode,
+    pub remove_unused_imports: bool,
+    pub remove_unused_exports: bool,
+    pub remove_unused_locals: bool,
+    pub remove_unused_parameters: bool,
+    pub convert_type_only_imports: bool,
+    pub organize_imports: bool,
     pub type_aware: bool,
     /// Verify that formatting did not remove code.
     pub verify: bool,
@@ -105,6 +142,12 @@ impl Default for Config {
             import_groups: None,
             tailwind: dotfmt_tailwind::Config::default(),
             fixes: FixMode::Off,
+            remove_unused_imports: false,
+            remove_unused_exports: false,
+            remove_unused_locals: false,
+            remove_unused_parameters: false,
+            convert_type_only_imports: false,
+            organize_imports: false,
             type_aware: true,
             verify: true,
             dialect: Dialect::Auto,
@@ -311,6 +354,12 @@ impl Config {
                     other => return Err(format!("fixes must be off, safe or unsafe, not {other}")),
                 }
             }
+            "remove_unused_imports" => self.remove_unused_imports = flag(key, value)?,
+            "remove_unused_exports" => self.remove_unused_exports = flag(key, value)?,
+            "remove_unused_locals" => self.remove_unused_locals = flag(key, value)?,
+            "remove_unused_parameters" => self.remove_unused_parameters = flag(key, value)?,
+            "convert_type_only_imports" => self.convert_type_only_imports = flag(key, value)?,
+            "organize_imports" => self.organize_imports = flag(key, value)?,
             "type_aware" => self.type_aware = flag(key, value)?,
             "verify" => self.verify = flag(key, value)?,
             "dialect" => self.dialect = Dialect::parse(value, true)?,
@@ -389,6 +438,44 @@ impl Config {
 
     pub fn tailwind_enabled(&self) -> bool {
         !matches!(self.tailwind.mode, dotfmt_tailwind::Mode::Off)
+    }
+
+    /// Fixes to apply before formatting a TypeScript or JavaScript document.
+    ///
+    /// `fixes = off` selects nothing on its own; `safe` enables imports and
+    /// type-only conversion; `unsafe` enables every category. Individual
+    /// booleans enable their category regardless of the mode.
+    pub fn format_fix_selection(&self) -> Option<FixSelection> {
+        let mut selection = FixSelection::default();
+        match self.fixes {
+            FixMode::Off => {}
+            FixMode::Safe => {
+                selection.remove_unused_imports = true;
+                selection.convert_type_only_imports = true;
+                selection.organize_imports = true;
+            }
+            FixMode::Unsafe => {
+                selection.remove_unused_imports = true;
+                selection.convert_type_only_imports = true;
+                selection.organize_imports = true;
+                selection.remove_unused_exports = true;
+                selection.remove_unused_locals = true;
+                selection.remove_unused_parameters = true;
+            }
+        }
+        selection.remove_unused_imports |= self.remove_unused_imports;
+        selection.remove_unused_exports |= self.remove_unused_exports;
+        selection.remove_unused_locals |= self.remove_unused_locals;
+        selection.remove_unused_parameters |= self.remove_unused_parameters;
+        selection.convert_type_only_imports |= self.convert_type_only_imports;
+        selection.organize_imports |= self.organize_imports;
+        selection.safe = selection.remove_unused_imports
+            || selection.convert_type_only_imports
+            || selection.organize_imports;
+        selection.r#unsafe = selection.remove_unused_exports
+            || selection.remove_unused_locals
+            || selection.remove_unused_parameters;
+        (selection.safe || selection.r#unsafe).then_some(selection)
     }
 }
 
