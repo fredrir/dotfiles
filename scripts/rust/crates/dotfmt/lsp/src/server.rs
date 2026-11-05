@@ -750,7 +750,7 @@ impl Server {
             .get(&uri)
             .map(|document| document.version);
         if !self.supported_document(&uri) {
-            return Ok(serde_json::to_value(DocumentDiagnosticReport::Full(
+            return serde_json::to_value(DocumentDiagnosticReport::Full(
                 RelatedFullDocumentDiagnosticReport {
                     related_documents: None,
                     full_document_diagnostic_report: FullDocumentDiagnosticReport {
@@ -759,7 +759,7 @@ impl Server {
                     },
                 },
             ))
-            .map_err(|error| RpcError::invalid_params(error.to_string()))?);
+            .map_err(|error| RpcError::invalid_params(error.to_string()));
         }
         let merged = self.diagnostics.merged(&uri, version);
         let report = if params.previous_result_id.as_deref() == Some(merged.result_id.as_str()) {
@@ -1326,13 +1326,6 @@ impl Server {
                                 }
                                 _ => all_config = true,
                             }
-                        } else if is_tsc_config_file(&path) {
-                            match root {
-                                Some(root) => {
-                                    tsc_roots.insert(root);
-                                }
-                                None => all_tsc = true,
-                            }
                         } else {
                             match root {
                                 Some(root) => {
@@ -1618,25 +1611,6 @@ fn is_config_file(path: &Path) -> bool {
         path.file_name().and_then(|name| name.to_str()),
         Some("dotfmt.dotfile" | ".prettierignore")
     )
-}
-
-fn is_tsc_config_file(path: &Path) -> bool {
-    matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some(
-            "tsconfig.json"
-                | "jsconfig.json"
-                | "package.json"
-                | "package-lock.json"
-                | "pnpm-lock.yaml"
-                | "yarn.lock"
-                | "bun.lock"
-                | "bun.lockb"
-        )
-    ) || path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with("tsconfig.") || name.starts_with("jsconfig."))
 }
 
 fn capabilities(pull: bool) -> ServerCapabilities {
@@ -3807,7 +3781,7 @@ mod tests {
             )))
             .unwrap();
 
-        let folders = |client: &Connection| loop {
+        let folders = |client: &Connection| {
             client
                 .sender
                 .send(Message::Request(Request::new(
@@ -3817,7 +3791,7 @@ mod tests {
                 )))
                 .unwrap();
             let doctor = receive_response(client, &RequestId::from(50)).unwrap();
-            break doctor["folders"].as_array().cloned().unwrap_or_default();
+            doctor["folders"].as_array().cloned().unwrap_or_default()
         };
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
