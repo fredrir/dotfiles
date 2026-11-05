@@ -4,7 +4,7 @@
  *
  * schema.json is the source of truth: core globals, the settings every
  * language block accepts, and each language's `set` keys. Generated settings
- * have no `default`, so an unset key inherits from `dotfmt.dotfile`; the
+ * have a `null` default, so an unset key inherits from `dotfmt.dotfile`; the
  * effective value is documented in the description instead.
  *
  * Every run also checks coverage against the Rust configuration code: each key
@@ -162,7 +162,10 @@ function validateOptions(scope: string, options: Record<string, Option>): void {
 }
 
 function settingsProperty(option: Option): Record<string, unknown> {
-  const property: Record<string, unknown> = { type: option.type };
+  // VS Code serializes a declared boolean/integer/string/array without a
+  // default as false/0/""/[], which would override dotfmt.dotfile. A null
+  // default keeps unset keys explicitly absent from the configuration pull.
+  const property: Record<string, unknown> = { type: option.type, default: null };
   if (option.items) {
     property.items = option.items;
   }

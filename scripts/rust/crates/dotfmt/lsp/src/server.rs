@@ -115,6 +115,9 @@ pub fn run(connection: &Connection) -> Result<()> {
         "dotfmt trust: {}",
         if trust { "trusted" } else { "untrusted" }
     ));
+    if let Some(global) = &server.global_config {
+        server.log(format!("global config: {}", global.display()));
+    }
     server.pull_settings();
 
     let mut shutting_down = false;

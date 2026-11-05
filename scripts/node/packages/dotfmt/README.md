@@ -27,7 +27,7 @@ Every dotfmt option is available in Settings. Run **dotfmt: Configure** (or sear
 - `dotfmt.format.included_files` and `dotfmt.format.excluded_files`.
 - `dotfmt.formatExtra`: a free-form object using the `dotfmt.dotfile` shape for anything not listed above.
 
-Precedence, lowest to highest: engine defaults → global `dotfmt.dotfile` → ancestor/nearest `dotfmt.dotfile` → `dotfmt.formatExtra` → `dotfmt.format.*`. Inside the native layers `dotfmt.format.*` wins over `dotfmt.formatExtra` for the same key. Generated settings have no VS Code default, so leaving a key unset inherits from `dotfmt.dotfile`; `null` inherits too.
+Precedence, lowest to highest: engine defaults → global `dotfmt.dotfile` → ancestor/nearest `dotfmt.dotfile` → `dotfmt.formatExtra` → `dotfmt.format.*`. Inside the native layers `dotfmt.format.*` wins over `dotfmt.formatExtra` for the same key. Generated settings have a `null` VS Code default, so leaving a key unset inherits from `dotfmt.dotfile`; `null` inherits too.
 
 ```json
 {
