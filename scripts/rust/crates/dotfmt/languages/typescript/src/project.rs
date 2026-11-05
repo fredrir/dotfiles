@@ -4,8 +4,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -33,6 +34,7 @@ use crate::TypeDiagnostic;
 use crate::dialect::Dialect;
 use crate::resolve::{
     Resolver, SOURCE_EXTENSIONS, collect_export_strings, expand_glob, resolve_target,
+    wildcard_match,
 };
 
 const AVOIDED_DIRECTORIES: &[&str] = &[
@@ -58,6 +60,11 @@ const AVOIDED_DIRECTORIES: &[&str] = &[
 ];
 const SOURCE_LIST_TTL: Duration = Duration::from_millis(250);
 const MAX_SOURCE_SIZE: u64 = 4 * 1024 * 1024;
+const TSC_TIMEOUT: Duration = Duration::from_secs(30);
+const TSC_TIMEOUT_POLL: Duration = Duration::from_millis(10);
+/// Synthetic diagnostic code for a compiler invocation that exceeded the
+/// timeout. Real TypeScript diagnostics start at TS1000.
+pub const TSC_TIMEOUT_CODE: u32 = 0;
 const CONSUMER_EXTENSIONS: &[&str] = &["vue", "svelte", "astro", "mdx"];
 const NON_CODE_EXTENSIONS: &[&str] = &[
     "css", "scss", "sass", "less", "styl", "json", "html", "svg", "png", "jpg", "jpeg", "gif",
@@ -398,7 +405,22 @@ pub fn type_diagnostics(
     project_root: &Path,
     tsconfig: &Path,
 ) -> Result<Vec<TypeDiagnostic>, Diagnostic> {
-    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None)?;
+    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None, TSC_TIMEOUT)?;
+    Ok(diagnostics
+        .iter()
+        .map(|(_, diagnostic)| diagnostic.clone())
+        .collect())
+}
+
+/// Runs `tsc --noEmit` with an explicit timeout. A compiler that does not exit
+/// within `timeout` is killed and reported as a timeout diagnostic instead of
+/// blocking the caller forever.
+pub fn type_diagnostics_with_timeout(
+    project_root: &Path,
+    tsconfig: &Path,
+    timeout: Duration,
+) -> Result<Vec<TypeDiagnostic>, Diagnostic> {
+    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None, timeout)?;
     Ok(diagnostics
         .iter()
         .map(|(_, diagnostic)| diagnostic.clone())
@@ -408,18 +430,32 @@ pub fn type_diagnostics(
 /// Returns the project diagnostics that belong to `path`.
 ///
 /// The compiler runs once per project; subsequent calls reuse the result until
-/// a source or tsconfig file changes.
+/// a source or tsconfig file changes. A project-wide timeout is attributed to
+/// the requested file so it is not silently dropped by the path filter.
 pub fn type_diagnostics_for(
     path: &Path,
     project_root: &Path,
     tsconfig: &Path,
 ) -> Result<Vec<TypeDiagnostic>, Diagnostic> {
     let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None)?;
-    Ok(diagnostics
+    let diagnostics = cached_type_diagnostics(project_root, tsconfig, None, TSC_TIMEOUT)?;
+    let mut selected: Vec<TypeDiagnostic> = diagnostics
         .iter()
         .filter_map(|(file, diagnostic)| (file == &canonical).then_some(diagnostic.clone()))
-        .collect())
+        .collect();
+    if selected.is_empty()
+        && let Some(timeout) = diagnostics
+            .iter()
+            .find(|(_, diagnostic)| diagnostic.code == TSC_TIMEOUT_CODE)
+            .map(|(_, diagnostic)| diagnostic.clone())
+    {
+        selected.push(TypeDiagnostic {
+            start: 0,
+            end: 0,
+            ..timeout
+        });
+    }
+    Ok(selected)
 }
 
 /// Whether the project graph for `path` resolved every source file and import
@@ -546,6 +582,16 @@ impl Graph {
             let Some(module) = self.modules.get(&importer) else {
                 continue;
             };
+            // A malformed nearest/solution config or a broken `extends` chain
+            // hides aliases, so unresolved imports cannot be classified as
+            // external.
+            if resolver
+                .configs_for(&importer)
+                .iter()
+                .any(|config| config.invalid)
+            {
+                self.complete = false;
+            }
             for edge in &module.edges {
                 if let EdgeKind::Glob(patterns) = &edge.kind {
                     for pattern in patterns {
@@ -625,6 +671,9 @@ fn graph_truncated(root: &Path) -> bool {
     }
     let probe = root.join("__dotfmt_probe.ts");
     let config = crate::tsconfig::load_for_within(&probe, root);
+    if config.invalid {
+        return true;
+    }
     config
         .references
         .iter()
@@ -650,6 +699,9 @@ fn local_specifier(resolver: &mut Resolver, root: &Path, importer: &Path, specif
         return true;
     }
     let configs = resolver.configs_for(importer);
+    if configs.iter().any(|config| config.invalid) {
+        return true;
+    }
     if configs.iter().any(|config| {
         config
             .paths
@@ -886,7 +938,7 @@ fn push_export_fix(
     );
 }
 
-fn reparses(path: &Path, text: &str) -> bool {
+pub(crate) fn reparses(path: &Path, text: &str) -> bool {
     let source_type = Dialect::Auto.source_type_for_path(path);
     let allocator = Allocator::default();
     Parser::new(&allocator, text, source_type)
@@ -1794,7 +1846,7 @@ fn entry_points(root: &Path, files: &[PathBuf]) -> HashSet<PathBuf> {
         }
     }
     for directory in &directories {
-        package_entries(directory, &mut entries);
+        package_entries(directory, files, &mut entries);
         index_html_entries(directory, root, &mut entries);
     }
     for file in files {
@@ -1818,7 +1870,7 @@ fn insert_entry(entries: &mut HashSet<PathBuf>, path: &Path) {
     }
 }
 
-fn package_entries(directory: &Path, entries: &mut HashSet<PathBuf>) {
+fn package_entries(directory: &Path, files: &[PathBuf], entries: &mut HashSet<PathBuf>) {
     let Ok(text) = fs::read_to_string(directory.join("package.json")) else {
         return;
     };
@@ -1836,8 +1888,14 @@ fn package_entries(directory: &Path, entries: &mut HashSet<PathBuf>) {
         collect_export_strings(Some(bin), &mut values);
     }
     for value in values {
-        for candidate in package_entry_candidates(directory, &value) {
-            insert_entry(entries, &candidate);
+        if value.contains('*') {
+            for candidate in wildcard_package_entries(directory, &value, files) {
+                insert_entry(entries, &candidate);
+            }
+        } else {
+            for candidate in package_entry_candidates(directory, &value) {
+                insert_entry(entries, &candidate);
+            }
         }
     }
     if package.pointer("/engines/vscode").is_some() {
@@ -1850,6 +1908,53 @@ fn package_entries(directory: &Path, entries: &mut HashSet<PathBuf>) {
             insert_entry(entries, &directory.join(name));
         }
     }
+}
+
+/// Files matched by a wildcard `package.json#exports` target.
+///
+/// Wildcard public entry points are common (`"./features/*":
+/// "./src/features/*.ts"`); without expanding them a public module would be
+/// reported unused and could receive an unsafe export fix.
+fn wildcard_package_entries(directory: &Path, value: &str, files: &[PathBuf]) -> Vec<PathBuf> {
+    let value = value.strip_prefix("./").unwrap_or(value);
+    if value.is_empty() || value.starts_with("http") || !value.contains('*') {
+        return Vec::new();
+    }
+    let mut patterns = vec![value.to_owned()];
+    if let Some(source) = crate::resolve::source_directory_swap(directory, value)
+        && let Ok(relative) = source.strip_prefix(directory)
+    {
+        patterns.push(relative.to_string_lossy().replace('\\', "/"));
+    }
+    let mut variants = Vec::new();
+    for pattern in patterns {
+        for (from, to) in [
+            (".js", ".ts"),
+            (".js", ".tsx"),
+            (".jsx", ".tsx"),
+            (".mjs", ".mts"),
+            (".cjs", ".cts"),
+        ] {
+            if let Some(stem) = pattern.strip_suffix(from) {
+                variants.push(format!("{stem}{to}"));
+            }
+        }
+        variants.push(pattern);
+    }
+    let mut matched = Vec::new();
+    for file in files {
+        let Ok(relative) = file.strip_prefix(directory) else {
+            continue;
+        };
+        let relative = relative.to_string_lossy().replace('\\', "/");
+        if variants
+            .iter()
+            .any(|pattern| wildcard_match(pattern, &relative))
+        {
+            matched.push(file.clone());
+        }
+    }
+    matched
 }
 
 fn package_entry_candidates(directory: &Path, value: &str) -> Vec<PathBuf> {
@@ -2102,12 +2207,14 @@ struct TscCacheKey {
     compiler: TscProgram,
     tsconfig_fingerprint: u64,
     source_fingerprint: u64,
+    timeout: Duration,
 }
 
 fn cached_type_diagnostics(
     project_root: &Path,
     tsconfig: &Path,
     compiler: Option<&TscProgram>,
+    timeout: Duration,
 ) -> Result<SharedDiagnostics, Diagnostic> {
     let root = fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
     let tsconfig = fs::canonicalize(tsconfig).unwrap_or_else(|_| tsconfig.to_path_buf());
@@ -2118,6 +2225,7 @@ fn cached_type_diagnostics(
         compiler,
         tsconfig_fingerprint: tsconfig_fingerprint(&tsconfig),
         source_fingerprint: source_fingerprint(&root),
+        timeout,
     };
     let cache = TSC_CACHE.get_or_init(|| TscCache {
         diagnostics: Mutex::new(HashMap::new()),
@@ -2128,7 +2236,7 @@ fn cached_type_diagnostics(
     if let Some(diagnostics) = diagnostics.get(&key).cloned() {
         return Ok(diagnostics);
     }
-    let result = Arc::new(run_tsc(&root, &tsconfig, &key.compiler)?);
+    let result = Arc::new(run_tsc(&root, &tsconfig, &key.compiler, timeout)?);
     diagnostics.retain(|cached, _| cached.root != key.root || cached.tsconfig != key.tsconfig);
     diagnostics.insert(key, Arc::clone(&result));
     Ok(result)
@@ -2155,8 +2263,9 @@ fn run_tsc(
     project_root: &Path,
     tsconfig: &Path,
     compiler: &TscProgram,
+    timeout: Duration,
 ) -> Result<DiagnosticList, Diagnostic> {
-    let output = Command::new(&compiler.program)
+    let mut child = Command::new(&compiler.program)
         .args(&compiler.arguments)
         .arg("--noEmit")
         .arg("--pretty")
@@ -2166,16 +2275,71 @@ fn run_tsc(
         .arg("--project")
         .arg(tsconfig)
         .current_dir(project_root)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| {
             Diagnostic::new(
                 DiagnosticKind::Io,
                 format!("failed to run tsc for {}: {error}", tsconfig.display()),
             )
         })?;
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    // Drain both pipes concurrently: a compiler can emit more than a pipe
+    // buffer before exiting, and waiting for it without reading would deadlock.
+    let stdout = child.stdout.take().map(read_pipe);
+    let stderr = child.stderr.take().map(read_pipe);
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                // The readers are intentionally detached: a grandchild may
+                // still hold the pipe, and joining would reintroduce the hang.
+                let tsconfig =
+                    fs::canonicalize(tsconfig).unwrap_or_else(|_| tsconfig.to_path_buf());
+                return Ok(vec![(
+                    tsconfig,
+                    TypeDiagnostic {
+                        code: TSC_TIMEOUT_CODE,
+                        message: format!(
+                            "TypeScript compiler timed out after {} ms",
+                            timeout.as_millis()
+                        ),
+                        start: 0,
+                        end: 0,
+                    },
+                )]);
+            }
+            Ok(None) => std::thread::sleep(TSC_TIMEOUT_POLL),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Diagnostic::new(
+                    DiagnosticKind::Io,
+                    format!("failed to wait for tsc for {}: {error}", tsconfig.display()),
+                ));
+            }
+        }
+    }
+    let mut text = stdout
+        .and_then(|reader| reader.join().ok())
+        .map_or_else(String::new, |bytes| {
+            String::from_utf8_lossy(&bytes).into_owned()
+        });
+    if let Some(bytes) = stderr.and_then(|reader| reader.join().ok()) {
+        text.push_str(&String::from_utf8_lossy(&bytes));
+    }
     Ok(parse_tsc_output(project_root, tsconfig, &text))
+}
+
+fn read_pipe(mut pipe: impl Read + Send + 'static) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = pipe.read_to_end(&mut buffer);
+        buffer
+    })
 }
 
 #[derive(Debug)]
@@ -2424,13 +2588,15 @@ mod tests {
             program: script,
             arguments: Vec::new(),
         };
-        let diagnostics = cached_type_diagnostics(root, &tsconfig, Some(&compiler)).unwrap();
+        let diagnostics =
+            cached_type_diagnostics(root, &tsconfig, Some(&compiler), TSC_TIMEOUT).unwrap();
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].1.code, 2322);
         assert_eq!(diagnostics[0].1.start, 6);
         assert_eq!(diagnostics[0].1.end, 7);
 
-        let cached = cached_type_diagnostics(root, &tsconfig, Some(&compiler)).unwrap();
+        let cached =
+            cached_type_diagnostics(root, &tsconfig, Some(&compiler), TSC_TIMEOUT).unwrap();
         assert_eq!(cached, diagnostics);
         assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 1);
     }

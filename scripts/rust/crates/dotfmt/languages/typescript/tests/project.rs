@@ -1813,3 +1813,235 @@ fn solution_style_tsconfig_with_an_outside_reference_refuses_fixes() {
     let analysis = project::unused_exports(&root.join("src/a.ts")).unwrap();
     assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
 }
+
+#[test]
+fn malformed_tsconfig_keeps_alias_imports_local_and_suppresses_fixes() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{ "name": "bad-config", "private": true }"#,
+    );
+    write(
+        root,
+        "tsconfig.json",
+        r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] } }"#,
+    );
+    write(
+        root,
+        "src/lib.ts",
+        "export const aliased = 1;\nexport const other = 2;\n",
+    );
+    write(
+        root,
+        "src/consumer.ts",
+        "import { aliased } from \"@/lib\";\nconsole.log(aliased);\n",
+    );
+    let path = root.join("src/lib.ts");
+
+    assert!(!project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert!(
+        analysis
+            .findings
+            .iter()
+            .any(|finding| finding.message.contains("aliased")),
+        "findings may remain conservative: {:?}",
+        analysis.findings
+    );
+    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+
+    let original = fs::read_to_string(&path).unwrap();
+    let fixes: Vec<_> = analysis.fixes.iter().collect();
+    let after = dotfmt_core::edit::apply_fixes(&original, &fixes).unwrap();
+    assert_eq!(after, original);
+    assert!(!after.is_empty(), "the imported module must not be deleted");
+}
+
+#[test]
+fn hash_prefixed_tsconfig_paths_resolve_before_package_imports() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{ "name": "hash-paths", "private": true }"#,
+    );
+    write(
+        root,
+        "tsconfig.json",
+        r##"{ "compilerOptions": { "baseUrl": ".", "paths": { "#lib/*": ["src/lib/*"] } } }"##,
+    );
+    write(
+        root,
+        "src/lib/a.ts",
+        "export const hashAliasUsed = 1;\nexport const hashAliasUnused = 2;\n",
+    );
+    write(
+        root,
+        "src/consumer.ts",
+        "import { hashAliasUsed } from \"#lib/a\";\nconsole.log(hashAliasUsed);\n",
+    );
+    let path = root.join("src/lib/a.ts");
+
+    assert!(project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert!(analysis.findings[0].message.contains("hashAliasUnused"));
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+}
+
+#[test]
+fn mjs_and_cjs_imports_resolve_declaration_only_modules() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "package.json", r#"{"private":true}"#);
+    write(
+        root,
+        "tsconfig.json",
+        r#"{"compilerOptions":{"module":"NodeNext","moduleResolution":"NodeNext"}}"#,
+    );
+    write(
+        root,
+        "src/only.d.mts",
+        "export declare const only: number;\n",
+    );
+    write(
+        root,
+        "src/only.d.cts",
+        "export declare const only: number;\n",
+    );
+    write(
+        root,
+        "src/consumer.mts",
+        "import { implUsed } from \"./impl.mjs\";\nimport type { only } from \"./only.mjs\";\nconsole.log(implUsed);\nexport type T = typeof only;\n",
+    );
+    write(
+        root,
+        "src/impl.mts",
+        "export const implUsed = 1;\nexport const implUnused = 2;\n",
+    );
+    write(
+        root,
+        "src/consumer.cts",
+        "import type { only } from \"./only.cjs\";\nexport type T = typeof only;\n",
+    );
+
+    let path = root.join("src/impl.mts");
+    assert!(project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert!(analysis.findings[0].message.contains("implUnused"));
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+    assert!(project::graph_complete(&root.join("src/consumer.cts")));
+}
+
+#[test]
+fn glob_keeps_gitignored_generated_exports_alive() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "package.json", r#"{"private":true}"#);
+    write(root, "tsconfig.json", "{}");
+    write(root, ".gitignore", "generated/\n*.gen.ts\n");
+    write(
+        root,
+        "generated/a.gen.ts",
+        "export const genUsed = 1;\nexport const genUnused = 2;\n",
+    );
+    write(
+        root,
+        "src/consumer.ts",
+        "const modules = import.meta.glob(\"../generated/*.ts\");\nconsole.log(modules);\n",
+    );
+
+    let path = root.join("generated/a.gen.ts");
+    assert!(project::graph_complete(&path));
+    assert_eq!(unused_codes(&path), Vec::<String>::new());
+}
+
+#[test]
+fn workspace_packages_see_sibling_deep_imports() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{"private":true,"workspaces":["packages/*"]}"#,
+    );
+    write(root, "packages/a/package.json", r#"{"private":true}"#);
+    write(root, "packages/a/tsconfig.json", "{}");
+    write(
+        root,
+        "packages/a/src/lib.ts",
+        "export const deepUsed = 1;\nexport const deepUnused = 2;\n",
+    );
+    write(root, "packages/b/package.json", r#"{"private":true}"#);
+    write(root, "packages/b/tsconfig.json", "{}");
+    write(
+        root,
+        "packages/b/src/consumer.ts",
+        "import { deepUsed } from \"../../a/src/lib\";\nconsole.log(deepUsed);\n",
+    );
+
+    let path = root.join("packages/a/src/lib.ts");
+    assert!(project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert!(analysis.findings[0].message.contains("deepUnused"));
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+}
+
+#[test]
+fn wildcard_package_exports_are_entry_points() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{"name":"exports-wildcard","private":true,"exports":{".":"./src/index.ts","./features/*":"./src/features/*.ts"}}"#,
+    );
+    write(root, "tsconfig.json", "{}");
+    write(root, "src/index.ts", "export const indexThing = 1;\n");
+    write(
+        root,
+        "src/features/alpha.ts",
+        "export const publicFeature = 1;\n",
+    );
+    write(root, "src/use.ts", "console.log(1);\n");
+
+    let path = root.join("src/features/alpha.ts");
+    assert!(project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert!(analysis.findings.is_empty(), "{:?}", analysis.findings);
+    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+}
+
+#[cfg(unix)]
+#[test]
+fn tsc_timeout_kills_the_compiler_and_reports_a_diagnostic() {
+    if std::env::var_os("DOTFMT_TSC").is_some() {
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "tsconfig.json", "{}");
+    write(root, "src/a.ts", "export const a = 1;\n");
+    write_script(&root.join("node_modules/.bin/tsc"), "sleep 5");
+    let tsconfig = root.join("tsconfig.json");
+
+    let started = std::time::Instant::now();
+    let diagnostics = project::type_diagnostics_with_timeout(
+        root,
+        &tsconfig,
+        std::time::Duration::from_millis(100),
+    )
+    .unwrap();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(3),
+        "the compiler must be killed near the timeout"
+    );
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics[0].code, project::TSC_TIMEOUT_CODE);
+    assert!(diagnostics[0].message.contains("timed out"));
+}

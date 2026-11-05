@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use super::context::Context;
-use dotfmt_core::edit::{Analysis, Applicability, Edit, Finding, Fix, Severity, Tag};
+use dotfmt_core::edit::{Analysis, Applicability, Edit, Finding, Fix, Severity, Tag, apply};
 use oxc_ast::AstKind;
 use oxc_ast::ast::{
     ArrayExpressionElement, BindingPattern, Expression, ObjectPropertyKind, UnaryOperator,
@@ -106,6 +106,16 @@ fn unused_variables<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) 
         }
         let (start, end) =
             context.statement_edit(variable.span.start as usize, variable.span.end as usize);
+        let edit = Edit::delete(start, end);
+        let Ok(candidate) = apply(context.text, std::slice::from_ref(&edit)) else {
+            continue;
+        };
+        // The same guard as export fixes: a deletion that does not re-parse
+        // (for example a partial statement inside a namespace) must not be
+        // offered, because applying it would abort every other finding.
+        if !crate::project::reparses(context.path, &candidate) {
+            continue;
+        }
         let fix = Fix::new(
             format!(
                 "Remove unused variable `{}`",
@@ -113,7 +123,7 @@ fn unused_variables<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) 
             ),
             "quickfix",
             applicability,
-            vec![Edit::delete(start, end)],
+            vec![edit],
         )
         .with_finding(finding);
         analysis.fixes.push(fix);
