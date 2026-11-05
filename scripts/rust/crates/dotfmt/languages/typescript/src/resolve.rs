@@ -31,11 +31,12 @@ const AVOIDED_DIRECTORIES: &[&str] = &[
 ];
 const MAX_GLOB_RESULTS: usize = 10_000;
 
-/// Resolves specifiers for one project build, reusing the loaded tsconfig for
-/// each importer directory.
+/// Resolves specifiers for one project build, reusing the loaded configs for
+/// each importer directory. A solution-style config contributes the union of
+/// its own and its referenced projects' `paths`/`baseUrl` options.
 pub(crate) struct Resolver {
     root: PathBuf,
-    configs: HashMap<PathBuf, Arc<Tsconfig>>,
+    configs: HashMap<PathBuf, Arc<Vec<Tsconfig>>>,
 }
 
 impl Resolver {
@@ -61,19 +62,23 @@ impl Resolver {
             return resolve_package_imports(importer, specifier);
         }
 
-        let config = self.config_for(importer);
-        if let Some(path) = resolve_paths(&config, specifier) {
-            return Some(path);
-        }
-        if let Some(base_url) = &config.base_url
-            && let Some(path) = resolve_target(&base_url.join(specifier))
-        {
-            return Some(path);
+        let configs = self.configs_for(importer);
+        for config in configs.iter() {
+            if let Some(path) = resolve_paths(config, specifier) {
+                return Some(path);
+            }
+            if let Some(base_url) = &config.base_url
+                && let Some(path) = resolve_target(&base_url.join(specifier))
+            {
+                return Some(path);
+            }
         }
         resolve_bare(importer, specifier)
     }
 
-    fn config_for(&mut self, importer: &Path) -> Arc<Tsconfig> {
+    /// The configs that apply to imports from `importer`, loaded once per
+    /// directory for the lifetime of this build.
+    pub(crate) fn configs_for(&mut self, importer: &Path) -> Arc<Vec<Tsconfig>> {
         let directory = importer
             .parent()
             .map_or_else(|| self.root.clone(), Path::to_path_buf);
@@ -81,7 +86,7 @@ impl Resolver {
             self.configs
                 .entry(directory)
                 .or_insert_with_key(|directory| {
-                    Arc::new(tsconfig::load_for_within(
+                    Arc::new(tsconfig::resolution_configs_for(
                         &directory.join("module.ts"),
                         &self.root,
                     ))

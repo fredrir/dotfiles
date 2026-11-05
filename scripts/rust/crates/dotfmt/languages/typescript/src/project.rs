@@ -110,25 +110,69 @@ const UNUSED_DIAGNOSTIC_CODES: &[u32] = &[6133, 6138, 6192, 6196, 6198, 6199, 62
 
 /// Finds the project root by walking up to the nearest tsconfig/jsconfig or
 /// package.json.
+///
+/// A package that belongs to a workspace resolves to the nearest workspace
+/// root instead, so the graph includes consumers in sibling packages. A
+/// workspace root is a directory with `package.json#workspaces`,
+/// `pnpm-workspace.yaml`, `turbo.json`, `lerna.json`, or a solution-style
+/// tsconfig (`files: []` plus `references`).
 pub fn discover_root(start: &Path) -> Option<PathBuf> {
     let mut directory = if start.is_dir() {
         start.to_path_buf()
     } else {
         start.parent()?.to_path_buf()
     };
+    let mut config = None;
     let mut package = None;
+    let mut workspace = None;
     loop {
-        if directory.join("tsconfig.json").is_file() || directory.join("jsconfig.json").is_file() {
-            return Some(directory);
+        if config.is_none()
+            && (directory.join("tsconfig.json").is_file()
+                || directory.join("jsconfig.json").is_file())
+        {
+            config = Some(directory.clone());
         }
         if package.is_none() && directory.join("package.json").is_file() {
             package = Some(directory.clone());
         }
+        if workspace.is_none() && is_workspace_root(&directory) {
+            workspace = Some(directory.clone());
+        }
         let Some(parent) = directory.parent() else {
-            return package;
+            return workspace.or(config).or(package);
         };
         directory = parent.to_path_buf();
     }
+}
+
+/// Whether `directory` declares a package workspace or a solution-style
+/// TypeScript project.
+fn is_workspace_root(directory: &Path) -> bool {
+    ["pnpm-workspace.yaml", "turbo.json", "lerna.json"]
+        .iter()
+        .any(|name| directory.join(name).is_file())
+        || package_declares_workspaces(directory)
+        || crate::tsconfig::is_solution_config_file(&directory.join("tsconfig.json"))
+}
+
+fn package_declares_workspaces(directory: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(directory.join("package.json")) else {
+        return false;
+    };
+    let Ok(package) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    package.get("workspaces").is_some_and(|workspaces| {
+        workspaces
+            .as_array()
+            .is_some_and(|members| !members.is_empty())
+            || workspaces.as_object().is_some_and(|config| {
+                config
+                    .get("packages")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|members| !members.is_empty())
+            })
+    })
 }
 
 /// The nearest tsconfig/jsconfig for a source file, if any.
@@ -523,7 +567,7 @@ impl Graph {
                 }
                 let Some(target) = resolver.resolve(&importer, &edge.specifier) else {
                     if !ignored_specifier(&edge.specifier)
-                        && local_specifier(root, &importer, &edge.specifier)
+                        && local_specifier(&mut resolver, root, &importer, &edge.specifier)
                     {
                         self.complete = false;
                     }
@@ -541,7 +585,7 @@ impl Graph {
                     // means an unseen consumer may exist.
                     if !target.starts_with(root)
                         || is_declaration_file(&target)
-                        || local_specifier(root, &importer, &edge.specifier)
+                        || local_specifier(&mut resolver, root, &importer, &edge.specifier)
                     {
                         self.complete = false;
                     }
@@ -562,13 +606,19 @@ impl Graph {
     }
 }
 
-/// Whether the walked root is a package nested in a larger workspace and so
-/// cannot see every consumer of its exports.
+/// Whether the walked root is nested in a larger project and so cannot see
+/// every consumer of its exports.
 fn graph_truncated(root: &Path) -> bool {
+    // A workspace root already contains its member packages. An unrelated
+    // ancestor package (for example a tooling manifest in a home directory)
+    // does not make the workspace partial; only a nested project, or a larger
+    // workspace that can consume it, does.
+    let workspace = is_workspace_root(root);
     for ancestor in root.ancestors().skip(1) {
-        if ancestor.join("package.json").is_file()
-            || ancestor.join("tsconfig.json").is_file()
+        if ancestor.join("tsconfig.json").is_file()
             || ancestor.join("jsconfig.json").is_file()
+            || is_workspace_root(ancestor)
+            || (!workspace && ancestor.join("package.json").is_file())
         {
             return true;
         }
@@ -591,7 +641,7 @@ fn inside_node_modules(path: &Path) -> bool {
 /// TypeScript treats relative paths, `#imports`, `paths` aliases and `baseUrl`
 /// lookups as local. A bare package that resolves to `node_modules` is external
 /// even when it is not part of the graph, so it cannot hide a consumer.
-fn local_specifier(root: &Path, importer: &Path, specifier: &str) -> bool {
+fn local_specifier(resolver: &mut Resolver, root: &Path, importer: &Path, specifier: &str) -> bool {
     let specifier = specifier.trim();
     if specifier.is_empty() {
         return false;
@@ -599,12 +649,13 @@ fn local_specifier(root: &Path, importer: &Path, specifier: &str) -> bool {
     if specifier.starts_with('.') || specifier.starts_with('/') || specifier.starts_with('#') {
         return true;
     }
-    let config = crate::tsconfig::load_for_within(importer, root);
-    if config
-        .paths
-        .keys()
-        .any(|pattern| alias_matches(pattern, specifier))
-    {
+    let configs = resolver.configs_for(importer);
+    if configs.iter().any(|config| {
+        config
+            .paths
+            .keys()
+            .any(|pattern| alias_matches(pattern, specifier))
+    }) {
         return true;
     }
     if let Some(package) = node_modules_package(importer, specifier) {
@@ -613,7 +664,7 @@ fn local_specifier(root: &Path, importer: &Path, specifier: &str) -> bool {
     }
     // `baseUrl` makes bare specifiers project-local unless an installed package
     // already owns the name.
-    config.base_url.is_some()
+    configs.iter().any(|config| config.base_url.is_some())
 }
 
 fn alias_matches(pattern: &str, specifier: &str) -> bool {
@@ -1865,7 +1916,12 @@ fn is_entry_file(root: &Path, path: &Path) -> bool {
     let Some(stem) = source_stem(name) else {
         return false;
     };
-    let relative = path.strip_prefix(root).unwrap_or(path);
+    // Framework and layout conventions are relative to the package, not to the
+    // graph root. A workspace root keeps every package nested, so comparing
+    // against it would treat package directory names such as `app` as route
+    // folders.
+    let project = project_directory(path, root);
+    let relative = path.strip_prefix(&project).unwrap_or(path);
     let components: Vec<&str> = relative
         .components()
         .filter_map(|component| component.as_os_str().to_str())
@@ -1875,6 +1931,25 @@ fn is_entry_file(root: &Path, path: &Path) -> bool {
         || is_test_entry(name, directories)
         || is_script_entry(directories)
         || is_framework_entry(stem, name, directories)
+}
+
+/// The nearest package or tsconfig directory between `path` and the graph
+/// root.
+fn project_directory(path: &Path, root: &Path) -> PathBuf {
+    let mut directory = path.parent();
+    while let Some(current) = directory {
+        if current.join("package.json").is_file()
+            || current.join("tsconfig.json").is_file()
+            || current.join("jsconfig.json").is_file()
+        {
+            return current.to_path_buf();
+        }
+        if current == root {
+            break;
+        }
+        directory = current.parent();
+    }
+    root.to_path_buf()
 }
 
 fn source_stem(name: &str) -> Option<&str> {

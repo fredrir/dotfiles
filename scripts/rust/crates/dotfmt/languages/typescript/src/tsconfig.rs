@@ -1,8 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const MAX_EXTENDS_DEPTH: usize = 8;
+const MAX_REFERENCE_DEPTH: usize = 8;
 
 /// The tsconfig/jsconfig options that change the safety of a code fix.
 #[derive(Clone, Debug, Default)]
@@ -31,8 +32,10 @@ pub(crate) struct Tsconfig {
     /// Directory of the root tsconfig/jsconfig file.
     pub directory: PathBuf,
     /// Project reference configs, resolved to config files where possible.
-    #[allow(dead_code)]
     pub references: Vec<PathBuf>,
+    /// `files: []` with a non-empty `references` list: the config only
+    /// references other projects and supplies no files of its own.
+    pub solution: bool,
     /// `include` patterns, resolved against the config that declared them.
     #[allow(dead_code)]
     pub include: Vec<String>,
@@ -157,6 +160,81 @@ pub(crate) fn load_for_within(path: &Path, root: &Path) -> Tsconfig {
 /// Loads a specific config file (following its `extends` chain).
 pub(crate) fn load_at(path: &Path) -> Tsconfig {
     load_config(path)
+}
+
+/// Whether `path` is a solution-style config file (`files: []` plus
+/// `references`).
+///
+/// Root discovery walks many ancestors, so this reads only the file's own
+/// top-level fields instead of resolving its `extends` chain.
+pub(crate) fn is_solution_config_file(path: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Some(jsonc_parser::JsonValue::Object(object)) =
+        jsonc_parser::parse_to_value(&text, &Default::default())
+            .ok()
+            .flatten()
+    else {
+        return false;
+    };
+    object
+        .get_array("files")
+        .is_some_and(|files| files.is_empty())
+        && object
+            .get_array("references")
+            .is_some_and(|references| !references.is_empty())
+}
+
+/// The configs that supply `paths` and `baseUrl` for imports from `path`.
+///
+/// A normal config applies alone. A solution-style config applies the union of
+/// itself and every referenced config, recursively, because the solution file
+/// owns no sources but its references do.
+pub(crate) fn resolution_configs_for(path: &Path, root: &Path) -> Vec<Tsconfig> {
+    match nearest_within(path, root) {
+        Some(path) => resolution_configs(&path),
+        None => vec![load_for_within(path, root)],
+    }
+}
+
+fn resolution_configs(path: &Path) -> Vec<Tsconfig> {
+    let config = load_at(path);
+    if !config.solution {
+        return vec![config];
+    }
+    let mut configs = Vec::new();
+    let mut visited = HashSet::new();
+    visited.insert(fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()));
+    collect_resolution_configs(config, 0, &mut visited, &mut configs);
+    configs
+}
+
+fn collect_resolution_configs(
+    config: Tsconfig,
+    depth: usize,
+    visited: &mut HashSet<PathBuf>,
+    configs: &mut Vec<Tsconfig>,
+) {
+    let references = config.references.clone();
+    configs.push(config);
+    if depth >= MAX_REFERENCE_DEPTH {
+        return;
+    }
+    for reference in references {
+        let Some(path) = resolve_config_path(&reference) else {
+            continue;
+        };
+        let key = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        if !visited.insert(key) {
+            continue;
+        }
+        let referenced = load_at(&path);
+        if referenced.missing {
+            continue;
+        }
+        collect_resolution_configs(referenced, depth + 1, visited, configs);
+    }
 }
 
 fn load_config(path: &Path) -> Tsconfig {
@@ -499,6 +577,14 @@ impl Raw {
     }
 
     fn into_config(self, config_dir: &Path) -> Tsconfig {
+        let solution = self
+            .files
+            .as_ref()
+            .is_some_and(|files| files.values.is_empty())
+            && self
+                .references
+                .as_ref()
+                .is_some_and(|references| !references.values.is_empty());
         let base_url = self
             .base_url
             .map(|raw| expand_path(&raw.directory, &raw.value, config_dir));
@@ -546,6 +632,7 @@ impl Raw {
                     .map(|value| expand_path(&raw.directory, value, config_dir))
                     .collect()
             }),
+            solution,
             include: self
                 .include
                 .map_or_else(Vec::new, |raw| expand_patterns(&raw, config_dir)),
@@ -840,6 +927,59 @@ mod tests {
             vec![root.join("src/generated").to_string_lossy()]
         );
         assert_eq!(config.files, vec![root.join("src/main.ts")]);
+    }
+
+    #[test]
+    fn solution_configs_union_references_and_stop_at_cycles() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(
+            root,
+            "a/tsconfig.json",
+            r#"{"files":[],"references":[{"path":"../b"}]}"#,
+        );
+        write(
+            root,
+            "b/tsconfig.json",
+            r#"{"files":[],"references":[{"path":"../c"}]}"#,
+        );
+        write(
+            root,
+            "c/tsconfig.json",
+            r#"{"files":[],"references":[{"path":"../a"}],"compilerOptions":{"paths":{"@c/*":["src/*"]}}}"#,
+        );
+        write(root, "a/src/module.ts", "");
+
+        let configs = resolution_configs_for(&root.join("a/src/module.ts"), &root.join("a"));
+        assert_eq!(configs.len(), 3, "each solution config is visited once");
+        assert!(configs.iter().any(|config| config.solution));
+        assert!(
+            configs
+                .iter()
+                .any(|config| config.paths.contains_key("@c/*"))
+        );
+    }
+
+    #[test]
+    fn normal_configs_apply_alone() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(
+            root,
+            "tsconfig.json",
+            r#"{"references":[{"path":"./packages/ui"}],"compilerOptions":{"baseUrl":"."}}"#,
+        );
+        write(
+            root,
+            "packages/ui/tsconfig.json",
+            r#"{"compilerOptions":{"paths":{"@ui/*":["src/*"]}}}"#,
+        );
+        write(root, "src/module.ts", "");
+
+        let configs = resolution_configs_for(&root.join("src/module.ts"), root);
+        assert_eq!(configs.len(), 1);
+        assert!(configs[0].paths.is_empty());
+        assert!(configs[0].base_url.is_some());
     }
 
     #[test]
