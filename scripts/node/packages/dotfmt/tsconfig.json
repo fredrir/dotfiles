@@ -3,6 +3,7 @@
   "include": [
     "src",
     "build.ts",
-    "deploy.ts"
+    "deploy.ts",
+    "generate-settings.ts"
   ]
 }
