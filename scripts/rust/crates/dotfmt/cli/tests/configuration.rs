@@ -69,7 +69,7 @@ fn global_layout_values_outside_an_engine_range_are_clamped() {
         let config = format!(
             "{{\n indent = {indent}\n width = {width}\n}}\n\
              typescript {{}}\njson {{}}\ncss {{}}\nhtml {{}}\nenv {{}}\nplist {{}}\n\
-             latex {{}}\nlua {{}}\nyaml {{}}\n"
+             latex {{}}\nlua {{}}\nyaml {{}}\nbib {{}}\ntoml {{}}\n"
         );
         let root = tree_pairs(&[
             ("dotfmt.dotfile", &config),
