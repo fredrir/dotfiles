@@ -7,6 +7,7 @@ use oxc_ast::ast::{
     VariableDeclarationKind,
 };
 use oxc_semantic::SymbolFlags;
+use oxc_span::SourceType;
 
 use super::context::Context;
 
@@ -71,11 +72,7 @@ fn unused_variables<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) 
                 scoping.symbol_name(symbol_id)
             )
         };
-        let severity = if context.tsconfig.no_unused_locals == Some(false) {
-            Severity::Information
-        } else {
-            Severity::Warning
-        };
+        let severity = unused_local_severity(context.tsconfig.no_unused_locals);
         let mut finding = Finding::new("unused-variable", message, severity, start, end)
             .with_tag(Tag::Unnecessary);
         if let Some(related) = context.type_diagnostic_related(start, end) {
@@ -126,7 +123,7 @@ fn unused_variables<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) 
 }
 
 fn unused_parameters<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) {
-    if context.is_declaration {
+    if is_declaration_file(context) {
         return;
     }
     let scoping = context.scoping();
@@ -162,15 +159,11 @@ fn unused_parameters<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis)
             }
             _ => continue,
         };
-        if !has_function_body(context, parameter) {
+        if !param_belongs_to_value_signature(context, parameter) {
             continue;
         }
         let span = scoping.symbol_span(symbol_id);
-        let severity = if context.tsconfig.no_unused_parameters == Some(false) {
-            Severity::Information
-        } else {
-            Severity::Warning
-        };
+        let severity = unused_local_severity(context.tsconfig.no_unused_parameters);
         let mut finding = Finding::new(
             "unused-parameter",
             format!("`{name}` is a parameter that is never used"),
@@ -189,6 +182,9 @@ fn unused_parameters<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis)
 }
 
 fn unused_type_parameters<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) {
+    if is_declaration_file(context) {
+        return;
+    }
     let scoping = context.scoping();
     for symbol_id in scoping.symbol_ids() {
         let flags = scoping.symbol_flags(symbol_id);
@@ -251,6 +247,51 @@ fn unused_private_members<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Anal
             );
         }
     }
+}
+
+/// tsc reports unused locals/parameters as errors only when the option is on;
+/// otherwise the finding stays informational so opt-in fixes can still use it.
+fn unused_local_severity(enabled: Option<bool>) -> Severity {
+    if enabled == Some(true) {
+        Severity::Warning
+    } else {
+        Severity::Information
+    }
+}
+
+/// `SourceType` only marks `.d.ts` as a definition, so `.d.mts` and `.d.cts`
+/// need the full path check to stay free of declaration-level findings.
+fn is_declaration_file(context: &Context<'_, '_>) -> bool {
+    context.is_declaration
+        || SourceType::from_path(context.path)
+            .is_ok_and(|source_type| source_type.is_typescript_definition())
+}
+
+/// Whether the parameter's own signature is a value function with a body.
+///
+/// Ancestors are walked from the parameter and the first function-like node
+/// decides. This keeps parameters of `TSFunctionType`, call/method/construct
+/// signatures, index signatures, `declare function` and abstract methods from
+/// inheriting the body of an enclosing real function.
+fn param_belongs_to_value_signature(
+    context: &Context<'_, '_>,
+    node_id: oxc_semantic::NodeId,
+) -> bool {
+    for ancestor in context.semantic.nodes().ancestors(node_id) {
+        match ancestor.kind() {
+            AstKind::Function(function) => return function.body.is_some(),
+            AstKind::ArrowFunctionExpression(_) => return true,
+            AstKind::MethodDefinition(definition) => return definition.value.body.is_some(),
+            AstKind::TSFunctionType(_)
+            | AstKind::TSConstructorType(_)
+            | AstKind::TSCallSignatureDeclaration(_)
+            | AstKind::TSMethodSignature(_)
+            | AstKind::TSConstructSignatureDeclaration(_)
+            | AstKind::TSIndexSignature(_) => return false,
+            _ => {}
+        }
+    }
+    false
 }
 
 fn has_function_body(context: &Context<'_, '_>, node_id: oxc_semantic::NodeId) -> bool {

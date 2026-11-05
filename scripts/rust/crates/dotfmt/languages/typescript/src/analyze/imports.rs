@@ -1,7 +1,11 @@
 use std::collections::BTreeSet;
 
 use dotfmt_core::edit::{Edit, Finding, Related, Severity, Tag};
-use oxc_ast::ast::{ImportDeclaration, ImportDeclarationSpecifier, Statement};
+use oxc_ast::ast::{
+    ImportDeclaration, ImportDeclarationSpecifier, Statement, TSImportEqualsDeclaration,
+    TSModuleReference,
+};
+use oxc_span::GetSpan;
 
 use super::context::Context;
 
@@ -25,12 +29,65 @@ pub(crate) fn analyze<'a, 'p>(context: &Context<'a, 'p>) -> ImportAnalysis {
     };
     let protected: BTreeSet<String> = context.protected_jsx_names().into_iter().collect();
     for statement in &context.program.body {
-        let Statement::ImportDeclaration(declaration) = statement else {
-            continue;
-        };
-        analyze_declaration(context, declaration, &protected, &mut analysis);
+        match statement {
+            Statement::ImportDeclaration(declaration) => {
+                analyze_declaration(context, declaration, &protected, &mut analysis);
+            }
+            Statement::TSImportEqualsDeclaration(declaration) => {
+                analyze_import_equals(context, declaration, &mut analysis);
+            }
+            _ => {}
+        }
     }
     analysis
+}
+
+/// Reports unused `import x = require("y")` aliases (tsc TS6133). Import-equals
+/// has no safe rewrite, so this stays report-only.
+fn analyze_import_equals<'a, 'p>(
+    context: &Context<'a, 'p>,
+    declaration: &'p TSImportEqualsDeclaration<'a>,
+    analysis: &mut ImportAnalysis,
+) {
+    let Some(symbol_id) = declaration.id.symbol_id.get() else {
+        return;
+    };
+    if !context.is_unused(symbol_id) {
+        return;
+    }
+    let start = declaration.id.span.start as usize;
+    let end = declaration.id.span.end as usize;
+    let module_span = declaration.module_reference.span();
+    let mut finding = Finding::new(
+        "unused-import",
+        format!("`{}` is imported but never used", declaration.id.name),
+        Severity::Warning,
+        start,
+        end,
+    )
+    .with_tag(Tag::Unnecessary);
+    let source = match &declaration.module_reference {
+        TSModuleReference::ExternalModuleReference(reference) => {
+            reference.expression.value.as_str()
+        }
+        _ => None,
+    };
+    match source {
+        Some(source) => finding.related.push(Related {
+            start: module_span.start as usize,
+            end: module_span.end as usize,
+            message: format!("imported from \"{source}\""),
+        }),
+        None => finding.related.push(Related {
+            start: module_span.start as usize,
+            end: module_span.end as usize,
+            message: "imported here".to_owned(),
+        }),
+    }
+    if let Some(related) = context.type_diagnostic_related(start, end) {
+        finding.related.push(related.into());
+    }
+    analysis.findings.push(finding);
 }
 
 fn analyze_declaration<'a, 'p>(

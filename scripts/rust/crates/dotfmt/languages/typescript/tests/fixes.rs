@@ -511,6 +511,48 @@ fn relative_tsconfig_extends_is_followed_for_gates() {
 }
 
 #[test]
+fn unused_import_equals_is_reported_without_a_fix() {
+    let input = "import fs = require(\"fs\");\nconsole.log(1);\n";
+    let analysis = analyze(Path::new("a.ts"), input, true, true);
+    let finding = analysis
+        .findings
+        .iter()
+        .find(|finding| finding.code == "unused-import")
+        .expect("unused import-equals finding");
+    assert_eq!(finding.message, "`fs` is imported but never used");
+    assert_eq!((finding.start, finding.end), (7, 9));
+    assert!(
+        finding
+            .related
+            .iter()
+            .any(|related| related.message == "imported from \"fs\""),
+        "{:?}",
+        finding.related
+    );
+    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+
+    let input = "namespace N { export type T = number; }\nimport alias = N;\n";
+    let analysis = analyze(Path::new("a.ts"), input, true, true);
+    assert!(
+        analysis
+            .findings
+            .iter()
+            .any(|finding| finding.code == "unused-import"
+                && finding.message == "`alias` is imported but never used"),
+        "{:?}",
+        analysis.findings
+    );
+    assert!(
+        !analysis.fixes.iter().any(|fix| fix
+            .finding
+            .as_ref()
+            .is_some_and(|finding| finding.code == "unused-import")),
+        "{:?}",
+        analysis.fixes
+    );
+}
+
+#[test]
 fn import_equals_is_left_alone() {
     let input = "import fs = require(\"fs\");\nlet x: fs.Stats;\n";
     let analysis = analyze(Path::new("a.ts"), input, true, true);
