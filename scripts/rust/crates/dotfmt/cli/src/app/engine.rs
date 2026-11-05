@@ -600,6 +600,7 @@ impl Engine {
     }
 
     /// Findings and explicit fixes for one document.
+    #[allow(clippy::too_many_arguments)]
     pub fn analyze(
         &self,
         path: &Path,

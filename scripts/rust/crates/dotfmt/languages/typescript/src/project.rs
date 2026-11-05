@@ -766,9 +766,7 @@ fn specifier_removal(
 ) -> Option<(usize, usize)> {
     let index = *ordered.get(position)?;
     let (start, end) = exports[index].specifier?;
-    if text.get(start..end).is_none() {
-        return None;
-    }
+    text.get(start..end)?;
     let next_start = ordered
         .get(position + 1)
         .and_then(|index| exports[*index].specifier)
