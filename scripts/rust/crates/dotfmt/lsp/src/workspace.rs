@@ -37,11 +37,17 @@ impl Workspace {
     /// The nearest workspace root containing `path`, without a fallback.
     pub fn containing_root(&self, path: &Path) -> Option<PathBuf> {
         let path = normalize(path);
-        self.roots()
-            .iter()
-            .filter(|root| path.starts_with(root))
-            .max_by_key(|root| root.components().count())
-            .cloned()
+        nearest_root(&self.roots(), &path).cloned()
+    }
+
+    /// Whether `path` belongs to `root` as its *nearest* workspace root.
+    ///
+    /// A path inside a nested workspace root never belongs to the parent root.
+    /// Removed workspace folders still own their old subtree so cached state
+    /// can be dropped, but a nested root that remains registered is never
+    /// claimed by its former parent.
+    pub fn in_root(&self, path: &Path, root: &Path) -> bool {
+        belongs_to(&self.roots(), &normalize(path), &normalize(root))
     }
 
     /// The nearest workspace root containing `path`, or its directory outside one.
@@ -77,13 +83,16 @@ impl Workspace {
             .clear();
     }
 
-    /// Drops the sessions for one workspace folder and any nested folders.
+    /// Drops the sessions whose nearest workspace root is exactly `root`.
+    ///
+    /// Sessions for nested workspace roots keep their cached configuration.
     pub fn invalidate_root(&self, root: &Path) {
         let root = normalize(root);
+        let roots = self.roots();
         self.sessions
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .retain(|session_root, _| !session_root.starts_with(&root));
+            .retain(|session_root, _| !belongs_to(&roots, session_root, &root));
     }
 }
 
@@ -98,6 +107,21 @@ pub fn global_config() -> Option<PathBuf> {
                 .map(|home| PathBuf::from(home).join(".config"))
         })?;
     Some(base.join("dotfmt").join("dotfmt.dotfile"))
+}
+
+fn nearest_root<'a>(roots: &'a [PathBuf], path: &Path) -> Option<&'a PathBuf> {
+    roots
+        .iter()
+        .filter(|root| path.starts_with(root))
+        .max_by_key(|root| root.components().count())
+}
+
+fn belongs_to(roots: &[PathBuf], path: &Path, root: &Path) -> bool {
+    let nearest = nearest_root(roots, path);
+    if roots.iter().any(|candidate| candidate == root) {
+        return nearest.is_some_and(|nearest| nearest == root);
+    }
+    path.starts_with(root) && nearest.is_none_or(|nearest| !nearest.starts_with(root))
 }
 
 fn normalized(roots: Vec<PathBuf>) -> Vec<PathBuf> {
@@ -175,6 +199,38 @@ mod tests {
             &b,
             &workspace.session(Path::new("/work/b/src/b.ts"))
         ));
+    }
+
+    #[test]
+    fn invalidating_a_parent_root_keeps_a_nested_root_session() {
+        let workspace = Workspace::new(vec![PathBuf::from("/work"), PathBuf::from("/work/app")]);
+        let outer = workspace.session(Path::new("/work/src/a.ts"));
+        let nested = workspace.session(Path::new("/work/app/src/a.ts"));
+        workspace.invalidate_root(Path::new("/work"));
+        assert!(!Arc::ptr_eq(
+            &outer,
+            &workspace.session(Path::new("/work/src/a.ts"))
+        ));
+        assert!(Arc::ptr_eq(
+            &nested,
+            &workspace.session(Path::new("/work/app/src/a.ts"))
+        ));
+    }
+
+    #[test]
+    fn in_root_uses_the_nearest_registered_root() {
+        let workspace = Workspace::new(vec![PathBuf::from("/work"), PathBuf::from("/work/app")]);
+        assert!(workspace.in_root(Path::new("/work/src/a.ts"), Path::new("/work")));
+        assert!(!workspace.in_root(Path::new("/work/app/src/a.ts"), Path::new("/work")));
+        assert!(workspace.in_root(Path::new("/work/app/src/a.ts"), Path::new("/work/app")));
+        assert!(!workspace.in_root(Path::new("/work/src/a.ts"), Path::new("/work/app")));
+    }
+
+    #[test]
+    fn a_removed_parent_root_does_not_claim_a_remaining_nested_root() {
+        let workspace = Workspace::new(vec![PathBuf::from("/work/app")]);
+        assert!(workspace.in_root(Path::new("/work/src/a.ts"), Path::new("/work")));
+        assert!(!workspace.in_root(Path::new("/work/app/src/a.ts"), Path::new("/work")));
     }
 
     #[test]

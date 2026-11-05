@@ -251,7 +251,11 @@ impl Server {
             Arc::clone(&settings),
             pull,
         ));
-        let tsc = Arc::new(Tsc::new(Arc::clone(&diagnostics), Arc::clone(&documents)));
+        let tsc = Arc::new(Tsc::new(
+            Arc::clone(&diagnostics),
+            Arc::clone(&documents),
+            Arc::clone(&workspace),
+        ));
         let workspace_edit = params
             .capabilities
             .workspace
@@ -1525,6 +1529,7 @@ impl Server {
                 .iter()
                 .map(|project| json!({
                     "root": project.root.display().to_string(),
+                    "project": project.project.display().to_string(),
                     "tsconfig": project
                         .tsconfig
                         .as_ref()
@@ -3077,6 +3082,50 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .ends_with("node_modules/.bin/tsc")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doctor_lists_referenced_project_configs() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(
+            root.join("tsconfig.json"),
+            r#"{"files":[],"references":[{"path":"./app"}]}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("app/src")).unwrap();
+        std::fs::write(root.join("app/tsconfig.json"), "{}\n").unwrap();
+        std::fs::write(root.join("app/src/a.ts"), "export const a = 1;\n").unwrap();
+        write_fake_tsc(root, "");
+        let (server, _receiver) = server_with_options(root, json!({ "trusted": true }));
+        let value = server
+            .handle(DOCTOR_REQUEST, &Value::Null, &RequestState::default())
+            .unwrap();
+        let projects = value["projects"].as_array().unwrap();
+        assert_eq!(projects.len(), 2, "{projects:?}");
+        assert!(
+            projects[0]["tsconfig"]
+                .as_str()
+                .unwrap()
+                .ends_with("tsconfig.json")
+        );
+        assert!(
+            projects[1]["tsconfig"]
+                .as_str()
+                .unwrap()
+                .ends_with("app/tsconfig.json")
+        );
+        assert_eq!(projects[1]["state"], json!("ok"));
+        assert_eq!(projects[1]["version"], json!("9.9.9"));
+        assert_eq!(
+            std::fs::canonicalize(projects[0]["project"].as_str().unwrap()).unwrap(),
+            std::fs::canonicalize(root).unwrap()
+        );
+        assert_eq!(
+            std::fs::canonicalize(projects[1]["project"].as_str().unwrap()).unwrap(),
+            std::fs::canonicalize(root.join("app")).unwrap()
         );
     }
 
