@@ -1,7 +1,7 @@
 {
   "name": "dotfmt",
   "displayName": "dotfmt",
-  "description": "Formatter for config, data, markup, TypeScript/TSX, JavaScript/JSX, CSS and Tailwind; errors only, never lints",
+  "description": "Formatter for config, data, markup, TypeScript/TSX, JavaScript/JSX, CSS and Tailwind; errors-only diagnostics, never lints or hints",
   "version": "0.3.0",
   "publisher": "fredrir",
   "license": "MIT",
@@ -190,7 +190,7 @@
           "type": "string",
           "default": "",
           "scope": "resource",
-          "markdownDescription": "Path to a TypeScript installation's `lib` directory (for example `node_modules/typescript/lib`). Empty auto-discovers the project's compiler. The workspace value is ignored in untrusted workspaces."
+          "markdownDescription": "Path to a TypeScript installation: the package directory (`node_modules/typescript`), its `lib` directory (`node_modules/typescript/lib`), or `tsc.js` itself. Empty auto-discovers the project's compiler. The workspace value is ignored in untrusted workspaces."
         },
         "dotfmt.fixes.onSave": {
           "type": "string",
@@ -202,11 +202,11 @@
           "enumDescriptions": [
             "Do not fix on save",
             "Apply safe fixes and formatting on save",
-            "Apply safe and unsafe fixes and formatting on save"
+            "Apply safe fixes, unused-local removal and formatting on save; unused exports stay unless enabled explicitly"
           ],
           "default": "off",
           "scope": "resource",
-          "markdownDescription": "Apply the selected fixes through `textDocument/willSaveWaitUntil`, before the file is written. Alternatively use `editor.codeActionsOnSave` with `source.fixAll.dotfmt`, `source.organizeImports.dotfmt` or `source.format.dotfmt`."
+          "markdownDescription": "Apply configured fixes during `textDocument/willSaveWaitUntil` and full-document formatting. Range formatting, on-type formatting, paste and formatting-only code action requests never apply fixes. `unsafe` adds unused-local removal; it never removes unused exports unless `remove_unused_exports` is set explicitly in `dotfmt.dotfile`, and export removal requires a trusted workspace. `remove_unused_parameters` is diagnose-only."
         },
         "dotfmt.path": {
           "type": "string",

@@ -1,11 +1,19 @@
 import * as vscode from "vscode";
 import { cliPath, message, type Client } from "./client";
+import {
+  projectForFile,
+  requestDoctor,
+  tscState,
+  type DoctorReport,
+} from "./lib/doctor";
 import { explain, type Explanation } from "./lib/explain";
 import { CONFIG_NAME, SECTION, SELECTOR } from "./lib/languages";
 import { expandHome, tildify } from "./lib/paths";
 import { readSettings } from "./lib/settings";
 
-type Result = { ok: true; value: Explanation } | { ok: false; failure: string };
+type Result =
+  | { ok: true; value: Explanation; report?: DoctorReport }
+  | { ok: false; failure: string };
 
 export class Status implements vscode.Disposable {
   private readonly item = vscode.languages.createLanguageStatusItem(
@@ -76,7 +84,7 @@ export class Status implements vscode.Disposable {
     ]
       .filter(Boolean)
       .join(" ");
-    const tooltip = this.tooltip(document, configs);
+    const tooltip = this.tooltip(document, configs, result.report);
     this.item.command = nearest
       ? {
           title: CONFIG_NAME,
@@ -91,16 +99,37 @@ export class Status implements vscode.Disposable {
         };
   }
 
-  private tooltip(document: vscode.TextDocument, configs: string[]): string {
+  private tooltip(
+    document: vscode.TextDocument,
+    configs: string[],
+    report?: DoctorReport,
+  ): string {
     const settings = readSettings(document.uri);
-    const serverVersion = this.client.version();
+    const project = report
+      ? projectForFile(report, document.uri.fsPath)
+      : undefined;
+    const serverVersion = report?.server.version ?? this.client.version();
+    const serverName = report?.server.name ?? "dotfmt-lsp";
+    const tsc = tscState(
+      vscode.workspace.isTrusted,
+      settings.typeAware,
+      settings.tscScope,
+    );
     const lines = [
       `dotfmt ${this.version}`,
       `server: ${tildify(this.client.serverPath())}${
-        serverVersion ? ` (dotfmt-lsp ${serverVersion})` : ""
+        serverVersion ? ` (${serverName} ${serverVersion})` : ""
       }`,
       `CLI: ${tildify(cliPath(this.context))}`,
-      `tsc: ${typescriptState(settings.typeAware, settings.tscScope)}`,
+      `tsc: ${tsc}${project?.state ? ` · ${project.state}` : ""}`,
+      ...(project?.compiler
+        ? [
+            `compiler: ${tildify(project.compiler)}${
+              project.version ? ` (${project.version})` : ""
+            }`,
+          ]
+        : []),
+      `fixes on save: ${settings.fixesOnSave}`,
       `syntax diagnostics: ${settings.syntaxDiagnostics ? "on" : "off"}`,
       `TypeScript SDK: ${
         settings.tsdk ? tildify(expandHome(settings.tsdk)) : "auto"
@@ -116,6 +145,7 @@ export class Status implements vscode.Disposable {
   }
 
   private fail(failure: string): void {
+    const serverVersion = this.client.version();
     this.item.severity = vscode.LanguageStatusSeverity.Error;
     this.item.detail = failure;
     this.item.command = {
@@ -123,7 +153,9 @@ export class Status implements vscode.Disposable {
       command: "dotfmt.showOutput",
       tooltip: `dotfmt ${this.version}\nserver: ${tildify(
         this.client.serverPath(),
-      )}\nCLI: ${tildify(cliPath(this.context))}`,
+      )}${serverVersion ? ` (dotfmt-lsp ${serverVersion})` : ""}\nCLI: ${tildify(
+        cliPath(this.context),
+      )}`,
     };
   }
 }
@@ -133,21 +165,14 @@ async function explainDocument(
   document: vscode.TextDocument,
 ): Promise<Result> {
   try {
-    const value = await explain(client, document.uri, document.languageId);
+    const [value, known] = await Promise.all([
+      explain(client, document.uri, document.languageId),
+      requestDoctor(client),
+    ]);
     return value.error
       ? { ok: false, failure: value.error }
-      : { ok: true, value };
+      : { ok: true, value, report: known.report };
   } catch (error) {
     return { ok: false, failure: message(error) };
   }
-}
-
-function typescriptState(
-  typeAware: boolean,
-  scope: "open" | "project",
-): string {
-  if (!vscode.workspace.isTrusted) {
-    return "off (untrusted)";
-  }
-  return typeAware ? `on (${scope})` : "off";
 }
