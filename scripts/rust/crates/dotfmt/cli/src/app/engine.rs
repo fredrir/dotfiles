@@ -281,9 +281,15 @@ impl Engine {
             }
             _ => None,
         };
-        let Some(selection) = selection else {
+        let Some(mut selection) = selection else {
             return self.format_text(path, context, input, detected, clean);
         };
+        if !export_fixes_trusted() {
+            selection.remove_unused_exports = false;
+            selection.remove_unused_locals = false;
+            selection.remove_unused_parameters = false;
+            selection.r#unsafe = false;
+        }
         self.format_with_fixes(path, context, input, detected, clean, selection)
     }
 
