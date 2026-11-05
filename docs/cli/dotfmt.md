@@ -168,7 +168,7 @@ TypeScript/TSX, JavaScript/JSX, CSS/SCSS/Sass/Less and HTML/Vue/Svelte/Astro use
 
 dotfmt is a formatter, not a linter. In the editor it publishes errors only: syntax/configuration failures, plus project `tsc` errors when `dotfmt.typeAware` is on. Findings never become squiggles, and dotfmt publishes no Hint, Information or Warning diagnostics. `--diagnose`, `--fix`, `--fix-unsafe`, quick fixes and the `source.fixAll.dotfmt`/`source.organizeImports.dotfmt`/`source.format.dotfmt` code actions remain the lint and repair surface.
 
-`--diagnose` reports findings without editing and exits `1` when findings remain. `--fix` applies only `Safe` fixes; `--fix-unsafe` also applies `Unsafe` fixes and requires an explicit flag. Quick fixes cover unused imports (a bare `import "module"` preserves side effects), type-only import conversion, organize imports and a conservative unused-variable removal. Exported declarations, `.d.ts` files, classic JSX factory bindings, decorator metadata, impure initializers and files containing `eval`/`new Function` are protected. Fixes are applied as byte-range edits, then the result is formatted, reparsed and re-analyzed up to a bounded fixpoint. `--fix --diff` prints the exact change instead of writing it.
+`--diagnose` reports findings without editing and exits `1` when findings remain. `--fix` applies only `Safe` fixes; `--fix-unsafe` also applies `Unsafe` fixes and requires an explicit flag. Quick fixes cover unused imports (a bare `import "module"` preserves side effects), type-only import conversion, organize imports and an unsafe unused-variable removal (never applied by plain `--fix`). Exported declarations, `.d.ts` files, classic JSX factory bindings, decorator metadata, impure initializers and files containing `eval`/`new Function` are protected. Fixes are applied as byte-range edits, then the result is formatted, reparsed and re-analyzed up to a bounded fixpoint. `--fix --diff` prints the exact change instead of writing it.
 
 Formatting applies fixes too when `dotfmt.dotfile` enables them. All options default to off, so a plain format only changes layout:
 
@@ -232,15 +232,15 @@ In VS Code, the extension uses LSP for document/range/ranges formatting, `;`/`}`
 | Global setting | Application |
 | --- | --- |
 | `final_newline` | All languages |
-| `indent` | Bib, Conf blocks, Ini (Git and SSH), JSON, LaTeX, Lua, Plist, TOML, YAML, TypeScript, CSS, HTML |
+| `indent` | Bib, Conf `.dotfile` blocks, Ini (Git and SSH), JSON, LaTeX, Lua, Plist, TOML, YAML, TypeScript, CSS, HTML |
 | `width` | Bib and LaTeX wrapping, Lua line wrapping, Markdown table layout, YAML flow collections, TOML arrays/inline tables, and TypeScript/CSS/HTML line breaking; accepted and ignored by Env, Ignore, Ini and Plist |
-| `quote_style` | Lua and YAML quote selection, and TypeScript/HTML string quoting; JSON always emits double quotes; Bib, conf, env, ignore, ini, LaTeX, Markdown, plist and TOML preserve quoting and ignore it |
+| `quote_style` | Lua and YAML quote selection, and TypeScript/HTML/CSS string quoting; `auto`, `auto-prefer-double` and `auto-prefer-single` resolve to the engine's preferred quote; JSON always emits double quotes; Bib, conf, env, ignore, ini, LaTeX, Markdown, plist and TOML preserve quoting and ignore it |
 | `repair` | All languages; defaults to `true`; the new config engines do not repair, so malformed input is reported instead |
 
 | Language | Additional settings |
 | --- | --- |
 | Bib | `indent_type`, `line_endings`, `blank_lines`, `align`, `align_max`, `trailing_comma`, `wrap`, `wrap_min`, `field_name_case`, `entry_type_case` |
-| Conf | `align`, `align_max`, `blank_lines` |
+| Conf | `align`, `align_max`, `blank_lines` (`.dotfile` blocks only; `.conf`/`.config` files use dialect layout and `final_newline`) |
 | Env | `line_endings`, `blank_lines`, `align`, `align_max`, `format_comments`, `trim_trailing_whitespace` |
 | Ignore | `dialect`, `line_endings`, `blank_lines`, `trim_trailing_whitespace`, `trim_leading_whitespace`, `format_comments`, `align`, `align_max` |
 | Ini | `dialect`, `indent`, `indent_type`, `line_endings`, `blank_lines`, `align`, `align_max`, `format_comments` |

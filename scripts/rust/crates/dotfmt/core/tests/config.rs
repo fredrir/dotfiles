@@ -318,6 +318,63 @@ fn concurrent_resolution_reuses_an_immutable_snapshot() {
 }
 
 #[test]
+fn inline_pattern_blocks_terminate_after_the_pattern() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "javascript {}\nexcluded_files {*.min.js}\n");
+    let effective = resolver(root.path()).for_directory(root.path()).unwrap();
+    assert_eq!(
+        effective
+            .select(&root.path().join("bundle.min.js"), None)
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        effective
+            .select(&root.path().join("bundle.js"), None)
+            .unwrap(),
+        Some(Language::Javascript)
+    );
+}
+
+#[test]
+fn inline_included_patterns_restrict_selection_instead_of_excluding_everything() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "markdown {}\njson {}\nincluded_files {*.md}\n");
+    let effective = resolver(root.path()).for_directory(root.path()).unwrap();
+    assert_eq!(
+        effective
+            .select(&root.path().join("README.md"), None)
+            .unwrap(),
+        Some(Language::Markdown)
+    );
+    assert_eq!(
+        effective
+            .select(&root.path().join("data.json"), None)
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn an_escaped_brace_inside_an_inline_pattern_stays_literal() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "json {}\nexcluded_files {file\\}.json}\n");
+    let effective = resolver(root.path()).for_directory(root.path()).unwrap();
+    assert_eq!(
+        effective
+            .select(&root.path().join("file}.json"), None)
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        effective
+            .select(&root.path().join("file.json"), None)
+            .unwrap(),
+        Some(Language::Json)
+    );
+}
+
+#[test]
 fn an_escaped_space_before_a_brace_remains_part_of_the_pattern() {
     let root = tempfile::tempdir().unwrap();
     config(root.path(), "conf {\n include {\n name\\ }\n }\n}\n");

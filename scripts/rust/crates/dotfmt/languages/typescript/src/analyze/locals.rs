@@ -91,13 +91,12 @@ fn unused_variables<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) 
         {
             continue;
         }
-        let applicability = if pure_initializer {
-            Applicability::Safe
-        } else if context.options.unsafe_fixes {
-            Applicability::Unsafe
-        } else {
+        // Removing a declaration is destructive even when its initializer is
+        // pure, so the fix is unsafe and only selected by unsafe fix modes.
+        if !pure_initializer && !context.options.unsafe_fixes {
             continue;
-        };
+        }
+        let applicability = Applicability::Unsafe;
         if context
             .blocked_by_type_diagnostic(variable.span.start as usize, variable.span.end as usize)
             .is_some()

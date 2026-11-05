@@ -58,7 +58,8 @@ pub fn format(
     let mut output = if dialect == Dialect::Less || text.len() <= 64 * 1024 {
         match format_text(&first, dialect.syntax(), &config.malva_options()) {
             Ok(second) if second == first => first,
-            _ => text.clone(),
+            Ok(_) => text.clone(),
+            Err(error) => return Err(syntax(&first, error)),
         }
     } else {
         first

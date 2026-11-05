@@ -55,9 +55,21 @@ fn unsupported_global_settings_are_ignored_but_local_settings_are_rejected() {
 }
 
 #[test]
-fn json_quote_style_must_remain_double() {
-    assert!(Config::from_settings(&settings("quote_style", "double", false)).is_ok());
-    assert!(Config::from_settings(&settings("quote_style", "single", false)).is_err());
+fn json_ignores_quote_style_at_every_layer_and_value() {
+    for value in [
+        "double",
+        "single",
+        "auto",
+        "auto-prefer-double",
+        "auto-prefer-single",
+    ] {
+        for global in [true, false] {
+            assert!(
+                Config::from_settings(&settings("quote_style", value, global)).is_ok(),
+                "quote_style={value} global={global}"
+            );
+        }
+    }
 }
 
 #[test]

@@ -122,12 +122,13 @@ impl Config {
                 self.quotes = match value {
                     "double" | "always-double" => Quotes::AlwaysDouble,
                     "single" | "always-single" => Quotes::AlwaysSingle,
-                    "prefer-double" => Quotes::PreferDouble,
-                    "prefer-single" => Quotes::PreferSingle,
-                    "preserve" | "auto" => Quotes::PreferDouble,
+                    "prefer-double" | "preserve" | "auto" | "auto-prefer-double" => {
+                        Quotes::PreferDouble
+                    }
+                    "prefer-single" | "auto-prefer-single" => Quotes::PreferSingle,
                     other => {
                         return Err(format!(
-                            "quotes must be double, single, prefer-double, prefer-single or preserve, not {other}"
+                            "quotes must be double, single, prefer-double, prefer-single, preserve, auto, auto-prefer-double or auto-prefer-single, not {other}"
                         ));
                     }
                 }

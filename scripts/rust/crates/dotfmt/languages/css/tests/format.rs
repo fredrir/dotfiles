@@ -43,6 +43,14 @@ fn run(input: &str, dialect: Dialect) -> String {
 }
 
 #[test]
+fn an_unstable_second_pass_keeps_the_normalized_input() {
+    // Malva rewrites the backtick tail differently on each pass; keeping the
+    // input is safer than returning a non-idempotent first pass.
+    let input = "@ꬰ``\n";
+    assert_eq!(run_with(&Config::default(), input, Dialect::Less), input);
+}
+
+#[test]
 fn tailwind_v4_at_rules_keep_their_structure_and_sort_apply() {
     let input = r#"@import "tailwindcss";
 @theme{--color-brand:oklch(0.7 0.1 200);--spacing:0.25rem;}

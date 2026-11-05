@@ -308,10 +308,20 @@ fn composite_and_coercing_initializers_are_never_safe_to_remove() {
 }
 
 #[test]
-fn unused_variables_are_removed_only_when_their_initializer_is_pure() {
+fn unused_variables_are_removed_only_by_unsafe_fixes() {
     let input = "const x = 1;\nconsole.log(2);\n";
     let analysis = analyze(Path::new("a.ts"), input, true, false);
     assert_eq!(analysis.findings[0].code, "unused-variable");
+    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+    assert_eq!(apply_every_fix(input, &analysis), input);
+
+    let analysis = analyze(Path::new("a.ts"), input, true, true);
+    let fix = analysis
+        .fixes
+        .iter()
+        .find(|fix| fix.title.contains("unused variable"))
+        .expect("unsafe fix");
+    assert_eq!(fix.applicability, Applicability::Unsafe);
     assert_eq!(apply_every_fix(input, &analysis), "console.log(2);\n");
 
     let input = "const x = risky();\nconsole.log(2);\n";

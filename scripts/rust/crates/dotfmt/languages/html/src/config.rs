@@ -106,9 +106,13 @@ impl Config {
             }
             "quotes" | "quote_style" => {
                 self.quotes = match value {
-                    "double" => Quotes::Double,
-                    "single" => Quotes::Single,
-                    other => return Err(format!("quotes must be double or single, not {other}")),
+                    "double" | "auto" | "auto-prefer-double" => Quotes::Double,
+                    "single" | "auto-prefer-single" => Quotes::Single,
+                    other => {
+                        return Err(format!(
+                            "quotes must be double, single, auto, auto-prefer-double or auto-prefer-single, not {other}"
+                        ));
+                    }
                 }
             }
             "format_comments" => self.format_comments = flag(key, value)?,
