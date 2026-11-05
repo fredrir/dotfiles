@@ -75,6 +75,9 @@ pub struct Tsc {
     pending: Arc<Mutex<HashMap<PathBuf, HashSet<PathBuf>>>>,
     /// The compiler process the worker currently owns.
     running: Running,
+    /// A `--version` probe from doctor, tracked separately so it cannot
+    /// overwrite the worker's child slot and is still killed on shutdown.
+    version_running: Running,
     workspace: Arc<Workspace>,
 }
 
@@ -256,6 +259,7 @@ impl Tsc {
             generations,
             pending,
             running,
+            version_running: Running::default(),
             workspace,
         }
     }
@@ -440,7 +444,7 @@ impl Tsc {
         {
             return version.clone();
         }
-        let version = version_of(compiler, project);
+        let version = version_of(compiler, project, &self.version_running);
         self.state
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -464,6 +468,7 @@ impl Tsc {
     /// behind; idempotent and safe to call from another thread.
     pub fn shutdown(&self) {
         self.running.shutdown();
+        self.version_running.shutdown();
         let _ = self.jobs.send(Job::Shutdown);
     }
 }
@@ -613,7 +618,7 @@ fn check_config(
             match cached {
                 Some(version) => version,
                 None => {
-                    let version = version_of(&compiler, project);
+                    let version = version_of(&compiler, project, running);
                     state
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
@@ -1047,10 +1052,10 @@ fn wait(running: &Running, timeout: Duration) -> Result<ExitStatus, RunError> {
     }
 }
 
-fn version_of(compiler: &Compiler, project: &Path) -> Option<String> {
+fn version_of(compiler: &Compiler, project: &Path, running: &Running) -> Option<String> {
     let mut command = compiler.command();
     command.arg("--version").current_dir(project);
-    let output = run_command(command, VERSION_TIMEOUT, &Running::default()).ok()?;
+    let output = run_command(command, VERSION_TIMEOUT, running).ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let first = text.lines().next()?.trim();
     if first.is_empty() {
