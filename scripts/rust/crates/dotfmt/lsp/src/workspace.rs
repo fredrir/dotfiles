@@ -9,9 +9,13 @@ use std::sync::{Arc, Mutex};
 
 use dotfmt::app::Session;
 
+use crate::settings::SettingsStore;
+
 pub struct Workspace {
     roots: Mutex<Vec<PathBuf>>,
     sessions: Mutex<HashMap<PathBuf, Arc<Mutex<Session>>>>,
+    /// When present, sessions apply the native `dotfmt.format` overlay of their root.
+    settings: Option<Arc<SettingsStore>>,
 }
 
 impl Workspace {
@@ -19,6 +23,16 @@ impl Workspace {
         Self {
             roots: Mutex::new(normalized(roots)),
             sessions: Mutex::new(HashMap::new()),
+            settings: None,
+        }
+    }
+
+    /// Creates sessions that apply the settings store's native overlay.
+    pub fn with_settings(roots: Vec<PathBuf>, settings: Arc<SettingsStore>) -> Self {
+        Self {
+            roots: Mutex::new(normalized(roots)),
+            sessions: Mutex::new(HashMap::new()),
+            settings: Some(settings),
         }
     }
 
@@ -64,15 +78,22 @@ impl Workspace {
 
     pub fn session(&self, path: &Path) -> Arc<Mutex<Session>> {
         let root = self.root_for(path);
+        let overlay = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.overlay_for(&root))
+            .map(|overlay| (*overlay).clone());
         let mut sessions = self
             .sessions
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        Arc::clone(
-            sessions.entry(root.clone()).or_insert_with(|| {
-                Arc::new(Mutex::new(Session::with_paths(root, global_config())))
-            }),
-        )
+        Arc::clone(sessions.entry(root.clone()).or_insert_with(move || {
+            Arc::new(Mutex::new(Session::with_paths_overlay(
+                root,
+                global_config(),
+                overlay,
+            )))
+        }))
     }
 
     /// Drops every cached session; in-flight requests keep their old snapshot.

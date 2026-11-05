@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 
 use dotfmt::app::{FixMode, Selection};
+use dotfmt_core::config::ConfigOverlay;
 use dotfmt_core::edit::{Applicability, Fix, apply_fixes};
 use dotfmt_core::language::Language;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
@@ -216,8 +217,12 @@ struct RequestJob {
 impl Server {
     fn new(sender: crossbeam_channel::Sender<Message>, params: &InitializeParams) -> Self {
         let roots = workspace_roots(params);
+        let default_root = roots
+            .first()
+            .cloned()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
         let documents = Arc::new(Mutex::new(Documents::default()));
-        let workspace = Arc::new(Workspace::new(roots));
         let mut settings = Settings::default();
         if let Some(options) = &params.initialization_options {
             settings.apply(options);
@@ -231,6 +236,19 @@ impl Server {
         dotfmt_tailwind::bridge::set_trusted(trusted);
         let settings = Arc::new(SettingsStore::new(false, settings));
         settings.set_trusted(trusted);
+        // The first configuration pull re-parses with the folder root; an
+        // initialization option is already a best-effort overlay here.
+        if let Some(value) = overlay_value(&settings.default_settings())
+            && let Ok(overlay) = ConfigOverlay::from_json(&value, &default_root)
+        {
+            settings.set_default_overlay(Some(Arc::new(overlay)));
+        }
+        // Every root starts with an empty barrier overlay: a folder without
+        // native settings inherits the default, never a parent folder's overlay.
+        for root in &roots {
+            settings.set_folder_overlay(root.clone(), Arc::new(empty_overlay(root)));
+        }
+        let workspace = Arc::new(Workspace::with_settings(roots, Arc::clone(&settings)));
         let pull = params
             .capabilities
             .text_document
@@ -343,8 +361,64 @@ impl Server {
     /// Clients without `workspace/configuration` cannot scope values per
     /// folder, so the payload is treated as the workspace default.
     fn configure_push(&self, value: &Value) {
-        if self.settings.apply_default(value) {
+        let changed = self.settings.apply_default(value);
+        self.refresh_default_overlay();
+        if changed {
             self.reload_all();
+        }
+    }
+
+    /// Applies a full default configuration from `workspace/configuration`.
+    fn configure_default(&self, value: &Value) -> bool {
+        if value.is_null() {
+            return false;
+        }
+        let changed = self.settings.configure_default(value);
+        self.refresh_default_overlay();
+        changed
+    }
+
+    /// Applies one folder's configuration and re-parses its native overlay.
+    fn configure_folder(&self, root: &Path, value: &Value) -> bool {
+        if value.is_null() {
+            return false;
+        }
+        let changed = self.settings.configure_folder(root, value);
+        match self.parse_overlay(overlay_value(&self.settings.settings_for_root(root)), root) {
+            Some(overlay) => self
+                .settings
+                .set_folder_overlay(root.to_path_buf(), overlay),
+            None => self
+                .settings
+                .set_folder_overlay(root.to_path_buf(), Arc::new(empty_overlay(root))),
+        }
+        changed
+    }
+
+    fn refresh_default_overlay(&self) {
+        let root = self
+            .workspace
+            .roots()
+            .first()
+            .cloned()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let overlay = self.parse_overlay(overlay_value(&self.settings.default_settings()), &root);
+        self.settings.set_default_overlay(overlay);
+    }
+
+    /// Parses an overlay, logging a bad setting and falling back to an empty
+    /// (no-op) overlay so editing one key cannot crash or disable formatting.
+    fn parse_overlay(&self, value: Option<Value>, root: &Path) -> Option<Arc<ConfigOverlay>> {
+        let value = value?;
+        match ConfigOverlay::from_json(&value, root) {
+            Ok(overlay) => Some(Arc::new(overlay)),
+            Err(diagnostic) => {
+                self.log(format!(
+                    "dotfmt.format ignored for this resource: {diagnostic}"
+                ));
+                Some(Arc::new(empty_overlay(root)))
+            }
         }
     }
 
@@ -380,13 +454,13 @@ impl Server {
             if current && let Ok(value) = result {
                 let default_changed = value
                     .get(0)
-                    .is_some_and(|settings| server.settings.configure_default(settings));
+                    .is_some_and(|settings| server.configure_default(settings));
                 let mut changed = Vec::new();
                 for (index, root) in roots.iter().enumerate() {
                     let Some(settings) = value.get(index + 1) else {
                         continue;
                     };
-                    if server.settings.configure_folder(root, settings) {
+                    if server.configure_folder(root, settings) {
                         changed.push(root.clone());
                     }
                 }
@@ -436,7 +510,7 @@ impl Server {
             );
             if let Ok(value) = result
                 && let Some(settings) = value.get(0)
-                && (server.settings.configure_folder(&root, settings) || !known)
+                && (server.configure_folder(&root, settings) || !known)
             {
                 server.reload_folder(&root);
             }
@@ -823,9 +897,7 @@ impl Server {
         // them.
         let fixes = request_fixes && ranges.is_empty() && self.trusted();
         let path = self.path(uri, document)?;
-        if fixes
-            && let Some(root) = dotfmt_typescript::project::discover_root(&path)
-        {
+        if fixes && let Some(root) = dotfmt_typescript::project::discover_root(&path) {
             dotfmt_typescript::project::invalidate_root(&root);
         }
         let languages = analysis::forced(&path, uri, document.language());
@@ -1313,7 +1385,8 @@ impl Server {
                     if supported(&uri, snapshot.language())
                         && let Some(path) = analysis::buffer_path(&uri, snapshot.language())
                     {
-                        self.diagnostics.schedule(&snapshot, path.clone(), uri.clone());
+                        self.diagnostics
+                            .schedule(&snapshot, path.clone(), uri.clone());
                         if let Some(root) = dotfmt_typescript::project::discover_root(&path) {
                             dotfmt_typescript::project::invalidate_root(&root);
                         }
@@ -1405,6 +1478,8 @@ impl Server {
                         if !self.settings.has_folder(&root) {
                             self.settings.set_folder(root.clone(), Settings::default());
                         }
+                        self.settings
+                            .set_folder_overlay(root.clone(), Arc::new(empty_overlay(&root)));
                         affected.push(root);
                         added = true;
                     }
@@ -1554,7 +1629,50 @@ fn settings_json(settings: &Settings) -> Value {
         "debounceMs": settings.debounce_ms,
         "fixesOnSave": settings.fixes_on_save.as_str(),
         "tsdk": settings.tsdk.as_ref().map(|path| path.display().to_string()),
+        "hasFormat": settings.format.is_some(),
+        "hasFormatExtra": settings.format_extra.as_ref().is_some_and(|extra| !is_empty_object(extra)),
     })
+}
+
+/// The `dotfmt.format` and `dotfmt.formatExtra` objects merged with `format`
+/// winning wherever both set a key. Values are validated by [`ConfigOverlay`].
+fn overlay_value(settings: &Settings) -> Option<Value> {
+    // `dotfmt.formatExtra` has a `{}` default, so an empty object means the
+    // user set nothing and a folder must keep inheriting the default overlay.
+    let extra = settings
+        .format_extra
+        .as_ref()
+        .filter(|extra| !is_empty_object(extra));
+    match (settings.format.as_ref(), extra) {
+        (None, None) => None,
+        (Some(format), None) => Some(format.clone()),
+        (None, Some(extra)) => Some(extra.clone()),
+        (Some(format), Some(extra)) => Some(merge_overlay(extra.clone(), format.clone())),
+    }
+}
+
+fn is_empty_object(value: &Value) -> bool {
+    value.as_object().is_some_and(serde_json::Map::is_empty)
+}
+
+fn merge_overlay(base: Value, over: Value) -> Value {
+    match (base, over) {
+        (Value::Object(mut base), Value::Object(over)) => {
+            for (key, value) in over {
+                let merged = match base.remove(&key) {
+                    Some(existing) => merge_overlay(existing, value),
+                    None => value,
+                };
+                base.insert(key, merged);
+            }
+            Value::Object(base)
+        }
+        (_, over) => over,
+    }
+}
+
+fn empty_overlay(root: &Path) -> ConfigOverlay {
+    ConfigOverlay::from_json(&json!({}), root).expect("an empty overlay is valid")
 }
 
 #[derive(Deserialize)]
@@ -3794,6 +3912,325 @@ mod tests {
                 .diagnostics
                 .is_empty(),
             "reloading one folder cleared another folder's tsc entries"
+        );
+    }
+
+    #[test]
+    fn native_overlay_from_configuration_changes_width_and_quotes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(
+            root.join("dotfmt.dotfile"),
+            "typescript { width = 120\n quote_style = double }\n",
+        )
+        .unwrap();
+        let text = "const long = { first: 111111, second: 222222, third: 333333, fourth: 444444 };\nconst text = \"hello\";\n";
+        let path = root.join("a.ts");
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "rootUri": uri::from_path(root),
+                    "capabilities": { "workspace": { "configuration": true } },
+                }),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(1)).unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        let request = receive_request(&client, "workspace/configuration").expect("pull");
+        client
+            .sender
+            .send(Message::Response(Response::new_ok(
+                request.id,
+                json!([
+                    {
+                        "format": {
+                            "global": { "width": 40 },
+                            "typescript": { "quote_style": "single" }
+                        }
+                    },
+                    {}
+                ]),
+            )))
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            assert!(
+                Instant::now() < deadline,
+                "native overlay was never applied"
+            );
+            client
+                .sender
+                .send(Message::Request(Request::new(
+                    RequestId::from(50),
+                    DOCTOR_REQUEST.into(),
+                    json!(null),
+                )))
+                .unwrap();
+            let doctor = receive_response(&client, &RequestId::from(50)).unwrap();
+            if doctor["default"]["hasFormat"] == json!(true)
+                && doctor["folders"][0]["hasFormat"] == json!(true)
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                DidOpenTextDocument::METHOD.into(),
+                json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "typescript",
+                        "version": 1,
+                        "text": text
+                    }
+                }),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(51),
+                Formatting::METHOD.into(),
+                json!({
+                    "textDocument": { "uri": uri },
+                    "options": { "tabSize": 2, "insertSpaces": true }
+                }),
+            )))
+            .unwrap();
+        let edits: Vec<TextEdit> =
+            serde_json::from_value(receive_response(&client, &RequestId::from(51)).unwrap())
+                .unwrap();
+        let formatted = apply_edits(text, &edits);
+        assert!(formatted.contains("const text = 'hello';"), "{formatted}");
+        assert!(
+            formatted.contains("const long = {\n  first:"),
+            "native width did not wrap the object: {formatted}"
+        );
+
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(52),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let _ = receive_response(&client, &RequestId::from(52));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn invalid_native_overlay_logs_and_falls_back() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript { width = 120 }\n").unwrap();
+        let text =
+            "const long = { first: 111111, second: 222222, third: 333333, fourth: 444444 };\n";
+        let path = root.join("a.ts");
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let (server, receiver) = server_with_options(root, Value::Null);
+        assert!(server.configure_default(&json!({ "format": "not-an-object" })));
+        let log = loop {
+            match receiver
+                .recv_timeout(Duration::from_secs(5))
+                .expect("overlay log")
+            {
+                Message::Notification(notification)
+                    if notification.method == "window/logMessage" =>
+                {
+                    break notification;
+                }
+                _ => continue,
+            }
+        };
+        assert!(
+            log.params["message"]
+                .as_str()
+                .unwrap()
+                .contains("dotfmt.format"),
+            "{}",
+            log.params["message"]
+        );
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let edits = server
+            .format_document(&uri, &document, &[], false, None)
+            .unwrap();
+        let formatted = apply_edits(text, &edits);
+        assert!(
+            formatted.contains("const long = { first:"),
+            "a rejected overlay changed formatting: {formatted}"
+        );
+    }
+
+    #[test]
+    fn per_folder_native_overlays_differ() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root_a = temporary.path().join("a");
+        let root_b = temporary.path().join("b");
+        let text =
+            "const long = { first: 111111, second: 222222, third: 333333, fourth: 444444 };\n";
+        for root in [&root_a, &root_b] {
+            std::fs::create_dir_all(root).unwrap();
+            std::fs::write(root.join("dotfmt.dotfile"), "typescript { width = 120 }\n").unwrap();
+            std::fs::write(root.join("a.ts"), text).unwrap();
+        }
+        let (server, _receiver) = server_with_roots(&[&root_a, &root_b], Value::Null, json!({}));
+        server.configure_folder(&root_a, &json!({ "format": { "global": { "width": 40 } } }));
+        server.configure_folder(
+            &root_b,
+            &json!({ "format": { "global": { "width": 120 } } }),
+        );
+
+        let mut outputs = Vec::new();
+        for (root, uri) in [
+            (&root_a, uri::from_path(&root_a.join("a.ts"))),
+            (&root_b, uri::from_path(&root_b.join("a.ts"))),
+        ] {
+            let document = Document::new(text.into(), "typescript".into(), 1);
+            server
+                .documents
+                .lock()
+                .unwrap()
+                .open(uri.clone(), document.clone());
+            let edits = server
+                .format_document(&uri, &document, &[], false, None)
+                .unwrap();
+            outputs.push((root, apply_edits(text, &edits)));
+        }
+        assert!(
+            outputs[0].1.contains("const long = {\n  first:"),
+            "folder a did not apply its width: {}",
+            outputs[0].1
+        );
+        assert!(
+            outputs[1].1.contains("const long = { first:"),
+            "folder b inherited folder a's overlay: {}",
+            outputs[1].1
+        );
+    }
+
+    #[test]
+    fn an_empty_format_extra_folder_inherits_the_default_overlay() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript { width = 120 }\n").unwrap();
+        let text =
+            "const long = { first: 111111, second: 222222, third: 333333, fourth: 444444 };\n";
+        let path = root.join("a.ts");
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let server = test_server(root);
+        assert!(server.configure_default(&json!({ "format": { "global": { "width": 40 } } })));
+        server.configure_folder(root, &json!({ "formatExtra": {} }));
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let edits = server
+            .format_document(&uri, &document, &[], false, None)
+            .unwrap();
+        let formatted = apply_edits(text, &edits);
+        assert!(
+            formatted.contains("const long = {\n  first:"),
+            "an empty formatExtra folder stopped inheriting the default overlay: {formatted}"
+        );
+    }
+
+    #[test]
+    fn a_nested_root_does_not_inherit_a_parent_overlay() {
+        let temporary = tempfile::tempdir().unwrap();
+        let outer = temporary.path().join("work");
+        let nested = outer.join("app");
+        let text =
+            "const long = { first: 111111, second: 222222, third: 333333, fourth: 444444 };\n";
+        for root in [&outer, &nested] {
+            std::fs::create_dir_all(root).unwrap();
+            std::fs::write(root.join("dotfmt.dotfile"), "typescript { width = 120 }\n").unwrap();
+            std::fs::write(root.join("a.ts"), text).unwrap();
+        }
+        let (server, _receiver) = server_with_roots(&[&outer, &nested], Value::Null, json!({}));
+        server.configure_folder(&outer, &json!({ "format": { "global": { "width": 40 } } }));
+
+        let uri = uri::from_path(&nested.join("a.ts"));
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let edits = server
+            .format_document(&uri, &document, &[], false, None)
+            .unwrap();
+        let formatted = apply_edits(text, &edits);
+        assert!(
+            formatted.contains("const long = { first:"),
+            "the nested root inherited the parent folder overlay: {formatted}"
+        );
+    }
+
+    #[test]
+    fn format_extra_is_overridden_by_format() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript { width = 120 }\n").unwrap();
+        let text =
+            "const long = { first: 111111, second: 222222, third: 333333, fourth: 444444 };\n";
+        let path = root.join("a.ts");
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let (server, _receiver) = server_with_options(root, Value::Null);
+        assert!(server.configure_default(&json!({
+            "formatExtra": { "global": { "width": 40 } },
+            "format": { "global": { "width": 120 } }
+        })));
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let edits = server
+            .format_document(&uri, &document, &[], false, None)
+            .unwrap();
+        let formatted = apply_edits(text, &edits);
+        assert!(
+            formatted.contains("const long = { first:"),
+            "formatExtra overrode format: {formatted}"
         );
     }
 
