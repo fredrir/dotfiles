@@ -349,12 +349,16 @@ impl SettingsStore {
     }
 
     /// The overlay for an exact workspace root, falling back to the default.
+    ///
+    /// A root with no native settings keeps an empty barrier overlay so it can
+    /// inherit the default without inheriting a parent folder's overlay.
     pub fn overlay_for_root(&self, root: &Path) -> Option<Arc<ConfigOverlay>> {
         let root = normalize(root);
         self.folder_overlays
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .get(&root)
+            .filter(|overlay| !overlay.is_empty())
             .map(Arc::clone)
             .or_else(|| self.default_overlay())
     }
@@ -694,6 +698,15 @@ mod tests {
         assert!(Arc::ptr_eq(
             &store.overlay_for_root(Path::new("/work/project")).unwrap(),
             &inner
+        ));
+        let empty =
+            Arc::new(ConfigOverlay::from_json(&json!({}), Path::new("/work/project")).unwrap());
+        store.set_folder_overlay(PathBuf::from("/work/project"), empty);
+        assert!(Arc::ptr_eq(
+            &store
+                .overlay_for(Path::new("/work/project/src/a.ts"))
+                .unwrap(),
+            &default
         ));
         store.remove_folder_overlay(Path::new("/work/project"));
         assert!(Arc::ptr_eq(

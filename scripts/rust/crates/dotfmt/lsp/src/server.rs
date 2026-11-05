@@ -243,6 +243,11 @@ impl Server {
         {
             settings.set_default_overlay(Some(Arc::new(overlay)));
         }
+        // Every root starts with an empty barrier overlay: a folder without
+        // native settings inherits the default, never a parent folder's overlay.
+        for root in &roots {
+            settings.set_folder_overlay(root.clone(), Arc::new(empty_overlay(root)));
+        }
         let workspace = Arc::new(Workspace::with_settings(roots, Arc::clone(&settings)));
         let pull = params
             .capabilities
@@ -383,7 +388,9 @@ impl Server {
             Some(overlay) => self
                 .settings
                 .set_folder_overlay(root.to_path_buf(), overlay),
-            None => self.settings.remove_folder_overlay(root),
+            None => self
+                .settings
+                .set_folder_overlay(root.to_path_buf(), Arc::new(empty_overlay(root))),
         }
         changed
     }
@@ -1471,6 +1478,8 @@ impl Server {
                         if !self.settings.has_folder(&root) {
                             self.settings.set_folder(root.clone(), Settings::default());
                         }
+                        self.settings
+                            .set_folder_overlay(root.clone(), Arc::new(empty_overlay(&root)));
                         affected.push(root);
                         added = true;
                     }
@@ -4159,6 +4168,38 @@ mod tests {
         assert!(
             formatted.contains("const long = {\n  first:"),
             "an empty formatExtra folder stopped inheriting the default overlay: {formatted}"
+        );
+    }
+
+    #[test]
+    fn a_nested_root_does_not_inherit_a_parent_overlay() {
+        let temporary = tempfile::tempdir().unwrap();
+        let outer = temporary.path().join("work");
+        let nested = outer.join("app");
+        let text =
+            "const long = { first: 111111, second: 222222, third: 333333, fourth: 444444 };\n";
+        for root in [&outer, &nested] {
+            std::fs::create_dir_all(root).unwrap();
+            std::fs::write(root.join("dotfmt.dotfile"), "typescript { width = 120 }\n").unwrap();
+            std::fs::write(root.join("a.ts"), text).unwrap();
+        }
+        let (server, _receiver) = server_with_roots(&[&outer, &nested], Value::Null, json!({}));
+        server.configure_folder(&outer, &json!({ "format": { "global": { "width": 40 } } }));
+
+        let uri = uri::from_path(&nested.join("a.ts"));
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        server
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let edits = server
+            .format_document(&uri, &document, &[], false, None)
+            .unwrap();
+        let formatted = apply_edits(text, &edits);
+        assert!(
+            formatted.contains("const long = { first:"),
+            "the nested root inherited the parent folder overlay: {formatted}"
         );
     }
 
