@@ -81,6 +81,11 @@ impl Document {
         &self.language
     }
 
+    /// Marks the buffer stale after an out-of-order or unapplicable change.
+    pub fn mark_desynchronised(&mut self) {
+        self.desynchronised = true;
+    }
+
     /// Applies an incremental change; a change without a range replaces the text.
     ///
     /// Invalid ranges leave the document unchanged and mark it desynchronised,
@@ -119,7 +124,9 @@ impl Document {
     }
 
     pub fn range(&self, range: lsp_types::Range) -> Option<Range<usize>> {
-        Some(self.offset(range.start)?..self.offset(range.end)?)
+        let start = self.offset(range.start)?;
+        let end = self.offset(range.end)?;
+        (start <= end).then_some(start..end)
     }
 
     pub fn position(&self, offset: usize) -> Position {

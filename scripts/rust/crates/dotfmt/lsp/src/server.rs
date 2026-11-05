@@ -549,7 +549,9 @@ impl Server {
         self.workspace.invalidate_root(&root);
         self.diagnostics.clear_under(root.clone());
         self.tsc.invalidate_root(&root);
-        let snapshot = self.document_snapshot(|path| path.starts_with(&root));
+        let snapshot = self.document_snapshot(|path| {
+            crate::workspace::normalize(path).starts_with(&root)
+        });
         for (uri, document) in snapshot.iter() {
             if !supported(uri, document.language()) {
                 continue;
@@ -1341,9 +1343,17 @@ impl Server {
                         None => {}
                         Some(Err(current)) => {
                             self.log(format!(
-                                "ignoring out-of-order didChange for {} version {version} (current version {current})",
+                                "ignoring out-of-order didChange for {} version {version} (current version {current}); marking it desynchronised",
                                 uri.as_str()
                             ));
+                            if let Some(document) = self
+                                .documents
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner())
+                                .get_mut(&uri)
+                            {
+                                document.mark_desynchronised();
+                            }
                             self.diagnostics.clear(uri.clone());
                             self.diagnostics.clear_tsc_uri(uri);
                         }
@@ -3037,7 +3047,10 @@ mod tests {
                 "contentChanges": [{ "text": "{\"b\":2}\n" }]
             }),
         ));
-        assert_eq!(server.document(&uri).unwrap().text(), "{\"a\":1}\n");
+        assert_eq!(
+            server.document(&uri).unwrap_err().code,
+            ErrorCode::ContentModified as i32
+        );
         loop {
             let message = receiver
                 .recv_timeout(Duration::from_secs(2))
