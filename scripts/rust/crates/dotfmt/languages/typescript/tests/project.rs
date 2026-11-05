@@ -406,6 +406,61 @@ fn import_meta_glob_keeps_matched_exports_alive() {
 }
 
 #[test]
+fn gitignored_consumers_keep_exports_alive() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "package.json", r#"{"private":true}"#);
+    write(root, "tsconfig.json", "{}");
+    write(root, ".gitignore", "src/use.ts\n");
+    write(root, "src/home.ts", "export const home = 1;\n");
+    write(
+        root,
+        "src/use.ts",
+        "import { home } from \"./home\";\nconsole.log(home);\n",
+    );
+    assert_eq!(unused_codes(&root.join("src/home.ts")), Vec::<String>::new());
+    assert!(project::graph_complete(&root.join("src/home.ts")));
+}
+
+#[test]
+fn non_literal_dynamic_imports_block_project_fixes() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "package.json", r#"{"private":true}"#);
+    write(root, "tsconfig.json", "{}");
+    write(root, "src/home.ts", "export const home = 1;\n");
+    write(
+        root,
+        "src/use.ts",
+        "const name = \"./home\";\nconst module = import(name);\nconsole.log(module);\n",
+    );
+    assert!(!project::graph_complete(&root.join("src/home.ts")));
+    assert!(project::unused_exports(&root.join("src/home.ts"))
+        .unwrap()
+        .fixes
+        .is_empty());
+}
+
+#[test]
+fn unsupported_glob_patterns_block_project_fixes() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "package.json", r#"{"private":true}"#);
+    write(root, "tsconfig.json", "{}");
+    write(root, "src/lib/home.ts", "export const home = 1;\n");
+    write(
+        root,
+        "src/use.ts",
+        "const modules = import.meta.glob(\"./lib/*.{ts,tsx}\");\nconsole.log(modules);\n",
+    );
+    assert!(!project::graph_complete(&root.join("src/lib/home.ts")));
+    assert!(project::unused_exports(&root.join("src/lib/home.ts"))
+        .unwrap()
+        .fixes
+        .is_empty());
+}
+
+#[test]
 fn declaration_files_with_mts_cts_and_tsx_extensions_are_exempt() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();

@@ -455,6 +455,7 @@ fn check_project(
             settings.tsdk.as_deref(),
             format!("tsc: no compiler found for {}", project.display()),
         );
+        diagnostics.set_tsc(project, generation_now, Vec::new());
         return;
     };
     if state
@@ -464,6 +465,7 @@ fn check_project(
         .get(project)
         .is_some_and(|failures| *failures >= MAX_FAILURES)
     {
+        diagnostics.set_tsc(project, generation_now, Vec::new());
         return;
     }
     if log_once(
@@ -955,26 +957,26 @@ fn fingerprint(tsconfig: &Path, project: &Path, compiler: &Compiler, tsdk: Optio
 
 fn config_chain(tsconfig: &Path) -> Vec<PathBuf> {
     let mut chain = Vec::new();
-    let mut current = Some(tsconfig.to_path_buf());
-    let mut depth = 0;
-    while let Some(path) = current.take() {
+    let mut stack = vec![(tsconfig.to_path_buf(), 0usize)];
+    while let Some((path, depth)) = stack.pop() {
         if depth > 8 || chain.contains(&path) || !path.is_file() {
-            break;
+            continue;
         }
         chain.push(path.clone());
         let Ok(text) = fs::read_to_string(&path) else {
-            break;
+            continue;
         };
         let Ok(Some(jsonc_parser::JsonValue::Object(object))) =
             jsonc_parser::parse_to_value(&text, &Default::default())
         else {
-            break;
+            continue;
         };
         let directory = path.parent().unwrap_or(Path::new("."));
-        current = extends_values(&object)
-            .first()
-            .and_then(|extends| resolve_extends(directory, extends));
-        depth += 1;
+        for extends in extends_values(&object) {
+            if let Some(resolved) = resolve_extends(directory, &extends) {
+                stack.push((resolved, depth + 1));
+            }
+        }
     }
     chain
 }

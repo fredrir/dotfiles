@@ -404,6 +404,8 @@ struct Module {
     exports: Vec<Export>,
     comments: Vec<(usize, usize)>,
     edges: Vec<Edge>,
+    /// A dynamic import/require/glob whose target is not statically known.
+    unknown_dynamic: bool,
 }
 
 /// One exported binding plus the spans a fix needs.
@@ -503,6 +505,11 @@ impl Graph {
             for edge in &module.edges {
                 if let EdgeKind::Glob(patterns) = &edge.kind {
                     for pattern in patterns {
+                        // Brace expansion and negated patterns are not modelled;
+                        // an unseen consumer must block project fixes.
+                        if pattern.contains('{') || pattern.trim_start().starts_with('!') {
+                            self.complete = false;
+                        }
                         for target in expand_glob(root, &importer, pattern) {
                             let Ok(target) = fs::canonicalize(&target) else {
                                 continue;
@@ -999,9 +1006,9 @@ fn walk_source_listing(root: &Path) -> SourceListing {
         .hidden(false)
         .follow_links(false)
         .require_git(false)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
         .parents(true)
         .filter_entry(|entry| !avoided(entry));
     for result in builder.build() {
@@ -1135,7 +1142,10 @@ fn load_module(path: &Path) -> Option<LoadedModule> {
         match fs::read_to_string(path) {
             Ok(text) if is_consumer_file(path) => (scan_consumer_module(&text), true),
             Ok(text) => match parse_module(path, &text) {
-                Some(module) => (module, true),
+                Some(module) => {
+                    let complete = !module.unknown_dynamic;
+                    (module, complete)
+                }
                 None => (Module::default(), false),
             },
             Err(_) => (Module::default(), false),
@@ -1228,7 +1238,10 @@ fn ignored_specifier(specifier: &str) -> bool {
 /// Collects import edges from component files that are not parsed as
 /// TypeScript (`.vue`, `.svelte`, `.astro`, `.mdx`).
 fn scan_consumer_module(text: &str) -> Module {
-    let mut module = Module::default();
+    let mut module = Module {
+        unknown_dynamic: text.contains("import(") || text.contains("require("),
+        ..Module::default()
+    };
     let bytes = text.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -1368,9 +1381,11 @@ fn parse_module(path: &Path, text: &str) -> Option<Module> {
     let mut dynamic = DynamicEdges {
         text,
         edges: Vec::new(),
+        unknown: false,
     };
     dynamic.visit_program(&parsed.program);
     module.edges.extend(dynamic.edges);
+    module.unknown_dynamic = dynamic.unknown;
     Some(module)
 }
 
@@ -1587,6 +1602,19 @@ fn collect_binding_exports(
 struct DynamicEdges<'t> {
     text: &'t str,
     edges: Vec<Edge>,
+    unknown: bool,
+}
+
+/// A string literal or a template literal with no substitutions.
+fn static_specifier(expression: &Expression<'_>) -> Option<String> {
+    match expression {
+        Expression::StringLiteral(literal) => literal.value.as_str().map(str::to_owned),
+        Expression::TemplateLiteral(template) if template.expressions.is_empty() => template
+            .quasis
+            .first()
+            .map(|quasi| quasi.value.raw.as_str().to_owned()),
+        _ => None,
+    }
 }
 
 impl<'a> Visit<'a> for DynamicEdges<'_> {
@@ -1594,12 +1622,14 @@ impl<'a> Visit<'a> for DynamicEdges<'_> {
         if let Expression::Identifier(callee) = &expression.callee
             && callee.name.as_str() == "require"
             && let Some(argument) = expression.arguments.first()
-            && let Some(value) = string_argument(argument)
         {
-            self.edges.push(Edge {
-                specifier: value,
-                kind: EdgeKind::Namespace,
-            });
+            match string_argument(argument) {
+                Some(value) => self.edges.push(Edge {
+                    specifier: value,
+                    kind: EdgeKind::Namespace,
+                }),
+                None => self.unknown = true,
+            }
         }
         if is_import_meta_glob(&expression.callee) {
             let mut patterns = Vec::new();
@@ -1619,8 +1649,10 @@ impl<'a> Visit<'a> for DynamicEdges<'_> {
                             }
                         }
                     }
-                    _ => {}
+                    _ => self.unknown = true,
                 }
+            } else {
+                self.unknown = true;
             }
             if !patterns.is_empty() {
                 self.edges.push(Edge {
@@ -1633,13 +1665,12 @@ impl<'a> Visit<'a> for DynamicEdges<'_> {
     }
 
     fn visit_import_expression(&mut self, expression: &ImportExpression<'a>) {
-        if let Expression::StringLiteral(literal) = &expression.source
-            && let Some(value) = literal.value.as_str()
-        {
-            self.edges.push(Edge {
-                specifier: value.to_owned(),
+        match static_specifier(&expression.source) {
+            Some(value) => self.edges.push(Edge {
+                specifier: value,
                 kind: EdgeKind::Namespace,
-            });
+            }),
+            None => self.unknown = true,
         }
         walk_import_expression(self, expression);
     }
@@ -1690,14 +1721,12 @@ fn string_argument(argument: &Argument<'_>) -> Option<String> {
 }
 
 fn is_import_meta_glob(expression: &Expression<'_>) -> bool {
-    if let Expression::StaticMemberExpression(member) = expression
-        && matches!(member.property.name.as_str(), "glob" | "globEager")
-        && let Expression::StaticMemberExpression(inner) = &member.object
-        && inner.property.name.as_str() == "meta"
-    {
-        return matches!(inner.object, Expression::ImportMeta(_));
-    }
-    false
+    matches!(
+        expression,
+        Expression::StaticMemberExpression(member)
+            if matches!(member.property.name.as_str(), "glob" | "globEager")
+                && matches!(member.object, Expression::ImportMeta(_))
+    )
 }
 
 fn entry_points(root: &Path, files: &[PathBuf]) -> HashSet<PathBuf> {

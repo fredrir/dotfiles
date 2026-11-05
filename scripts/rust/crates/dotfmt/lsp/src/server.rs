@@ -447,13 +447,19 @@ impl Server {
     /// Rebuilds everything: trust, the default configuration or a global config file.
     fn reload_all(&self) {
         self.workspace.invalidate();
+        dotfmt_typescript::project::clear_cache();
         self.diagnostics.clear_all();
         self.tsc.invalidate();
         // Snapshot under the lock, then reschedule without holding it so
         // request handlers and diagnostics are not blocked by the clone.
         let snapshot = self.document_snapshot(|_| true);
-        self.diagnostics.schedule_all(&snapshot);
-        for (uri, _) in snapshot.iter() {
+        for (uri, document) in snapshot.iter() {
+            if !supported(uri, document.language()) {
+                continue;
+            }
+            if let Some(path) = analysis::buffer_path(uri, document.language()) {
+                self.diagnostics.schedule(document, path, uri.clone());
+            }
             self.schedule_tsc(uri.clone());
         }
     }
@@ -461,11 +467,15 @@ impl Server {
     /// Reloads one workspace folder without touching another folder's state.
     fn reload_folder(&self, root: &Path) {
         let root = crate::workspace::normalize(root);
+        dotfmt_typescript::project::invalidate_root(&root);
         self.workspace.invalidate_root(&root);
         self.diagnostics.clear_under(root.clone());
         self.tsc.invalidate_root(&root);
         let snapshot = self.document_snapshot(|path| path.starts_with(&root));
         for (uri, document) in snapshot.iter() {
+            if !supported(uri, document.language()) {
+                continue;
+            }
             if let Some(path) = analysis::buffer_path(uri, document.language()) {
                 self.diagnostics.schedule(document, path, uri.clone());
             }
@@ -809,6 +819,11 @@ impl Server {
         // them.
         let fixes = request_fixes && ranges.is_empty() && self.trusted();
         let path = self.path(uri, document)?;
+        if fixes
+            && let Some(root) = dotfmt_typescript::project::discover_root(&path)
+        {
+            dotfmt_typescript::project::invalidate_root(&root);
+        }
         let languages = analysis::forced(&path, uri, document.language());
         let session = self.workspace.session(&path);
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
@@ -872,6 +887,11 @@ impl Server {
         }
         // `willSaveWaitUntil` is one of the two paths allowed to apply
         // configured fixes. Untrusted workspaces never run them.
+        if self.trusted()
+            && let Some(root) = dotfmt_typescript::project::discover_root(&path)
+        {
+            dotfmt_typescript::project::invalidate_root(&root);
+        }
         let formatted = match analysis::format(
             &mut session,
             &path,
@@ -1289,7 +1309,10 @@ impl Server {
                     if supported(&uri, snapshot.language())
                         && let Some(path) = analysis::buffer_path(&uri, snapshot.language())
                     {
-                        self.diagnostics.schedule(&snapshot, path, uri.clone());
+                        self.diagnostics.schedule(&snapshot, path.clone(), uri.clone());
+                        if let Some(root) = dotfmt_typescript::project::discover_root(&path) {
+                            dotfmt_typescript::project::invalidate_root(&root);
+                        }
                     }
                     self.schedule_tsc(uri);
                 }

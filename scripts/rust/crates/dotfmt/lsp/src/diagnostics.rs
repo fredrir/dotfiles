@@ -114,14 +114,6 @@ impl Diagnostics {
         }));
     }
 
-    pub fn schedule_all(&self, documents: &Documents) {
-        for (uri, document) in documents.iter() {
-            if let Some(path) = analysis::buffer_path(uri, document.language()) {
-                self.schedule(document, path, uri.clone());
-            }
-        }
-    }
-
     pub fn clear(&self, uri: Uri) {
         let _ = self.pending.send(Job::Clear(uri));
     }

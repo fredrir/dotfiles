@@ -139,11 +139,12 @@ impl Settings {
             .or_else(|| value.get("tsdk"))
             .and_then(Value::as_str);
         if let Some(tsdk) = tsdk {
-            self.tsdk = (!tsdk.is_empty()).then(|| PathBuf::from(tsdk));
+            self.tsdk = (!tsdk.is_empty()).then(|| expand_home(tsdk));
         }
     }
 
     /// A fresh configuration from a pull response or an initialization option.
+    #[allow(dead_code)]
     pub fn from_value(value: &Value) -> Self {
         let mut settings = Self::default();
         settings.apply(value);
@@ -178,9 +179,12 @@ impl SettingsStore {
 
     /// Enables trust when the server is started with `DOTFMT_TRUSTED=1`.
     pub fn trust_from_environment() -> Option<bool> {
-        std::env::var("DOTFMT_TRUSTED")
-            .ok()
-            .map(|value| value == "1")
+        std::env::var("DOTFMT_TRUSTED").ok().map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
     }
 
     pub fn trusted(&self) -> bool {
@@ -258,14 +262,16 @@ impl SettingsStore {
 
     /// Replaces the default from a full pull response; returns whether it changed.
     pub fn configure_default(&self, value: &Value) -> bool {
+        if value.is_null() {
+            return false;
+        }
         let mut default = self
             .default
             .write()
             .unwrap_or_else(|error| error.into_inner());
-        let settings = Settings::from_value(value);
-        let changed = *default != settings;
-        *default = settings;
-        changed
+        let before = default.clone();
+        default.apply(value);
+        *default != before
     }
 
     /// Applies a partial `didChangeConfiguration` payload to the default.
@@ -281,8 +287,12 @@ impl SettingsStore {
 
     /// Replaces one folder configuration; returns whether it changed.
     pub fn configure_folder(&self, root: &Path, value: &Value) -> bool {
+        if value.is_null() {
+            return false;
+        }
         let root = normalize(root);
-        let settings = Settings::from_value(value);
+        let mut settings = self.settings_for_root(&root);
+        settings.apply(value);
         let mut folders = self
             .folders
             .lock()
@@ -291,6 +301,15 @@ impl SettingsStore {
         folders.insert(root, settings);
         changed
     }
+}
+
+fn expand_home(value: &str) -> PathBuf {
+    if let Some(rest) = value.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home).join(rest);
+    }
+    PathBuf::from(value)
 }
 
 fn lookup<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
@@ -448,6 +467,20 @@ mod tests {
         assert!(store.trusted());
         assert!(store.set_trusted(false));
         assert!(!store.trusted());
+    }
+
+    #[test]
+    fn null_pull_responses_keep_existing_settings() {
+        let initial = Settings {
+            tsdk: Some(PathBuf::from("/opt/typescript")),
+            ..Settings::default()
+        };
+        let store = SettingsStore::new(true, initial);
+        assert!(!store.configure_default(&Value::Null));
+        assert_eq!(
+            store.default_settings().tsdk,
+            Some(PathBuf::from("/opt/typescript"))
+        );
     }
 
     #[test]
