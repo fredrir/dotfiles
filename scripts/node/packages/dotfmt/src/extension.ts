@@ -1,20 +1,33 @@
 import * as vscode from "vscode";
-import { Client, cliPath, message } from "./client";
+import {
+  binaryVersion,
+  Client,
+  cliPath,
+  extensionVersion,
+  message,
+} from "./client";
 import { registerCommands } from "./commands";
-import { PasteFormatter } from "./paste";
 import { SECTION, SELECTOR } from "./lib/languages";
+import { tildify } from "./lib/paths";
+import { PasteFormatter } from "./paste";
 import { Status } from "./status";
 
 let manager: Client | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel("dotfmt", { log: true });
-  const client = new Client(context, log);
-  const status = new Status(client, cliPath(context));
+  const trace = vscode.window.createOutputChannel("dotfmt trace", {
+    log: true,
+  });
+  const client = new Client(context, log, trace);
+  const version = extensionVersion(context);
+  const cli = cliPath(context);
+  const status = new Status(client, context, version);
   manager = client;
 
   context.subscriptions.push(
     log,
+    trace,
     client,
     status,
     vscode.languages.registerDocumentPasteEditProvider(
@@ -34,7 +47,10 @@ export function activate(context: vscode.ExtensionContext): void {
       status.invalidate();
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration(`${SECTION}.server.path`)) {
+      if (
+        event.affectsConfiguration(`${SECTION}.server.path`) ||
+        event.affectsConfiguration(`${SECTION}.typescript.tsdk`)
+      ) {
         void client.restart().then(
           () => status.invalidate(),
           (error: unknown) =>
@@ -54,7 +70,13 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   registerCommands(context, client, log);
 
-  log.info(`CLI: ${cliPath(context)}`);
+  log.info(`extension: ${context.extension.id} ${version}`);
+  log.info(`CLI: ${tildify(cli)}`);
+  void binaryVersion(cli).then((found) => {
+    if (found) {
+      log.info(`dotfmt version: ${found}`);
+    }
+  });
   client.start().catch((error: unknown) => {
     log.error(`language server failed to start: ${message(error)}`);
   });

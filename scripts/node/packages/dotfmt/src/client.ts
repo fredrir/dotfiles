@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import * as vscode from "vscode";
 import {
   LanguageClient,
@@ -11,6 +13,10 @@ import {
   type ServerOptions,
 } from "vscode-languageclient/node";
 import { CONFIG_NAME, SECTION, SELECTOR } from "./lib/languages";
+import { expandHome, tildify } from "./lib/paths";
+import { readSettings } from "./lib/settings";
+
+const execFileAsync = promisify(execFile);
 
 const DOCUMENT_COMMANDS = new Set([
   "dotfmt.fixAll",
@@ -18,15 +24,17 @@ const DOCUMENT_COMMANDS = new Set([
   "dotfmt.sortTailwind",
 ]);
 
-/** Thin wrapper around one language client, restarted when its binary moves. */
+/** Thin wrapper around one language client, restarted when its binary or TypeScript SDK moves. */
 export class Client implements vscode.Disposable {
   private client: LanguageClient | undefined;
   private ready: Promise<void> = Promise.resolve();
   private restarting: Promise<void> | undefined;
+  private serverVersion: string | undefined;
 
   public constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly log: vscode.LogOutputChannel,
+    private readonly trace: vscode.LogOutputChannel,
   ) {}
 
   public serverPath(): string {
@@ -35,7 +43,7 @@ export class Client implements vscode.Disposable {
       .get<string>("server.path", "")
       .trim();
     return configured
-      ? expand(configured)
+      ? expandHome(configured)
       : this.context.asAbsolutePath(
           path.join(
             "bin",
@@ -45,9 +53,18 @@ export class Client implements vscode.Disposable {
         );
   }
 
+  /** The `dotfmt-lsp` version reported during initialize, once the server is running. */
+  public version(): string | undefined {
+    return this.serverVersion;
+  }
+
   public start(): Promise<void> {
+    const command = this.serverPath();
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    const settings = readSettings(folder?.uri);
+    const tsdk = settings.tsdk ? expandHome(settings.tsdk) : undefined;
     const server: ServerOptions = {
-      command: this.serverPath(),
+      command,
       transport: TransportKind.stdio,
       options: {
         env: {
@@ -59,34 +76,57 @@ export class Client implements vscode.Disposable {
     const documentSelector: vscode.DocumentFilter[] = [];
     for (const filter of SELECTOR) {
       if (filter.language) {
-        documentSelector.push({ scheme: filter.scheme, language: filter.language });
+        documentSelector.push({
+          scheme: filter.scheme,
+          language: filter.language,
+        });
       } else if (typeof filter.pattern === "string") {
-        documentSelector.push({ scheme: filter.scheme, pattern: filter.pattern });
+        documentSelector.push({
+          scheme: filter.scheme,
+          pattern: filter.pattern,
+        });
       }
     }
     const options: LanguageClientOptions = {
-      documentSelector: documentSelector as unknown as LanguageClientOptions["documentSelector"],
+      documentSelector:
+        documentSelector as unknown as LanguageClientOptions["documentSelector"],
       diagnosticCollectionName: "dotfmt",
       outputChannel: this.log,
+      traceOutputChannel: this.trace,
       revealOutputChannelOn: RevealOutputChannelOn.Never,
-      initializationOptions: { trusted: vscode.workspace.isTrusted },
+      initializationOptions: tsdk
+        ? { trusted: vscode.workspace.isTrusted, tsdk }
+        : { trusted: vscode.workspace.isTrusted },
       middleware: {
-        executeCommand: (command, args, next) =>
-          this.execute(command, args, next),
+        executeCommand: (executable, args, next) =>
+          this.execute(executable, args, next),
       },
       synchronize: {
         configurationSection: SECTION,
         fileEvents: [
           vscode.workspace.createFileSystemWatcher(`**/${CONFIG_NAME}`),
           vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(globalConfig(), CONFIG_NAME),
+            new vscode.RelativePattern(
+              vscode.Uri.file(globalConfigDirectory()),
+              CONFIG_NAME,
+            ),
           ),
-          vscode.workspace.createFileSystemWatcher("**/tsconfig.json"),
+          vscode.workspace.createFileSystemWatcher("**/.prettierignore"),
+          vscode.workspace.createFileSystemWatcher("**/tsconfig*.json"),
+          vscode.workspace.createFileSystemWatcher("**/jsconfig*.json"),
         ],
       },
     };
-    this.client = new LanguageClient(SECTION, "dotfmt", server, options);
-    this.ready = this.client.start();
+    const client = new LanguageClient(SECTION, "dotfmt", server, options);
+    this.client = client;
+    this.serverVersion = undefined;
+    this.log.info(`server: ${tildify(command)}`);
+    this.ready = client.start().then(() => {
+      this.serverVersion = client.initializeResult?.serverInfo?.version;
+      if (this.serverVersion) {
+        this.log.info(`dotfmt-lsp version: ${this.serverVersion}`);
+      }
+    });
     return this.ready;
   }
 
@@ -121,6 +161,7 @@ export class Client implements vscode.Disposable {
   public stop(): Promise<void> {
     const client = this.client;
     this.client = undefined;
+    this.serverVersion = undefined;
     if (!client) {
       return Promise.resolve();
     }
@@ -149,35 +190,25 @@ export class Client implements vscode.Disposable {
   }
 }
 
+/** The extension's package.json version. */
+export function extensionVersion(context: vscode.ExtensionContext): string {
+  const version = (context.extension.packageJSON as { version?: unknown })
+    .version;
+  return typeof version === "string" ? version : "unknown";
+}
+
 export function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function executable(name: string): string {
-  return process.platform === "win32" ? `${name}.exe` : name;
-}
-
-function expand(value: string): string {
-  return value.replace(/^~(?=$|[\\/])/, os.homedir());
-}
-
-function globalConfig(): vscode.Uri {
-  return vscode.Uri.file(
-    path.join(
-      process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
-      "dotfmt",
-    ),
-  );
-}
-
-/** The configured dotfmt CLI, kept for status and manual checks. */
+/** The configured or bundled dotfmt CLI, kept for status, doctor and manual checks. */
 export function cliPath(context: vscode.ExtensionContext): string {
   const configured = vscode.workspace
     .getConfiguration(SECTION)
     .get<string>("path", "")
     .trim();
   if (configured) {
-    return expand(configured);
+    return expandHome(configured);
   }
   const bundled = context.asAbsolutePath(
     path.join(
@@ -187,4 +218,34 @@ export function cliPath(context: vscode.ExtensionContext): string {
     ),
   );
   return existsSync(bundled) ? bundled : "dotfmt";
+}
+
+/** The first line of `<command> --version`, or undefined when the binary is missing. */
+export async function binaryVersion(
+  command: string,
+): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync(command, ["--version"], {
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    return stdout.trim().split(/\r?\n/)[0]?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function globalConfigDirectory(): string {
+  return path.join(
+    process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
+    "dotfmt",
+  );
+}
+
+export function globalConfigFile(): string {
+  return path.join(globalConfigDirectory(), CONFIG_NAME);
+}
+
+function executable(name: string): string {
+  return process.platform === "win32" ? `${name}.exe` : name;
 }

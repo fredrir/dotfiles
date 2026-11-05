@@ -1,25 +1,110 @@
 # dotfmt for VS Code
 
-Formats with the bundled [dotfmt](../../../../docs/cli/dotfmt.md) language server and stays quiet unless dotfmt itself fails.
+dotfmt is the one formatter for config, data, markup, TypeScript/TSX, JavaScript/JSX, CSS and Tailwind. It is **not a linter**: the extension publishes only errors, never lint findings, hints, information or warnings.
+
+Formatting, range formatting, on-type formatting, errors, code actions and commands all run in the bundled [dotfmt](../../../../docs/cli/dotfmt.md) language server over stdio. The extension activates when a supported language or a dotfmt command is used; it does not start at editor launch.
 
 ## Setup
 
-The extension starts `bin/<platform>/dotfmt-lsp` and speaks LSP over stdio. Formatting, range formatting, on-type formatting, diagnostics, fixes and commands all run in that one process; the VS Code side only wires the client, status item and commands.
-
-- **Default formatter:** run **dotfmt: Set as Default Formatter**, or set it per language in `settings.json`.
+- **Default formatter:** run **dotfmt: Set as Default Formatter**, or set it per language in `settings.json`. With a workspace open it writes workspace settings; without one it writes user settings.
 - **Format on save:** enable `editor.formatOnSave`. `editor.formatOnSaveMode: "modifications"` and Format Selection work through the server's range requests.
 - **Format on type:** `;` and `}` trigger formatting of the surrounding block.
-- **Format on paste:** pasted text is formatted through the language server and offered as a paste edit; a broken snippet keeps its original text.
-- **Binary:** `dotfmt.server.path` replaces the bundled language server. `dotfmt.path` names the CLI shown in the output log for manual checks. Workspace values are ignored in untrusted workspaces.
-- **Configuration:** the filename and `dotfmt.dotfile` decide the language and dialect, as in Neovim. Untitled buffers use their VS Code language.
+- **Format on paste:** pasted text is formatted through the language server and offered as a paste edit; a snippet that does not parse keeps its original text.
+- **Binary:** `dotfmt.server.path` replaces the bundled language server. `dotfmt.path` names the CLI used by status and doctor. Workspace values are ignored in untrusted workspaces.
+- **Configuration:** the filename and `dotfmt.dotfile` decide the language and dialect, as in Neovim. Untitled buffers use their VS Code language. The nearest `dotfmt.dotfile` applies, with the user config directory as the final fallback.
 - **Settings:** `dotfmt.dotfile` is the only formatting configuration; VS Code's tab size and indentation settings are ignored. A `line_endings` change also switches the document's line endings.
-- **Quiet:** a buffer that does not parse is left untouched and only gets a diagnostic. Formatting never shows a popup for syntax errors; failures are logged to the dotfmt output channel.
-- **Status:** the `{}` language status shows the resolved language and dialect, or why a file is skipped (`unmapped`, `excluded`, `disabled`), with a link to the nearest `dotfmt.dotfile`. It turns red on errors.
+- **Scope:** the dotfmt settings below are resource-scoped. In a multi-root workspace each folder resolves its own values from the nearest workspace folder, including its own type-aware scope and TypeScript SDK.
+- **Status:** the `{}` language status shows the resolved language, dialect and config, or why a file is skipped (`unmapped`, `excluded`, `disabled`). Its tooltip shows the extension version, server and CLI paths, TypeScript state and the configuration chain. It turns red on errors.
 - **Dotfile language:** `*.dotfile` gets highlighting, `#` comments, bracket matching and indentation.
+
+## Diagnostics: errors only
+
+The editor receives exactly two classes of diagnostics:
+
+1. Fatal syntax and configuration errors: the formatter cannot parse the buffer or resolve its configuration. Disable with `dotfmt.diagnostics.syntax = false`.
+2. TypeScript compiler errors, when `dotfmt.typeAware` is on (the default). Disable per resource with `dotfmt.typeAware = false`.
+
+There are **no lint diagnostics**. dotfmt never publishes `unused-import`, `type-only-import`, `unused-export`, `unused-variable`, `unused-parameter`, `unused-type-parameter` or `unused-class-member` findings, and it never uses `DiagnosticSeverity.Hint`, Information or Warning. Unused-code removal is a formatting/fix action that you opt into, not an editor warning.
+
+The CLI is unchanged: `dotfmt --diagnose` still reports findings, `--fix` applies safe fixes, and `--fix-unsafe` applies all fixes.
+
+## Opt-in fixes in `dotfmt.dotfile`
+
+Formatting never deletes code by default. Enable individual fix categories, or choose a fix mode:
+
+```toml
+fixes = "off"                   # off | safe | unsafe
+remove_unused_imports = false
+remove_unused_exports = false
+remove_unused_locals = false
+remove_unused_parameters = false
+convert_type_only_imports = false
+organize_imports = false
+```
+
+- `fixes = "off"` applies no format-time fixes unless an individual boolean is true.
+- `fixes = "safe"` implies `remove_unused_imports`, `convert_type_only_imports` and `organize_imports`.
+- `fixes = "unsafe"` implies all safe fixes plus `remove_unused_exports`, `remove_unused_locals` and `remove_unused_parameters`.
+- An individual boolean forces that category on regardless of `fixes`.
+- Selected fixes run before the final format, for at most three idempotent passes. Defaults delete nothing.
+
+The same categories are available interactively through code actions and **dotfmt: Fix All**. Unsafe fixes are hidden in untrusted workspaces.
+
+## Type-aware diagnostics
+
+`dotfmt.typeAware` (default `true`) runs the project's TypeScript compiler once per project and caches the result. It is the compatibility switch for tsc; there is no duplicate setting.
+
+- `dotfmt.diagnostics.tscScope` (default `open`) publishes compiler errors only for open documents. Set it to `project` to publish errors for every file in the project.
+- `dotfmt.diagnostics.debounceMs` (default `250`) coalesces checks after edits.
+- `dotfmt.typescript.tsdk` points at a TypeScript installation's `lib` directory. Empty auto-discovers `DOTFMT_TSC`, the project's `node_modules/typescript/lib/tsc.js`, `node_modules/.bin/tsc`, `@typescript/native-preview`/`tsgo`, then `tsc` on `PATH`.
+- Compiler discovery and version are logged once per project. TypeScript's unused-code and lint codes (6133, 6192, 6196, 6198, 6199, 6205) are filtered out, so tsc errors never become unused-code warnings.
+- Project checks, project JavaScript execution and unsafe fixes require an explicitly trusted workspace. In an untrusted workspace they are disabled; deterministic formatting still works.
+
+## Settings
+
+| Setting                         | Type                                  | Default  | Scope               | Purpose                                                                                |
+| ------------------------------- | ------------------------------------- | -------- | ------------------- | -------------------------------------------------------------------------------------- |
+| `dotfmt.typeAware`              | boolean                               | `true`   | resource            | Run tsc for errors only; never lint findings                                           |
+| `dotfmt.diagnostics.syntax`     | boolean                               | `true`   | resource            | Publish fatal syntax and configuration errors; `false` silences all dotfmt diagnostics |
+| `dotfmt.diagnostics.tscScope`   | `"open"` \| `"project"`              | `"open"` | resource            | Publish tsc errors for open documents or the whole project                             |
+| `dotfmt.diagnostics.debounceMs` | number, 50..2000                      | `250`    | resource            | Delay before tsc checks rerun after an edit                                            |
+| `dotfmt.typescript.tsdk`        | string                                | `""`     | resource            | TypeScript `lib` directory; empty auto-discovers                                       |
+| `dotfmt.fixes.onSave`           | `"off"` \| `"safe"` \| `"unsafe"`     | `"off"`  | resource            | Apply fixes through `textDocument/willSaveWaitUntil` before writing                     |
+| `dotfmt.path`                   | string                                | `""`     | machine-overridable | CLI binary used by status and doctor; empty uses the bundled one                       |
+| `dotfmt.server.path`            | string                                | `""`     | machine-overridable | Language server binary; empty uses the bundled one                                     |
+| `dotfmt.trace.server`           | `"off"` \| `"messages"` \| `"verbose"` | `"off"`  | window              | Route LSP tracing to the dedicated **dotfmt trace** output channel                      |
+
+```json
+{
+  "dotfmt.typeAware": true,
+  "dotfmt.diagnostics.tscScope": "open",
+  "dotfmt.fixes.onSave": "off",
+  "[typescript]": {
+    "editor.defaultFormatter": "fredrir.dotfmt",
+    "editor.formatOnSave": true
+  }
+}
+```
+
+## Commands
+
+| Command                        | Purpose                                                                                |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| `dotfmt.fixAll`                | Apply safe fixes and format the active file                                            |
+| `dotfmt.organizeImports`       | Organize imports and format                                                            |
+| `dotfmt.sortTailwind`          | Format, including Tailwind class order                                                 |
+| `dotfmt.restartServer`         | Restart the language server                                                            |
+| `dotfmt.showOutput`            | Show the dotfmt output channel                                                         |
+| `dotfmt.showStatus`            | Show the active file's resolved language and configuration                             |
+| `dotfmt.setAsDefaultFormatter` | Set dotfmt as the default formatter for its languages                                  |
+| `dotfmt.openConfig`            | Open or create the nearest `dotfmt.dotfile`; without a folder, use the global fallback |
+| `dotfmt.doctor`                | Print paths, versions, trust, settings, tsc state and the config chain; copy the summary |
+
+**dotfmt: Doctor** reports what the client knows: extension, server and CLI paths and versions, workspace trust, workspace folders, resource settings, TypeScript state, and the configuration chain from `dotfmt/explain`. The server does not currently report the resolved tsc compiler path or version, so doctor shows the configured discovery mode and SDK instead.
 
 ## Code actions
 
-The server offers quick fixes for dotfmt findings. Unsafe fixes are only listed explicitly and carry `(unsafe)` in the title. Full-file actions use versioned workspaces edits and change annotations:
+The server offers quick fixes for dotfmt findings. Unsafe fixes are only listed explicitly and carry `(unsafe)` in the title. Full-file actions use versioned workspace edits and change annotations:
 
 - `source.fixAll.dotfmt`: all safe fixes, then formatting.
 - `source.organizeImports.dotfmt`: import organization and formatting.
@@ -36,29 +121,13 @@ Run them from the lightbulb menu, **dotfmt: Fix All**, **dotfmt: Organize Import
 }
 ```
 
-The unsuffixed `source.fixAll` and `source.organizeImports` kinds are deliberately not advertised, so other formatters and linters keep their own save actions. `dotfmt.fixes.onSave` is an alternative that runs `dotfmt.fixAll` through `textDocument/willSaveWaitUntil`, before the file is written (`off`, `safe` or `unsafe`; default `off`). Unsafe fixes are disabled in untrusted workspaces.
+The unsuffixed `source.fixAll` and `source.organizeImports` kinds are deliberately not advertised, so other formatters and linters keep their own save actions. `dotfmt.fixes.onSave` is an alternative that runs fixes through `textDocument/willSaveWaitUntil` before the file is written (`off`, `safe` or `unsafe`; default `off`).
 
-## Tailwind and type-aware checks
+## Tailwind
 
 Tailwind class sorting is part of formatting when the applicable `dotfmt.dotfile` enables it; **dotfmt: Sort Tailwind Classes** runs the same formatter path. Tailwind order can come from the project stylesheet or the built-in order, as configured in `dotfmt.dotfile`.
 
-In untrusted workspaces the server sets `DOTFMT_TRUSTED=0`, which disables project JavaScript execution for Tailwind ordering, unsafe fixes and `tsc`; deterministic Rust Tailwind ordering still works.
-
-`dotfmt.typeAware` (default on) runs `tsc --noEmit --pretty false --project <nearest tsconfig>` in a worker thread when a TypeScript or JavaScript file is opened or saved. Project diagnostics appear with source `dotfmt(tsc)` and never block formatting. Results are cached by project and file mtimes with a timeout; the check is skipped in untrusted workspaces.
-
-## Commands and settings
-
-| Command                        | Purpose                                                 |
-| ------------------------------ | ------------------------------------------------------- |
-| `dotfmt.fixAll`                | Apply safe fixes and format the active file             |
-| `dotfmt.organizeImports`       | Organize imports and format                             |
-| `dotfmt.sortTailwind`          | Format, including Tailwind class order                  |
-| `dotfmt.restartServer`         | Restart the language server                             |
-| `dotfmt.showOutput`            | Show the dotfmt output channel                          |
-| `dotfmt.setAsDefaultFormatter` | Set dotfmt as the workspace formatter for its languages |
-| `dotfmt.openConfig`            | Open or create the nearest `dotfmt.dotfile`             |
-
-`dotfmt.trace.server` (`off`, `messages`, `verbose`) traces LSP traffic.
+In untrusted workspaces the server disables project JavaScript execution for Tailwind ordering, unsafe fixes and `tsc`; deterministic Rust Tailwind ordering still works.
 
 ## Coverage
 
@@ -67,9 +136,19 @@ dotfmt's built-in filenames plus languages for TypeScript, TSX, JavaScript, JSX,
 ## Build and install
 
 ```sh
-bun run deploy                       # builds dotfmt and dotfmt-lsp for darwin-arm64 and linux-x64, installs the vsix
-bun run deploy -- --remote archie    # also installs it on a Remote SSH host
-bun run build -- --host              # builds only for the current machine
+bun run deploy                          # build linux-x64 + darwin-arm64, package the universal vsix, install locally
+bun run deploy -- --host                # build only the current platform, package it with vsce --target
+bun run deploy -- --skip-build          # package/install existing bin/ and dist/ artifacts
+bun run deploy -- --target linux-x64    # build and package one target with vsce --target
+bun run deploy -- --remote archie       # also install on a Remote SSH host
+bun run build -- --host                 # build only the current machine
+bun run build -- --target linux-x64 --target darwin-arm64
 ```
 
-`build.ts` also maps `win32-x64`; install the Rust target and run `bun build.ts --host` from Windows to build it.
+`build.ts` builds only `linux-x64` and `darwin-arm64` by default. `win32-x64` remains mapped for an explicit `--target` or `--host` on Windows; it is not part of the default build. `deploy.ts` detects the **remote** VS Code commit by running `ssh <host> code --version` and falling back to the host's `~/.vscode-server/cli/servers/lru.json`, so a remote install never uses the local desktop commit. `--skip-build` leaves the existing `bin/` and `dist/` untouched.
+
+Run the client typecheck from `scripts/node`:
+
+```sh
+bun x tsc -p packages/dotfmt/tsconfig.json --noEmit
+```
