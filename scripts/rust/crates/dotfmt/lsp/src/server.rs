@@ -115,14 +115,26 @@ pub fn run(connection: &Connection) -> Result<()> {
         });
     }
 
+    let mut shutting_down = false;
     for message in &connection.receiver {
         match message {
-            Message::Request(request) => {
-                if connection.handle_shutdown(&request)? {
-                    break;
-                }
-                server.dispatch(request);
+            Message::Request(request) if shutting_down => {
+                let _ = connection.sender.send(
+                    Response::new_err(
+                        request.id,
+                        ErrorCode::InvalidRequest as i32,
+                        "server is shutting down".into(),
+                    )
+                    .into(),
+                );
             }
+            Message::Request(request) if request.method == "shutdown" => {
+                shutting_down = true;
+                let _ = connection.sender.send(Response::new_ok(request.id, ()).into());
+            }
+            Message::Request(request) => server.dispatch(request),
+            Message::Notification(notification) if notification.method == "exit" => break,
+            Message::Notification(_) if shutting_down => {}
             Message::Notification(notification) => {
                 if notification.method == "$/cancelRequest" {
                     server.cancel(&notification.params);
@@ -1204,6 +1216,77 @@ mod tests {
             )))
             .unwrap();
         let _ = receive_response(&client, &RequestId::from(5));
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".into(),
+                json!(null),
+            )))
+            .unwrap();
+        serving.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn shutdown_tolerates_late_configuration_response() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (server, client) = Connection::memory();
+        let serving = std::thread::spawn(move || run(&server));
+
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(1),
+                "initialize".into(),
+                json!({
+                    "processId": null,
+                    "rootUri": uri::from_path(temporary.path()),
+                    "capabilities": { "workspace": { "configuration": true } }
+                }),
+            )))
+            .unwrap();
+        receive_response(&client, &RequestId::from(1)).unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".into(),
+                json!({}),
+            )))
+            .unwrap();
+        let configuration = loop {
+            match client.receiver.recv_timeout(Duration::from_secs(5)).unwrap() {
+                Message::Request(request) if request.method == "workspace/configuration" => {
+                    break request;
+                }
+                _ => continue,
+            }
+        };
+
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(2),
+                "shutdown".into(),
+                json!(null),
+            )))
+            .unwrap();
+        receive_response(&client, &RequestId::from(2)).unwrap();
+        client
+            .sender
+            .send(Message::Response(Response::new_ok(
+                configuration.id,
+                json!([{}]),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                RequestId::from(3),
+                "textDocument/formatting".into(),
+                json!(null),
+            )))
+            .unwrap();
+        let rejected = receive_response(&client, &RequestId::from(3)).unwrap_err();
+        assert_eq!(rejected.code, ErrorCode::InvalidRequest as i32);
         client
             .sender
             .send(Message::Notification(Notification::new(

@@ -2,13 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import * as vscode from "vscode";
 import { message, type Client } from "./client";
-import { CONFIG_NAME, LANGUAGES, SELECTOR } from "./lib/languages";
-
-const SERVER_COMMANDS = {
-  "dotfmt.fixAll": "dotfmt.fixAll",
-  "dotfmt.organizeImports": "dotfmt.organizeImports",
-  "dotfmt.sortTailwind": "dotfmt.sortTailwind",
-} as const;
+import { CONFIG_NAME, LANGUAGES } from "./lib/languages";
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -16,11 +10,6 @@ export function registerCommands(
   log: vscode.LogOutputChannel,
 ): void {
   context.subscriptions.push(
-    ...Object.keys(SERVER_COMMANDS).map((command) =>
-      vscode.commands.registerCommand(command, () =>
-        execute(client, command, log),
-      ),
-    ),
     vscode.commands.registerCommand("dotfmt.restartServer", async () => {
       log.info("restarting language server");
       try {
@@ -35,26 +24,6 @@ export function registerCommands(
     ),
     vscode.commands.registerCommand("dotfmt.openConfig", () => openConfig()),
   );
-}
-
-async function execute(
-  client: Client,
-  command: string,
-  log: vscode.LogOutputChannel,
-): Promise<void> {
-  const document = vscode.window.activeTextEditor?.document;
-  if (!document || vscode.languages.match(SELECTOR, document) === 0) {
-    return;
-  }
-  try {
-    await client.request("workspace/executeCommand", {
-      command,
-      arguments: [document.uri.toString()],
-    });
-  } catch (error) {
-    log.error(`${command} failed: ${message(error)}`);
-    void vscode.window.showErrorMessage(`dotfmt: ${message(error)}`);
-  }
 }
 
 async function setAsDefaultFormatter(

@@ -1,4 +1,3 @@
-import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { $ } from "bun";
@@ -14,9 +13,7 @@ await $`bun x vsce package --no-dependencies --skip-license --out ${vsix}`.cwd(
   root,
 );
 
-if (os.hostname() !== "archie") {
-  await $`code --install-extension ${vsix} --force`;
-}
+await $`code --install-extension ${vsix} --force`;
 
 if (values.remote) {
   const host = values.remote;

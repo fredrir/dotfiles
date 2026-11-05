@@ -6,10 +6,17 @@ import {
   LanguageClient,
   RevealOutputChannelOn,
   TransportKind,
+  type ExecuteCommandSignature,
   type LanguageClientOptions,
   type ServerOptions,
 } from "vscode-languageclient/node";
 import { CONFIG_NAME, SECTION, SELECTOR } from "./lib/languages";
+
+const DOCUMENT_COMMANDS = new Set([
+  "dotfmt.fixAll",
+  "dotfmt.organizeImports",
+  "dotfmt.sortTailwind",
+]);
 
 /** Thin wrapper around one language client, restarted when its binary moves. */
 export class Client implements vscode.Disposable {
@@ -63,6 +70,10 @@ export class Client implements vscode.Disposable {
       outputChannel: this.log,
       revealOutputChannelOn: RevealOutputChannelOn.Never,
       initializationOptions: { trusted: vscode.workspace.isTrusted },
+      middleware: {
+        executeCommand: (command, args, next) =>
+          this.execute(command, args, next),
+      },
       synchronize: {
         configurationSection: SECTION,
         fileEvents: [
@@ -85,6 +96,26 @@ export class Client implements vscode.Disposable {
       throw new Error("dotfmt language server is not running");
     }
     return this.client.sendRequest<T>(method, params);
+  }
+
+  private async execute(
+    command: string,
+    args: unknown[],
+    next: ExecuteCommandSignature,
+  ): Promise<unknown> {
+    if (args.length === 0 && DOCUMENT_COMMANDS.has(command)) {
+      const document = vscode.window.activeTextEditor?.document;
+      if (!document || vscode.languages.match(SELECTOR, document) === 0) {
+        return undefined;
+      }
+      args = [document.uri.toString()];
+    }
+    try {
+      return await next(command, args);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`dotfmt: ${message(error)}`);
+      return undefined;
+    }
   }
 
   public stop(): Promise<void> {
