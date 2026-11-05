@@ -218,6 +218,12 @@
           "scope": "machine-overridable",
           "description": "Server binary; empty uses the bundled one"
         },
+        "dotCode.install.packageJson": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Root package.json path for dependency installation, absolute or relative to the workspace folder (e.g. scripts/node/package.json). Empty uses automatic detection."
+        },
         "dotCode.install.restart": {
           "type": "array",
           "items": {

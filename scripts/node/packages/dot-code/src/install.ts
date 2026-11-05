@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
 import { PACKAGE_MANAGER, SECTION } from "./lib/constants";
@@ -12,11 +13,35 @@ interface Plan {
 
 let installing = false;
 
-function startDir(): string | undefined {
+async function startDir(): Promise<string | undefined> {
   const file = activeFile();
+  const folder =
+    (file ? vscode.workspace.getWorkspaceFolder(file) : undefined) ??
+    vscode.workspace.workspaceFolders?.[0];
+  const configured = vscode.workspace
+    .getConfiguration(SECTION, folder?.uri ?? file)
+    .get<string>("install.packageJson", "")
+    .trim();
+  if (configured) {
+    if (!path.isAbsolute(configured) && !folder) {
+      throw new Error(
+        "dotCode.install.packageJson requires a workspace folder for relative paths",
+      );
+    }
+    const manifest = path.resolve(folder?.uri.fsPath ?? "", configured);
+    if (
+      path.basename(manifest) !== "package.json" ||
+      !(await stat(manifest).catch(() => undefined))?.isFile()
+    ) {
+      throw new Error(
+        `dotCode.install.packageJson must point to an existing package.json file: ${manifest}`,
+      );
+    }
+    return path.dirname(manifest);
+  }
   return file?.scheme === "file"
     ? path.dirname(file.fsPath)
-    : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    : folder?.uri.fsPath;
 }
 
 async function choose(
@@ -116,7 +141,7 @@ export async function install(
   }
   installing = true;
   try {
-    const dir = startDir();
+    const dir = await startDir();
     const detected =
       dir === undefined
         ? null
@@ -136,6 +161,10 @@ export async function install(
     if (await run(command, args, chosen.cwd)) {
       await refresh(outputChannel);
     }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    outputChannel.error(`install failed: ${msg}`);
+    void vscode.window.showErrorMessage(msg);
   } finally {
     installing = false;
   }
