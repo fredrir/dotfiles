@@ -176,6 +176,9 @@ export class Client implements vscode.Disposable {
     }
     this.restarting = (async () => {
       try {
+        // Let an in-flight start finish first; stopping mid-start can leave a
+        // client that the next start overwrites without shutting down.
+        await this.ready.catch(() => undefined);
         await this.stop();
         await this.start();
       } finally {

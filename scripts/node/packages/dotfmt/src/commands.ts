@@ -17,13 +17,16 @@ import {
 } from "./lib/doctor";
 import { explain, type Explanation } from "./lib/explain";
 import { CONFIG_NAME, LANGUAGES, SELECTOR } from "./lib/languages";
+import { configTarget, formatSettingsQuery } from "./lib/native";
 import { expandHome, findConfig, isWithin, tildify } from "./lib/paths";
 import { readSettings } from "./lib/settings";
+import type { Status } from "./status";
 
 export function registerCommands(
   context: vscode.ExtensionContext,
   client: Client,
   log: vscode.LogOutputChannel,
+  status: Status,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("dotfmt.restartServer", async () => {
@@ -32,11 +35,19 @@ export function registerCommands(
         await client.restart();
       } catch (error) {
         log.error(`server restart failed: ${message(error)}`);
+      } finally {
+        status.invalidate();
       }
     }),
     vscode.commands.registerCommand("dotfmt.showOutput", () => log.show(true)),
     vscode.commands.registerCommand("dotfmt.setAsDefaultFormatter", () =>
       setAsDefaultFormatter(context),
+    ),
+    vscode.commands.registerCommand("dotfmt.configure", () =>
+      vscode.commands.executeCommand(
+        "workbench.action.openSettings",
+        formatSettingsQuery(),
+      ),
     ),
     vscode.commands.registerCommand("dotfmt.openConfig", () => openConfig()),
     vscode.commands.registerCommand("dotfmt.showStatus", () =>
@@ -88,9 +99,8 @@ async function openConfig(): Promise<void> {
     (document
       ? vscode.workspace.getWorkspaceFolder(document.uri)
       : undefined) ?? vscode.workspace.workspaceFolders?.[0];
-  const target = folder
-    ? localConfig(document, folder.uri.fsPath)
-    : globalConfigFile();
+  const local = folder ? localConfig(document, folder.uri.fsPath) : undefined;
+  const target = configTarget(local, globalConfigFile(), existsSync);
   if (!existsSync(target)) {
     const create = "Create";
     const answer = await vscode.window.showInformationMessage(
