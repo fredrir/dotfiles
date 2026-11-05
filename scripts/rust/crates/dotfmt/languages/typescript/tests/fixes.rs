@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use dotfmt_core::edit::{Analysis, Applicability, apply, apply_fixes};
+use dotfmt_core::edit::{Analysis, Applicability, Severity, apply, apply_fixes};
 use dotfmt_typescript::analyze::{self, Options, TypeDiagnostic};
 use dotfmt_typescript::config::Config;
 use dotfmt_typescript::dialect::Dialect;
@@ -18,6 +18,7 @@ fn analyze(path: &Path, input: &str, fix: bool, unsafe_fixes: bool) -> Analysis 
             fix,
             unsafe_fixes,
             type_aware: false,
+            organize: true,
             project_analysis: false,
             type_diagnostics: Vec::new(),
         },
@@ -371,10 +372,93 @@ fn parameters_class_members_and_type_parameters_are_report_only() {
 
 #[test]
 fn declaration_files_never_get_removal_fixes() {
-    let input = "import { A } from \"m\";\nconst x = 1;\n";
-    let analysis = analyze(Path::new("a.d.ts"), input, true, true);
-    assert!(!analysis.findings.is_empty());
-    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+    let input = "import { A } from \"m\";\nconst x = 1;\nexport const y = 2;\n";
+    for name in ["a.d.ts", "a.d.mts", "a.d.cts"] {
+        let analysis = analyze(Path::new(name), input, true, true);
+        assert!(!analysis.findings.is_empty(), "{name}");
+        assert!(analysis.fixes.is_empty(), "{name}: {:?}", analysis.fixes);
+    }
+}
+
+#[test]
+fn individual_import_fixes_are_not_hidden_when_organize_is_not_selected() {
+    let input = "import { a } from \"a\";\nimport { b } from \"b\";\nconsole.log(a);\n";
+    let analysis = analyze::analyze(
+        Path::new("a.ts"),
+        input,
+        &Config::default(),
+        Dialect::Auto,
+        &Options {
+            fix: true,
+            unsafe_fixes: false,
+            type_aware: false,
+            organize: false,
+            project_analysis: false,
+            type_diagnostics: Vec::new(),
+        },
+    )
+    .unwrap();
+    assert!(
+        analysis
+            .fixes
+            .iter()
+            .any(|fix| fix.title.contains("Remove unused imports")),
+        "{:?}",
+        analysis.fixes
+    );
+    assert_eq!(
+        apply_every_fix(input, &analysis),
+        "import { a } from \"a\";\nimport \"b\";\nconsole.log(a);\n"
+    );
+}
+
+#[test]
+fn tsc_unused_codes_are_warnings_and_other_codes_are_errors() {
+    let input = "const value = 1;\nconsole.log(value);\n";
+    let analysis = analyze::analyze(
+        Path::new("a.ts"),
+        input,
+        &Config::default(),
+        Dialect::Auto,
+        &Options {
+            fix: false,
+            unsafe_fixes: false,
+            type_aware: false,
+            organize: false,
+            project_analysis: false,
+            type_diagnostics: vec![
+                TypeDiagnostic {
+                    code: 6133,
+                    message: "`value` is declared but never read.".to_owned(),
+                    start: 6,
+                    end: 11,
+                },
+                TypeDiagnostic {
+                    code: 7027,
+                    message: "Unreachable code detected.".to_owned(),
+                    start: 12,
+                    end: 13,
+                },
+                TypeDiagnostic {
+                    code: 2322,
+                    message: "Type mismatch.".to_owned(),
+                    start: 18,
+                    end: 23,
+                },
+            ],
+        },
+    )
+    .unwrap();
+    let severity = |code: &str| {
+        analysis
+            .findings
+            .iter()
+            .find(|finding| finding.code == code)
+            .map(|finding| finding.severity)
+    };
+    assert_eq!(severity("tsc-6133"), Some(Severity::Warning));
+    assert_eq!(severity("tsc-7027"), Some(Severity::Warning));
+    assert_eq!(severity("tsc-2322"), Some(Severity::Error));
 }
 
 #[test]
@@ -452,6 +536,7 @@ fn editor_type_diagnostics_gate_fixes_and_add_related_information() {
             fix: true,
             unsafe_fixes: false,
             type_aware: false,
+            organize: true,
             project_analysis: false,
             type_diagnostics: vec![TypeDiagnostic {
                 code: 2322,

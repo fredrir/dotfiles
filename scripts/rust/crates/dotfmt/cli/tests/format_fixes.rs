@@ -116,7 +116,15 @@ fn format_fix_selection_follows_modes_and_individual_flags() {
     assert!(unsafe_selection.organize_imports);
     assert!(!unsafe_selection.remove_unused_exports);
     assert!(unsafe_selection.remove_unused_locals);
-    assert!(unsafe_selection.remove_unused_parameters);
+    assert!(!unsafe_selection.remove_unused_parameters);
+
+    let exports = selection("remove_unused_exports", "true").expect("export selection");
+    assert!(!exports.safe);
+    assert!(exports.r#unsafe);
+    assert!(exports.remove_unused_exports);
+    assert!(!exports.remove_unused_locals);
+
+    assert_eq!(selection("remove_unused_parameters", "true"), None);
 
     let exports = selection("remove_unused_exports", "true").expect("export selection");
     assert!(!exports.safe);
@@ -322,5 +330,135 @@ fn format_fixes_preserve_bom_and_windows_line_endings() {
     assert_eq!(
         fs::read_to_string(root.path().join("a.ts")).unwrap(),
         "\u{feff}import \"./side\";\r\nconst value = { a: 1 };\r\nexport { value };\r\n"
+    );
+}
+
+fn private_export_tree(config: &str) -> tempfile::TempDir {
+    tree_pairs(&[
+        ("dotfmt.dotfile", config),
+        ("package.json", r#"{"private":true}"#),
+        ("a.ts", "export const unused = 1;\n"),
+        ("b.ts", "console.log(1);\n"),
+    ])
+}
+
+#[test]
+fn format_with_remove_unused_exports_removes_the_export() {
+    let root = private_export_tree(
+        "typescript { remove_unused_exports = true\n tailwind = off\n type_aware = false }\n",
+    );
+    let output = dotfmt(root.path()).arg("a.ts").run();
+    assert!(output.success(), "{output:?}");
+    let expected = "const unused = 1;\n";
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.ts")).unwrap(),
+        expected
+    );
+
+    let output = dotfmt(root.path()).arg("a.ts").run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.ts")).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn format_without_an_explicit_export_flag_leaves_exports_alone() {
+    for config in [
+        "typescript { fixes = off\n tailwind = off\n type_aware = false }\n",
+        "typescript { fixes = safe\n tailwind = off\n type_aware = false }\n",
+        "typescript { fixes = unsafe\n tailwind = off\n type_aware = false }\n",
+    ] {
+        let root = private_export_tree(config);
+        let output = dotfmt(root.path()).arg("a.ts").run();
+        assert!(output.success(), "{config}: {output:?}");
+        assert_eq!(
+            fs::read_to_string(root.path().join("a.ts")).unwrap(),
+            "export const unused = 1;\n",
+            "{config}"
+        );
+    }
+}
+
+#[test]
+fn format_with_remove_unused_exports_requires_trust() {
+    let root = private_export_tree(
+        "typescript { remove_unused_exports = true\n tailwind = off\n type_aware = false }\n",
+    );
+    let untrusted = dotfmt(root.path())
+        .arg("a.ts")
+        .env("DOTFMT_TRUSTED", "0")
+        .run();
+    assert!(untrusted.success(), "{untrusted:?}");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.ts")).unwrap(),
+        "export const unused = 1;\n"
+    );
+
+    let output = dotfmt(root.path()).arg("a.ts").run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.ts")).unwrap(),
+        "const unused = 1;\n"
+    );
+}
+
+#[test]
+fn export_removal_preserves_bom_and_crlf_and_is_idempotent() {
+    let root = tree_pairs(&[
+        (
+            "dotfmt.dotfile",
+            "typescript { remove_unused_exports = true\n line_endings = windows\n tailwind = off\n type_aware = false }\n",
+        ),
+        ("package.json", r#"{"private":true}"#),
+        ("a.ts", "\u{feff}export const unused = 1;\r\n"),
+        ("b.ts", "console.log(1);\r\n"),
+    ]);
+    let expected = "\u{feff}const unused = 1;\r\n";
+    for _ in 0..2 {
+        let output = dotfmt(root.path()).arg("a.ts").run();
+        assert!(output.success(), "{output:?}");
+        assert_eq!(
+            fs::read_to_string(root.path().join("a.ts")).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn individual_import_flag_removes_imports_without_organizing() {
+    let root = tree_pairs(&[
+        (
+            "dotfmt.dotfile",
+            "typescript { fixes = off\n remove_unused_imports = true\n tailwind = off\n type_aware = false }\n",
+        ),
+        (
+            "a.ts",
+            "import { a } from \"a\";\nimport { b } from \"b\";\nconsole.log(a);\n",
+        ),
+    ]);
+    let output = dotfmt(root.path()).arg("a.ts").run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.ts")).unwrap(),
+        "import { a } from \"a\";\nimport \"b\";\nconsole.log(a);\n"
+    );
+}
+
+#[test]
+fn remove_unused_parameters_is_diagnose_only() {
+    let root = tree_pairs(&[
+        (
+            "dotfmt.dotfile",
+            "typescript { fixes = off\n remove_unused_parameters = true\n tailwind = off\n type_aware = false }\n",
+        ),
+        ("a.ts", "export function f(unused: number) { return 1; }\n"),
+    ]);
+    let output = dotfmt(root.path()).arg("a.ts").run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.ts")).unwrap(),
+        "export function f(unused: number) {\n  return 1;\n}\n"
     );
 }

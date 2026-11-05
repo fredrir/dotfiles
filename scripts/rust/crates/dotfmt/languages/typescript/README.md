@@ -33,21 +33,26 @@ let output = dotfmt_typescript::format(
 - `analyze` returns findings and byte-range fixes (`Safe`/`Unsafe`/`Suggestion`)
   for unused imports, locals, parameters, type parameters, class members,
   type-only imports, organize-import edits and unused exports.
-  `Options::project_analysis` adds project-wide unused-export findings;
+  `Options::project_analysis` adds project-wide unused-export findings and
+  unsafe fixes;
   `Options::type_aware` runs `tsc` and adds its errors. Editor diagnostics keep
-  errors only and filter the unused-only codes 6133, 6192, 6196, 6198, 6199 and
-  6205, so dotfmt publishes no lint findings, warnings or hints. Findings stay
+  errors only and filter the unused-only codes 6133, 6138, 6192, 6196, 6198,
+  6199, 6205, 7027 and 7028, so dotfmt publishes no lint findings, warnings or
+  hints. Findings stay
   reachable through `dotfmt --diagnose`, `--fix`, `--fix-unsafe` and LSP code
   actions.
 - `fixes = off|safe|unsafe` in `dotfmt.dotfile` selects format-time fixes;
   `safe` implies `remove_unused_imports`, `convert_type_only_imports` and
-  `organize_imports`, `unsafe` adds `remove_unused_exports`,
-  `remove_unused_locals` and `remove_unused_parameters`. The matching booleans
-  default to `false` and force one category on. Fixes run before the final
+  `organize_imports`, `unsafe` adds `remove_unused_locals`. Export removal is
+  never implied and must be requested explicitly with `remove_unused_exports`;
+  parameter removal is diagnose-only because no safe fix exists. The matching
+  booleans default to `false` and force the implemented categories on. Fixes run before the final
   format, at most 3 passes, and stay idempotent; the defaults delete nothing.
 - `tsconfig.json`/`jsconfig.json` gates: classic JSX factory bindings
   (`React`/`h`), `verbatimModuleSyntax`, `importsNotUsedAsValues`,
-  `preserveValueImports`, decorator metadata, `.d.ts`, `eval`/`new Function`.
+  `preserveValueImports`, decorator metadata, `.d.ts`/`.d.mts`/`.d.cts`,
+  `eval`/`new Function`. Project export fixes also require a complete graph, a
+  private package and an undecorated, comment-free deletion range.
 - `type_aware = true` (default) runs the project's `tsc --noEmit` for type
   errors; unused exports need `project_analysis`.
 - Tests: `cargo test -p dotfmt-typescript`; benchmarks:

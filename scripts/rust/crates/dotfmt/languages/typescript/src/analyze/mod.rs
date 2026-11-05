@@ -26,6 +26,10 @@ pub struct Options {
     pub unsafe_fixes: bool,
     /// Run `tsc` inside the language crate.
     pub type_aware: bool,
+    /// Generate organize-import edits. Format-time callers enable this only
+    /// when the organize category is selected, so individual import fixes are
+    /// not hidden by an organize plan.
+    pub organize: bool,
     /// Include project-wide unused-export findings and fixes.
     pub project_analysis: bool,
     /// TypeScript diagnostics forwarded by the editor, as `(code, start, end)`.
@@ -121,7 +125,7 @@ fn analyze_text(
     analysis.findings.extend(imports.findings);
     locals::analyze(&context, &mut analysis);
     for diagnostic in &context.type_diagnostics {
-        let handled = matches!(diagnostic.code, 6133 | 6192 | 6196 | 6198 | 6199 | 6205)
+        let handled = project::is_unused_diagnostic(diagnostic.code)
             && analysis.findings.iter().any(|finding| {
                 finding.start < diagnostic.end.max(diagnostic.start.saturating_add(1))
                     && finding.end.max(finding.start.saturating_add(1)) > diagnostic.start
@@ -132,18 +136,25 @@ fn analyze_text(
         analysis.findings.push(dotfmt_core::edit::Finding::new(
             format!("tsc-{}", diagnostic.code),
             diagnostic.message.clone(),
-            dotfmt_core::edit::Severity::Error,
+            project::type_diagnostic_severity(diagnostic.code),
             diagnostic.start,
             diagnostic.end,
         ));
     }
+    // A dirty buffer or an in-flight format pass has different coordinates than
+    // the project graph on disk, so project findings wait for a saved file.
     if options.project_analysis
+        && project::buffer_matches_disk(path, text)
         && let Ok(exports) = project::unused_exports_for_analysis(path)
     {
         analysis.extend(exports);
     }
 
-    let organize = organize::plan(&context, &imports.changes);
+    let organize = if options.organize {
+        organize::plan(&context, &imports.changes)
+    } else {
+        organize::OrganizePlan::default()
+    };
     if !organize.edits.is_empty() {
         let finding = imports
             .changes
