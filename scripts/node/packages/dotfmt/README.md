@@ -12,16 +12,42 @@ Formatting, range formatting, on-type formatting, errors, code actions and comma
 - **Format on paste:** pasted text is formatted through the language server and offered as a paste edit; a snippet that does not parse keeps its original text. Paste formatting is format-only and never applies configured fixes.
 - **Binary:** `dotfmt.server.path` replaces the bundled language server. `dotfmt.path` names the CLI used by status and doctor. Workspace values are ignored in untrusted workspaces.
 - **Configuration:** the filename and `dotfmt.dotfile` decide the language and dialect, as in Neovim. Untitled buffers use their VS Code language. The nearest `dotfmt.dotfile` applies, with the user config directory as the final fallback.
-- **Settings:** `dotfmt.dotfile` is the only formatting configuration; VS Code's tab size and indentation settings are ignored. A `line_endings` change also switches the document's line endings.
+- **Settings:** `dotfmt.dotfile` is the base formatting configuration and every option also has a native setting under `dotfmt.format.*`; VS Code's tab size and indentation settings are ignored. A native value overrides `dotfmt.dotfile`, so the editor can change width or quote style without editing a dotfile. A `line_endings` change also switches the document's line endings.
 - **Scope:** the dotfmt settings below are resource-scoped. In a multi-root workspace each folder resolves its own values from the nearest workspace folder, including its own type-aware scope and TypeScript SDK.
-- **Status:** the `{}` language status shows the resolved language, dialect and config, or why a file is skipped (`unmapped`, `excluded`, `disabled`). Its tooltip shows the extension version, server name and version, CLI path, tsc state, the resolved compiler when the server reports it, and the configuration chain. It turns red on errors.
+- **Status:** the dotfmt language status item shows the resolved language, dialect and config, or why a file is skipped (`unmapped`, `excluded`, `disabled`). Its tooltip shows the extension version, server name and version, CLI path, tsc state, the resolved compiler when the server reports it, and the configuration chain. It turns red on errors.
 - **Dotfile language:** `*.dotfile` gets highlighting, `#` comments, bracket matching and indentation.
+
+## Native VS Code settings
+
+Every dotfmt option is available in Settings. Run **dotfmt: Configure** (or search `@ext:fredrir.dotfmt dotfmt.format`) to see the generated flat keys:
+
+- `dotfmt.format.global.<option>`: global options such as `width`, `indent`, `final_newline`, `repair` and `quote_style`.
+- `dotfmt.format.<language>.<option>`: language options such as `dotfmt.format.typescript.quote_style` and `dotfmt.format.json.indent`.
+- `dotfmt.format.<language>.enabled`, `.include` and `.exclude`.
+- `dotfmt.format.included_files` and `dotfmt.format.excluded_files`.
+- `dotfmt.formatExtra`: a free-form object using the `dotfmt.dotfile` shape for anything not listed above.
+
+Precedence, lowest to highest: engine defaults → global `dotfmt.dotfile` → ancestor/nearest `dotfmt.dotfile` → `dotfmt.formatExtra` → `dotfmt.format.*`. Inside the native layers `dotfmt.format.*` wins over `dotfmt.formatExtra` for the same key. Generated settings have no VS Code default, so leaving a key unset inherits from `dotfmt.dotfile`; `null` inherits too.
+
+```json
+{
+  "dotfmt.format.global.width": 100,
+  "dotfmt.format.typescript.quote_style": "single",
+  "dotfmt.format.json.indent": 2,
+  "dotfmt.format.included_files": ["src/**"],
+  "dotfmt.formatExtra": {
+    "typescript": { "remove_unused_exports": true }
+  }
+}
+```
+
+An invalid native value is logged in the dotfmt output channel and ignored rather than breaking formatting.
 
 ## Diagnostics: errors only
 
 The editor receives exactly two classes of diagnostics:
 
-1. Fatal syntax and configuration errors: the formatter cannot parse the buffer or resolve its configuration. Disable with `dotfmt.diagnostics.syntax = false`.
+1. Fatal syntax and configuration errors: the formatter cannot parse the buffer or resolve its configuration. Disable with `dotfmt.diagnostics.syntax = false`; this stops syntax and configuration diagnostics only.
 2. TypeScript compiler errors, when `dotfmt.typeAware` is on (the default). Disable per resource with `dotfmt.typeAware = false`.
 
 There are **no lint diagnostics**. dotfmt never publishes `unused-import`, `type-only-import`, `unused-export`, `unused-variable`, `unused-parameter`, `unused-type-parameter` or `unused-class-member` findings, and it never uses `DiagnosticSeverity.Hint`, Information or Warning. Unused-code removal is a formatting/fix action that you opt into, not an editor warning.
@@ -70,14 +96,16 @@ The implemented import and local-variable categories are available interactively
 | Setting                         | Type                                  | Default  | Scope               | Purpose                                                                                |
 | ------------------------------- | ------------------------------------- | -------- | ------------------- | -------------------------------------------------------------------------------------- |
 | `dotfmt.typeAware`              | boolean                               | `true`   | resource            | Run tsc for errors only; never lint findings                                           |
-| `dotfmt.diagnostics.syntax`     | boolean                               | `true`   | resource            | Publish fatal syntax and configuration errors; `false` silences all dotfmt diagnostics |
+| `dotfmt.diagnostics.syntax`     | boolean                               | `true`   | resource            | Publish fatal syntax and configuration errors; `false` stops syntax/config diagnostics only (tsc errors remain) |
 | `dotfmt.diagnostics.tscScope`   | `"open"` \| `"project"`              | `"open"` | resource            | Publish tsc errors for open documents or the whole project                             |
 | `dotfmt.diagnostics.debounceMs` | number, 50..2000                      | `250`    | resource            | Delay before tsc checks rerun after an edit                                            |
 | `dotfmt.typescript.tsdk`        | string                                | `""`     | resource            | TypeScript package dir, `lib` dir or `tsc.js`; empty auto-discovers                 |
 | `dotfmt.fixes.onSave`           | `"off"` \| `"safe"` \| `"unsafe"`     | `"off"`  | resource            | Apply configured fixes through `willSaveWaitUntil` and full-document formatting        |
+| `dotfmt.format.*`               | generated                             | unset    | resource            | Native overlay for every formatting option; unset inherits `dotfmt.dotfile`             |
+| `dotfmt.formatExtra`            | object                                | `{}`     | resource            | Free-form overlay for advanced options; lower precedence than `dotfmt.format.*`         |
 | `dotfmt.path`                   | string                                | `""`     | machine-overridable | CLI binary used by status and doctor; empty uses the bundled one                       |
 | `dotfmt.server.path`            | string                                | `""`     | machine-overridable | Language server binary; empty uses the bundled one                                     |
-| `dotfmt.trace.server`           | `"off"` \| `"messages"` \| `"verbose"` | `"off"`  | window              | Route LSP tracing to the dedicated **dotfmt trace** output channel                      |
+| `dotfmt.trace.server`           | `"off"` \| `"messages"` \| `"verbose"` | `"off"`  | window              | Route LSP tracing to the **dotfmt trace** output channel; set that channel's log level to Trace |
 
 ```json
 {
@@ -102,7 +130,8 @@ The implemented import and local-variable categories are available interactively
 | `dotfmt.showOutput`            | Show the dotfmt output channel                                                         |
 | `dotfmt.showStatus`            | Show the active file's resolved language, configuration, tsc state and server version   |
 | `dotfmt.setAsDefaultFormatter` | Set dotfmt as the default formatter for its languages                                  |
-| `dotfmt.openConfig`            | Open or create the nearest `dotfmt.dotfile`; without a folder, use the global fallback |
+| `dotfmt.configure`             | Open Settings filtered to every native `dotfmt.format.*` option                         |
+| `dotfmt.openConfig`            | Open or create the nearest `dotfmt.dotfile`; without a local one, open an existing global file before prompting |
 | `dotfmt.doctor`                | Print the server report, paths, versions, trust, settings, tsc state and config chain; copy summary |
 
 **dotfmt: Doctor** calls the server's `dotfmt/doctor` request and reports the server name and version, trust, type-aware and syntax settings, tsc scope, workspace roots, and every resolved project's `tsconfig`, compiler, version and state. The extension adds its own version, server and CLI paths, workspace folders, settings and the configuration chain from `dotfmt/explain`. If an older server does not implement the request, doctor falls back to the client-known summary.

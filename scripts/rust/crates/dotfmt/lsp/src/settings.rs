@@ -8,10 +8,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
+use dotfmt_core::config::ConfigOverlay;
 use lsp_types::Uri;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::uri;
 use crate::workspace::normalize;
@@ -87,6 +88,10 @@ pub struct Settings {
     pub fixes_on_save: FixesOnSave,
     /// Explicit TypeScript SDK: a package directory, its `lib` directory, or `tsc.js`.
     pub tsdk: Option<PathBuf>,
+    /// Native `dotfmt.format` overlay, normalized to the nested dotfmt.dotfile shape.
+    pub format: Option<Value>,
+    /// Free-form `dotfmt.formatExtra`; lower precedence than [`Settings::format`].
+    pub format_extra: Option<Value>,
 }
 
 impl Default for Settings {
@@ -98,6 +103,8 @@ impl Default for Settings {
             debounce_ms: DEBOUNCE_DEFAULT_MS,
             fixes_on_save: FixesOnSave::Off,
             tsdk: None,
+            format: None,
+            format_extra: None,
         }
     }
 }
@@ -141,6 +148,53 @@ impl Settings {
         if let Some(tsdk) = tsdk {
             self.tsdk = (!tsdk.is_empty()).then(|| expand_home(tsdk));
         }
+        self.apply_overlays(value);
+    }
+
+    /// Reads `format`/`formatExtra` and folds flat `format.*` keys into the
+    /// nested object. `null` clears an overlay so the setting inherits again.
+    fn apply_overlays(&mut self, value: &Value) {
+        if let Some(format) = overlay_setting(value, "format") {
+            self.format = match format {
+                Value::Null => None,
+                other => Some(other.clone()),
+            };
+        }
+        if let Some(extra) =
+            overlay_setting(value, "formatExtra").or_else(|| overlay_setting(value, "format_extra"))
+        {
+            self.format_extra = match extra {
+                Value::Null => None,
+                other => Some(other.clone()),
+            };
+        }
+        let Some(object) = value.as_object() else {
+            return;
+        };
+        let mut flat: Vec<(&str, Option<&Value>)> = Vec::new();
+        for (key, item) in object {
+            let path = key
+                .strip_prefix("format.")
+                .or_else(|| key.strip_prefix("dotfmt.format."));
+            if let Some(path) = path.filter(|path| !path.is_empty()) {
+                flat.push((path, (!item.is_null()).then_some(item)));
+            }
+        }
+        if flat.is_empty() {
+            return;
+        }
+        let mut root = match self.format.take() {
+            Some(Value::Object(object)) => object,
+            _ => Map::new(),
+        };
+        for (path, item) in flat {
+            let parts: Vec<&str> = path.split('.').filter(|part| !part.is_empty()).collect();
+            match item {
+                Some(item) => set_path(&mut root, &parts, item.clone()),
+                None => remove_path(&mut root, &parts),
+            }
+        }
+        self.format = Some(Value::Object(root));
     }
 
     /// A fresh configuration from a pull response or an initialization option.
@@ -166,6 +220,8 @@ pub struct SettingsStore {
     trusted: AtomicBool,
     default: RwLock<Settings>,
     folders: Mutex<HashMap<PathBuf, Settings>>,
+    default_overlay: RwLock<Option<Arc<ConfigOverlay>>>,
+    folder_overlays: Mutex<HashMap<PathBuf, Arc<ConfigOverlay>>>,
 }
 
 impl SettingsStore {
@@ -174,6 +230,8 @@ impl SettingsStore {
             trusted: AtomicBool::new(trusted),
             default: RwLock::new(default),
             folders: Mutex::new(HashMap::new()),
+            default_overlay: RwLock::new(None),
+            folder_overlays: Mutex::new(HashMap::new()),
         }
     }
 
@@ -244,6 +302,70 @@ impl SettingsStore {
             .contains_key(&root)
     }
 
+    /// Replaces the validated `dotfmt.format` overlay used outside a folder.
+    pub fn set_default_overlay(&self, overlay: Option<Arc<ConfigOverlay>>) {
+        *self
+            .default_overlay
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = overlay;
+    }
+
+    /// Replaces one folder's validated overlay; the default still applies elsewhere.
+    pub fn set_folder_overlay(&self, root: PathBuf, overlay: Arc<ConfigOverlay>) {
+        let root = normalize(&root);
+        self.folder_overlays
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(root, overlay);
+    }
+
+    /// Drops one folder overlay so the folder inherits the default overlay again.
+    pub fn remove_folder_overlay(&self, root: &Path) {
+        let root = normalize(root);
+        self.folder_overlays
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&root);
+    }
+
+    /// The native overlay for `path`: the nearest folder's, or the default.
+    pub fn overlay_for(&self, path: &Path) -> Option<Arc<ConfigOverlay>> {
+        let path = normalize(path);
+        let root = {
+            let folders = self
+                .folder_overlays
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            folders
+                .keys()
+                .filter(|root| path.starts_with(root))
+                .max_by_key(|root| root.components().count())
+                .cloned()
+        };
+        match root {
+            Some(root) => self.overlay_for_root(&root),
+            None => self.default_overlay(),
+        }
+    }
+
+    /// The overlay for an exact workspace root, falling back to the default.
+    pub fn overlay_for_root(&self, root: &Path) -> Option<Arc<ConfigOverlay>> {
+        let root = normalize(root);
+        self.folder_overlays
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&root)
+            .map(Arc::clone)
+            .or_else(|| self.default_overlay())
+    }
+
+    fn default_overlay(&self) -> Option<Arc<ConfigOverlay>> {
+        self.default_overlay
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
     pub fn set_folder(&self, root: PathBuf, settings: Settings) {
         let root = normalize(&root);
         self.folders
@@ -258,6 +380,7 @@ impl SettingsStore {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .remove(&root);
+        self.remove_folder_overlay(&root);
     }
 
     /// Replaces the default from a full pull response; returns whether it changed.
@@ -270,6 +393,10 @@ impl SettingsStore {
             .write()
             .unwrap_or_else(|error| error.into_inner());
         let before = default.clone();
+        // A full pull omits unset generated settings; absent must clear the
+        // overlay so removing a VS Code setting stops overriding dotfmt.dotfile.
+        default.format = None;
+        default.format_extra = None;
         default.apply(value);
         *default != before
     }
@@ -292,6 +419,10 @@ impl SettingsStore {
         }
         let root = normalize(root);
         let mut settings = self.settings_for_root(&root);
+        // A folder pull is fully resolved: its own native overlay replaces the
+        // old one, and an absent `format` falls back to the default overlay.
+        settings.format = None;
+        settings.format_extra = None;
         settings.apply(value);
         let mut folders = self
             .folders
@@ -300,6 +431,45 @@ impl SettingsStore {
         let changed = folders.get(&root) != Some(&settings);
         folders.insert(root, settings);
         changed
+    }
+}
+
+fn overlay_setting<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {
+    value
+        .get(name)
+        .or_else(|| value.get(format!("dotfmt.{name}").as_str()))
+}
+
+fn set_path(root: &mut Map<String, Value>, parts: &[&str], value: Value) {
+    let Some((last, parents)) = parts.split_last() else {
+        return;
+    };
+    let mut current = root;
+    for part in parents {
+        let entry = current
+            .entry((*part).to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !entry.is_object() {
+            *entry = Value::Object(Map::new());
+        }
+        current = entry.as_object_mut().expect("object entry");
+    }
+    current.insert((*last).to_string(), value);
+}
+
+fn remove_path(root: &mut Map<String, Value>, parts: &[&str]) {
+    let Some((last, parents)) = parts.split_last() else {
+        return;
+    };
+    if parents.is_empty() {
+        root.remove(*last);
+        return;
+    }
+    if let Some(Value::Object(child)) = root.get_mut(parents[0]) {
+        remove_path(child, &parts[1..]);
+        if child.is_empty() {
+            root.remove(parents[0]);
+        }
     }
 }
 
@@ -337,6 +507,8 @@ mod tests {
         assert_eq!(settings.debounce_ms, DEBOUNCE_DEFAULT_MS);
         assert_eq!(settings.fixes_on_save, FixesOnSave::Off);
         assert_eq!(settings.tsdk, None);
+        assert_eq!(settings.format, None);
+        assert_eq!(settings.format_extra, None);
     }
 
     #[test]
@@ -424,6 +596,135 @@ mod tests {
         let mut settings = Settings::default();
         settings.apply(&json!({ "dotfmt": { "trusted": true } }));
         assert_eq!(settings, Settings::default());
+    }
+
+    #[test]
+    fn reads_nested_and_flat_format_objects() {
+        let mut settings = Settings::default();
+        settings.apply(&json!({
+            "dotfmt": {
+                "format": {
+                    "global": { "width": 100 },
+                    "typescript": { "quote_style": "single" }
+                },
+                "format.typescript.quote_style": "double",
+                "format.json.indent": 4
+            }
+        }));
+        assert_eq!(
+            settings.format,
+            Some(json!({
+                "global": { "width": 100 },
+                "typescript": { "quote_style": "double" },
+                "json": { "indent": 4 }
+            }))
+        );
+        settings.apply(&json!({ "dotfmt.format.global.width": 120 }));
+        assert_eq!(
+            settings.format,
+            Some(json!({
+                "global": { "width": 120 },
+                "typescript": { "quote_style": "double" },
+                "json": { "indent": 4 }
+            }))
+        );
+        settings.apply(&json!({ "dotfmt.format.global.width": null }));
+        assert_eq!(
+            settings.format,
+            Some(json!({
+                "typescript": { "quote_style": "double" },
+                "json": { "indent": 4 }
+            }))
+        );
+        settings.apply(&json!({ "dotfmt.format": null }));
+        assert_eq!(settings.format, None);
+    }
+
+    #[test]
+    fn reads_format_extra_and_ignores_null() {
+        let mut settings = Settings::default();
+        settings.apply(&json!({
+            "dotfmt": { "formatExtra": { "global": { "repair": false } } }
+        }));
+        assert_eq!(
+            settings.format_extra,
+            Some(json!({ "global": { "repair": false } }))
+        );
+        settings.apply(&json!({ "dotfmt.formatExtra": null }));
+        assert_eq!(settings.format_extra, None);
+        settings.apply(&json!({ "dotfmt": { "format_extra": { "json": { "indent": 2 } } } }));
+        assert_eq!(
+            settings.format_extra,
+            Some(json!({ "json": { "indent": 2 } }))
+        );
+    }
+
+    #[test]
+    fn overlays_fall_back_to_the_default_and_follow_the_nearest_folder() {
+        let store = SettingsStore::new(false, Settings::default());
+        let default = Arc::new(ConfigOverlay::from_json(&json!({}), Path::new("/")).unwrap());
+        store.set_default_overlay(Some(Arc::clone(&default)));
+        assert!(Arc::ptr_eq(
+            &store.overlay_for(Path::new("/elsewhere/a.ts")).unwrap(),
+            &default
+        ));
+        let outer = Arc::new(
+            ConfigOverlay::from_json(&json!({ "global": { "width": 100 } }), Path::new("/work"))
+                .unwrap(),
+        );
+        let inner = Arc::new(
+            ConfigOverlay::from_json(
+                &json!({ "global": { "width": 120 } }),
+                Path::new("/work/project"),
+            )
+            .unwrap(),
+        );
+        store.set_folder_overlay(PathBuf::from("/work"), Arc::clone(&outer));
+        store.set_folder_overlay(PathBuf::from("/work/project"), Arc::clone(&inner));
+        assert!(Arc::ptr_eq(
+            &store.overlay_for(Path::new("/work/a.ts")).unwrap(),
+            &outer
+        ));
+        assert!(Arc::ptr_eq(
+            &store
+                .overlay_for(Path::new("/work/project/src/a.ts"))
+                .unwrap(),
+            &inner
+        ));
+        assert!(Arc::ptr_eq(
+            &store.overlay_for_root(Path::new("/work/project")).unwrap(),
+            &inner
+        ));
+        store.remove_folder_overlay(Path::new("/work/project"));
+        assert!(Arc::ptr_eq(
+            &store
+                .overlay_for(Path::new("/work/project/src/a.ts"))
+                .unwrap(),
+            &outer
+        ));
+        store.remove_folder(Path::new("/work"));
+        assert!(Arc::ptr_eq(
+            &store.overlay_for(Path::new("/work/a.ts")).unwrap(),
+            &default
+        ));
+    }
+
+    #[test]
+    fn removing_a_native_overlay_from_a_full_pull_clears_it() {
+        let store = SettingsStore::new(false, Settings::default());
+        assert!(store.configure_default(&json!({
+            "dotfmt.format.global.width": 100
+        })));
+        assert!(store.default_settings().format.is_some());
+        assert!(store.configure_default(&json!({})));
+        assert_eq!(store.default_settings().format, None);
+
+        store.set_folder(
+            PathBuf::from("/work"),
+            Settings::from_value(&json!({ "dotfmt.format.global.width": 80 })),
+        );
+        assert!(store.configure_folder(Path::new("/work"), &json!({})));
+        assert_eq!(store.settings_for_root(Path::new("/work")).format, None);
     }
 
     #[test]

@@ -68,7 +68,7 @@ export function activate(context: vscode.ExtensionContext): void {
       );
     }),
   );
-  registerCommands(context, client, log);
+  registerCommands(context, client, log, status);
 
   log.info(`extension: ${context.extension.id} ${version}`);
   log.info(`CLI: ${tildify(cli)}`);

@@ -53,6 +53,7 @@
     "onLanguage:less",
     "onLanguage:lua",
     "onLanguage:markdown",
+    "onLanguage:plaintext",
     "onLanguage:prompt",
     "onLanguage:properties",
     "onLanguage:sass",
@@ -64,6 +65,7 @@
     "onLanguage:typescript",
     "onLanguage:typescriptreact",
     "onLanguage:vue",
+    "onLanguage:xml",
     "onLanguage:yaml"
   ],
   "capabilities": {
@@ -139,6 +141,11 @@
         "category": "dotfmt"
       },
       {
+        "command": "dotfmt.configure",
+        "title": "Configure",
+        "category": "dotfmt"
+      },
+      {
         "command": "dotfmt.openConfig",
         "title": "Open Configuration",
         "category": "dotfmt"
@@ -162,7 +169,7 @@
           "type": "boolean",
           "default": true,
           "scope": "resource",
-          "markdownDescription": "Publish fatal syntax and configuration errors. Set to `false` to silence all dotfmt diagnostics for this resource."
+          "markdownDescription": "Publish fatal syntax and configuration errors. Set to `false` to stop syntax and configuration diagnostics for this resource; TypeScript compiler errors still follow `dotfmt.typeAware`."
         },
         "dotfmt.diagnostics.tscScope": {
           "type": "string",
@@ -208,6 +215,12 @@
           "scope": "resource",
           "markdownDescription": "Apply configured fixes during `textDocument/willSaveWaitUntil` and full-document formatting. Range formatting, on-type formatting, paste and formatting-only code action requests never apply fixes. `unsafe` adds unused-local removal; it never removes unused exports unless `remove_unused_exports` is set explicitly in `dotfmt.dotfile`, and export removal requires a trusted workspace. `remove_unused_parameters` is diagnose-only."
         },
+        "dotfmt.formatExtra": {
+          "type": "object",
+          "default": {},
+          "scope": "resource",
+          "markdownDescription": "Free-form dotfmt configuration overlay for options not listed under `dotfmt.format.*` or advanced combinations. It uses the `dotfmt.dotfile` object shape (`global`, language blocks, `included_files`, `excluded_files`) and has lower precedence than `dotfmt.format.*`; a key set in both uses the `dotfmt.format.*` value. `null` or absent inherits from `dotfmt.dotfile`."
+        },
         "dotfmt.path": {
           "type": "string",
           "default": "",
@@ -229,7 +242,2367 @@
           ],
           "default": "off",
           "scope": "window",
-          "description": "Trace LSP communication with the dotfmt language server in the dotfmt trace output channel"
+          "description": "Trace LSP communication with the dotfmt language server in the dotfmt trace output channel; set that channel's log level to Trace to see the messages"
+        },
+        "dotfmt.format.global.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Line width used where a language wraps: BibTeX and LaTeX prose, Lua lines, Markdown tables, YAML flow collections, TOML arrays and inline tables, and TypeScript, CSS and HTML output. Accepted and ignored by env, ignore, ini and plist; CSS, HTML and TypeScript cap it at 320.\n\nDefault: each language's own value — 80 everywhere except Lua, which uses 120. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.global.indent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level. Most languages accept 1 to 16, CSS, HTML and TypeScript accept 0 to 24, and the JSON block also takes `-1` for tabs or `0` for compact JSON. Env, ignore and markdown ignore it.\n\nDefault: each language's own value — 2 spaces, except ini, which keeps its dialect's indentation. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.global.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of every file.\n\nDefault: each language's own value — `true` for JSON, TOML, YAML, plist, env, ini, CSS, HTML and TypeScript, and `false` for Bib, conf, ignore, LaTeX, Lua and Markdown. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.global.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input before formatting instead of reporting a syntax error. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.global.quote_style": {
+          "type": "string",
+          "enum": [
+            "double",
+            "single",
+            "auto",
+            "auto-prefer-double",
+            "auto-prefer-single"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Quote character preference for the languages that rewrite quoting: Lua and YAML strings, plus TypeScript, CSS and HTML. JSON always emits double quotes, and bib, conf, env, ignore, ini, LaTeX, Markdown, plist and TOML preserve the source quoting.\n\nDefault: each language's own preference — `double` for TypeScript, CSS and HTML, and `auto-prefer-double` for Lua and YAML. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.included_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns that restrict which files are eligible, one pattern per entry. A nonempty list allows only matching files; an empty list allows every supported filename mapping. A language's `include` adds custom mappings instead of filtering.\n\nDefault: no restriction. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.excluded_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns removed from formatting, one pattern per entry, after `included_files` is applied.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Wrap long field values at this width.\n\nDefault: `80`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.indent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level for wrapped values.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.indent_type": {
+          "type": "string",
+          "enum": [
+            "spaces",
+            "tabs"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Indentation character: `indent` spaces or a single tab.\n\nDefault: `spaces`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "windows"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.blank_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "scope": "resource",
+          "markdownDescription": "Maximum consecutive blank lines kept between entries.\n\nDefault: `1`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.align": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Align `=` across the fields of an entry. Field names wider than `align_max` fall back to one space.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.align_max": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "scope": "resource",
+          "markdownDescription": "Widest field name that alignment pads; `0` removes the cap.\n\nDefault: `24`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.trailing_comma": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a comma after an entry's last field. `@string` definitions never get one.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.wrap": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Break values wider than `width` at existing spaces. Values are never rewritten, only wrapped.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.wrap_min": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Only wrap a value when its first line is longer than this.\n\nDefault: computed as `width - 10`, at least 1. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.field_name_case": {
+          "type": "string",
+          "enum": [
+            "preserve",
+            "lower",
+            "lowercase",
+            "upper",
+            "uppercase"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Case for field names and `@string` definition names; macro uses keep their spelling.\n\nDefault: `lower`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.bib.entry_type_case": {
+          "type": "string",
+          "enum": [
+            "preserve",
+            "lower",
+            "lowercase",
+            "upper",
+            "uppercase"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Case for entry types such as `@article`.\n\nDefault: `lower`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.conf.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.conf.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.conf.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.conf.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.conf.indent": {
+          "type": "integer",
+          "minimum": 0,
+          "scope": "resource",
+          "markdownDescription": "Spaces per block indentation level.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.conf.align": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Align keys, values and trailing comments within contiguous blocks.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.conf.align_max": {
+          "type": "integer",
+          "minimum": 0,
+          "scope": "resource",
+          "markdownDescription": "Widest key column that alignment pads; longer keys fall back to one space.\n\nDefault: `24`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.conf.blank_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "scope": "resource",
+          "markdownDescription": "Maximum consecutive blank lines kept between blocks.\n\nDefault: `1`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.conf.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "css",
+            "scss",
+            "sass",
+            "less"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Stylesheet syntax; `auto` reads the extension, and `pcss` is accepted as an alias for `css`.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.indent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 24,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.indent_type": {
+          "type": "string",
+          "enum": [
+            "spaces",
+            "tabs"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Indentation character: `indent` spaces or a single tab.\n\nDefault: `spaces`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 320,
+          "scope": "resource",
+          "markdownDescription": "Target line width for declarations and selectors.\n\nDefault: `80`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "lf",
+            "windows",
+            "crlf"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document.\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.hex_case": {
+          "type": "string",
+          "enum": [
+            "ignore",
+            "lower",
+            "upper"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Case for hex colors.\n\nDefault: `lower`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.quotes": {
+          "type": "string",
+          "enum": [
+            "double",
+            "always-double",
+            "single",
+            "always-single",
+            "prefer-double",
+            "prefer-single",
+            "preserve",
+            "auto"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Quotation style for strings and `url()` values; `preserve`/`auto` keep the source style, and `prefer-*` keep it unless the other quote needs fewer escapes.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.quote_style": {
+          "type": "string",
+          "enum": [
+            "double",
+            "always-double",
+            "single",
+            "always-single",
+            "prefer-double",
+            "prefer-single",
+            "preserve",
+            "auto"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Alias of `quotes`, so the shared `quote_style` setting applies to CSS.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.format_comments": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Rewrite comment text, not only its placement.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.align_comments": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Align trailing comments within a group of declarations.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.single_line_block_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Put a declaration block on one line when its content fits in this many characters.\n\nDefault: unset — blocks always expand. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.operator_linebreak": {
+          "type": "string",
+          "enum": [
+            "before",
+            "after"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Break before or after an operator when a value wraps.\n\nDefault: `after`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.block_selector_linebreak": {
+          "type": "string",
+          "enum": [
+            "always",
+            "consistent",
+            "wrap"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Where `{` goes when a selector list does not fit: break before it always, follow what the first selector does, or break only when needed.\n\nDefault: `consistent`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.omit_number_leading_zero": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write `.5` instead of `0.5`.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.keyframe_selector_notation": {
+          "type": "string",
+          "enum": [
+            "none",
+            "keyword",
+            "percentage"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Rewrite keyframe selectors as `from`/`to` (`keyword`) or percentages; `none` preserves them.\n\nDefault: unset — the source notation is preserved. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.prefer_single_line": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Prefer keeping short constructs on one line.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.declaration_order": {
+          "type": "string",
+          "enum": [
+            "none",
+            "alphabetical"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Sort declarations inside each block; `none` keeps the source order.\n\nDefault: unset — declarations keep their source order. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.tailwind": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "auto"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Tailwind class sorting: `auto` engages only when the file or project uses Tailwind. `true` and `false` are accepted aliases for `on` and `off`.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.tailwind_order": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "project",
+            "rust"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Where the class order comes from: the project's own Tailwind, the Rust pattern sorter, or `auto` (project when available, Rust otherwise).\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.tailwind_dedupe": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Remove duplicate classes from a class list.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.tailwind_merge": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Collapse conflicting utilities with `tailwind-merge`. Off by default because merging can change rendering.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.tailwind_stylesheet": {
+          "type": "string",
+          "scope": "resource",
+          "markdownDescription": "Stylesheet that declares the Tailwind theme used for ordering.\n\nDefault: unset — the project's stylesheet is discovered. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.css.tailwind_config": {
+          "type": "string",
+          "scope": "resource",
+          "markdownDescription": "Tailwind config file used for ordering.\n\nDefault: unset — the project's Tailwind config is discovered. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.indent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "scope": "resource",
+          "markdownDescription": "Accepted from the shared block and unused: dotenv has no nesting.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Accepted from the shared block and unused: dotenv values are never wrapped.\n\nDefault: `80`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "windows"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.blank_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "scope": "resource",
+          "markdownDescription": "Maximum consecutive blank lines kept between items.\n\nDefault: `1`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.align": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write `key = value` and align `=` within contiguous entry groups. Off by default because not every shell or container env-file reader accepts spaces around `=`.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.align_max": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "scope": "resource",
+          "markdownDescription": "Widest entry prefix that alignment pads; longer keys fall back to one space.\n\nDefault: `24`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.format_comments": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Insert a space after `#` in comments where one is missing.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.env.trim_trailing_whitespace": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Trim whitespace that trails an item outside a quoted value; backslash-escaped whitespace is value content and stays.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "html",
+            "vue",
+            "svelte",
+            "astro",
+            "angular",
+            "xml"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Markup flavor; `auto` reads the extension. Aliases `htm` and `svg` are accepted.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.indent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 24,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.indent_type": {
+          "type": "string",
+          "enum": [
+            "spaces",
+            "tabs"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Indentation character: `indent` spaces or a single tab.\n\nDefault: `spaces`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 320,
+          "scope": "resource",
+          "markdownDescription": "Target line width for tags and attributes.\n\nDefault: `80`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "lf",
+            "windows",
+            "crlf"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document.\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.quotes": {
+          "type": "string",
+          "enum": [
+            "double",
+            "single"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Quote character for attribute values.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.quote_style": {
+          "type": "string",
+          "enum": [
+            "double",
+            "single"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Alias of `quotes`, so the shared `quote_style` setting applies to markup.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.format_comments": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Rewrite comment text, not only its placement.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.closing_bracket_same_line": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Put the closing `>` of a multi-line opening tag on the last attribute's line.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.closing_tag_line_break_for_empty": {
+          "type": "string",
+          "enum": [
+            "always",
+            "fit",
+            "never"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Put an empty element's closing tag on its own line always, only when it does not fit, or never.\n\nDefault: `fit`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.max_attrs_per_line": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "scope": "resource",
+          "markdownDescription": "Write at most this many attributes on one line.\n\nDefault: unset — tags wrap only past `width`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.prefer_attrs_single_line": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Keep all attributes on one line when they fit.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.single_attr_same_line": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Keep a single attribute on the same line as the tag name.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.script_indent": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Indent `<script>` contents with the surrounding markup.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.style_indent": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Indent `<style>` contents with the surrounding markup.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.tailwind": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "auto"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Tailwind class sorting: `auto` engages only when the file or project uses Tailwind. `true` and `false` are accepted aliases for `on` and `off`.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.tailwind_order": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "project",
+            "rust"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Where the class order comes from: the project's own Tailwind, the Rust pattern sorter, or `auto` (project when available, Rust otherwise).\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.tailwind_attributes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Attributes whose values hold class lists. Arrays are joined with commas.\n\nDefault: `class` and `className`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.tailwind_dedupe": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Remove duplicate classes from a class list.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.tailwind_merge": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Collapse conflicting utilities with `tailwind-merge`. Off by default because merging can change rendering.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.tailwind_stylesheet": {
+          "type": "string",
+          "scope": "resource",
+          "markdownDescription": "Stylesheet that declares the Tailwind theme used for ordering.\n\nDefault: unset — the project's stylesheet is discovered. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.html.tailwind_config": {
+          "type": "string",
+          "scope": "resource",
+          "markdownDescription": "Tailwind config file used for ordering.\n\nDefault: unset — the project's Tailwind config is discovered. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "git",
+            "ignore",
+            "prettier",
+            "vscode",
+            "attributes"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Ignore-file syntax; `auto` detects it from the filename and path. Aliases `gitignore`, `ripgrep`, `prettierignore`, `vscodeignore` and `gitattributes` are accepted.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "windows"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.blank_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "scope": "resource",
+          "markdownDescription": "Maximum consecutive blank lines kept inside the file.\n\nDefault: `1`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.trim_trailing_whitespace": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Trim trailing whitespace that the dialect does not consider part of a pattern.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.trim_leading_whitespace": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Drop leading whitespace from `.gitattributes` lines; other dialects treat leading whitespace as pattern data.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.format_comments": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Insert a space after `#` on comment lines where that is safe.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.align": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Align the `.gitattributes` attribute column; other dialects leave their patterns alone.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ignore.align_max": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "scope": "resource",
+          "markdownDescription": "Widest pattern that alignment pads; `0` means no cap, and longer patterns fall back to one space.\n\nDefault: `24`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "generic",
+            "git",
+            "editorconfig",
+            "systemd",
+            "ssh"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Ini syntax; `auto` detects it from the filename and path. Aliases `ini`, `conf`, `gitconfig`, `editor-config`, `unit` and `ssh-config` are accepted.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.indent": {
+          "type": "integer",
+          "minimum": 0,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level.\n\nDefault: the dialect's own indentation. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.indent_type": {
+          "type": "string",
+          "enum": [
+            "spaces",
+            "tabs"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Indentation character at the start of a line.\n\nDefault: `spaces`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "windows"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.blank_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "scope": "resource",
+          "markdownDescription": "Maximum consecutive blank lines kept between sections.\n\nDefault: `1`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.align": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Align `=` within contiguous entry groups; systemd units keep their single spacing.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.align_max": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "scope": "resource",
+          "markdownDescription": "Widest entry prefix that alignment pads; wider groups fall back to one space.\n\nDefault: `24`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.ini.format_comments": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Insert a space after `#` in full-line comments where one is missing.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.json.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.json.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.json.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.json.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.json.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "json",
+            "jsonc",
+            "hujson",
+            "jsonl"
+          ],
+          "scope": "resource",
+          "markdownDescription": "JSON syntax; `auto` lets comments decide between JSON and JSONC and the extension pick JSONL. Aliases `json-with-comments`, `jwcc`, `ndjson` and `jsonlines` are accepted.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.json.indent": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 7,
+          "scope": "resource",
+          "markdownDescription": "`-1` indents with tabs, `0` emits compact JSON like `jq -c`, and `1` to `7` indent with that many spaces. JSONL ignores it and writes one compact record per line.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.json.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.json.quote_style": {
+          "type": "string",
+          "enum": [
+            "double"
+          ],
+          "scope": "resource",
+          "markdownDescription": "JSON always emits double quotes, so only `double` is accepted.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "ts",
+            "tsx",
+            "js",
+            "jsx"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Source dialect; `auto` reads the extension. Aliases `typescript` and `javascript` are accepted.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.indent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 24,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.indent_type": {
+          "type": "string",
+          "enum": [
+            "spaces",
+            "tabs"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Indentation character: `indent` spaces or a single tab.\n\nDefault: `spaces`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 320,
+          "scope": "resource",
+          "markdownDescription": "Target line width.\n\nDefault: `80`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "lf",
+            "windows",
+            "crlf"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document.\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.quote_style": {
+          "type": "string",
+          "enum": [
+            "double",
+            "single"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Quote character for string literals.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.jsx_quote_style": {
+          "type": "string",
+          "enum": [
+            "double",
+            "single"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Quote character for JSX attribute values.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.quote_properties": {
+          "type": "string",
+          "enum": [
+            "as-needed",
+            "as_needed",
+            "preserve",
+            "consistent"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Object key quotes: only when needed, preserved from the source, or one style consistently.\n\nDefault: `as-needed`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.semicolons": {
+          "type": "string",
+          "enum": [
+            "always",
+            "as-needed",
+            "as_needed"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Write statement-terminating semicolons.\n\nDefault: `always`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.trailing_commas": {
+          "type": "string",
+          "enum": [
+            "all",
+            "es5",
+            "none"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Where to write trailing commas in multi-line lists.\n\nDefault: `all`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.arrow_parentheses": {
+          "type": "string",
+          "enum": [
+            "always",
+            "as-needed",
+            "as_needed"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Parenthesize single-parameter arrow functions.\n\nDefault: `always`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.bracket_spacing": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write spaces inside `{ }`.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.bracket_same_line": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Put the closing `>` of a multi-line JSX tag on the last attribute's line.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.attribute_position": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "multiline"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Attribute wrapping for JSX elements: `multiline` breaks every attribute once the tag breaks.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.expand": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "preserve",
+            "never",
+            "collapse"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Object literals: `auto`/`preserve` keep an object multi-line when the source wrote a newline after `{`, and `never`/`collapse` also collapse it onto one line when it fits.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.object_wrap": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "preserve",
+            "never",
+            "collapse"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Alias of `expand`, matching the Prettier `objectWrap` spelling.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.jsdoc": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Format JSDoc comment blocks.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.embedded_css": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Format CSS inside CSS-in-JS template literals with the CSS formatter.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.sort_imports": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Sort import statements.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.import_order": {
+          "type": "string",
+          "enum": [
+            "asc",
+            "ascending",
+            "desc",
+            "descending"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Import sort direction.\n\nDefault: `asc`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.import_internal": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Module prefixes treated as internal imports when grouping. Arrays are joined with commas.\n\nDefault: `~/` and `@/`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.import_side_effects": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Sort side-effect imports together with the other groups.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.import_newlines": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a blank line between import groups.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.import_partition_by_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Keep the source's blank lines between import groups.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.import_partition_by_comment": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Keep the source's comments between import groups.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.import_groups": {
+          "type": "string",
+          "scope": "resource",
+          "markdownDescription": "Custom import groups: `|` separates groups and `+` joins entries in one group, for example `type+builtin | external | parent+sibling`. `default`, `perfectionist`, `biome` and `none` keep the built-in order.\n\nDefault: the built-in group order: builtin, external, internal/subpath, parent/sibling/index, style, then unknown. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.tailwind": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "auto"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Tailwind class sorting: `auto` engages only when the file or project uses Tailwind. `true` and `false` are accepted aliases for `on` and `off`.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.tailwind_order": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "project",
+            "rust"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Where the class order comes from: the project's own Tailwind, the Rust pattern sorter, or `auto` (project when available, Rust otherwise).\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.tailwind_functions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Functions whose arguments hold class lists. Arrays are joined with commas.\n\nDefault: the formatter's built-in function names. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.tailwind_attributes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Attributes whose values hold class lists. Arrays are joined with commas.\n\nDefault: the formatter's built-in attribute names. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.tailwind_dedupe": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Remove duplicate classes from a class list.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.tailwind_merge": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Collapse conflicting utilities with `tailwind-merge`. Off by default because merging can change rendering.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.tailwind_stylesheet": {
+          "type": "string",
+          "scope": "resource",
+          "markdownDescription": "Stylesheet that declares the Tailwind theme used for ordering.\n\nDefault: unset — the project's stylesheet is discovered. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.tailwind_config": {
+          "type": "string",
+          "scope": "resource",
+          "markdownDescription": "Tailwind config file used for ordering.\n\nDefault: unset — the project's Tailwind config is discovered. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.fixes": {
+          "type": "string",
+          "enum": [
+            "off",
+            "none",
+            "safe",
+            "unsafe",
+            "all"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Preset for format-time fixes: `off`, `safe` (unused imports, type-only conversion, organize imports) or `unsafe` (safe plus unused locals). `none` and `all` are aliases; export removal is never implied.\n\nDefault: `off`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.remove_unused_imports": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Remove unused imports; a bare side-effect-only import keeps its side effect.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.remove_unused_exports": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Remove project-wide unused exports. Unsafe: needs project analysis and a trusted workspace.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.remove_unused_locals": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Remove unused local variables (unsafe).\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.remove_unused_parameters": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Diagnose-only: `--diagnose` reports unused parameters, and formatting never removes them.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.convert_type_only_imports": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Convert imports used only as types to `import type`.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.organize_imports": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Sort and group import runs, applying their import fixes.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.type_aware": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Run the project's `tsc --noEmit` once and keep errors only. Project checks require a trusted workspace.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.javascript.verify": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Fail when formatting would remove code compared with the input.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "latex",
+            "plain",
+            "context"
+          ],
+          "scope": "resource",
+          "markdownDescription": "TeX flavor; `auto` reads the extension, `plain` leaves environment syntax alone, and `context` maps `\\start`/`\\stop` environments onto the indentation engine. Aliases include `pdftex`, `xelatex`, `expl3`, `beamer`, `tikz`, `tex`, `optex`, `ctx`, `mkiv` and `lmtx`.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Wrap text and comments at this width.\n\nDefault: `80`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.indent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.indent_type": {
+          "type": "string",
+          "enum": [
+            "spaces",
+            "tabs"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Indentation character: `indent` spaces or a single tab.\n\nDefault: `spaces`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "windows"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.wrap": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Wrap lines longer than `width`; set `false` to keep long lines.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.wrap_min": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Only wrap a line when it is longer than this.\n\nDefault: computed as `width - 10`, at least 1; `0` also means unset. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.wrap_chars": {
+          "type": "string",
+          "scope": "resource",
+          "markdownDescription": "Characters that may end a wrapped line. A space is always added.\n\nDefault: a space. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.format_tables": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Align `tabular` rows into columns.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.blank_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "scope": "resource",
+          "markdownDescription": "Maximum consecutive blank lines kept between paragraphs.\n\nDefault: `1`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.verify": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Format a second time and fail when the result does not settle.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.lists": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Environment names formatted as lists, in addition to the dialect's built-in list. Arrays are joined with commas.\n\nDefault: the dialect's built-in list environments. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.verbatims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Environment names protected byte-for-byte, in addition to the dialect's built-in set. Arrays are joined with commas.\n\nDefault: the dialect's built-in verbatim environments. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.latex.no_indent_envs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Environment names whose contents are never indented. Arrays are joined with commas.\n\nDefault: the dialect's built-in no-indent environments. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "all",
+            "lua51",
+            "lua52",
+            "lua53",
+            "lua54",
+            "luajit",
+            "luau"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Lua syntax version; `auto` reads the extension and defaults to Lua 5.4.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Target line width.\n\nDefault: `120`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.indent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.indent_type": {
+          "type": "string",
+          "enum": [
+            "spaces",
+            "tabs"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Indentation character: `indent` spaces or a single tab.\n\nDefault: `spaces`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "windows"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.quote_style": {
+          "type": "string",
+          "enum": [
+            "auto-prefer-double",
+            "auto",
+            "auto-prefer-single",
+            "force-double",
+            "double",
+            "force-single",
+            "single"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Quote style for strings: `auto-prefer-*` switch only when the other quote needs fewer escapes, while `force-*` always applies. `auto` means `auto-prefer-double`, and `double` and `single` force that quote.\n\nDefault: `auto-prefer-double`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.call_parentheses": {
+          "type": "string",
+          "enum": [
+            "always",
+            "no-single-string",
+            "no-single-table",
+            "none",
+            "input"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Call parentheses: always, omitted for a single string or a single table argument, `none` for either, or kept as written (`input`).\n\nDefault: `none`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.collapse_simple_statement": {
+          "type": "string",
+          "enum": [
+            "never",
+            "function-only",
+            "conditional-only",
+            "always"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Collapse simple functions, simple if guards, or both onto one line.\n\nDefault: `never`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.space_after_function_names": {
+          "type": "string",
+          "enum": [
+            "never",
+            "definitions",
+            "calls",
+            "always"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Space before `(` in function definitions, calls, or both.\n\nDefault: `never`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.block_newline_gaps": {
+          "type": "string",
+          "enum": [
+            "never",
+            "preserve"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Leading and trailing blank lines inside blocks: `preserve` keeps them, `never` removes them.\n\nDefault: `never`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.sort_requires": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Sort `require` calls.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.lua.verify": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Reparse the formatted output and fail when it no longer parses.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "commonmark",
+            "gfm",
+            "obsidian"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Markdown flavor; `auto` detects GFM and Obsidian from the vault ancestry. Aliases `github` and `obsidian-markdown` are accepted.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.width": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Width for table layout; prose is never reflowed.\n\nDefault: `80`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.autosize_table": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Size table dividers to the aligned columns; compact tables keep three dashes.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.blank_lines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "scope": "resource",
+          "markdownDescription": "Maximum consecutive blank lines kept outside code and HTML blocks.\n\nDefault: `1`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.heading_blank_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3,
+          "scope": "resource",
+          "markdownDescription": "Blank lines written around headings.\n\nDefault: `1`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.trim_trailing_blank_lines": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Drop blank lines at the end of the document.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.table_style": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "aligned",
+            "compact"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Table layout: `auto` follows the source, `aligned` pads cells into columns, and `compact` keeps cells minimal.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.markdown.list_marker": {
+          "type": "string",
+          "enum": [
+            "-",
+            "*",
+            "+"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Bullet marker written for unordered lists.\n\nDefault: `-`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.indent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.indent_type": {
+          "type": "string",
+          "enum": [
+            "spaces",
+            "tabs"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Indentation character: `indent` spaces or a single tab.\n\nDefault: `spaces`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Accepted from the shared block and unused: plist layout never wraps.\n\nDefault: `80`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "windows"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.blank_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "scope": "resource",
+          "markdownDescription": "Maximum consecutive blank lines kept between elements.\n\nDefault: `1`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.data_width": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 120,
+          "scope": "resource",
+          "markdownDescription": "Wrap `<data>` payloads at this width; `0` keeps the original bytes.\n\nDefault: `0`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.prolog": {
+          "type": "string",
+          "enum": [
+            "preserve",
+            "normalize"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Keep the XML declaration, DOCTYPE and prolog comments as written, or replace the declaration and DOCTYPE with Apple's canonical spelling.\n\nDefault: `preserve`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.self_closing": {
+          "type": "string",
+          "enum": [
+            "preserve",
+            "always",
+            "never"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Empty elements: keep the source form, always self-close them, or always pair the tags.\n\nDefault: `preserve`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.plist.sort_keys": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Accepted only as `false`: reordering keys would change duplicate-key shadowing.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.indent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Target line width; arrays and inline tables expand beyond it.\n\nDefault: `80`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.allowed_blank_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "scope": "resource",
+          "markdownDescription": "Maximum consecutive blank lines kept between elements.\n\nDefault: `1`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "windows"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.align_entries": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Align `=` within contiguous groups of entries.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.align_comments": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Align trailing comments within contiguous groups.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.align_single_comments": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Also align a lone trailing comment in a group.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.array_trailing_comma": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing comma on multi-line arrays.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.array_auto_expand": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Expand arrays that do not fit the configured width.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.array_auto_collapse": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Collapse arrays that fit on one line.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.compact_arrays": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Omit padding inside single-line arrays.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.compact_inline_tables": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Omit padding inside inline tables.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.compact_entries": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Omit spaces around `=`.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.inline_table_expand": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Expand values nested in inline tables that do not fit the width.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.indent_tables": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Indent nested table headers and their contents by depth.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.indent_entries": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Indent entries under a table header by one level.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.reorder_keys": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Sort direct entries within a contiguous group by key.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.toml.format_comments": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Insert a space after `#` where one is missing.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "ts",
+            "tsx",
+            "js",
+            "jsx"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Source dialect; `auto` reads the extension. Aliases `typescript` and `javascript` are accepted.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.indent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 24,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.indent_type": {
+          "type": "string",
+          "enum": [
+            "spaces",
+            "tabs"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Indentation character: `indent` spaces or a single tab.\n\nDefault: `spaces`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 320,
+          "scope": "resource",
+          "markdownDescription": "Target line width.\n\nDefault: `80`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "lf",
+            "windows",
+            "crlf"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix`/`lf` (LF) or `windows`/`crlf` (CRLF). In the editor a `windows` result also switches the document.\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.quote_style": {
+          "type": "string",
+          "enum": [
+            "double",
+            "single"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Quote character for string literals.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.jsx_quote_style": {
+          "type": "string",
+          "enum": [
+            "double",
+            "single"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Quote character for JSX attribute values.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.quote_properties": {
+          "type": "string",
+          "enum": [
+            "as-needed",
+            "as_needed",
+            "preserve",
+            "consistent"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Object key quotes: only when needed, preserved from the source, or one style consistently.\n\nDefault: `as-needed`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.semicolons": {
+          "type": "string",
+          "enum": [
+            "always",
+            "as-needed",
+            "as_needed"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Write statement-terminating semicolons.\n\nDefault: `always`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.trailing_commas": {
+          "type": "string",
+          "enum": [
+            "all",
+            "es5",
+            "none"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Where to write trailing commas in multi-line lists.\n\nDefault: `all`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.arrow_parentheses": {
+          "type": "string",
+          "enum": [
+            "always",
+            "as-needed",
+            "as_needed"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Parenthesize single-parameter arrow functions.\n\nDefault: `always`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.bracket_spacing": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write spaces inside `{ }`.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.bracket_same_line": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Put the closing `>` of a multi-line JSX tag on the last attribute's line.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.attribute_position": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "multiline"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Attribute wrapping for JSX elements: `multiline` breaks every attribute once the tag breaks.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.expand": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "preserve",
+            "never",
+            "collapse"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Object literals: `auto`/`preserve` keep an object multi-line when the source wrote a newline after `{`, and `never`/`collapse` also collapse it onto one line when it fits.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.object_wrap": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "preserve",
+            "never",
+            "collapse"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Alias of `expand`, matching the Prettier `objectWrap` spelling.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.jsdoc": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Format JSDoc comment blocks.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.embedded_css": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Format CSS inside CSS-in-JS template literals with the CSS formatter.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.sort_imports": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Sort import statements.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.import_order": {
+          "type": "string",
+          "enum": [
+            "asc",
+            "ascending",
+            "desc",
+            "descending"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Import sort direction.\n\nDefault: `asc`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.import_internal": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Module prefixes treated as internal imports when grouping. Arrays are joined with commas.\n\nDefault: `~/` and `@/`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.import_side_effects": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Sort side-effect imports together with the other groups.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.import_newlines": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a blank line between import groups.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.import_partition_by_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Keep the source's blank lines between import groups.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.import_partition_by_comment": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Keep the source's comments between import groups.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.import_groups": {
+          "type": "string",
+          "scope": "resource",
+          "markdownDescription": "Custom import groups: `|` separates groups and `+` joins entries in one group, for example `type+builtin | external | parent+sibling`. `default`, `perfectionist`, `biome` and `none` keep the built-in order.\n\nDefault: the built-in group order: builtin, external, internal/subpath, parent/sibling/index, style, then unknown. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.tailwind": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "auto"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Tailwind class sorting: `auto` engages only when the file or project uses Tailwind. `true` and `false` are accepted aliases for `on` and `off`.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.tailwind_order": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "project",
+            "rust"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Where the class order comes from: the project's own Tailwind, the Rust pattern sorter, or `auto` (project when available, Rust otherwise).\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.tailwind_functions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Functions whose arguments hold class lists. Arrays are joined with commas.\n\nDefault: the formatter's built-in function names. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.tailwind_attributes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Attributes whose values hold class lists. Arrays are joined with commas.\n\nDefault: the formatter's built-in attribute names. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.tailwind_dedupe": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Remove duplicate classes from a class list.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.tailwind_merge": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Collapse conflicting utilities with `tailwind-merge`. Off by default because merging can change rendering.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.tailwind_stylesheet": {
+          "type": "string",
+          "scope": "resource",
+          "markdownDescription": "Stylesheet that declares the Tailwind theme used for ordering.\n\nDefault: unset — the project's stylesheet is discovered. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.tailwind_config": {
+          "type": "string",
+          "scope": "resource",
+          "markdownDescription": "Tailwind config file used for ordering.\n\nDefault: unset — the project's Tailwind config is discovered. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.fixes": {
+          "type": "string",
+          "enum": [
+            "off",
+            "none",
+            "safe",
+            "unsafe",
+            "all"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Preset for format-time fixes: `off`, `safe` (unused imports, type-only conversion, organize imports) or `unsafe` (safe plus unused locals). `none` and `all` are aliases; export removal is never implied.\n\nDefault: `off`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.remove_unused_imports": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Remove unused imports; a bare side-effect-only import keeps its side effect.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.remove_unused_exports": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Remove project-wide unused exports. Unsafe: needs project analysis and a trusted workspace.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.remove_unused_locals": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Remove unused local variables (unsafe).\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.remove_unused_parameters": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Diagnose-only: `--diagnose` reports unused parameters, and formatting never removes them.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.convert_type_only_imports": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Convert imports used only as types to `import type`.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.organize_imports": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Sort and group import runs, applying their import fixes.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.type_aware": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Run the project's `tsc --noEmit` once and keep errors only. Project checks require a trusted workspace.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.typescript.verify": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Fail when formatting would remove code compared with the input.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.enabled": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Enable or disable this language. `false` disables it even when another layer enables it; an empty language block enables the inherited defaults.\n\nDefault: the language's `dotfmt.dotfile` state — the engine starts with every language disabled, and the shipped configuration enables all of them except JavaScript. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Additional gitignore-style filename mappings for this language, one pattern per entry, on top of its built-in extensions. An explicitly empty list resets the inherited mappings.\n\nDefault: no additional mappings. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Gitignore-style patterns skipped for this language only, one pattern per entry. An explicitly empty list resets the inherited patterns.\n\nDefault: nothing excluded. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.repair": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Repair near-valid input in this language before formatting. Only JSON/JSONC/JSONL, Lua, TOML and YAML implement repairs; the other languages leave malformed input unchanged.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "scope": "resource",
+          "markdownDescription": "Target line width for flow collections.\n\nDefault: `80`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.indent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "scope": "resource",
+          "markdownDescription": "Spaces per indentation level.\n\nDefault: `2`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.quote_style": {
+          "type": "string",
+          "enum": [
+            "auto-prefer-double",
+            "auto",
+            "auto-prefer-single",
+            "force-double",
+            "double",
+            "force-single",
+            "single"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Quote style for strings that need quotes: `auto-prefer-*` switch only when the other quote needs fewer escapes, while `force-*` always applies. `auto` means `auto-prefer-double`, and `double` and `single` force that quote.\n\nDefault: `auto-prefer-double`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.line_endings": {
+          "type": "string",
+          "enum": [
+            "unix",
+            "windows"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Line endings written for the whole file: `unix` (LF) or `windows` (CRLF).\n\nDefault: `unix`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.indent_sequences": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Indent sequence entries under their parent key instead of aligning `-` with the key.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.trailing_comma": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing comma on multi-line flow collections.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.brace_spacing": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write spaces inside `{ ... }` flow mappings.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.bracket_spacing": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write spaces inside `[ ... ]` flow sequences.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.dash_spacing": {
+          "type": "string",
+          "enum": [
+            "one-space",
+            "indent"
+          ],
+          "scope": "resource",
+          "markdownDescription": "Sequence dashes: `- item` with one space, or indent the item under the dash to the parent's indentation level.\n\nDefault: `one-space`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.prefer_single_line": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Collapse flow collections that fit on one line.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.format_comments": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Insert a space after `#` where one is missing.\n\nDefault: `false`. Unset here inherits from `dotfmt.dotfile`."
+        },
+        "dotfmt.format.yaml.final_newline": {
+          "type": "boolean",
+          "scope": "resource",
+          "markdownDescription": "Write a trailing newline at the end of the file.\n\nDefault: `true`. Unset here inherits from `dotfmt.dotfile`."
         }
       }
     }
