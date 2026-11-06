@@ -203,3 +203,11 @@ has_cmd print-file-pretty && has_cmd dclip && copy-file-pretty() {
   setopt localoptions pipefail
   print-file-pretty "${args[@]}" | dclip
 }
+
+rm-find-file() {
+  find . -type f -name "$@" -prune -exec rm -rf {} +
+}
+
+rm-find-folder() {
+  find . -type d -name "$@" -prune -exec rm -rf {} +
+}
