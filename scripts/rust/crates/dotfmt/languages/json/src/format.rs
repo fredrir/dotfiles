@@ -22,16 +22,48 @@ pub fn format(
     dialect: Dialect,
 ) -> Result<Formatted, Diagnostic> {
     let mut resolved = dialect.resolve(path);
-    let mut shaped = shape(path, input, config, repair, resolved)?;
-    if dialect == Dialect::Auto
-        && resolved == Dialect::Json
-        && shaped.repairs.of(Repair::Comment) > 0
-    {
+    let mut shaped = shape(path, input, config, repair, resolved);
+    if dialect == Dialect::Auto && resolved == Dialect::Json && detects_comments(input, &shaped) {
         resolved = Dialect::Jsonc;
-        shaped = shape(path, input, config, repair, resolved)?;
+        shaped = shape(path, input, config, repair, resolved);
     }
+    let shaped = shaped?;
     guard(path, &shaped.text, config, resolved)?;
     Ok(shaped)
+}
+
+/// A `.json` file with comments is JSONC, whatever `repair` says: the flag turns
+/// repairs off, it does not pick the dialect. When strict shaping got far enough
+/// to count comments it is the authority; when it refused outright — which is
+/// what happens with repairs off — the buffer itself is read for a comment that
+/// starts outside a string.
+fn detects_comments(input: &[u8], shaped: &Result<Formatted, Diagnostic>) -> bool {
+    match shaped {
+        Ok(formatted) => formatted.repairs.of(Repair::Comment) > 0,
+        Err(_) => mentions_comment(input),
+    }
+}
+
+fn mentions_comment(input: &[u8]) -> bool {
+    let mut at = 0;
+    while let Some(byte) = input.get(at) {
+        match byte {
+            b'"' => {
+                at += 1;
+                while let Some(byte) = input.get(at) {
+                    at += 1;
+                    match byte {
+                        b'\\' => at += 1,
+                        b'"' => break,
+                        _ => {}
+                    }
+                }
+            }
+            b'/' if matches!(input.get(at + 1), Some(b'/' | b'*')) => return true,
+            _ => at += 1,
+        }
+    }
+    false
 }
 
 fn shape(

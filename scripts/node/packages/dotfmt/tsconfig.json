@@ -4,6 +4,8 @@
     "src",
     "build.ts",
     "deploy.ts",
+    "deploy-lib.ts",
+    "deploy-lib.test.ts",
     "generate-settings.ts"
   ]
 }

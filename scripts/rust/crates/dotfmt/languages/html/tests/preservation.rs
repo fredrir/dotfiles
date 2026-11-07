@@ -160,3 +160,53 @@ fn markup_options_are_observable_in_output() {
         "<div>\n\t<span>x</span>\n</div>\n"
     );
 }
+
+/// Embedded snippets the formatter declines are preserved byte-for-byte. markup_fmt
+/// re-indents raw snippets itself, which used to grow indentation on every pass when a
+/// snippet mixed indented lines with column-zero ones (template literals, brace blocks).
+#[test]
+fn unformattable_embedded_snippets_keep_their_authored_bytes() {
+    for input in [
+        "<div><script> const broken = ; </script></div>\n",
+        "<script>const tpl = `a\nb`;\n  const broken = ;\n</script>\n",
+        "<div><style>.a { color: </style></div>\n",
+        "<script type=\"text/x-template\">\n  <div class=\"a\">\n    <span>x</span>\n  </div>\n</script>\n",
+        "<script type=\"application/json\">\n  {\"a\":1}\n</script>\n",
+        "<script type=\"text/template\"><div   >x</div></script>\n",
+    ] {
+        assert_eq!(run(input, &Config::default()), input, "{input:?}");
+        let mut output = input.to_owned();
+        for _ in 0..3 {
+            output = format(
+                Path::new("x.html"),
+                &output,
+                &Config::default(),
+                Dialect::Html,
+            )
+            .expect("preserved snippet stays valid");
+        }
+        assert_eq!(output, input, "indentation must not grow for {input:?}");
+    }
+}
+
+#[test]
+fn valid_embedded_snippets_still_format_and_settle() {
+    assert_eq!(
+        run(
+            "<div><script>const a={b:1}</script></div>",
+            &Config::default()
+        ),
+        "<div>\n  <script>\n    const a = { b: 1 };\n  </script>\n</div>\n"
+    );
+    assert_eq!(
+        run("<script>const tpl = `a\nb`;</script>", &Config::default()),
+        "<script>\n  const tpl = `a\nb`;\n</script>\n"
+    );
+    assert_eq!(
+        run(
+            "<div><style>.a{color:red}</style></div>",
+            &Config::default()
+        ),
+        "<div>\n  <style>\n    .a {\n      color: red;\n    }\n  </style>\n</div>\n"
+    );
+}

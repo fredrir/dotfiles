@@ -67,14 +67,7 @@ pub(crate) fn sort_tokens(tokens: &[&str], table: &OrderTable, dedupe: bool) -> 
         return String::new();
     }
     if table.is_empty() {
-        if tokens.iter().any(|class| !class.is_ascii()) {
-            return tokens.join(" ");
-        }
-        let sorted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            rustywind_core::pattern_sorter::sort_classes(tokens)
-        }))
-        .unwrap_or_else(|_| tokens.to_vec());
-        return join_fallback(sorted, dedupe);
+        return sort_with_rust_fallback(tokens, dedupe);
     }
     let mut ordered: Vec<(&str, Option<i64>)> = tokens
         .iter()
@@ -104,6 +97,47 @@ pub(crate) fn sort_tokens(tokens: &[&str], table: &OrderTable, dedupe: bool) -> 
         output.push(class);
     }
     output.join(" ")
+}
+
+fn sort_with_rust_fallback(tokens: &[&str], dedupe: bool) -> String {
+    if let Some(sorted) = rustywind_sorted(tokens) {
+        return join_fallback(sorted, dedupe);
+    }
+    let (ascii, other): (Vec<&str>, Vec<&str>) = tokens.iter().partition(|class| class.is_ascii());
+    let ascii = rustywind_sorted(&ascii).unwrap_or(ascii);
+    let mut classes = ascii;
+    classes.extend(other);
+    join_fallback_safe(classes, dedupe)
+}
+
+fn join_fallback_safe(classes: Vec<&str>, dedupe: bool) -> String {
+    if !dedupe {
+        return classes.join(" ");
+    }
+    let mut seen = HashSet::new();
+    classes
+        .into_iter()
+        .filter(|class| {
+            let known = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                RUST_FALLBACK.get_sort_key(class).is_some()
+            }))
+            .unwrap_or(false);
+            if known { seen.insert(*class) } else { true }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn rustywind_sorted<'a>(tokens: &[&'a str]) -> Option<Vec<&'a str>> {
+    let sorted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        rustywind_core::pattern_sorter::sort_classes(tokens)
+    }))
+    .ok()?;
+    let mut before = tokens.to_vec();
+    let mut after = sorted.clone();
+    before.sort_unstable();
+    after.sort_unstable();
+    (before == after).then_some(sorted)
 }
 
 fn join_fallback(classes: Vec<&str>, dedupe: bool) -> String {
@@ -238,6 +272,30 @@ mod tests {
     fn empty_table_falls_back_to_rust_sorter_without_panicking() {
         let output = sort_class_list("p-4 custom flex custom", &OrderTable::empty(), true);
         assert_eq!(output, "custom custom flex p-4");
+    }
+
+    #[test]
+    fn non_ascii_tokens_do_not_freeze_the_whole_list() {
+        assert_eq!(
+            sort_class_list("p-4 flex m-4 café", &OrderTable::empty(), false),
+            "café m-4 flex p-4"
+        );
+        assert_eq!(
+            sort_class_list("p-4 flex m-4 🚀", &OrderTable::empty(), false),
+            "🚀 m-4 flex p-4"
+        );
+    }
+
+    #[test]
+    fn non_ascii_tokens_keep_deduplication_and_idempotency() {
+        let input = "p-4 custom p-4 café custom";
+        let once = sort_class_list(input, &OrderTable::empty(), true);
+        assert_eq!(once, "café custom custom p-4");
+        assert_eq!(sort_class_list(&once, &OrderTable::empty(), true), once);
+
+        let emoji = sort_class_list("🚀 🎉 🚀", &OrderTable::empty(), false);
+        assert!(emoji.contains('🚀') && emoji.contains('🎉'), "{emoji}");
+        assert_eq!(sort_class_list(&emoji, &OrderTable::empty(), false), emoji);
     }
 
     #[test]

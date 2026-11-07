@@ -349,3 +349,74 @@ fn pathological_nesting_is_a_diagnostic_not_a_stack_overflow() {
         .expect_err("nesting guard");
     assert!(error.message.contains("nesting"), "{error:?}");
 }
+
+fn tailwind_merge_config() -> Config {
+    let table = dotfmt_tailwind::OrderTable::from_pairs([
+        ("m-4".to_owned(), Some(1)),
+        ("m-2".to_owned(), Some(2)),
+        ("flex".to_owned(), Some(5)),
+        ("p-4".to_owned(), Some(10)),
+        ("p-2".to_owned(), Some(11)),
+    ]);
+    let tailwind = dotfmt_tailwind::Config {
+        mode: dotfmt_tailwind::Mode::On,
+        functions: vec!["cn".to_owned(), "clsx".to_owned()],
+        merge: true,
+        dedupe: true,
+        ..dotfmt_tailwind::Config::default()
+    };
+    Config {
+        tailwind: tailwind.clone(),
+        tailwind_sorter: Some(dotfmt_tailwind::Sorter::new(
+            std::sync::Arc::new(table),
+            tailwind,
+        )),
+        ..Config::default()
+    }
+}
+
+#[test]
+fn tailwind_merge_formats_class_lists_and_settles() {
+    let config = tailwind_merge_config();
+    for (path, input, expected) in [
+        (
+            "merge-single.tsx",
+            "export const A=()=> <div className=\"p-2 p-4\"/>\n",
+            "export const A = () => <div className=\"p-4\" />;\n",
+        ),
+        (
+            "merge-multiple.tsx",
+            "export const B=()=> <div className=\"p-2 p-4 m-2 m-4 flex\"/>\n",
+            "export const B = () => <div className=\"m-4 flex p-4\" />;\n",
+        ),
+        (
+            "merge-duplicates.tsx",
+            "export const C=()=> <div className=\"flex flex p-4\"/>\n",
+            "export const C = () => <div className=\"flex p-4\" />;\n",
+        ),
+        (
+            "merge-variants.tsx",
+            "export const D=()=> <div className=\"md:p-2 p-2 p-4 hover:p-2\"/>\n",
+            "export const D = () => <div className=\"md:p-2 hover:p-2 p-4\" />;\n",
+        ),
+        (
+            "merge-cn.ts",
+            "const x=cn(\"p-2 p-4\");\n",
+            "const x = cn(\"p-4\");\n",
+        ),
+        (
+            "merge-clsx.ts",
+            "const y=clsx(\"p-2 p-4 flex flex\");\n",
+            "const y = clsx(\"flex p-4\");\n",
+        ),
+    ] {
+        let output = format(Path::new(path), input, &config, Dialect::Auto)
+            .unwrap_or_else(|error| panic!("{path}: {error:?}"));
+        assert_eq!(output, expected, "{path}");
+        assert_eq!(
+            format(Path::new(path), &output, &config, Dialect::Auto).unwrap(),
+            output,
+            "{path} must settle after one pass"
+        );
+    }
+}

@@ -1,4 +1,6 @@
 use std::fs;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::Path;
 
 use dotfmt_core::diagnostic::{Diagnostic, DiagnosticKind};
 use dotfmt_core::edit::{apply_fixes, select_fixes};
@@ -10,6 +12,7 @@ use super::plan::{BufferJob, Job, Work};
 use super::{
     BufferChange, BufferOutcome, Change, FileOutcome, FixMode, InspectBufferOutcome,
     InspectOutcome, Inspection, Outcome, Plan, Repairs, Session, attach_path, with_stack,
+    worker_panic,
 };
 
 impl Session {
@@ -112,7 +115,7 @@ impl Session {
 }
 
 fn format_file(job: &Job, check: bool, clean: bool, fixes: bool) -> FileOutcome {
-    let result = (|| {
+    let result = guarded(&job.path, || {
         let input = fs::read(&job.absolute)
             .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
         let formatted = if check || !fixes {
@@ -134,8 +137,7 @@ fn format_file(job: &Job, check: bool, clean: bool, fixes: bool) -> FileOutcome 
             Formatted::Verbatim => (false, Repairs::default()),
         };
         Ok(Change { changed, repairs })
-    })()
-    .map_err(|error| attach_path(error, &job.path));
+    });
     FileOutcome {
         path: job.path.clone(),
         language: job.language,
@@ -146,7 +148,7 @@ fn format_file(job: &Job, check: bool, clean: bool, fixes: bool) -> FileOutcome 
 fn format_buffer(job: BufferJob, check: bool, clean: bool, fixes: bool) -> BufferOutcome {
     let input = job.input;
     let absolute = job.absolute;
-    let result = match job.engine {
+    let result = guarded(&input.path, || match job.engine {
         Some(engine) => {
             let formatted = if check || !fixes {
                 engine.format_text(&input.path, &absolute, &input.input, job.markdown, clean)
@@ -174,14 +176,13 @@ fn format_buffer(job: BufferJob, check: bool, clean: bool, fixes: bool) -> Buffe
             })
         }
         None => Ok(BufferChange {
-            output: input.input,
+            output: input.input.clone(),
             change: Change {
                 changed: false,
                 repairs: Repairs::default(),
             },
         }),
-    }
-    .map_err(|error| attach_path(error, &input.path));
+    });
     BufferOutcome {
         path: input.path,
         language: job.language,
@@ -196,7 +197,7 @@ fn inspect_file(
     type_aware: Option<bool>,
     project_analysis: bool,
 ) -> InspectOutcome {
-    let result = (|| {
+    let result = guarded(&job.path, || {
         let input = fs::read(&job.absolute)
             .map_err(|error| Diagnostic::new(DiagnosticKind::Io, error.to_string()))?;
         let mut inspection = inspect(
@@ -216,8 +217,7 @@ fn inspect_file(
             inspection.changed = true;
         }
         Ok(inspection)
-    })()
-    .map_err(|error| attach_path(error, &job.path));
+    });
     InspectOutcome {
         path: job.path.clone(),
         language: job.language,
@@ -232,7 +232,7 @@ fn inspect_buffer(
     project_analysis: bool,
 ) -> InspectBufferOutcome {
     let input = job.input;
-    let result = match job.engine {
+    let result = guarded(&input.path, || match job.engine {
         Some(engine) => inspect(
             &engine,
             &input.path,
@@ -243,8 +243,7 @@ fn inspect_buffer(
             false,
             type_aware,
             project_analysis,
-        )
-        .map_err(|error| attach_path(error, &input.path)),
+        ),
         None => Ok(Inspection {
             findings: Vec::new(),
             fixes: Vec::new(),
@@ -254,12 +253,19 @@ fn inspect_buffer(
             changed: false,
             diff: None,
         }),
-    };
+    });
     InspectBufferOutcome {
         path: input.path,
         language: job.language,
         result,
     }
+}
+
+/// Runs one job and contains a panic so it becomes a diagnostic for that file
+/// instead of aborting the whole run.
+fn guarded<T>(path: &Path, work: impl FnOnce() -> Result<T, Diagnostic>) -> Result<T, Diagnostic> {
+    let result = catch_unwind(AssertUnwindSafe(work)).unwrap_or_else(|_| Err(worker_panic()));
+    result.map_err(|error| attach_path(error, path))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -291,8 +297,10 @@ fn inspect(
         .as_ref()
         .is_none_or(|selection| selection.organize_imports);
     let analysis = engine.analyze(
+        path,
         absolute,
         text.as_bytes(),
+        markdown,
         fix != FixMode::None,
         unsafe_fixes,
         type_aware,
@@ -305,8 +313,10 @@ fn inspect(
         let mut current = text.to_owned();
         for _ in 0..3 {
             let pass = engine.analyze(
+                path,
                 absolute,
                 current.as_bytes(),
+                markdown,
                 true,
                 unsafe_fixes,
                 type_aware,
@@ -373,3 +383,7 @@ fn unified_diff(path: &str, before: &str, after: &str) -> String {
         .header(path, path)
         .to_string()
 }
+
+#[cfg(test)]
+#[path = "../../tests/app/execute.rs"]
+mod tests;

@@ -1,4 +1,3 @@
-
 use std::path::Path;
 
 use dotfmt_typescript::{Config, Dialect, format};

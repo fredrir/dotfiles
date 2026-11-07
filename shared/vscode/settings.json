@@ -219,8 +219,9 @@
     "https://schema.tauri.app": true,
     "https://schemastore.azurewebsites.net/": true,
     "https://spec.openapis.org/": true,
+    "https://turborepo.dev": true,
     "https://ui.shadcn.com": true,
-    "https://www.schemastore.org/": true,
+    "https://www.schemastore.org/": true
   },
   "json.schemas": [
     {

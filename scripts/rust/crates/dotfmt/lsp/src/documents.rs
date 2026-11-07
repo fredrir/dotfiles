@@ -82,10 +82,6 @@ impl Document {
         &self.language
     }
 
-    pub fn mark_desynchronised(&mut self) {
-        self.desynchronised = true;
-    }
-
     pub fn change(&mut self, change: TextDocumentContentChangeEvent) -> bool {
         match change.range {
             None => {
@@ -105,16 +101,29 @@ impl Document {
         true
     }
 
+    /// Converts a position to an offset, clamping `character` to the end of the line's
+    /// content. The line break belongs to no line's characters, so a position past the
+    /// end of a line must never consume it.
     pub fn offset(&self, position: Position) -> Option<usize> {
-        let line = self.index.to_utf8(
+        let line = self.index.line(position.line)?;
+        let start = usize::from(line.start());
+        let line_text = &self.text[start..usize::from(line.end())];
+        let content = line_text.trim_end_matches(['\r', '\n']);
+        let wide = self.index.to_wide(
+            WideEncoding::Utf16,
+            LineCol {
+                line: position.line,
+                col: u32::try_from(content.len()).ok()?,
+            },
+        )?;
+        let line_col = self.index.to_utf8(
             WideEncoding::Utf16,
             WideLineCol {
                 line: position.line,
-                col: position.character,
+                col: position.character.min(wide.col),
             },
         )?;
-        let end = usize::from(self.index.line(line.line)?.end());
-        let offset = usize::from(self.index.offset(line)?).min(end);
+        let offset = start + (line_col.col as usize).min(content.len());
         self.text.is_char_boundary(offset).then_some(offset)
     }
 
@@ -215,6 +224,63 @@ mod tests {
         assert!(document.change(change(None, "new\n")));
         assert_eq!(document.text(), "new\n");
         assert_eq!(document.version, 1);
+    }
+
+    fn applied(text: &str, range: lsp_types::Range, replacement: &str) -> Option<String> {
+        let mut document = Document::new(text.into(), "json".into(), 1);
+        let applied = document.change(change(Some(range), replacement));
+        applied.then(|| document.text().to_owned())
+    }
+
+    #[test]
+    fn past_eol_characters_stop_before_the_line_break() {
+        let text = "const a = 1;\nconst b = 2;\n";
+        assert_eq!(
+            applied(text, range((0, 12), (0, 500)), "!").as_deref(),
+            Some("const a = 1;!\nconst b = 2;\n")
+        );
+        assert_eq!(
+            applied(text, range((0, 13), (0, 13)), "!").as_deref(),
+            Some("const a = 1;!\nconst b = 2;\n")
+        );
+        assert_eq!(
+            applied(text, range((0, 0), (0, 12)), "const c = 0;").as_deref(),
+            Some("const c = 0;\nconst b = 2;\n")
+        );
+        assert_eq!(
+            applied(text, range((0, 0), (0, u32::MAX)), "const c = 0;").as_deref(),
+            Some("const c = 0;\nconst b = 2;\n")
+        );
+    }
+
+    #[test]
+    fn past_eol_characters_stop_before_crlf() {
+        let text = "const a = 1;\r\nconst b = 2;\r\n";
+        assert_eq!(
+            applied(text, range((0, 12), (0, 14)), "!").as_deref(),
+            Some("const a = 1;!\r\nconst b = 2;\r\n")
+        );
+        assert_eq!(
+            applied(text, range((0, 13), (0, 500)), "!").as_deref(),
+            Some("const a = 1;!\r\nconst b = 2;\r\n")
+        );
+        assert_eq!(
+            applied(text, range((0, 0), (0, 500)), "const c = 0;").as_deref(),
+            Some("const c = 0;\r\nconst b = 2;\r\n")
+        );
+    }
+
+    #[test]
+    fn a_multiline_range_past_the_end_line_stops_before_its_line_break() {
+        let text = "one\ntwo\nthree";
+        assert_eq!(
+            applied(text, range((0, 0), (1, 500)), "two").as_deref(),
+            Some("two\nthree")
+        );
+        assert_eq!(
+            applied(text, range((0, 0), (2, 500)), "all").as_deref(),
+            Some("all")
+        );
     }
 
     #[test]

@@ -56,7 +56,7 @@ fn object(pairs: &[(&str, Value)]) -> Value {
         pairs
             .iter()
             .map(|(key, value)| ((*key).to_string(), value.clone()))
-            .collect(),
+            .collect::<Vec<_>>(),
     )
 }
 
@@ -94,12 +94,24 @@ fn an_empty_body_holds_no_value_rather_than_failing() {
 }
 
 #[test]
-fn a_repeated_key_keeps_its_first_position_and_its_last_value() {
-    let mut expected = indexmap::IndexMap::new();
-    expected.insert("a".to_string(), number("3"));
-    expected.insert("b".to_string(), number("2"));
-
-    assert_eq!(value("{\"a\":1,\"b\":2,\"a\":3}"), Value::Object(expected));
+fn a_repeated_key_keeps_every_member_in_the_order_it_was_written() {
+    assert_eq!(
+        value("{\"a\":1,\"b\":2,\"a\":3}"),
+        object(&[("a", number("1")), ("b", number("2")), ("a", number("3"))])
+    );
+    assert_eq!(
+        value("{\"a\":1,\"a\":2,\"a\":3}"),
+        object(&[("a", number("1")), ("a", number("2")), ("a", number("3"))])
+    );
+    assert_eq!(
+        value("{\"a\":{\"x\":1},\"a\":[2],\"b\":null,\"a\":\"three\"}"),
+        object(&[
+            ("a", object(&[("x", number("1"))])),
+            ("a", Value::Array(vec![number("2")])),
+            ("b", Value::Null),
+            ("a", string("three")),
+        ])
+    );
 }
 
 #[test]
@@ -336,7 +348,7 @@ fn hex_numbers_become_decimal() {
             number("31"),
             number("-16"),
             number("255"),
-            number("0")
+            number("-0")
         ])
     );
     assert_eq!(repairs.of(Repair::Number), 4);

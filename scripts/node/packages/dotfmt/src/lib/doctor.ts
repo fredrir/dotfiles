@@ -13,7 +13,6 @@ export interface DoctorProject {
   state?: string;
 }
 
-/** One resolved `dotfmt` settings section from the `dotfmt/doctor` response. */
 export interface DoctorSettings {
   typeAware?: boolean;
   syntax?: boolean;
@@ -25,12 +24,10 @@ export interface DoctorSettings {
   hasFormatExtra?: boolean;
 }
 
-/** A workspace folder's resolved settings. */
 export interface DoctorFolder extends DoctorSettings {
   root: string;
 }
 
-/** The language server's `dotfmt/doctor` response. */
 export interface DoctorReport {
   server: DoctorServer;
   trusted?: boolean;
@@ -52,7 +49,6 @@ export interface DoctorResult {
   error?: string;
 }
 
-/** Calls `dotfmt/doctor`, turning a missing request on older servers into a fallback value. */
 export async function requestDoctor(
   client: DoctorRequester,
 ): Promise<DoctorResult> {
@@ -66,7 +62,6 @@ export async function requestDoctor(
   }
 }
 
-/** Reads the doctor response, tolerating fields an older server does not send. */
 export function parseDoctorReport(value: unknown): DoctorReport | undefined {
   const report = object(value);
   const server = object(report?.server);
@@ -105,7 +100,6 @@ export function parseDoctorReport(value: unknown): DoctorReport | undefined {
   };
 }
 
-/** Human-readable doctor report lines; `shortenPath` is applied to every path. */
 export function doctorReportLines(
   report: DoctorReport,
   shortenPath: (value: string) => string = (value) => value,
@@ -167,7 +161,6 @@ export function doctorReportLines(
   return lines;
 }
 
-/** The server project whose root contains `file`, choosing the nearest root. */
 export function projectForFile(
   report: DoctorReport,
   file: string,
@@ -177,7 +170,6 @@ export function projectForFile(
     .sort((left, right) => right.root.length - left.root.length)[0];
 }
 
-/** The client-visible TypeScript state from workspace trust and resource settings. */
 export function tscState(
   trusted: boolean,
   typeAware: boolean,

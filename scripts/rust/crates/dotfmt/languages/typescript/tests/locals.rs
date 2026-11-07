@@ -170,3 +170,118 @@ fn declaration_files_never_report_type_parameters() {
         analysis.findings
     );
 }
+
+fn analyze_with_fixes(path: &Path, input: &str, unsafe_fixes: bool) -> Analysis {
+    analyze::analyze(
+        path,
+        input,
+        &Config::default(),
+        Dialect::Auto,
+        &Options {
+            fix: true,
+            unsafe_fixes,
+            type_aware: false,
+            ..Options::default()
+        },
+    )
+    .unwrap()
+}
+
+fn removal_fixes(analysis: &Analysis) -> usize {
+    analysis
+        .fixes
+        .iter()
+        .filter(|fix| fix.title.contains("unused variable"))
+        .count()
+}
+
+#[test]
+fn top_level_script_let_and_const_bind_globals_too() {
+    let script = "var a = 1;\nlet b = 2;\nconst c = 3;\n";
+    let analysis = analyze_with_fixes(Path::new("a.js"), script, true);
+    assert_eq!(
+        findings(&analysis, "unused-variable").len(),
+        3,
+        "{:?}",
+        analysis.findings
+    );
+    assert_eq!(removal_fixes(&analysis), 0, "{:?}", analysis.fixes);
+
+    let module = "var a = 1;\nlet b = 2;\nconst c = 3;\nexport {};\n";
+    let analysis = analyze_with_fixes(Path::new("a.js"), module, true);
+    assert_eq!(removal_fixes(&analysis), 3, "{:?}", analysis.fixes);
+}
+
+#[test]
+fn pure_initializers_follow_unsafe_fixes() {
+    for initializer in [
+        "count + 1",
+        "count ? 1 : 2",
+        "`${count}`",
+        "count.value",
+        "count?.value",
+        "-count",
+        "!count",
+        "typeof count",
+        "void 0",
+        "count ?? 1",
+        "[count, 2]",
+        "{ value: count }",
+        "count as number",
+    ] {
+        let input = format!(
+            "function f(count: number) {{ const unused = {initializer}; return count; }}\nf(1);\n"
+        );
+        let analysis = analyze_with_fixes(Path::new("a.ts"), &input, true);
+        assert_eq!(
+            removal_fixes(&analysis),
+            1,
+            "{initializer}: {:?}",
+            analysis.findings
+        );
+        assert!(
+            findings(&analysis, "unused-variable")
+                .iter()
+                .all(|finding| !finding.message.contains("side effects")),
+            "{initializer}: {:?}",
+            analysis.findings
+        );
+    }
+}
+
+#[test]
+fn impure_initializers_are_kept_under_unsafe_fixes() {
+    for initializer in [
+        "risky()",
+        "new Thing()",
+        "count = 2",
+        "count++",
+        "tag`value`",
+        "obj[risky()]",
+        "delete obj.value",
+        "{ [key()]: count }",
+        "[...items]",
+    ] {
+        let input = format!(
+            "function f(count: number) {{ const unused = {initializer}; return count; }}\nf(1);\n"
+        );
+        let analysis = analyze_with_fixes(Path::new("a.ts"), &input, true);
+        assert_eq!(
+            removal_fixes(&analysis),
+            0,
+            "{initializer}: {:?}",
+            analysis.fixes
+        );
+        assert!(
+            findings(&analysis, "unused-variable")
+                .iter()
+                .any(|finding| finding.message.contains("side effects")),
+            "{initializer}: {:?}",
+            analysis.findings
+        );
+    }
+
+    let input = "async function f() { const unused = await load(); return 1; }\nf();\n";
+    let analysis = analyze_with_fixes(Path::new("a.ts"), input, true);
+    assert_eq!(removal_fixes(&analysis), 0, "{:?}", analysis.fixes);
+}

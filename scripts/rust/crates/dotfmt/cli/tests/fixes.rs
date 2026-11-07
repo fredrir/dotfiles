@@ -95,7 +95,13 @@ fn explicit_export_selection_is_still_safe_mode_gated() {
 
     let output = dotfmt(root.path()).args(["--fix-unsafe", "a.ts"]).run();
     assert!(output.success(), "{output:?}");
-    assert_eq!(fs::read_to_string(root.path().join("a.ts")).unwrap(), "");
+    // Removing the export turns the file into a classic script, where the
+    // remaining top-level `const` is a global binding. Unsafe removal must not
+    // take that binding away without an explicit local-removal selection.
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.ts")).unwrap(),
+        "const publicApi = 1;\n"
+    );
 }
 
 #[test]

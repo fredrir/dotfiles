@@ -140,8 +140,7 @@ impl Settings {
         if let Some(format) = overlay_setting(value, "format") {
             self.format = match format {
                 Value::Null => None,
-                other if is_empty_object(other) => None,
-                other => Some(other.clone()),
+                other => without_nulls(other.clone()),
             };
         }
         if let Some(extra) =
@@ -179,7 +178,7 @@ impl Settings {
                 None => remove_path(&mut root, &parts),
             }
         }
-        self.format = Some(Value::Object(root));
+        self.format = Some(Value::Object(root)).and_then(without_nulls);
     }
 
     #[allow(dead_code)]
@@ -374,14 +373,19 @@ impl SettingsStore {
         changed
     }
 
+    /// Replaces the pushed configuration. Clients that send `workspace/didChangeConfiguration`
+    /// push a full snapshot, so omitted keys fall back to their defaults instead of keeping
+    /// values from an older snapshot.
     pub fn apply_default(&self, value: &Value) -> bool {
+        let mut settings = Settings::default();
+        settings.apply(value);
         let mut default = self
             .default
             .write()
             .unwrap_or_else(|error| error.into_inner());
-        let before = default.clone();
-        default.apply(value);
-        *default != before
+        let changed = *default != settings;
+        *default = settings;
+        changed
     }
 
     pub fn configure_folder(&self, root: &Path, value: &Value) -> bool {
@@ -461,6 +465,24 @@ fn lookup<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
 
 fn is_empty_object(value: &Value) -> bool {
     value.as_object().is_some_and(serde_json::Map::is_empty)
+}
+
+/// Generated settings trees spell "inherit from the dotfile" as `null`, so a tree with
+/// nothing but nulls is not a configured format overlay.
+fn without_nulls(value: Value) -> Option<Value> {
+    match value {
+        Value::Null => None,
+        Value::Object(object) => {
+            let mut kept = Map::new();
+            for (key, item) in object {
+                if let Some(item) = without_nulls(item) {
+                    kept.insert(key, item);
+                }
+            }
+            (!kept.is_empty()).then_some(Value::Object(kept))
+        }
+        other => Some(other),
+    }
 }
 
 #[cfg(test)]
@@ -749,6 +771,63 @@ mod tests {
         assert!(store.configure_default(&json!({ "dotfmt.fixes.onSave": "safe" })));
         assert!(store.configure_default(&json!({})));
         assert_eq!(store.default_settings().fixes_on_save, FixesOnSave::Off);
+    }
+
+    #[test]
+    fn pushed_configuration_replaces_omitted_keys() {
+        let store = SettingsStore::new(false, Settings::default());
+        assert!(store.apply_default(&json!({ "dotfmt.diagnostics.syntax": false })));
+        assert!(!store.default_settings().syntax_diagnostics);
+        assert!(
+            !store.apply_default(&json!({ "dotfmt.diagnostics.syntax": false })),
+            "an unchanged snapshot reported a change"
+        );
+        assert!(store.apply_default(&json!({ "dotfmt": {} })));
+        assert!(
+            store.default_settings().syntax_diagnostics,
+            "a pushed snapshot did not restore an omitted key"
+        );
+
+        assert!(store.configure_folder(Path::new("/work"), &json!({ "dotfmt.typeAware": false })));
+        assert!(store.apply_default(&json!({ "dotfmt.diagnostics.syntax": false })));
+        assert!(!store.settings_for_root(Path::new("/work")).type_aware);
+        assert!(
+            store
+                .settings_for_root(Path::new("/work"))
+                .syntax_diagnostics
+        );
+    }
+
+    #[test]
+    fn format_overlays_with_only_nulls_are_absent() {
+        let store = SettingsStore::new(false, Settings::default());
+        assert!(!store.configure_default(&json!({
+            "dotfmt.format.global.width": null,
+            "dotfmt.format.typescript.quote_style": null,
+        })));
+        assert_eq!(
+            store.default_settings().format,
+            None,
+            "flat null-only settings were kept as a format overlay"
+        );
+        assert!(!store.configure_default(&json!({
+            "format": {
+                "global": { "width": null },
+                "typescript": { "quote_style": null },
+            }
+        })));
+        assert_eq!(
+            store.default_settings().format,
+            None,
+            "nested null-only settings were kept as a format overlay"
+        );
+        assert!(store.configure_default(&json!({
+            "format": { "global": { "width": null, "print_width": 80 } }
+        })));
+        assert_eq!(
+            store.default_settings().format,
+            Some(json!({ "global": { "print_width": 80 } }))
+        );
     }
 
     #[test]

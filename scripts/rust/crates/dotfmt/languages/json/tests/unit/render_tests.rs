@@ -78,15 +78,23 @@ fn a_key_is_written_where_it_was_written_rather_than_in_order() {
 
     assert_eq!(
         parsed.value,
-        Some(Value::Object(
-            [
-                ("b".to_string(), Value::Number("1".into())),
-                ("a".to_string(), Value::Number("2".into())),
-                ("c".to_string(), Value::Number("3".into())),
-            ]
-            .into_iter()
-            .collect()
-        ))
+        Some(Value::Object(vec![
+            ("b".to_string(), Value::Number("1".into())),
+            ("a".to_string(), Value::Number("2".into())),
+            ("c".to_string(), Value::Number("3".into())),
+        ]))
+    );
+}
+
+#[test]
+fn a_repeated_key_is_written_out_as_often_as_it_was_read() {
+    assert_eq!(
+        laid_out("{\"a\":1,\"a\":2}"),
+        "{\n  \"a\": 1,\n  \"a\": 2\n}\n"
+    );
+    assert_eq!(
+        laid_out_with("{\"a\":1,\"b\":2,\"a\":3}", compact()),
+        "{\"a\":1,\"b\":2,\"a\":3}\n"
     );
 }
 

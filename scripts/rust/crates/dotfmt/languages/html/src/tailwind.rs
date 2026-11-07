@@ -387,13 +387,17 @@ fn file_is_ignored(markup: &str) -> bool {
         return false;
     };
     let comment = rest[..end].trim_ascii_start();
-    comment.starts_with("prettier-ignore-file") || has_ignore_directive(comment)
+    has_directive(comment, "prettier-ignore-file")
 }
 
 fn has_ignore_directive(comment: &str) -> bool {
+    has_directive(comment, "prettier-ignore")
+}
+
+fn has_directive(comment: &str, directive: &str) -> bool {
     comment
         .trim_ascii_start()
-        .strip_prefix("prettier-ignore")
+        .strip_prefix(directive)
         .is_some_and(|rest| {
             rest.is_empty() || rest.starts_with(|character: char| character.is_ascii_whitespace())
         })

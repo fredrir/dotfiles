@@ -117,6 +117,24 @@ fn resolves_the_dialect_from_the_path_when_configured_as_auto() {
         ),
         "<script>\n  let a = 1;\n</script><p>{a}</p>\n"
     );
+
+    let angular = "@if (show) {<p>{{value}}</p>}\n";
+    let detected = run(
+        "app.component.html",
+        angular,
+        &Config::default(),
+        Dialect::Auto,
+    );
+    assert!(detected.contains("@if (show) {"), "{detected}");
+    assert_eq!(
+        detected,
+        run(
+            "component.html",
+            angular,
+            &Config::default(),
+            Dialect::Angular
+        )
+    );
 }
 
 #[test]
@@ -481,4 +499,125 @@ fn inserts_omitted_html_end_tags_instead_of_rejecting_valid_html() {
     assert!(output.contains("<td>a</td>"), "{output}");
     assert!(output.contains("<tr>"), "{output}");
     assert!(!output.contains("<li>one<li>"), "{output}");
+}
+
+#[test]
+fn tailwind_ignore_directives_are_scoped_to_their_element() {
+    let config = tailwind(&[]);
+    let leading = "<!-- prettier-ignore -->\n<div class=\"p-4 flex\">a</div>\n<div class=\"p-4 flex\">b</div>\n";
+    assert_eq!(
+        run("x.html", leading, &config, Dialect::Html),
+        "<!-- prettier-ignore -->\n<div class=\"p-4 flex\">a</div>\n<div class=\"flex p-4\">b</div>\n"
+    );
+
+    let file = "<!-- prettier-ignore-file -->\n<div class=\"p-4 flex\">a</div>\n<div class=\"p-4 flex\">b</div>\n";
+    assert_eq!(run("x.html", file, &config, Dialect::Html), file);
+
+    let middle = "<div class=\"p-4 flex\">a</div>\n<!-- prettier-ignore -->\n<div class=\"p-4 flex\">b</div>\n<div class=\"p-4 flex\">c</div>\n";
+    assert_eq!(
+        run("x.html", middle, &config, Dialect::Html),
+        "<div class=\"flex p-4\">a</div>\n<!-- prettier-ignore -->\n<div class=\"p-4 flex\">b</div>\n<div class=\"flex p-4\">c</div>\n"
+    );
+}
+
+#[test]
+fn tailwind_sorting_reflows_and_settles_class_attributes() {
+    let config = tailwind(&[]);
+    let wrapped = "<div\n  class=\"p-4\n flex   m-2\n text-sm\">x</div>\n";
+    assert_eq!(
+        run("x.html", wrapped, &config, Dialect::Html),
+        "<div class=\"m-2 text-sm flex p-4\">\n  x\n</div>\n"
+    );
+
+    let siblings = "<section>\n  <div\n    class=\"p-4\n flex\">a</div>\n  <span\n    class=\"m-4\n block\">b</span>\n</section>\n";
+    let output = run("x.html", siblings, &config, Dialect::Html);
+    assert!(output.contains("<div class=\"flex p-4\">"), "{output}");
+    assert!(
+        output.contains("<span class=\"m-4 block\">b</span>"),
+        "{output}"
+    );
+
+    for (path, dialect) in [
+        ("x.vue", Dialect::Vue),
+        ("x.svelte", Dialect::Svelte),
+        ("x.astro", Dialect::Astro),
+    ] {
+        assert_eq!(
+            run(path, wrapped, &config, dialect),
+            "<div class=\"m-2 text-sm flex p-4\">\n  x\n</div>\n",
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn deeply_nested_markup_is_rejected_without_overflowing_the_stack() {
+    let deep = format!("{}x{}", "<div>".repeat(600), "</div>".repeat(600));
+    let error = format(Path::new("deep.html"), &deep, &Config::default(), Dialect::Html)
+        .expect_err("deep nesting must be a diagnostic");
+    assert!(
+        error.to_string().contains("nesting exceeds"),
+        "{error}"
+    );
+
+    let allowed = format!("{}x{}", "<div>".repeat(100), "</div>".repeat(100));
+    assert!(format(Path::new("deep.html"), &allowed, &Config::default(), Dialect::Html).is_ok());
+
+    // Text and raw script/style content are not markup nesting.
+    let script = format!(
+        "<script>const s = \"{}\";</script>",
+        "<div>".repeat(500)
+    );
+    assert!(format(Path::new("deep.html"), &script, &Config::default(), Dialect::Html).is_ok());
+}
+
+#[test]
+fn preserved_snippets_do_not_collide_with_user_sentinel_text() {
+    let sentinel = "\u{e000}0\u{e001}";
+    let input = format!(
+        "<p>before {sentinel} after</p>\n<script type=\"text/x-template\"><li a>\n</script>\n"
+    );
+    let output = format(Path::new("x.html"), &input, &Config::default(), Dialect::Html).unwrap();
+    assert!(output.contains(sentinel), "{output}");
+    assert!(output.contains("text/x-template"), "{output}");
+    assert!(output.contains("<li a>"), "{output}");
+    assert!(
+        !output.contains("before <script"),
+        "the preserved script leaked into the paragraph: {output}"
+    );
+}
+
+#[test]
+fn commented_out_markup_does_not_count_toward_the_nesting_limit() {
+    let comment = format!(
+        "<!-- {}x{} -->",
+        "<div>".repeat(600),
+        "</div>".repeat(600)
+    );
+    let output = format(
+        Path::new("x.html"),
+        &comment,
+        &Config::default(),
+        Dialect::Html,
+    )
+    .unwrap();
+    assert!(output.contains("<!--"), "{output}");
+}
+
+#[test]
+fn adjacent_json_ld_scripts_stay_on_their_own_lines() {
+    let input = "<script type=\"application/ld+json\">{\"a\":1}</script>\n<script type=\"application/ld+json\">{\"b\":2}</script>\n";
+    let output = format(Path::new("x.html"), input, &Config::default(), Dialect::Html).unwrap();
+    assert_eq!(output.matches("<script").count(), 2, "{output}");
+    assert!(!output.contains("</script> <script"), "{output}");
+    assert!(output.contains("{\"a\":1}"), "{output}");
+    assert!(output.contains("{\"b\":2}"), "{output}");
+}
+
+#[test]
+fn adjacent_import_maps_stay_on_their_own_lines() {
+    let input = "<script type=\"importmap\">{\"imports\":{\"a\":\"/a.js\"}}</script>\n<script type=\"importmap\">{\"imports\":{\"b\":\"/b.js\"}}</script>\n";
+    let output = format(Path::new("x.html"), input, &Config::default(), Dialect::Html).unwrap();
+    assert_eq!(output.matches("<script").count(), 2, "{output}");
+    assert!(!output.contains("</script> <script"), "{output}");
 }

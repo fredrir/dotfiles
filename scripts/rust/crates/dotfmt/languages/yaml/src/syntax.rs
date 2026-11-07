@@ -174,17 +174,21 @@ pub(crate) struct Stream {
 }
 
 impl Stream {
-    pub fn ends_in_block_scalar(&self) -> bool {
-        let Some(document) = self.documents.last() else {
-            return false;
-        };
+    /// The block scalar that ends the stream, when nothing follows it.
+    pub fn trailing_block_scalar(&self) -> Option<&Node> {
+        let document = self.documents.last()?;
         let last = document.root.last();
-        document.end.is_none()
+        if document.end.is_none()
             && matches!(last.kind, Kind::Block { strip: false, .. })
             && self
                 .comments
                 .last()
                 .is_none_or(|comment| comment.start < last.end)
+        {
+            Some(last)
+        } else {
+            None
+        }
     }
 }
 

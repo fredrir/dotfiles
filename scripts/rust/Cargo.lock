@@ -1836,7 +1836,6 @@ name = "dotfmt-json"
 version = "0.1.0"
 dependencies = [
  "dotfmt-core",
- "indexmap 2.14.2",
 ]
 
 [[package]]

@@ -14,11 +14,11 @@ use std::time::{Duration, SystemTime};
 use clap::{Parser, ValueEnum, ValueHint};
 use rayon::prelude::*;
 use serde_json::json;
-use workstation::{Completable, Completions, Style, path, text};
+use workstation::{path, text, Completable, Completions, Style};
 
-use doc_purge_core::Change;
 use doc_purge_core::lang;
-use doc_purge_core::purge::{self, LIMIT, Options as PurgeOptions, Outcome, Saved, TOO_LARGE};
+use doc_purge_core::purge::{self, Options as PurgeOptions, Outcome, Saved, LIMIT, TOO_LARGE};
+use doc_purge_core::Change;
 use ui_batch::{Decision, Options as BatchOptions, Row, Run};
 
 use config::Resolver;
@@ -535,6 +535,7 @@ fn stream_input(
     let config = resolver.for_path(name).map_err(|error| error.to_string())?;
     let absolute = resolver.absolute(name);
     let Some(language) = lang::for_path(name) else {
+        // TODO remove.
         return Err(format!(
             "not a file type doc-purge reads: {}",
             name.display()

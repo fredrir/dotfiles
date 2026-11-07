@@ -124,6 +124,33 @@ fn block_scalars_keep_their_exact_content_while_reindenting() {
 }
 
 #[test]
+fn indented_trailing_whitespace_lines_keep_their_block_scalar_value() {
+    // A line shorter than the content indentation is outside the scalar and
+    // the value still ends with a newline.
+    assert_eq!(
+        format("a: |\n  hi\n   ", &Config::default()).unwrap(),
+        "a: |\n  hi\n   "
+    );
+    // A wider line is content (spaces), so no newline may be appended.
+    assert_eq!(
+        format("a: |\n  hi\n    ", &Config::default()).unwrap(),
+        "a: |\n  hi\n    "
+    );
+}
+
+#[test]
+fn a_trailing_space_line_keeps_a_block_scalar_final_newline() {
+    // The file does not end with a newline, but the literal scalar still does:
+    // the trailing whitespace line is outside the scalar's indentation. The
+    // formatter must not clip the value.
+    let input = "literal: |\n  line1\n ";
+    assert_eq!(
+        format(input, &Config::default()).unwrap(),
+        "literal: |\n  line1\n"
+    );
+}
+
+#[test]
 fn multiline_scalars_reindent_their_continuation_lines() {
     stable(
         "k: one\n      two\n\n      three   # c\nq: \"dq\n   more\"\n",

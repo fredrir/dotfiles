@@ -23,13 +23,24 @@ impl ScanPolicy {
     }
 
     pub fn skips(&self, path: &Path) -> bool {
-        let relative = path.strip_prefix(&self.root).unwrap_or(path);
+        let Some(relative) = self.relative(path) else {
+            return false;
+        };
         relative.components().any(|component| {
             let Component::Normal(name) = component else {
                 return false;
             };
             SKIP.iter().any(|skip| name == OsStr::new(skip))
         })
+    }
+
+    fn relative(&self, path: &Path) -> Option<PathBuf> {
+        if let Ok(relative) = path.strip_prefix(&self.root) {
+            return Some(relative.to_path_buf());
+        }
+        let root = std::fs::canonicalize(&self.root).ok()?;
+        let path = std::fs::canonicalize(path).ok()?;
+        path.strip_prefix(root).ok().map(Path::to_path_buf)
     }
 
     pub fn ignored(&self, path: &Path) -> bool {

@@ -39,7 +39,8 @@ pub(crate) struct Tsconfig {
 
 impl Tsconfig {
     pub(crate) fn elides_unused_imports(&self) -> bool {
-        !self.verbatim_module_syntax
+        !self.invalid
+            && !self.verbatim_module_syntax
             && !self.preserve_value_imports
             && !matches!(
                 self.imports_not_used_as_values.as_deref(),
@@ -48,7 +49,8 @@ impl Tsconfig {
     }
 
     pub(crate) fn allows_type_only_import_conversion(&self) -> bool {
-        if self.verbatim_module_syntax
+        if self.invalid
+            || self.verbatim_module_syntax
             || self.preserve_value_imports
             || self.emit_decorator_metadata
         {
@@ -60,8 +62,10 @@ impl Tsconfig {
         )
     }
 
+    /// An unreadable, missing or partially resolved config cannot prove that the
+    /// automatic JSX runtime is active, so classic factory bindings stay protected.
     pub(crate) fn classic_jsx(&self) -> bool {
-        self.missing || matches!(self.jsx.as_deref(), Some("react" | "preserve"))
+        self.missing || self.invalid || matches!(self.jsx.as_deref(), Some("react" | "preserve"))
     }
 
     pub(crate) fn protected_jsx_names(&self) -> Vec<String> {
@@ -81,6 +85,8 @@ impl Tsconfig {
                 names.push(root.to_owned());
             }
         }
+        names.sort();
+        names.dedup();
         names
     }
 }
@@ -880,6 +886,21 @@ mod tests {
         assert!(config.invalid);
         assert!(!config.missing);
         assert!(config.base_url.is_some());
+        assert!(
+            config.classic_jsx(),
+            "an unresolved extends chain keeps JSX conservative"
+        );
+        assert!(
+            config
+                .protected_jsx_names()
+                .iter()
+                .any(|name| name == "React")
+        );
+        assert!(
+            !config.elides_unused_imports(),
+            "verbatimModuleSyntax from an unreadable base stays conservative"
+        );
+        assert!(!config.allows_type_only_import_conversion());
     }
 
     #[test]
@@ -1001,6 +1022,105 @@ mod tests {
         let config = load(root);
         assert_eq!(config.jsx.as_deref(), Some("react"));
         assert!(config.verbatim_module_syntax);
+        assert!(config.invalid, "a cycle is reported as invalid");
+        assert!(
+            config.classic_jsx(),
+            "a cyclic extends chain keeps JSX conservative"
+        );
+        assert!(!config.elides_unused_imports());
+    }
+
+    #[test]
+    fn unresolved_package_extends_is_invalid_and_conservative() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(
+            root,
+            "tsconfig.json",
+            r#"{"extends":"some-uninstalled-config"}"#,
+        );
+
+        let config = load(root);
+        assert!(config.invalid);
+        assert!(!config.missing);
+        assert!(config.classic_jsx());
+        assert_eq!(config.protected_jsx_names(), vec!["React".to_owned()]);
+        assert!(!config.allows_type_only_import_conversion());
+    }
+
+    #[test]
+    fn extends_deeper_than_the_limit_is_invalid_and_conservative() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        for depth in 0..=MAX_EXTENDS_DEPTH {
+            let text = if depth == MAX_EXTENDS_DEPTH {
+                r#"{"compilerOptions":{"jsx":"react-jsx"}}"#.to_owned()
+            } else {
+                format!(r#"{{"extends":"./base{}.json"}}"#, depth + 1)
+            };
+            write(root, &format!("base{depth}.json"), &text);
+        }
+        write(root, "tsconfig.json", r#"{"extends":"./base0.json"}"#);
+
+        let config = load(root);
+        assert!(config.invalid, "the chain exceeds the depth limit");
+        assert!(config.classic_jsx());
+        assert!(!config.elides_unused_imports());
+    }
+
+    #[test]
+    fn readable_automatic_runtime_keeps_classic_jsx_names_unprotected() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(
+            root,
+            "tsconfig.json",
+            r#"{"compilerOptions":{"jsx":"react-jsx"}}"#,
+        );
+
+        let config = load(root);
+        assert!(!config.invalid);
+        assert!(!config.missing);
+        assert!(!config.classic_jsx());
+        assert!(config.protected_jsx_names().is_empty());
+        assert!(config.elides_unused_imports());
+        assert!(config.allows_type_only_import_conversion());
+    }
+
+    #[test]
+    fn readable_classic_config_protects_configured_factory_roots() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(
+            root,
+            "tsconfig.json",
+            r#"{"compilerOptions":{"jsx":"react","jsxFactory":"h.create","jsxFragmentFactory":"Frag.root"}}"#,
+        );
+
+        let config = load(root);
+        assert!(!config.invalid);
+        assert!(config.classic_jsx());
+        assert_eq!(
+            config.protected_jsx_names(),
+            vec!["Frag".to_owned(), "h".to_owned()]
+        );
+    }
+
+    #[test]
+    fn inherited_factory_from_a_readable_base_is_protected() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write(
+            root,
+            "base.json",
+            r#"{"compilerOptions":{"jsx":"react","jsxFactory":"Base.create"}}"#,
+        );
+        write(root, "tsconfig.json", r#"{"extends":"./base.json"}"#);
+
+        let config = load(root);
+        assert!(!config.invalid);
+        assert!(config.classic_jsx());
+        assert_eq!(config.protected_jsx_names(), vec!["Base".to_owned(), "React".to_owned()]);
     }
 
     #[test]
@@ -1123,7 +1243,7 @@ mod tests {
         let source = root.join("packages/app/src/a.ts");
         assert_eq!(
             nearest_within(&source, root),
-            Some(root.join("tsconfig.json"))
+            Some(fs::canonicalize(root.join("tsconfig.json")).unwrap())
         );
         assert_eq!(nearest_within(&source, &root.join("packages/app")), None);
         assert_eq!(

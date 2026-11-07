@@ -1,3 +1,4 @@
+import { existsSync, statSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -5,6 +6,13 @@ import { parseArgs } from "node:util";
 import { $ } from "bun";
 import { z } from "zod";
 import { build, isPlatform, TARGETS, type Platform } from "./build.ts";
+import {
+  artifactPlatforms,
+  hostTarget,
+  localInstallDecision,
+  missingArtifacts,
+  staleArtifacts,
+} from "./deploy-lib.ts";
 
 const { values } = parseArgs({
   options: {
@@ -55,6 +63,28 @@ if (!values["skip-build"]) {
   await build(platforms);
 }
 
+const packaged = artifactPlatforms(platforms ?? []);
+const missing = missingArtifacts(root, packaged, existsSync);
+if (missing.length > 0) {
+  const files = missing.map((file) => path.relative(root, file)).join(", ");
+  throw new Error(
+    `refusing to package: missing ${files}; run \`bun run build\` (or build the requested target) first`,
+  );
+}
+
+if (values["skip-build"]) {
+  const newest = await newestSourceMtime();
+  const stale = staleArtifacts(root, packaged, newest, (file) =>
+    statSync(file).mtimeMs,
+  );
+  if (stale.length > 0) {
+    const files = stale.map((file) => path.relative(root, file)).join(", ");
+    throw new Error(
+      `refusing to package stale artifacts: ${files} are older than the newest source; run \`bun run build\` (without --skip-build) first`,
+    );
+  }
+}
+
 const vsix = path.join(
   root,
   vsceTarget ? `dotfmt-${vsceTarget}.vsix` : "dotfmt.vsix",
@@ -69,16 +99,7 @@ if (vsceTarget) {
   );
 }
 
-const installers = [Bun.which("code"), await localServer()].filter(
-  (cli): cli is string => Boolean(cli),
-);
-if (installers.length === 0 && !values.remote) {
-  throw new Error("VS Code not found");
-}
-for (const cli of installers) {
-  await $`${cli} --install-extension ${vsix} --force`;
-}
-
+let remoteInstall: { host: string; cli: string; upload: string } | undefined;
 if (values.remote) {
   const host = values.remote;
   const [remote, platform] = await Promise.all([
@@ -91,10 +112,70 @@ if (values.remote) {
     );
   }
   await checkRemotePlatform(host, platform, vsix, vsceTarget);
-  const cli = `~/.vscode-server/cli/servers/${remote.directory}/server/bin/code-server`;
-  const upload = `/tmp/dotfmt-${remote.commit}.vsix`;
+  remoteInstall = {
+    host,
+    cli: `~/.vscode-server/cli/servers/${remote.directory}/server/bin/code-server`,
+    upload: `/tmp/dotfmt-${remote.commit}.vsix`,
+  };
+}
+
+const local = localInstallDecision(vsceTarget, hostTarget(), packaged);
+if (!local.install) {
+  console.log(`dotfmt: ${local.reason}`);
+} else {
+  const installers = [Bun.which("code"), await localServer()].filter(
+    (cli): cli is string => Boolean(cli),
+  );
+  if (installers.length === 0 && !values.remote) {
+    throw new Error("VS Code not found");
+  }
+  for (const cli of installers) {
+    await $`${cli} --install-extension ${vsix} --force`;
+  }
+}
+
+if (remoteInstall) {
+  const { host, cli, upload } = remoteInstall;
   await $`scp -q ${vsix} ${host}:${upload}`;
   await $`ssh ${host} ${`test -x ${cli} || { echo "no VS Code server at ${cli}; connect with Remote SSH first" >&2; exit 1; }; ${cli} --install-extension ${upload} --force; installed=$?; rm -f ${upload}; exit $installed`}`;
+}
+
+async function newestSourceMtime(): Promise<number> {
+  const sources = [
+    path.join(root, "src"),
+    path.resolve(root, "../../../rust/crates/dotfmt"),
+  ];
+  let newest = 0;
+  const visit = async (file: string): Promise<void> => {
+    const info = await stat(file).catch(() => undefined);
+    if (!info) {
+      return;
+    }
+    if (info.isDirectory()) {
+      for (const entry of await readdir(file)) {
+        if (entry === "target" || entry === "node_modules" || entry === "dist") {
+          continue;
+        }
+        await visit(path.join(file, entry));
+      }
+      return;
+    }
+    newest = Math.max(newest, info.mtimeMs);
+  };
+  for (const source of sources) {
+    await visit(source);
+  }
+  for (const file of [
+    "package.json",
+    "schema.json",
+    "language-configuration.json",
+  ]) {
+    const info = await stat(path.join(root, file)).catch(() => undefined);
+    if (info) {
+      newest = Math.max(newest, info.mtimeMs);
+    }
+  }
+  return newest;
 }
 
 interface RemoteServer {
@@ -108,7 +189,6 @@ interface RemotePlatform {
   target?: Platform;
 }
 
-/** Refuses a remote install when the packaged vsix has no binary for that host. */
 async function checkRemotePlatform(
   host: string,
   platform: RemotePlatform | undefined,
@@ -188,7 +268,6 @@ function remoteTarget(system: string, machine: string): Platform | undefined {
   return undefined;
 }
 
-/** Platforms with a bundled server under `bin/`, which is what the vsix ships. */
 async function packagedPlatforms(): Promise<Platform[]> {
   let entries;
   try {
@@ -202,7 +281,6 @@ async function packagedPlatforms(): Promise<Platform[]> {
     .sort();
 }
 
-/** The remote VS Code server's own commit, not the local desktop commit. */
 async function remoteServer(host: string): Promise<RemoteServer | undefined> {
   const directories = await remoteDirectories(host);
   const version = await $`ssh ${host} code --version`.quiet().nothrow();
@@ -239,7 +317,6 @@ async function remoteDirectories(host: string): Promise<string[]> {
         }
       }
     } catch {
-      // Fall through to listing the server directory.
     }
   }
   const listing = await $`ssh ${host} ls -1t ~/.vscode-server/cli/servers`
@@ -279,7 +356,6 @@ async function localServer(): Promise<string | undefined> {
         }
       }
     } catch {
-      // Fall through to listing the server directory.
     }
   }
   for (const directory of await recentServerDirectories(servers)) {

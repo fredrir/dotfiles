@@ -13,7 +13,6 @@ export interface Settings {
   fixesOnSave: FixesOnSave;
 }
 
-/** Resource-scoped dotfmt settings, resolved against the nearest workspace folder. */
 export function readSettings(
   scope?: vscode.ConfigurationScope | null,
 ): Settings {

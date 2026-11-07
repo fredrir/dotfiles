@@ -317,7 +317,9 @@ impl Engine {
         for _ in 0..3 {
             let analysis = match self.analyze(
                 context,
+                context,
                 current.as_bytes(),
+                detected,
                 true,
                 selection.r#unsafe,
                 Some(false),
@@ -572,6 +574,7 @@ impl Engine {
             config.stylesheet_base.as_deref(),
             config.config_file.as_deref(),
             config.config_base.as_deref(),
+            config.order,
             &classes,
         ) {
             Ok(order) => {
@@ -613,11 +616,14 @@ impl Engine {
         }
     }
 
+    /// `path` is the user-facing name, `context` the absolute path used for resolution.
     #[allow(clippy::too_many_arguments)]
     pub fn analyze(
         &self,
         path: &Path,
+        context: &Path,
         input: &[u8],
+        detected: dotfmt_markdown::dialect::Dialect,
         fix: bool,
         unsafe_fixes: bool,
         type_aware: Option<bool>,
@@ -631,9 +637,9 @@ impl Engine {
                     Some(text) => (text, true),
                     None => (text, false),
                 };
-                let dialect = dialect.resolve(config.dialect, path);
+                let dialect = dialect.resolve(config.dialect, context);
                 dotfmt_typescript::analyze(
-                    path,
+                    context,
                     text,
                     config,
                     dialect,
@@ -648,16 +654,25 @@ impl Engine {
                 )
             }
             Kind::Css(config, dialect) => {
-                let dialect = dialect.resolve(config.dialect, path);
-                dotfmt_css::format(path, utf8(input)?, config, dialect)?;
+                let dialect = dialect.resolve(config.dialect, context);
+                dotfmt_css::format(context, utf8(input)?, config, dialect)?;
                 Ok(dotfmt_core::edit::Analysis::default())
             }
             Kind::Html(config, dialect) => {
-                let dialect = dialect.resolve(config.dialect, path);
-                dotfmt_html::format(path, utf8(input)?, config, dialect)?;
+                let dialect = dialect.resolve(config.dialect, context);
+                dotfmt_html::format(context, utf8(input)?, config, dialect)?;
                 Ok(dotfmt_core::edit::Analysis::default())
             }
-            _ => Ok(dotfmt_core::edit::Analysis::default()),
+            _ => {
+                // These languages contribute no findings, but a diagnose run still has to
+                // report malformed input. The format path is the validator (and applies the
+                // same repair semantics); only its diagnostic matters here. Fix runs format
+                // the buffer again afterwards, so they must not pay for a second pass.
+                if !fix {
+                    self.format_text(path, context, input, detected, false)?;
+                }
+                Ok(dotfmt_core::edit::Analysis::default())
+            }
         }
     }
 
@@ -690,6 +705,48 @@ fn utf8(input: &[u8]) -> Result<&str, Diagnostic> {
     std::str::from_utf8(input).map_err(|_| Diagnostic::new(DiagnosticKind::Syntax, "not UTF-8"))
 }
 
+/// Embedded `<style>`/`<script>` blocks follow the effective CSS, TypeScript and
+/// JavaScript settings instead of the HTML engine defaults. Blocks stay formatted even
+/// when the sub-language is disabled for standalone files; only the `javascript` block
+/// (an opt-in language) is optional, and `<script>` then uses the TypeScript settings.
+fn embedded_html(html: &mut dotfmt_html::Config, config: &Effective) -> Result<(), Diagnostic> {
+    if let Some(css) = configured(
+        config,
+        Language::Css,
+        dotfmt_css::config::Config::from_settings,
+    )? {
+        html.css = css;
+    }
+    let typescript = configured(
+        config,
+        Language::TypeScript,
+        dotfmt_typescript::config::Config::from_settings,
+    )?;
+    if let Some(typescript) = &typescript {
+        html.typescript = typescript.clone();
+    }
+    html.javascript = match configured(
+        config,
+        Language::Javascript,
+        dotfmt_typescript::config::Config::from_settings,
+    )? {
+        Some(javascript) => javascript,
+        None => html.typescript.clone(),
+    };
+    Ok(())
+}
+
+fn configured<T>(
+    config: &Effective,
+    language: Language,
+    parse: impl Fn(&Settings) -> Result<T, Diagnostic>,
+) -> Result<Option<T>, Diagnostic> {
+    match config.languages.get(&language) {
+        Some(local) if local.enabled => parse(&local.settings).map(Some),
+        _ => Ok(None),
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Engines {
     validated: HashMap<usize, (Arc<Effective>, Result<(), Diagnostic>)>,
@@ -706,7 +763,10 @@ impl Engines {
                 let result = (|| {
                     for (&language, settings) in &config.languages {
                         if settings.enabled {
-                            let engine = Engine::new(language, &settings.settings, None)?;
+                            let mut engine = Engine::new(language, &settings.settings, None)?;
+                            if let Kind::Html(html, _) = &mut engine.kind {
+                                embedded_html(html, config)?;
+                            }
                             self.configured.insert((id, language), Arc::new(engine));
                         }
                     }

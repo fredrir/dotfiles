@@ -1,20 +1,3 @@
-/**
- * Rewrites the generated `dotfmt.format.*` settings in package.json from
- * schema.json, so every dotfmt option is settable from VS Code.
- *
- * schema.json is the source of truth: core globals, the settings every
- * language block accepts, and each language's `set` keys. Generated settings
- * have a `null` default, so an unset key inherits from `dotfmt.dotfile`; the
- * effective value is documented in the description instead.
- *
- * Every run also checks coverage against the Rust configuration code: each key
- * a language `set` implementation matches must appear in schema.json, and
- * schema.json must not offer a key that `set` rejects as unknown.
- *
- * Usage:
- *   bun generate-settings.ts            # rewrite package.json
- *   bun generate-settings.ts --check    # exit 1 when package.json is stale
- */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -28,7 +11,6 @@ const LANGUAGES_PATH = path.join(DOTFMT_ROOT, "languages");
 
 const SETTING_PREFIX = "dotfmt.format.";
 
-/** Canonical language names, from `Language::ALL` in core/src/language.rs. */
 const LANGUAGES = [
   "bib",
   "conf",
@@ -48,7 +30,6 @@ const LANGUAGES = [
   "yaml",
 ] as const;
 
-/** Language crates whose config.rs serves more than one dotfmt language. */
 const SHARED_CONFIGS: Record<string, readonly string[]> = {
   typescript: ["typescript", "javascript"],
 };
@@ -61,9 +42,7 @@ interface Option {
   minimum?: number;
   maximum?: number;
   items?: { type: "string" };
-  /** Effective value when nothing else sets the option. */
   default?: string | number | boolean;
-  /** Used instead of `default` when the value is computed or unset. */
   defaultDescription?: string;
   description: string;
 }
@@ -162,9 +141,6 @@ function validateOptions(scope: string, options: Record<string, Option>): void {
 }
 
 function settingsProperty(option: Option): Record<string, unknown> {
-  // VS Code serializes a declared boolean/integer/string/array without a
-  // default as false/0/""/[], which would override dotfmt.dotfile. A null
-  // default keeps unset keys explicitly absent from the configuration pull.
   const property: Record<string, unknown> = { type: option.type, default: null };
   if (option.items) {
     property.items = option.items;
@@ -194,7 +170,6 @@ function markdownDescription(option: Option): string {
   ].join("\n\n");
 }
 
-/** The generated `dotfmt.format.*` properties, in schema order. */
 function generatedSettings(schema: Schema): Record<string, unknown> {
   const generated: Record<string, unknown> = {};
   for (const [key, option] of Object.entries(schema.global)) {
@@ -229,7 +204,6 @@ function propertiesOf(manifest: Manifest): Record<string, unknown> {
   return properties;
 }
 
-/** package.json text with the generated subset replaced and everything kept. */
 function withGeneratedSettings(
   manifest: Manifest,
   generated: Record<string, unknown>,
@@ -248,7 +222,6 @@ function withGeneratedSettings(
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
-/** Which generated settings package.json is missing, keeps or spells differently. */
 function staleSummary(
   properties: Record<string, unknown>,
   generated: Record<string, unknown>,
@@ -337,7 +310,6 @@ function readString(source: string, start: number): StringLiteral {
   return fail(`coverage: unterminated string at ${start}`);
 }
 
-/** Index after a `//` or `/* *\/` comment that starts here, or -1. */
 function skipComment(source: string, index: number): number {
   if (source.startsWith("//", index)) {
     const newline = source.indexOf("\n", index);
@@ -350,10 +322,6 @@ function skipComment(source: string, index: number): number {
   return -1;
 }
 
-/**
- * Skips one `'x'` character literal. Lifetimes and apostrophes in comments are
- * left to the caller, so only a complete short literal matches.
- */
 function skipCharacterLiteral(source: string, index: number): number {
   const literal = /^'(?:\\?.)'/.exec(source.slice(index, index + 4));
   return literal ? index + literal[0].length : -1;
@@ -386,7 +354,6 @@ function skipBlock(source: string, start: number): number {
   return fail(`coverage: unbalanced block at ${start}`);
 }
 
-/** The index of the `,` or match-closing `}` that ends an expression arm. */
 function skipExpression(source: string, start: number): number {
   let braces = 0;
   let parens = 0;
@@ -438,7 +405,6 @@ function skipExpression(source: string, start: number): number {
   return index;
 }
 
-/** The string literals that start a match arm in the block after `marker`. */
 function matchArms(source: string, marker: string): string[] {
   const markerAt = source.indexOf(marker);
   if (markerAt < 0) {
@@ -512,7 +478,6 @@ function matchArms(source: string, marker: string): string[] {
   }
 }
 
-/** Every language `set` key must be in schema.json, and nothing else may be. */
 function checkCoverage(schema: Schema): boolean {
   const problems: string[] = [];
   const known = new Set<string>(LANGUAGES);
@@ -533,8 +498,6 @@ function checkCoverage(schema: Schema): boolean {
     if (!existsSync(file)) {
       continue;
     }
-    // Guarded and unguarded arms can name the same key (`indent if global`
-    // plus `indent`); coverage counts distinct keys, not arms.
     const keys = [...new Set(matchArms(readFileSync(file, "utf8"), "fn set("))];
     for (const language of SHARED_CONFIGS[crate] ?? [crate]) {
       const options = schema.languages[language];

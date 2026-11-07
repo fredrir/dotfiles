@@ -3,7 +3,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -21,6 +21,7 @@ use crate::analysis;
 use crate::client::Client;
 use crate::documents::{Document, Documents};
 use crate::settings::{Settings, SettingsStore};
+use crate::tsc::Tsc;
 use crate::uri::{self, Key};
 use crate::workspace::Workspace;
 
@@ -38,11 +39,13 @@ pub struct Diagnostics {
     settings: Arc<SettingsStore>,
     workspace: Arc<Workspace>,
     removal_epochs: Arc<Mutex<HashMap<PathBuf, u64>>>,
+    tsc: Arc<Mutex<Option<Weak<Tsc>>>>,
     worker: Option<JoinHandle<()>>,
 }
 
 enum Job {
     Schedule(Box<Scheduled>),
+    Forget(Uri),
     Clear(Uri),
     ClearAll,
     ClearRoot(PathBuf),
@@ -62,6 +65,7 @@ struct Scheduled {
     settings: Settings,
     epoch_root: PathBuf,
     epoch: u64,
+    recheck_tsc: bool,
 }
 
 impl Diagnostics {
@@ -79,17 +83,19 @@ impl Diagnostics {
             Arc::clone(&documents),
         )));
         let removal_epochs = Arc::new(Mutex::new(HashMap::new()));
+        let tsc = Arc::new(Mutex::new(None));
         let worker = {
             let published = Arc::clone(&published);
             let settings = Arc::clone(&settings);
             let client = Arc::clone(&client);
             let epochs = Arc::clone(&removal_epochs);
             let workspace = Arc::clone(&workspace);
+            let tsc = Arc::clone(&tsc);
             thread::Builder::new()
                 .name("dotfmt-lsp-diagnostics".into())
                 .spawn(move || {
                     run(
-                        jobs, workspace, documents, settings, published, client, epochs,
+                        jobs, workspace, documents, settings, published, client, epochs, tsc,
                     )
                 })
                 .ok()
@@ -101,11 +107,21 @@ impl Diagnostics {
             settings,
             workspace,
             removal_epochs,
+            tsc,
             worker,
         }
     }
 
-    pub fn schedule(&self, document: &Document, path: PathBuf, uri: Uri) {
+    /// Lets the debounced diagnostics worker rerun project checks after an edit.
+    /// Attached after construction because `Tsc` itself depends on `Diagnostics`.
+    pub fn attach_tsc(&self, tsc: &Arc<Tsc>) {
+        *self.tsc.lock().unwrap_or_else(|error| error.into_inner()) = Some(Arc::downgrade(tsc));
+    }
+
+    /// Schedules the debounced dotfmt inspection. `recheck_tsc` asks the worker
+    /// to rerun the project check once after the debounce; opens and saves
+    /// schedule the compiler directly, so they pass `false` to avoid a double run.
+    pub fn schedule(&self, document: &Document, path: PathBuf, uri: Uri, recheck_tsc: bool) {
         let path = crate::workspace::normalize(&path);
         let settings = self.settings.settings_for(&path);
         let epoch_root = self.workspace.root_for(&path);
@@ -120,11 +136,18 @@ impl Diagnostics {
             settings,
             epoch_root,
             epoch,
+            recheck_tsc,
         })));
     }
 
     pub fn clear(&self, uri: Uri) {
         let _ = self.pending.send(Job::Clear(uri));
+    }
+
+    /// Drops the published diagnostics for `uri` without publishing a clear. A reopened
+    /// document is authoritative, so its version must not be suppressed as stale.
+    pub fn forget(&self, uri: Uri) {
+        let _ = self.pending.send(Job::Forget(uri));
     }
 
     pub fn clear_all(&self) {
@@ -210,6 +233,7 @@ impl Drop for Diagnostics {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     jobs: crossbeam_channel::Receiver<Job>,
     workspace: Arc<Workspace>,
@@ -218,6 +242,7 @@ fn run(
     published: Arc<Mutex<Published>>,
     client: Arc<Client>,
     removal_epochs: Arc<Mutex<HashMap<PathBuf, u64>>>,
+    tsc: Arc<Mutex<Option<Weak<Tsc>>>>,
 ) {
     let mut pending: HashMap<Key, (Instant, Scheduled)> = HashMap::new();
     loop {
@@ -227,6 +252,9 @@ fn run(
             .filter(|(_, (at, _))| *at <= now)
             .map(|(uri, _)| uri.clone())
             .collect();
+        // One project check per debounced batch per root; `Tsc::recheck` coalesces the
+        // pending work and drops cached results so the edit is really rechecked.
+        let mut rechecks: HashMap<PathBuf, (PathBuf, Settings)> = HashMap::new();
         for uri in due {
             let Some((_, job)) = pending.remove(&uri) else {
                 continue;
@@ -234,9 +262,33 @@ fn run(
             if epoch_for(&removal_epochs, &job.epoch_root) != job.epoch {
                 continue;
             }
-            if let Some(entries) = inspect(&workspace, &documents, &settings, &job) {
+            let Some(entries) = inspect(&workspace, &documents, &settings, &job) else {
+                continue;
+            };
+            {
                 let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
                 published.set_dotfmt(&job.uri, job.version, entries, &client);
+            }
+            if job.recheck_tsc
+                && job.settings.type_aware
+                && settings.trusted()
+                && analysis::is_typescript(&job.path)
+            {
+                rechecks
+                    .entry(job.epoch_root.clone())
+                    .or_insert_with(|| (job.path.clone(), job.settings.clone()));
+            }
+        }
+        if !rechecks.is_empty() {
+            let tsc = tsc
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_ref()
+                .and_then(Weak::upgrade);
+            if let Some(tsc) = tsc {
+                for (root, (path, settings)) in rechecks {
+                    tsc.recheck(path, root, settings);
+                }
             }
         }
 
@@ -252,6 +304,11 @@ fn run(
                 let at = Instant::now() + job.delay;
                 let key = uri::key(&job.uri);
                 pending.insert(key, (at, job));
+            }
+            Ok(Job::Forget(uri)) => {
+                pending.remove(&uri::key(&uri));
+                let mut published = published.lock().unwrap_or_else(|error| error.into_inner());
+                published.forget(&uri);
             }
             Ok(Job::Clear(uri)) => {
                 pending.remove(&uri::key(&uri));
@@ -607,6 +664,18 @@ impl Published {
         self.publish(&affected, client);
     }
 
+    fn forget(&mut self, uri: &Uri) {
+        let owner = uri::key(uri);
+        let aliases = self.owners.remove(&owner).unwrap_or_default();
+        let referenced = self.referenced_by_others(&owner);
+        for key in aliases {
+            if !referenced.contains(&key) {
+                self.dotfmt.remove(&key);
+            }
+        }
+        self.dotfmt.remove(&owner);
+    }
+
     fn referenced_by_others(&self, owner: &Key) -> HashSet<Key> {
         self.owners
             .iter()
@@ -858,6 +927,7 @@ impl Published {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .uri_for_identity(key)
+            .or_else(|| self.last.get(key).map(|sent| sent.uri.clone()))
             .unwrap_or_else(|| key.uri())
     }
 
@@ -991,6 +1061,7 @@ mod tests {
             delay: Duration::from_millis(0),
             settings: Settings::default(),
             epoch: 0,
+            recheck_tsc: false,
         }
     }
 
@@ -1234,6 +1305,86 @@ mod tests {
         assert!(
             receiver.recv_timeout(Duration::from_millis(50)).is_err(),
             "stale result was published"
+        );
+    }
+
+    #[test]
+    fn reopening_replaces_an_older_published_version() {
+        let (mut published, client, receiver) = harness(false);
+        let uri = Uri::from_str("file:///tmp/a.json").unwrap();
+        published
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), Document::new("{}\n".into(), "json".into(), 5));
+        published.set_dotfmt(
+            &uri,
+            5,
+            vec![(uri.clone(), vec![Diagnostic::default()])],
+            &client,
+        );
+        let _ = receiver.recv().unwrap();
+
+        published.forget(&uri);
+        published.set_dotfmt(&uri, 1, vec![(uri.clone(), Vec::new())], &client);
+        let message = receiver.recv().unwrap();
+        let Message::Notification(notification) = message else {
+            panic!("expected diagnostics notification");
+        };
+        let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
+        assert_eq!(params.uri, uri);
+        assert_eq!(
+            params.version,
+            Some(1),
+            "a reopen at a lower version was suppressed"
+        );
+        assert!(
+            params.diagnostics.is_empty(),
+            "stale diagnostics survived a reopen"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closing_publishes_only_to_the_uri_the_client_opened() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        write(root, "real/x.json", "{}\n");
+        std::os::unix::fs::symlink(root.join("real"), root.join("link")).unwrap();
+        let client_uri = uri::from_path(&root.join("link/x.json"));
+        let canonical_uri = uri::from_path(&root.join("real/x.json"));
+        assert_eq!(uri::key(&client_uri), uri::key(&canonical_uri));
+
+        let (mut published, client, receiver) = harness_with_roots(false, &[root]);
+        published.documents.lock().unwrap().open(
+            client_uri.clone(),
+            Document::new("{}\n".into(), "json".into(), 1),
+        );
+        published.set_dotfmt(
+            &client_uri,
+            1,
+            vec![(client_uri.clone(), vec![tsc("dotfmt")])],
+            &client,
+        );
+        let opened = receiver.recv().unwrap();
+        let Message::Notification(notification) = opened else {
+            panic!("expected diagnostics notification");
+        };
+        let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
+        assert_eq!(params.uri, client_uri);
+
+        published.documents.lock().unwrap().close(&client_uri);
+        published.clear_dotfmt(&client_uri, &client);
+        let cleared = receiver.recv().unwrap();
+        let Message::Notification(notification) = cleared else {
+            panic!("expected diagnostics notification");
+        };
+        let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
+        assert_eq!(params.uri, client_uri);
+        assert!(params.diagnostics.is_empty());
+        assert!(
+            receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+            "published a clear for a URI the client never opened"
         );
     }
 

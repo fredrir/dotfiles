@@ -4,6 +4,8 @@ mod common;
 
 use common::dotfmt;
 use std::fs;
+#[cfg(unix)]
+use std::path::PathBuf;
 use testkit::tree_pairs;
 
 const CONFIG: &str = "json {}\n";
@@ -125,6 +127,36 @@ fn a_nested_prettierignore_only_applies_to_its_own_directory() {
         .run();
     assert!(output.success(), "{output:?}");
     assert_eq!(output.stdout, "nested/keep.json\0keep.json\0", "{output:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn owns_accepts_a_path_spelled_through_a_symlinked_cwd() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("build").join("checkout");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("dotfmt.dotfile"), CONFIG).unwrap();
+    fs::write(root.join("a.json"), "{\"a\":1}").unwrap();
+    let alias = temp.path().join("alias");
+    std::os::unix::fs::symlink(&root, &alias).unwrap();
+
+    let paths = [
+        PathBuf::from("a.json"),
+        alias.join("a.json"),
+        root.join("a.json"),
+    ];
+    let input = paths
+        .iter()
+        .map(|path| format!("{}\0", path.display()))
+        .collect::<String>();
+
+    let output = dotfmt(&root)
+        .current_dir(&alias)
+        .arg("--owns")
+        .stdin(&input)
+        .run();
+    assert!(output.success(), "{output:?}");
+    assert_eq!(output.stdout, input, "{output:?}");
 }
 
 #[test]

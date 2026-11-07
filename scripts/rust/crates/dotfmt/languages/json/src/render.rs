@@ -79,12 +79,7 @@ fn array_into(out: &mut String, items: &[Value], layout: Layout, depth: usize) {
     out.push(']');
 }
 
-fn object_into(
-    out: &mut String,
-    entries: &indexmap::IndexMap<String, Value>,
-    layout: Layout,
-    depth: usize,
-) {
+fn object_into(out: &mut String, entries: &[(String, Value)], layout: Layout, depth: usize) {
     if entries.is_empty() {
         out.push_str("{}");
         return;

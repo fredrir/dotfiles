@@ -2,7 +2,6 @@ import os from "node:os";
 import path from "node:path";
 import { CONFIG_NAME } from "./languages";
 
-/** Whether `child` is `parent` or inside it, compared by path segments rather than string prefix. */
 export function isWithin(parent: string, child: string): boolean {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
   return (
@@ -13,12 +12,23 @@ export function isWithin(parent: string, child: string): boolean {
   );
 }
 
-/** Expands a leading `~` to the home directory. */
 export function expandHome(value: string, home = os.homedir()): string {
   return value.replace(/^~(?=$|[\\/])/, home);
 }
 
-/** Shortens absolute paths under the home directory to `~/...`. */
+export function resolveBinary(
+  configured: string,
+  bundled: string,
+  fallback: string,
+  exists: (candidate: string) => boolean,
+): string {
+  const value = configured.trim();
+  if (value) {
+    return expandHome(value);
+  }
+  return exists(bundled) ? bundled : fallback;
+}
+
 export function tildify(
   value: string,
   home = process.env.HOME ?? os.homedir(),
@@ -34,7 +44,6 @@ export function tildify(
     : value;
 }
 
-/** The nearest `dotfmt.dotfile` between `file` and `root`, never outside `root`. */
 export function findConfig(
   file: string,
   root: string,

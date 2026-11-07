@@ -4,8 +4,8 @@ use super::context::Context;
 use dotfmt_core::edit::{Analysis, Applicability, Edit, Finding, Fix, Severity, Tag, apply};
 use oxc_ast::AstKind;
 use oxc_ast::ast::{
-    ArrayExpressionElement, BindingPattern, Expression, ObjectPropertyKind, UnaryOperator,
-    VariableDeclarationKind,
+    ArrayExpressionElement, BindingPattern, ChainElement, Expression, ObjectPropertyKind,
+    UnaryOperator, VariableDeclarationKind,
 };
 use oxc_semantic::SymbolFlags;
 
@@ -85,9 +85,7 @@ fn unused_variables<'a, 'p>(context: &Context<'a, 'p>, analysis: &mut Analysis) 
             || comments
             || !single
             || in_for
-            || (context.is_script
-                && matches!(variable.kind, VariableDeclarationKind::Var)
-                && !has_function_body(context, variable.node_id()))
+            || (context.is_script && !has_function_body(context, variable.node_id()))
         {
             continue;
         }
@@ -299,12 +297,17 @@ fn is_side_effect_free(expression: &Expression<'_>) -> bool {
         | Expression::BigIntLiteral(_)
         | Expression::RegExpLiteral(_)
         | Expression::StringLiteral(_)
+        | Expression::Identifier(_)
+        | Expression::Super(_)
         | Expression::ArrowFunctionExpression(_)
         | Expression::FunctionExpression(_)
         | Expression::ThisExpression(_)
         | Expression::ImportMeta(_)
         | Expression::NewTarget(_) => true,
-        Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+        Expression::TemplateLiteral(template) => template
+            .expressions
+            .iter()
+            .all(|expression| is_side_effect_free(expression)),
         Expression::ArrayExpression(array) => array.elements.iter().all(|element| match element {
             ArrayExpressionElement::Elision(_) => true,
             ArrayExpressionElement::SpreadElement(_) => false,
@@ -319,16 +322,29 @@ fn is_side_effect_free(expression: &Expression<'_>) -> bool {
             })
         }
         Expression::UnaryExpression(unary) => {
-            unary.operator != UnaryOperator::Delete
-                && matches!(
-                    unary.argument,
-                    Expression::BooleanLiteral(_)
-                        | Expression::NullLiteral(_)
-                        | Expression::NumericLiteral(_)
-                        | Expression::BigIntLiteral(_)
-                        | Expression::StringLiteral(_)
-                )
+            unary.operator != UnaryOperator::Delete && is_side_effect_free(&unary.argument)
         }
+        Expression::BinaryExpression(binary) => {
+            is_side_effect_free(&binary.left) && is_side_effect_free(&binary.right)
+        }
+        Expression::LogicalExpression(logical) => {
+            is_side_effect_free(&logical.left) && is_side_effect_free(&logical.right)
+        }
+        Expression::ConditionalExpression(conditional) => {
+            is_side_effect_free(&conditional.test)
+                && is_side_effect_free(&conditional.consequent)
+                && is_side_effect_free(&conditional.alternate)
+        }
+        Expression::SequenceExpression(sequence) => sequence
+            .expressions
+            .iter()
+            .all(|expression| is_side_effect_free(expression)),
+        Expression::StaticMemberExpression(member) => is_side_effect_free(&member.object),
+        Expression::ComputedMemberExpression(member) => {
+            is_side_effect_free(&member.object) && is_side_effect_free(&member.expression)
+        }
+        Expression::PrivateFieldExpression(member) => is_side_effect_free(&member.object),
+        Expression::ChainExpression(chain) => chain_is_side_effect_free(&chain.expression),
         Expression::ParenthesizedExpression(parenthesized) => {
             is_side_effect_free(&parenthesized.expression)
         }
@@ -340,5 +356,19 @@ fn is_side_effect_free(expression: &Expression<'_>) -> bool {
             is_side_effect_free(&expression.expression)
         }
         _ => false,
+    }
+}
+
+fn chain_is_side_effect_free(element: &ChainElement<'_>) -> bool {
+    match element {
+        ChainElement::CallExpression(_) => false,
+        ChainElement::TSNonNullExpression(expression) => {
+            is_side_effect_free(&expression.expression)
+        }
+        ChainElement::StaticMemberExpression(member) => is_side_effect_free(&member.object),
+        ChainElement::ComputedMemberExpression(member) => {
+            is_side_effect_free(&member.object) && is_side_effect_free(&member.expression)
+        }
+        ChainElement::PrivateFieldExpression(member) => is_side_effect_free(&member.object),
     }
 }

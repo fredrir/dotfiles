@@ -302,6 +302,21 @@ impl Tsc {
         self.invalidate_path_except(path, &HashSet::new())
     }
 
+    /// Reruns the project checks that cover `path` after a debounced edit. Cached
+    /// results are dropped so the check reruns, and the work coalesces into the
+    /// pending check of each affected root.
+    pub fn recheck(&self, path: PathBuf, root: PathBuf, settings: Settings) {
+        let root = crate::workspace::normalize(&root);
+        self.settings
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(root.clone(), settings.clone());
+        let invalidated = self.invalidate_path(&path);
+        if !invalidated.contains(&root) {
+            self.schedule(path, root, settings);
+        }
+    }
+
     pub(crate) fn invalidate_path_except(
         &self,
         path: &Path,

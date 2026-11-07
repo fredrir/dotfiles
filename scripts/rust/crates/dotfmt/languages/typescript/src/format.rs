@@ -63,8 +63,14 @@ pub fn format(
             path.display()
         ));
     }
+    let tailwind = if config.tailwind_enabled() {
+        config.tailwind_sorter.as_ref()
+    } else {
+        None
+    };
     if config.verify
-        && let Some(removal) = crate::verify::detect_code_removal(&text, &output, source_type)
+        && let Some(removal) =
+            crate::verify::detect_code_removal(&text, &output, source_type, tailwind)
     {
         return Err(internal(format!("formatting would remove code: {removal}")));
     }

@@ -157,6 +157,25 @@ fn global_width_and_indent_clamp_but_local_settings_stay_strict() {
 }
 
 #[test]
+fn indent_zero_is_a_configuration_error() {
+    let error = Config::from_settings(&settings(&[("indent", "0")])).unwrap_err();
+    assert_eq!(error.kind, DiagnosticKind::Configuration);
+    assert_eq!(error.message, "indent must be between 1 and 24, not 0");
+    let error = Config::from_settings(&settings(&[("indent", "-1")])).unwrap_err();
+    assert_eq!(error.message, "indent must be a number, not -1");
+}
+
+#[test]
+fn indent_one_still_formats() {
+    let config = config(&[("indent", "1")]);
+    assert_eq!(config.indent, 1);
+    assert_eq!(
+        format_with(&config, "a{color:red}"),
+        "a {\n color: red;\n}\n"
+    );
+}
+
+#[test]
 fn indent_and_indent_type_change_printed_indentation() {
     let spaces = config(&[("indent", "4")]);
     assert_eq!(

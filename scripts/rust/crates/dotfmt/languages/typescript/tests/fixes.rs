@@ -319,9 +319,11 @@ fn composite_and_coercing_initializers_are_never_safe_to_remove() {
 
 #[test]
 fn unused_variables_are_removed_only_by_unsafe_fixes() {
-    let input = "const x = 1;\nconsole.log(2);\n";
+    // `export {}` keeps the file a module: top-level `let`/`const` in a classic
+    // script are global bindings and stay protected.
+    let input = "export {};\nconst x = 1;\nconsole.log(2);\n";
     let analysis = analyze(Path::new("a.ts"), input, true, false);
-    assert_eq!(analysis.findings[0].code, "unused-variable");
+    assert!(analysis.findings.iter().any(|finding| finding.code == "unused-variable"));
     assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
     assert_eq!(apply_every_fix(input, &analysis), input);
 
@@ -332,15 +334,20 @@ fn unused_variables_are_removed_only_by_unsafe_fixes() {
         .find(|fix| fix.title.contains("unused variable"))
         .expect("unsafe fix");
     assert_eq!(fix.applicability, Applicability::Unsafe);
-    assert_eq!(apply_every_fix(input, &analysis), "console.log(2);\n");
+    assert_eq!(apply_every_fix(input, &analysis), "export {};\nconsole.log(2);\n");
 }
 
 #[test]
 fn impure_initializers_need_remove_impure_locals() {
-    let input = "const x = risky();\nconsole.log(2);\n";
+    let input = "export {};\nconst x = risky();\nconsole.log(2);\n";
     for unsafe_fixes in [false, true] {
         let analysis = analyze(Path::new("a.ts"), input, true, unsafe_fixes);
-        assert_eq!(analysis.findings[0].code, "unused-variable");
+        assert!(
+            analysis
+                .findings
+                .iter()
+                .any(|finding| finding.code == "unused-variable")
+        );
         assert!(analysis.fixes.is_empty(), "{analysis:?}");
     }
 
@@ -355,7 +362,7 @@ fn impure_initializers_need_remove_impure_locals() {
         .find(|fix| fix.title.contains("unused variable"))
         .expect("opted-in unsafe fix");
     assert_eq!(fix.applicability, Applicability::Unsafe);
-    assert_eq!(apply_every_fix(input, &analysis), "console.log(2);\n");
+    assert_eq!(apply_every_fix(input, &analysis), "export {};\nconsole.log(2);\n");
 
     let analysis = analyze_with_config(Path::new("a.ts"), input, &config, true, false);
     assert!(analysis.fixes.is_empty(), "{analysis:?}");
@@ -777,4 +784,229 @@ fn exported_namespace_members_do_not_produce_invalid_fixes() {
     let edited = apply_every_fix(input, &analysis);
     assert_eq!(edited, input);
     analyze(&path, &edited, true, true);
+}
+
+fn configured(settings: &str) -> Config {
+    let settings = settings
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .enumerate()
+        .map(|(line, text)| {
+            let (key, value) = text.split_once('=').unwrap();
+            (
+                key.trim().to_owned(),
+                dotfmt_core::config::Setting {
+                    value: value.trim().to_owned(),
+                    source: "dotfmt.dotfile".into(),
+                    line: line + 1,
+                    global: false,
+                },
+            )
+        })
+        .collect();
+    Config::from_settings(&settings).unwrap()
+}
+
+/// A project whose `./foo` module only declares types, so TypeScript elides the import.
+fn augmentation_project(source: &str, declaration: bool) -> (tempfile::TempDir, PathBuf) {
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(
+        directory.path().join("tsconfig.json"),
+        r#"{"compilerOptions":{"strict":true,"module":"ESNext","noEmit":true,"lib":["ESNext","DOM"]}}"#,
+    )
+    .unwrap();
+    let name = if declaration { "foo.d.ts" } else { "foo.ts" };
+    fs::write(
+        directory.path().join(name),
+        "export interface Foo { x: number }\n",
+    )
+    .unwrap();
+    let path = directory.path().join("env.ts");
+    fs::write(&path, source).unwrap();
+    (directory, path)
+}
+
+fn remove_unused() -> Config {
+    configured("type_aware = false\nremove_unused_imports = true\n")
+}
+
+#[test]
+fn unused_value_import_before_global_augmentation_keeps_a_side_effect_import() {
+    let augmentation = "declare global { interface Window { hacked: boolean } }\n";
+    let input = format!("import {{ Foo }} from \"./foo\";\n{augmentation}");
+    let (_directory, path) = augmentation_project(&input, false);
+    let analysis = analyze_with_config(&path, &input, &remove_unused(), true, false);
+    assert_eq!(
+        apply_every_fix(&input, &analysis),
+        format!("import \"./foo\";\n{augmentation}")
+    );
+}
+
+#[test]
+fn unused_import_from_a_declaration_module_keeps_module_scope() {
+    let augmentation = "declare global { interface Window { hacked: boolean } }\n";
+    let input = format!("import {{ Foo }} from \"./foo\";\n{augmentation}");
+    let (_directory, path) = augmentation_project(&input, true);
+    let analysis = analyze_with_config(&path, &input, &remove_unused(), true, false);
+    let output = apply_every_fix(&input, &analysis);
+    assert!(!output.contains("Foo"), "{output}");
+    assert_eq!(output, format!("export {{}};\n{augmentation}"));
+}
+
+#[test]
+fn unused_type_import_before_module_augmentation_keeps_module_scope() {
+    let input = "import type { Foo } from \"./foo\";\ndeclare module \"./bar\" {}\n";
+    let (_directory, path) = augmentation_project(input, false);
+    let analysis = analyze_with_config(&path, input, &remove_unused(), true, false);
+    assert_eq!(
+        apply_every_fix(input, &analysis),
+        "export {};\ndeclare module \"./bar\" {}\n"
+    );
+}
+
+#[test]
+fn removing_every_import_leaves_a_single_module_marker() {
+    let augmentation = "declare global { interface Window { hacked: boolean } }\n";
+    let input = format!(
+        "import type {{ A }} from \"./a\";\nimport type {{ B }} from \"./b\";\n{augmentation}"
+    );
+    let (_directory, path) = augmentation_project(&input, true);
+    let analysis = analyze_with_config(&path, &input, &remove_unused(), true, false);
+    let output = apply_every_fix(&input, &analysis);
+    assert_eq!(output.matches("export {};").count(), 1, "{output}");
+    assert!(!output.contains("import"), "{output}");
+    assert_eq!(output, format!("export {{}};\n{augmentation}"));
+}
+
+#[test]
+fn an_existing_export_keeps_module_scope_without_a_marker() {
+    let input = "import { Foo } from \"./foo\";\nexport const x = 1;\ndeclare global { interface Window { hacked: boolean } }\n";
+    let (_directory, path) = augmentation_project(input, true);
+    let analysis = analyze_with_config(&path, input, &remove_unused(), true, false);
+    assert_eq!(
+        apply_every_fix(input, &analysis),
+        "export const x = 1;\ndeclare global { interface Window { hacked: boolean } }\n"
+    );
+}
+
+#[test]
+fn module_scope_preservation_is_idempotent() {
+    let augmentation = "declare global { interface Window { hacked: boolean } }\n";
+    for (import, declaration) in [
+        ("import { Foo } from \"./foo\";\n", false),
+        ("import type { Foo } from \"./foo\";\n", false),
+        ("import { Foo } from \"./foo\";\n", true),
+    ] {
+        let input = format!("{import}{augmentation}");
+        let (_directory, path) = augmentation_project(&input, declaration);
+        let config = remove_unused();
+        let analysis = analyze_with_config(&path, &input, &config, true, false);
+        let output = apply_every_fix(&input, &analysis);
+        fs::write(&path, &output).unwrap();
+        assert!(
+            analyze_with_config(&path, &output, &config, true, false)
+                .fixes
+                .is_empty(),
+            "{import} => {output}"
+        );
+    }
+}
+
+#[test]
+fn module_marker_fix_satisfies_the_compiler() {
+    let augmentation = "declare global { interface Window { hacked: boolean } }\n";
+    for (import, declaration) in [
+        ("import { Foo } from \"./foo\";\n", false),
+        ("import type { Foo } from \"./foo\";\n", true),
+    ] {
+        let input = format!("{import}{augmentation}");
+        let (directory, path) = augmentation_project(&input, declaration);
+        let analysis = analyze_with_config(&path, &input, &remove_unused(), true, false);
+        let output = apply_every_fix(&input, &analysis);
+        fs::write(&path, &output).unwrap();
+        let tsconfig = directory.path().join("tsconfig.json");
+        let Ok(diagnostics) =
+            dotfmt_typescript::project::type_diagnostics(directory.path(), &tsconfig)
+        else {
+            return; // no TypeScript compiler in this environment
+        };
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|diagnostic| matches!(diagnostic.code, 2669 | 2436)),
+            "{import} => {output}\n{diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn unresolved_tsconfig_extends_keeps_the_classic_jsx_factory_import() {
+    let (_directory, path) = temp_project(r#"{"extends":"./missing-base.json"}"#);
+    let path = path.with_extension("tsx");
+    let input = "import React from \"react\";\nexport const A = () => <div />;\n";
+    let analysis = analyze(&path, input, true, true);
+    assert!(
+        analysis
+            .findings
+            .iter()
+            .all(|finding| finding.code != "unused-import"),
+        "{:?}",
+        analysis.findings
+    );
+
+    let (_directory, path) = temp_project(r#"{"compilerOptions":{"jsx":"react-jsx"}}"#);
+    let path = path.with_extension("tsx");
+    let analysis = analyze(&path, input, true, true);
+    assert!(
+        analysis
+            .findings
+            .iter()
+            .any(|finding| finding.code == "unused-import"),
+        "the automatic runtime does not need the React binding: {:?}",
+        analysis.findings
+    );
+}
+
+#[test]
+fn extends_cycles_and_package_extends_keep_the_classic_jsx_factory_import() {
+    for base in [
+        r#"{"extends":"./tsconfig.json","compilerOptions":{"jsx":"react-jsx"}}"#,
+        r#"{"extends":"uninstalled-preset","compilerOptions":{"jsx":"react-jsx"}}"#,
+    ] {
+        let (directory, path) = temp_project(r#"{"extends":"./base.json"}"#);
+        fs::write(directory.path().join("base.json"), base).unwrap();
+        let path = path.with_extension("tsx");
+        let input = "import React from \"react\";\nexport const A = () => <div />;\n";
+        let analysis = analyze(&path, input, true, true);
+        assert!(
+            analysis
+                .findings
+                .iter()
+                .all(|finding| finding.code != "unused-import"),
+            "{base}: {:?}",
+            analysis.findings
+        );
+    }
+}
+
+#[test]
+fn inherited_jsx_factory_from_a_readable_base_is_protected() {
+    let (directory, path) = temp_project(r#"{"extends":"./base.json"}"#);
+    fs::write(
+        directory.path().join("base.json"),
+        r#"{"compilerOptions":{"jsx":"react","jsxFactory":"h"}}"#,
+    )
+    .unwrap();
+    let path = path.with_extension("tsx");
+    let input = "import h from \"preact\";\nexport const view = <div />;\n";
+    let analysis = analyze(&path, input, true, true);
+    assert!(
+        analysis
+            .findings
+            .iter()
+            .all(|finding| finding.code != "unused-import"),
+        "{:?}",
+        analysis.findings
+    );
+    assert_eq!(apply_every_fix(input, &analysis), input);
 }

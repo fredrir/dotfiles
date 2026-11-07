@@ -7,29 +7,39 @@ import * as vscode from "vscode";
 import {
   LanguageClient,
   RevealOutputChannelOn,
+  Trace,
   TransportKind,
   type ExecuteCommandSignature,
   type LanguageClientOptions,
   type ServerOptions,
 } from "vscode-languageclient/node";
 import { CONFIG_NAME, SECTION, SELECTOR } from "./lib/languages";
-import { expandHome, tildify } from "./lib/paths";
+import { expandHome, resolveBinary, tildify } from "./lib/paths";
 import { readSettings } from "./lib/settings";
+import { traceLevel, type TraceLevel } from "./lib/trace";
 
 const execFileAsync = promisify(execFile);
 
-const DOCUMENT_COMMANDS = new Set([
+export const DOCUMENT_COMMANDS = [
   "dotfmt.fixAll",
   "dotfmt.organizeImports",
   "dotfmt.sortTailwind",
-]);
+] as const;
 
-/** Thin wrapper around one language client, restarted when its binary or TypeScript SDK moves. */
+const DOCUMENT_COMMAND_SET: ReadonlySet<string> = new Set(DOCUMENT_COMMANDS);
+
+const TRACE: Record<TraceLevel, Trace> = {
+  off: Trace.Off,
+  messages: Trace.Messages,
+  verbose: Trace.Verbose,
+};
+
 export class Client implements vscode.Disposable {
   private client: LanguageClient | undefined;
   private ready: Promise<void> = Promise.resolve();
   private restarting: Promise<void> | undefined;
   private serverVersion: string | undefined;
+  private traceListener: vscode.Disposable | undefined;
 
   public constructor(
     private readonly context: vscode.ExtensionContext,
@@ -40,20 +50,17 @@ export class Client implements vscode.Disposable {
   public serverPath(): string {
     const configured = vscode.workspace
       .getConfiguration(SECTION)
-      .get<string>("server.path", "")
-      .trim();
-    return configured
-      ? expandHome(configured)
-      : this.context.asAbsolutePath(
-          path.join(
-            "bin",
-            `${process.platform}-${process.arch}`,
-            executable("dotfmt-lsp"),
-          ),
-        );
+      .get<string>("server.path", "");
+    const bundled = this.context.asAbsolutePath(
+      path.join(
+        "bin",
+        `${process.platform}-${process.arch}`,
+        executable("dotfmt-lsp"),
+      ),
+    );
+    return resolveBinary(configured, bundled, "dotfmt-lsp", existsSync);
   }
 
-  /** The `dotfmt-lsp` version reported during initialize, once the server is running. */
   public version(): string | undefined {
     return this.serverVersion;
   }
@@ -123,13 +130,47 @@ export class Client implements vscode.Disposable {
     this.client = client;
     this.serverVersion = undefined;
     this.log.info(`server: ${tildify(command)}`);
-    this.ready = client.start().then(() => {
+    this.ready = client.start().then(async () => {
       this.serverVersion = client.initializeResult?.serverInfo?.version;
       if (this.serverVersion) {
         this.log.info(`dotfmt-lsp version: ${this.serverVersion}`);
       }
+      this.traceListener?.dispose();
+      this.traceListener = vscode.workspace.onDidChangeConfiguration(
+        (event) => {
+          if (event.affectsConfiguration(`${SECTION}.trace.server`)) {
+            void this.applyTrace();
+          }
+        },
+      );
+      await this.applyTrace();
     });
     return this.ready;
+  }
+
+  public executeCommand(
+    command: string,
+    args: unknown[] = [],
+  ): Promise<unknown> {
+    return this.request("workspace/executeCommand", {
+      command,
+      arguments: args,
+    });
+  }
+
+  private async applyTrace(): Promise<void> {
+    const client = this.client;
+    if (!client) {
+      return;
+    }
+    const level = traceLevel(
+      vscode.workspace.getConfiguration(SECTION).get("trace.server"),
+    );
+    try {
+      await client.setTrace(TRACE[level]);
+    } catch (error) {
+      this.trace.warn(`failed to apply dotfmt.trace.server: ${message(error)}`);
+    }
   }
 
   public async request<T>(method: string, params: unknown): Promise<T> {
@@ -145,7 +186,7 @@ export class Client implements vscode.Disposable {
     args: unknown[],
     next: ExecuteCommandSignature,
   ): Promise<unknown> {
-    if (args.length === 0 && DOCUMENT_COMMANDS.has(command)) {
+    if (args.length === 0 && DOCUMENT_COMMAND_SET.has(command)) {
       const document = vscode.window.activeTextEditor?.document;
       if (!document || vscode.languages.match(SELECTOR, document) === 0) {
         return undefined;
@@ -164,6 +205,8 @@ export class Client implements vscode.Disposable {
     const client = this.client;
     this.client = undefined;
     this.serverVersion = undefined;
+    this.traceListener?.dispose();
+    this.traceListener = undefined;
     if (!client) {
       return Promise.resolve();
     }
@@ -178,8 +221,6 @@ export class Client implements vscode.Disposable {
     }
     this.restarting = (async () => {
       try {
-        // Let an in-flight start finish first; stopping mid-start can leave a
-        // client that the next start overwrites without shutting down.
         await this.ready.catch(() => undefined);
         await this.stop();
         await this.start();
@@ -195,7 +236,6 @@ export class Client implements vscode.Disposable {
   }
 }
 
-/** The extension's package.json version. */
 export function extensionVersion(context: vscode.ExtensionContext): string {
   const version = (context.extension.packageJSON as { version?: unknown })
     .version;
@@ -206,15 +246,10 @@ export function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** The configured or bundled dotfmt CLI, kept for status, doctor and manual checks. */
 export function cliPath(context: vscode.ExtensionContext): string {
   const configured = vscode.workspace
     .getConfiguration(SECTION)
-    .get<string>("path", "")
-    .trim();
-  if (configured) {
-    return expandHome(configured);
-  }
+    .get<string>("path", "");
   const bundled = context.asAbsolutePath(
     path.join(
       "bin",
@@ -222,10 +257,9 @@ export function cliPath(context: vscode.ExtensionContext): string {
       executable("dotfmt"),
     ),
   );
-  return existsSync(bundled) ? bundled : "dotfmt";
+  return resolveBinary(configured, bundled, "dotfmt", existsSync);
 }
 
-/** The first line of `<command> --version`, or undefined when the binary is missing. */
 export async function binaryVersion(
   command: string,
 ): Promise<string | undefined> {

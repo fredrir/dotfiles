@@ -34,6 +34,9 @@ pub struct Config {
     pub script_indent: bool,
     pub style_indent: bool,
     pub typescript: dotfmt_typescript::Config,
+    /// Options for `<script>` blocks without a TypeScript extension. The CLI fills this
+    /// from the effective `javascript` block, falling back to `typescript`.
+    pub javascript: dotfmt_typescript::Config,
     pub css: dotfmt_css::Config,
     pub tailwind: dotfmt_tailwind::Config,
     pub tailwind_sorter: Option<dotfmt_tailwind::Sorter>,
@@ -58,6 +61,7 @@ impl Default for Config {
             script_indent: true,
             style_indent: true,
             typescript: dotfmt_typescript::Config::default(),
+            javascript: dotfmt_typescript::Config::default(),
             css: dotfmt_css::Config::default(),
             tailwind: dotfmt_tailwind::Config {
                 attributes: vec!["class".to_owned(), "className".to_owned()],
@@ -88,11 +92,11 @@ impl Config {
     ) -> Result<(), String> {
         match key {
             "indent" if global => {
-                if let Some(indent) = clamped(value, 0, 24) {
+                if let Some(indent) = clamped(value, 1, 24) {
                     self.indent = indent;
                 }
             }
-            "indent" => self.indent = number(key, value, 0, 24)?,
+            "indent" => self.indent = number(key, value, 1, 24)?,
             "indent_type" => {
                 self.indent_type = match value {
                     "spaces" => IndentType::Spaces,
@@ -251,6 +255,8 @@ fn number(key: &str, value: &str, minimum: usize, maximum: usize) -> Result<usiz
     if (minimum..=maximum).contains(&number) {
         Ok(number)
     } else {
-        Err(format!("{key} must be between {minimum} and {maximum}"))
+        Err(format!(
+            "{key} must be between {minimum} and {maximum}, not {value}"
+        ))
     }
 }

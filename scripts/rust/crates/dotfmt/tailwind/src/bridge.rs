@@ -1,4 +1,3 @@
-
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -13,6 +12,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::config::OrderSource;
 use crate::order::OrderTable;
 
 const BRIDGE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -99,6 +99,11 @@ pub fn project_order(
     project_order_with_cache(root, stylesheet, config, classes, &default_cache_root())
 }
 
+/// Resolves the project order for `order`.
+///
+/// `OrderSource::Project` only accepts the project's own Tailwind; `auto` may
+/// also use a globally installed Tailwind.
+#[allow(clippy::too_many_arguments)]
 pub fn project_order_for(
     root: &Path,
     source: Option<&Path>,
@@ -106,6 +111,7 @@ pub fn project_order_for(
     stylesheet_base: Option<&Path>,
     config: Option<&Path>,
     config_base: Option<&Path>,
+    order: OrderSource,
     classes: &[String],
 ) -> Result<ProjectOrder, BridgeError> {
     project_order_with_cache_for(
@@ -115,6 +121,7 @@ pub fn project_order_for(
         stylesheet_base,
         config,
         config_base,
+        Search::for_order(order),
         classes,
         &default_cache_root(),
     )
@@ -135,6 +142,7 @@ pub fn discover_project(
         stylesheet_base,
         config,
         config_base,
+        Search::Global,
     )
 }
 
@@ -199,6 +207,7 @@ fn project_order_with_cache_for(
     stylesheet_base: Option<&Path>,
     config: Option<&Path>,
     config_base: Option<&Path>,
+    search: Search,
     classes: &[String],
     cache_root: &Path,
 ) -> Result<ProjectOrder, BridgeError> {
@@ -209,6 +218,7 @@ fn project_order_with_cache_for(
         stylesheet_base,
         config,
         config_base,
+        search,
         classes,
         cache_root,
         |project, classes| {
@@ -230,7 +240,16 @@ where
     F: Fn(&Project, Vec<&str>) -> Result<HelperResponse, BridgeError>,
 {
     project_order_with_cache_for_using(
-        root, None, stylesheet, None, config, None, classes, cache_root, query,
+        root,
+        None,
+        stylesheet,
+        None,
+        config,
+        None,
+        Search::Global,
+        classes,
+        cache_root,
+        query,
     )
 }
 
@@ -242,6 +261,7 @@ fn project_order_with_cache_for_using<F>(
     stylesheet_base: Option<&Path>,
     config: Option<&Path>,
     config_base: Option<&Path>,
+    search: Search,
     classes: &[String],
     cache_root: &Path,
     query: F,
@@ -256,6 +276,7 @@ where
         stylesheet_base,
         config,
         config_base,
+        search,
         cache_root,
     )?;
     let discovery = project.discovery();
@@ -324,6 +345,24 @@ fn node_binary() -> OsString {
     std::env::var_os("DOTFMT_NODE").unwrap_or_else(|| OsString::from("node"))
 }
 
+/// Packages the bridge may resolve Tailwind from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Search {
+    /// The project and its ancestors, plus globally installed packages (`auto`).
+    Global,
+    /// The project and its ancestors only (`project`).
+    ProjectOnly,
+}
+
+impl Search {
+    fn for_order(order: OrderSource) -> Self {
+        match order {
+            OrderSource::Project => Self::ProjectOnly,
+            OrderSource::Auto | OrderSource::Rust => Self::Global,
+        }
+    }
+}
+
 struct Project {
     root: PathBuf,
     workspace_root: PathBuf,
@@ -346,7 +385,7 @@ impl Project {
         let workspace_root = find_workspace_root(&root);
         let stylesheet = stylesheet.map(|path| resolve_project_path(&root, path));
         let config = config.map(|path| resolve_project_path(&root, path));
-        let search_paths = search_paths(&root);
+        let search_paths = search_paths(&root, Search::Global);
         Self {
             root,
             workspace_root,
@@ -372,6 +411,7 @@ impl Project {
         stylesheet_base: Option<&Path>,
         config: Option<&Path>,
         config_base: Option<&Path>,
+        search: Search,
         cache_root: &Path,
     ) -> Result<Self, BridgeError> {
         Self::discover_with_limits(
@@ -381,6 +421,7 @@ impl Project {
             stylesheet_base,
             config,
             config_base,
+            search,
             cache_root,
             DEPENDENCY_FILE_LIMIT,
             DEPENDENCY_BYTE_LIMIT,
@@ -395,6 +436,7 @@ impl Project {
         stylesheet_base: Option<&Path>,
         config: Option<&Path>,
         config_base: Option<&Path>,
+        search: Search,
         cache_root: &Path,
         dependency_file_limit: usize,
         dependency_byte_limit: u64,
@@ -406,8 +448,9 @@ impl Project {
             stylesheet_base,
             config,
             config_base,
+            search,
         )?;
-        let search_paths = search_paths(&discovery.package_root);
+        let search_paths = search_paths(&discovery.package_root, search);
         let (dependency_digest, persistent) = match dependency_digest_with(
             &discovery.package_root,
             &discovery.dependencies,
@@ -618,10 +661,11 @@ fn discovery_key(
     stylesheet_base: Option<&Path>,
     config: Option<&Path>,
     config_base: Option<&Path>,
+    search: Search,
 ) -> String {
     let start = source.map_or_else(|| absolute(root), absolute);
     let package_root = find_project_root(&start);
-    let search_paths = search_paths(&package_root);
+    let search_paths = search_paths(&package_root, search);
     let tailwind_version = package_version("tailwindcss", &package_root, &search_paths);
     let plugin_version =
         package_version("prettier-plugin-tailwindcss", &package_root, &search_paths);
@@ -648,6 +692,7 @@ fn discover_project_cached(
     stylesheet_base: Option<&Path>,
     config: Option<&Path>,
     config_base: Option<&Path>,
+    search: Search,
 ) -> Result<Discovery, BridgeError> {
     let key = discovery_key(
         root,
@@ -656,6 +701,7 @@ fn discover_project_cached(
         stylesheet_base,
         config,
         config_base,
+        search,
     );
     {
         let mut cache = discovery_cache()
@@ -675,6 +721,7 @@ fn discover_project_cached(
         stylesheet_base,
         config,
         config_base,
+        search,
     )?;
     discovery_cache()
         .lock()
@@ -690,11 +737,12 @@ fn discover_project_uncached(
     stylesheet_base: Option<&Path>,
     config: Option<&Path>,
     config_base: Option<&Path>,
+    search: Search,
 ) -> Result<Discovery, BridgeError> {
     let start = source.map_or_else(|| absolute(root), absolute);
     let package_root = find_project_root(&start);
     let workspace_root = find_workspace_root(&package_root);
-    let search_paths = search_paths(&package_root);
+    let search_paths = search_paths(&package_root, search);
     let tailwind_version = package_version("tailwindcss", &package_root, &search_paths);
     let plugin_version =
         package_version("prettier-plugin-tailwindcss", &package_root, &search_paths);
@@ -717,6 +765,9 @@ fn discover_project_uncached(
         && !path.is_file()
     {
         return Err(BridgeError::MissingConfig(path.clone()));
+    }
+    if search == Search::ProjectOnly && tailwind_version.is_none() {
+        return Err(BridgeError::TailwindMissing);
     }
     let mut warnings = Vec::new();
 
@@ -1058,11 +1109,13 @@ fn find_config(root: &Path) -> Option<PathBuf> {
     None
 }
 
-fn search_paths(root: &Path) -> Vec<PathBuf> {
+fn search_paths(root: &Path, search: Search) -> Vec<PathBuf> {
     let mut paths = vec![root.to_path_buf()];
-    for candidate in global_paths() {
-        if candidate.is_dir() && !paths.contains(&candidate) {
-            paths.push(candidate);
+    if search == Search::Global {
+        for candidate in global_paths() {
+            if candidate.is_dir() && !paths.contains(&candidate) {
+                paths.push(candidate);
+            }
         }
     }
     paths
@@ -1661,6 +1714,38 @@ async function main() {
     }
     return null;
   };
+  // Resolve the plugin package by base so a project-local install always wins
+  // over a global one, even when the local package has no `./sorter` export.
+  const resolvePlugin = () => {
+    for (const directory of bases) {
+      const resolver = resolverFor(directory);
+      for (const specifier of [
+        "prettier-plugin-tailwindcss/sorter",
+        "prettier-plugin-tailwindcss",
+      ]) {
+        try {
+          return resolver.resolve(specifier);
+        } catch {}
+      }
+    }
+    return null;
+  };
+  const packageVersion = (entry) => {
+    let directory = path.dirname(entry);
+    for (;;) {
+      try {
+        const manifest = JSON.parse(
+          readFileSync(path.join(directory, "package.json"), "utf8"),
+        );
+        if (manifest.name === "prettier-plugin-tailwindcss") {
+          return manifest.version ?? null;
+        }
+      } catch {}
+      const parent = path.dirname(directory);
+      if (parent === directory) return null;
+      directory = parent;
+    }
+  };
   const importFile = (file) => import(pathToFileURL(file).href);
   const classes = Array.isArray(request.classes) ? request.classes : [];
 
@@ -1678,9 +1763,8 @@ async function main() {
     return emit({ ok: true, classes: twMerge(classes.join(" ")) });
   }
 
-  const pluginPath =
-    resolvePackage("prettier-plugin-tailwindcss/sorter") ??
-    resolvePackage("prettier-plugin-tailwindcss");
+  const pluginPath = resolvePlugin();
+  const pluginVersion = pluginPath ? packageVersion(pluginPath) : null;
   if (pluginPath) {
     const plugin = await importFile(pluginPath);
     const getTailwindConfig =
@@ -1698,8 +1782,8 @@ async function main() {
         orders: normalizeOrders(orders),
       });
     }
-    // Older plugins expose createSorter but not getClassOrder. Try the
-    // tailwindcss v4 API below instead of guessing an order from sorted output.
+    // Plugins without getTailwindConfig (0.6.x) fall through to the tailwindcss
+    // design-system API below instead of guessing an order from sorted output.
   }
 
   const tailwindPath = resolvePackage("tailwindcss");
@@ -1710,9 +1794,12 @@ async function main() {
     tailwind.__unstable__loadDesignSystem ??
     tailwindModule.__unstable__loadDesignSystem;
   if (typeof loadDesignSystem !== "function") {
+    const detail = pluginVersion
+      ? `prettier-plugin-tailwindcss ${pluginVersion} does not export getTailwindConfig`
+      : "prettier-plugin-tailwindcss is not installed in this project";
     return fail(
       "unsupported",
-      "tailwindcss v3 requires prettier-plugin-tailwindcss for class ordering",
+      `Tailwind v3 class ordering requires a prettier-plugin-tailwindcss that exports getTailwindConfig (0.8 or newer): ${detail}`,
     );
   }
 
@@ -2003,7 +2090,7 @@ mod tests {
         )
         .expect("package.json");
         fs::write(package.join("index.js"), "module.exports = {};\n").expect("index.js");
-        let paths = search_paths(project.path());
+        let paths = search_paths(project.path(), Search::Global);
         if package_version("prettier-plugin-tailwindcss", project.path(), &paths).is_none() {
             return;
         }
@@ -2292,6 +2379,7 @@ mod tests {
             None,
             None,
             None,
+            Search::Global,
             warm_cache.path(),
         )
         .expect("warm project");
@@ -2451,6 +2539,7 @@ mod tests {
             None,
             None,
             None,
+            Search::Global,
             cache.path(),
             1,
             DEPENDENCY_BYTE_LIMIT,
@@ -2640,6 +2729,7 @@ export async function getTailwindConfig() {
                 stylesheet_base,
                 config,
                 config_base,
+                Search::Global,
             ));
     }
 
@@ -3009,6 +3099,7 @@ export async function getTailwindConfig() {
             None,
             None,
             None,
+            Search::Global,
             &classes,
             cache.path(),
             query,
@@ -3027,6 +3118,7 @@ export async function getTailwindConfig() {
             None,
             None,
             None,
+            Search::Global,
             &classes,
             cache.path(),
             query,
@@ -3067,6 +3159,70 @@ export async function getTailwindConfig() {
                 .stylesheet
                 .as_deref(),
             Some(root.join("src/app.css").as_path())
+        );
+    }
+
+    #[test]
+    fn project_only_search_paths_exclude_global_installs() {
+        let project = empty_project();
+        let root = project.path();
+        assert_eq!(
+            search_paths(root, Search::ProjectOnly),
+            vec![root.to_path_buf()],
+            "project ordering must not consult globally installed packages"
+        );
+        let global = search_paths(root, Search::Global);
+        assert_eq!(global.first(), Some(&root.to_path_buf()));
+        let defaults = global_paths();
+        assert!(
+            global.iter().skip(1).all(|path| defaults.contains(path)),
+            "{global:?}"
+        );
+        assert_eq!(Search::for_order(OrderSource::Project), Search::ProjectOnly);
+        assert_eq!(Search::for_order(OrderSource::Auto), Search::Global);
+        assert_eq!(Search::for_order(OrderSource::Rust), Search::Global);
+    }
+
+    #[test]
+    fn project_only_discovery_requires_a_local_tailwind() {
+        let project = empty_project();
+        let root = project.path();
+        let error =
+            discover_project_uncached(root, None, None, None, None, None, Search::ProjectOnly)
+                .expect_err("project-only discovery without a local tailwind");
+        assert!(matches!(error, BridgeError::TailwindMissing), "{error:?}");
+
+        write_package(root, "tailwindcss", "4.0.0");
+        let discovery =
+            discover_project_uncached(root, None, None, None, None, None, Search::ProjectOnly)
+                .expect("local tailwind discovery");
+        assert_eq!(discovery.tailwind_version.as_deref(), Some("4.0.0"));
+    }
+
+    #[test]
+    fn project_only_discovery_accepts_a_workspace_hoisted_tailwind() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let root = workspace.path();
+        write_workspace_root(root);
+        write_package(root, "tailwindcss", "4.0.0");
+        write_package_manifest(root, "packages/app");
+        let source = root.join("packages/app/src/a.tsx");
+        fs::create_dir_all(source.parent().unwrap()).expect("src");
+        fs::write(&source, "export const a = 1;\n").expect("source");
+        let discovery = discover_project_uncached(
+            root,
+            Some(&source),
+            None,
+            None,
+            None,
+            None,
+            Search::ProjectOnly,
+        )
+        .expect("hoisted tailwind discovery");
+        assert_eq!(discovery.tailwind_version.as_deref(), Some("4.0.0"));
+        assert!(
+            discovery.package_root.ends_with("packages/app"),
+            "{discovery:?}"
         );
     }
 }

@@ -3,11 +3,11 @@ import path from "node:path";
 import * as vscode from "vscode";
 import {
   binaryVersion,
-  type Client,
   cliPath,
   extensionVersion,
   globalConfigFile,
   message,
+  type Client,
 } from "./client";
 import {
   doctorReportLines,
@@ -15,11 +15,10 @@ import {
   requestDoctor,
   tscState,
 } from "./lib/doctor";
-import { type Explanation, explain } from "./lib/explain";
+import { explain, type Explanation } from "./lib/explain";
 import {
   CONFIG_NAME,
   enabledFormatterLanguages,
-  fallbackFormatterLanguages,
   SELECTOR,
 } from "./lib/languages";
 import { configTarget, formatSettingsQuery } from "./lib/native";
@@ -40,6 +39,9 @@ export function registerCommands(
         await client.restart();
       } catch (error) {
         log.error(`server restart failed: ${message(error)}`);
+        void vscode.window.showErrorMessage(
+          `dotfmt: language server failed to restart: ${message(error)}`,
+        );
       } finally {
         status.invalidate();
       }
@@ -90,9 +92,11 @@ async function setAsDefaultFormatter(
       throw new Error("unexpected dotfmt/languages response");
     }
     languages = enabledFormatterLanguages(names, available);
-  } catch {
-    // Older or unavailable servers still get the conservative shipped set.
-    languages = fallbackFormatterLanguages(available);
+  } catch (error) {
+    void vscode.window.showErrorMessage(
+      `dotfmt: cannot read the enabled languages (${message(error)}); no formatter settings were changed.`,
+    );
+    return;
   }
   if (languages.length === 0) {
     void vscode.window.showWarningMessage(

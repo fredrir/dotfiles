@@ -15,7 +15,7 @@ export const TARGETS = {
 
 export type Platform = keyof typeof TARGETS;
 
-const DEFAULT_PLATFORMS: Platform[] = ["darwin-arm64", "linux-x64"];
+export const DEFAULT_PLATFORMS: Platform[] = ["darwin-arm64", "linux-x64"];
 
 export const isPlatform = (name: string): name is Platform => name in TARGETS;
 

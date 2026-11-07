@@ -1,6 +1,5 @@
 
 use dotfmt_core::repair::{Edit, Locator, Repair, Repairs};
-use indexmap::IndexMap;
 
 use crate::number;
 use crate::render;
@@ -402,11 +401,7 @@ impl<'a> Parser<'a> {
         let Some(magnitude) = magnitude else {
             return Err(self.problem_at(start, format!("not a number: {text}")));
         };
-        let sign = if self.input[start] == b'-' && magnitude > 0 {
-            "-"
-        } else {
-            ""
-        };
+        let sign = if self.input[start] == b'-' { "-" } else { "" };
         let literal = format!("{sign}{magnitude}");
         self.fixed(
             Repair::Number,
@@ -446,7 +441,7 @@ impl<'a> Parser<'a> {
     }
 
     fn object(&mut self) -> Result<Value, Problem> {
-        let mut entries: IndexMap<String, Value> = IndexMap::new();
+        let mut entries: Vec<(String, Value)> = Vec::new();
         let mut comma = None;
         loop {
             self.trivia()?;
@@ -468,7 +463,7 @@ impl<'a> Parser<'a> {
             let key = self.key()?;
             self.colon()?;
             let value = self.value()?;
-            entries.insert(key, value);
+            entries.push((key, value));
             comma = None;
             self.trivia()?;
             match self.peek() {

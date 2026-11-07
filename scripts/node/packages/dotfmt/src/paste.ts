@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { message, type Client } from "./client";
+import { formatTextParams } from "./lib/paste";
 
-/** Formats pasted text through the language server before inserting it. */
 export class PasteFormatter implements vscode.DocumentPasteEditProvider {
   public constructor(private readonly client: Client) {}
 
@@ -23,14 +23,18 @@ export class PasteFormatter implements vscode.DocumentPasteEditProvider {
     if (!text.trim()) {
       return undefined;
     }
+    const params = formatTextParams(
+      text,
+      document.languageId,
+      document.uri.toString(),
+    );
+    if (!params) {
+      return undefined;
+    }
     try {
       const formatted = await this.client.request<string>(
         "dotfmt/formatText",
-        {
-          text,
-          languageId: document.languageId,
-          uri: document.uri.toString(),
-        },
+        params,
       );
       if (!formatted || formatted === text) {
         return undefined;
@@ -43,7 +47,6 @@ export class PasteFormatter implements vscode.DocumentPasteEditProvider {
         ),
       ];
     } catch (error) {
-      // Paste must never block; a broken snippet simply keeps its original text.
       console.warn(`dotfmt paste formatting skipped: ${message(error)}`);
       return undefined;
     }

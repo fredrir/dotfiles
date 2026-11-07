@@ -2308,3 +2308,119 @@ fn tsc_timeout_kills_the_compiler_and_reports_a_diagnostic() {
     assert_eq!(diagnostics[0].code, project::TSC_TIMEOUT_CODE);
     assert!(diagnostics[0].message.contains("timed out"));
 }
+
+#[test]
+fn nested_package_exports_are_kept_when_a_consumer_can_live_outside() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "mono/consumer.ts",
+        "import { api } from \"./pkg/src/a\";\nconsole.log(api);\n",
+    );
+    write(root, "mono/pkg/package.json", r#"{"private":true}"#);
+    write(root, "mono/pkg/tsconfig.json", "{}");
+    write(root, "mono/pkg/src/a.ts", "export const api = 1;\n");
+
+    let path = root.join("mono/pkg/src/a.ts");
+    assert!(!project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert!(analysis.fixes.is_empty(), "{:?}", analysis.fixes);
+}
+
+#[test]
+fn root_package_still_removes_unused_exports() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/a.ts", "export const unused = 1;\n");
+    write(root, "src/use.ts", "console.log(1);\n");
+
+    let path = root.join("src/a.ts");
+    assert!(project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+}
+
+#[test]
+fn workspace_manifest_root_keeps_export_removal_available() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(
+        root,
+        "package.json",
+        r#"{"private":true,"workspaces":["packages/*"]}"#,
+    );
+    write(root, "packages/ui/package.json", r#"{"private":true}"#);
+    write(root, "packages/ui/tsconfig.json", "{}");
+    write(root, "packages/ui/src/a.ts", "export const unused = 1;\n");
+    write(root, "packages/ui/src/use.ts", "console.log(1);\n");
+
+    let path = root.join("packages/ui/src/a.ts");
+    assert_eq!(project::discover_root(&path), Some(root.to_path_buf()));
+    assert!(project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+}
+
+#[test]
+fn enclosing_manifest_without_workspaces_keeps_exports() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    write(root, "mono/package.json", r#"{"private":true}"#);
+    write(root, "mono/pkg/package.json", r#"{"private":true}"#);
+    write(root, "mono/pkg/tsconfig.json", "{}");
+    write(root, "mono/pkg/src/a.ts", "export const api = 1;\n");
+
+    let path = root.join("mono/pkg/src/a.ts");
+    assert!(!project::graph_complete(&path));
+    assert!(project::unused_exports(&path).unwrap().fixes.is_empty());
+}
+
+#[test]
+fn asset_imports_are_leaves_for_the_project_graph() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/a.ts", "export const unused = 1;\n");
+    write(root, "src/data.json", "{}");
+    write(root, "src/style.css", "body { margin: 0; }\n");
+    write(
+        root,
+        "src/logo.svg",
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" />\n",
+    );
+    write(
+        root,
+        "src/use.ts",
+        "import data from \"./data.json\";\nimport \"./style.css\";\nimport logo from \"./logo.svg\";\nconsole.log(data, logo);\n",
+    );
+
+    let path = root.join("src/a.ts");
+    assert!(project::graph_complete(&path));
+    let analysis = project::unused_exports(&path).unwrap();
+    assert_eq!(analysis.findings.len(), 1, "{:?}", analysis.findings);
+    assert_eq!(analysis.fixes.len(), 1, "{:?}", analysis.fixes);
+}
+
+#[test]
+fn unresolved_asset_specifiers_are_leaves_but_missing_modules_are_not() {
+    let directory = private_project();
+    let root = directory.path();
+    write(root, "src/a.ts", "export const a = 1;\n");
+    write(
+        root,
+        "src/use.ts",
+        "import icon from \"./missing.svg\";\nconsole.log(icon);\n",
+    );
+    assert!(project::graph_complete(&root.join("src/a.ts")));
+
+    write(
+        root,
+        "src/use.ts",
+        "import { b } from \"./missing-module\";\nconsole.log(b);\n",
+    );
+    project::invalidate_root(root);
+    assert!(!project::graph_complete(&root.join("src/a.ts")));
+}

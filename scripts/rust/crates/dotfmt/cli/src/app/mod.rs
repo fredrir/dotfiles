@@ -282,6 +282,10 @@ fn ordered(mut errors: Vec<Diagnostic>) -> Vec<Diagnostic> {
     errors
 }
 
+fn worker_panic() -> Diagnostic {
+    Diagnostic::new(DiagnosticKind::Internal, "formatting worker panicked")
+}
+
 fn with_stack<T: Send>(work: impl FnOnce() -> T + Send) -> Result<T, Diagnostic> {
     std::thread::scope(|scope| {
         std::thread::Builder::new()
@@ -295,6 +299,6 @@ fn with_stack<T: Send>(work: impl FnOnce() -> T + Send) -> Result<T, Diagnostic>
                 )
             })?
             .join()
-            .map_err(|_| Diagnostic::new(DiagnosticKind::Internal, "formatting worker panicked"))
+            .map_err(|_| worker_panic())
     })
 }

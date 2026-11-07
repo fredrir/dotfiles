@@ -1248,7 +1248,7 @@
             "tabs"
           ],
           "scope": "resource",
-          "markdownDescription": "Indentation character at the start of a line.\n\nDefault: `spaces`. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Indentation character at the start of a line.\n\nDefault: the dialect's own indentation. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.ini.line_endings": {
           "type": "string",
@@ -1452,7 +1452,10 @@
           "default": null,
           "enum": [
             "double",
-            "single"
+            "single",
+            "auto",
+            "auto-prefer-double",
+            "auto-prefer-single"
           ],
           "scope": "resource",
           "markdownDescription": "Quote character for string literals.\n\nDefault: `double`. Unset here inherits from `dotfmt.dotfile`."
@@ -2108,10 +2111,13 @@
             "auto",
             "commonmark",
             "gfm",
-            "obsidian"
+            "github",
+            "github-flavored-markdown",
+            "obsidian",
+            "obsidian-markdown"
           ],
           "scope": "resource",
-          "markdownDescription": "Markdown flavor; `auto` detects GFM and Obsidian from the vault ancestry. Aliases `github` and `obsidian-markdown` are accepted.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
+          "markdownDescription": "Markdown flavor; `auto` detects GFM and Obsidian from the vault ancestry. Aliases `github`, `github-flavored-markdown` and `obsidian-markdown` are accepted.\n\nDefault: `auto`. Unset here inherits from `dotfmt.dotfile`."
         },
         "dotfmt.format.markdown.width": {
           "type": "integer",

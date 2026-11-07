@@ -91,11 +91,11 @@ impl Config {
     ) -> Result<(), String> {
         match key {
             "indent" if global => {
-                if let Some(indent) = clamped(value, 0, 24) {
+                if let Some(indent) = clamped(value, 1, 24) {
                     self.indent = indent;
                 }
             }
-            "indent" => self.indent = number(key, value, 0, 24)?,
+            "indent" => self.indent = number(key, value, 1, 24)?,
             "indent_type" => {
                 self.indent_type = match value {
                     "spaces" => IndentType::Spaces,
@@ -314,6 +314,8 @@ fn number(key: &str, value: &str, minimum: usize, maximum: usize) -> Result<usiz
     if (minimum..=maximum).contains(&number) {
         Ok(number)
     } else {
-        Err(format!("{key} must be between {minimum} and {maximum}"))
+        Err(format!(
+            "{key} must be between {minimum} and {maximum}, not {value}"
+        ))
     }
 }

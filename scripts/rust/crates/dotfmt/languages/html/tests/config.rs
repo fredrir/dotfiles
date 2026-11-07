@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use dotfmt_core::config::{Setting, Settings};
 use dotfmt_core::diagnostic::DiagnosticKind;
@@ -126,6 +126,82 @@ fn global_width_and_indent_clamp_but_local_settings_stay_strict() {
             "{key}={value}"
         );
     }
+}
+
+#[test]
+fn indent_zero_is_a_configuration_error() {
+    let error = Config::from_settings(&settings(&[("indent", "0")])).unwrap_err();
+    assert_eq!(error.kind, DiagnosticKind::Configuration);
+    assert_eq!(error.message, "indent must be between 1 and 24, not 0");
+    let error = Config::from_settings(&settings(&[("indent", "-1")])).unwrap_err();
+    assert_eq!(error.message, "indent must be a number, not -1");
+}
+
+#[test]
+fn indent_one_still_formats() {
+    let config = Config::from_settings(&settings(&[("indent", "1")])).unwrap();
+    let output = dotfmt_html::format(
+        Path::new("x.html"),
+        "<div>\n<span>x</span>\n</div>",
+        &config,
+        dotfmt_html::dialect::Dialect::Auto,
+    )
+    .unwrap();
+    assert_eq!(output, "<div>\n <span>x</span>\n</div>\n");
+}
+
+#[test]
+fn component_html_paths_resolve_to_the_angular_dialect() {
+    use dotfmt_html::dialect::Dialect;
+
+    for path in [
+        "app.component.html",
+        "APP.COMPONENT.HTML",
+        "src/app/users/user-list.component.html",
+    ] {
+        assert_eq!(
+            Dialect::for_path(Path::new(path)),
+            Some(Dialect::Angular),
+            "{path}"
+        );
+        assert_eq!(
+            Dialect::Auto.resolve(Dialect::Auto, Path::new(path)),
+            Dialect::Angular,
+            "{path}"
+        );
+    }
+    for path in [
+        "index.html",
+        "app.component.htm",
+        "mycomponent.html",
+        "component.html",
+    ] {
+        assert_eq!(
+            Dialect::for_path(Path::new(path)),
+            Some(Dialect::Html),
+            "{path}"
+        );
+        assert_eq!(
+            Dialect::Auto.resolve(Dialect::Auto, Path::new(path)),
+            Dialect::Html,
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn explicit_dialect_settings_override_component_html_detection() {
+    use dotfmt_html::dialect::Dialect;
+
+    let component = Path::new("app.component.html");
+    assert_eq!(
+        Dialect::Auto.resolve(Dialect::Html, component),
+        Dialect::Html
+    );
+    assert_eq!(
+        Dialect::Auto.resolve(Dialect::Angular, Path::new("index.html")),
+        Dialect::Angular
+    );
 }
 
 #[test]

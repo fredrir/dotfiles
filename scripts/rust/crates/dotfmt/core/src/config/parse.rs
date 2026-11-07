@@ -5,6 +5,7 @@ use crate::syntax::{QuoteMode, scan};
 use super::*;
 
 pub(super) fn parse(source: &str, path: &Path, root: &Path) -> Result<Layer, Diagnostic> {
+    let source = source.strip_prefix('\u{feff}').unwrap_or(source);
     let mut parser = Parser {
         source,
         offset: 0,

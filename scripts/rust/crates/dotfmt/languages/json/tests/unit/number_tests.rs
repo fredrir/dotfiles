@@ -4,6 +4,12 @@ fn written(literal: &str) -> String {
     canonical(literal).unwrap_or_else(|| panic!("{literal} is a number"))
 }
 
+fn settled(literal: &str) -> String {
+    let once = written(literal);
+    assert_eq!(written(&once), once, "{literal} does not settle");
+    once
+}
+
 #[test]
 fn a_coefficient_is_kept_exactly_as_it_was_written() {
     for (literal, expected) in [
@@ -22,7 +28,7 @@ fn a_coefficient_is_kept_exactly_as_it_was_written() {
             "1234567890123456789012345678901234567890",
         ),
     ] {
-        assert_eq!(written(literal), expected, "{literal}");
+        assert_eq!(settled(literal), expected, "{literal}");
     }
 }
 
@@ -81,6 +87,53 @@ fn jq_reads_a_number_json_would_not_and_normalises_it() {
         ("1.e5", "1E+5"),
     ] {
         assert_eq!(written(literal), expected, "{literal}");
+    }
+}
+
+#[test]
+fn an_exponent_that_outruns_a_sixty_four_bit_integer_still_settles() {
+    for (literal, expected) in [
+        ("1e9223372036854775807", "1E+9223372036854775807"),
+        ("1e9223372036854775808", "1E+9223372036854775808"),
+        ("1e-9223372036854775807", "1E-9223372036854775807"),
+        ("1e-9223372036854775808", "1E-9223372036854775808"),
+        ("1e309", "1E+309"),
+        ("1E+400", "1E+400"),
+        ("0e9223372036854775807", "0E+9223372036854775807"),
+        ("0e-9223372036854775807", "0E-9223372036854775807"),
+        ("123.45e9223372036854775807", "1.2345E+9223372036854775809"),
+    ] {
+        assert_eq!(settled(literal), expected, "{literal}");
+    }
+}
+
+#[test]
+fn an_exponent_wider_than_a_hundred_and_twenty_eight_bits_is_left_as_it_was() {
+    for literal in [
+        "1e999999999999999999999999999999999999999999",
+        "-1.0e-999999999999999999999999999999999999999999",
+        "0.5E+999999999999999999999999999999999999999999",
+    ] {
+        assert_eq!(settled(literal), literal);
+    }
+    assert_eq!(
+        canonical("1.e999999999999999999999999999999999999999999"),
+        None,
+        "a literal that is not JSON cannot stand in for itself"
+    );
+}
+
+#[test]
+fn what_is_already_short_stays_where_it_is() {
+    for (literal, expected) in [
+        ("1e2", "1E+2"),
+        ("1.0e0", "1.0"),
+        ("1e0", "1"),
+        ("-0", "-0"),
+        ("1E+2", "1E+2"),
+        ("1e-7", "1E-7"),
+    ] {
+        assert_eq!(settled(literal), expected, "{literal}");
     }
 }
 

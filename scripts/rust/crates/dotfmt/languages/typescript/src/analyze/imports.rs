@@ -28,10 +28,12 @@ pub(crate) fn analyze<'a, 'p>(context: &Context<'a, 'p>) -> ImportAnalysis {
         changes: Vec::new(),
     };
     let protected: BTreeSet<String> = context.protected_jsx_names().into_iter().collect();
+    let removals = planned_removals(context, &protected);
+    let marker = module_marker_anchor(context, &removals);
     for statement in &context.program.body {
         match statement {
             Statement::ImportDeclaration(declaration) => {
-                analyze_declaration(context, declaration, &protected, &mut analysis);
+                analyze_declaration(context, declaration, &protected, marker, &mut analysis);
             }
             Statement::TSImportEqualsDeclaration(declaration) => {
                 analyze_import_equals(context, declaration, &mut analysis);
@@ -88,10 +90,103 @@ fn analyze_import_equals<'a, 'p>(
     analysis.findings.push(finding);
 }
 
+/// The `ImportDeclaration`s whose every specifier is unused, so the whole statement
+/// is (or becomes) removable. Computed up front to decide whether removing them all
+/// would turn an external module into a global script.
+fn planned_removals(context: &Context<'_, '_>, protected: &BTreeSet<String>) -> BTreeSet<usize> {
+    let mut removals = BTreeSet::new();
+    if !context.options.fix || context.is_declaration || context.has_eval {
+        return removals;
+    }
+    for statement in &context.program.body {
+        let Statement::ImportDeclaration(declaration) = statement else {
+            continue;
+        };
+        let start = declaration.span.start as usize;
+        let end = declaration.span.end as usize;
+        let Some(specifiers) = declaration.specifiers.as_ref() else {
+            continue;
+        };
+        if specifiers.is_empty() || declaration.phase.is_some() {
+            continue;
+        }
+        if context.is_ignored(start, end)
+            || context.has_comment_in(start, end)
+            || context.has_adjacent_comment(start, end)
+            || context.blocked_by_type_diagnostic(start, end).is_some()
+        {
+            continue;
+        }
+        let unused = specifiers.iter().all(|specifier| {
+            let local = local_of(specifier);
+            !protected.contains(local.name.as_str())
+                && local
+                    .symbol_id
+                    .get()
+                    .is_none_or(|symbol_id| context.is_unused(symbol_id))
+        });
+        if unused {
+            removals.insert(start);
+        }
+    }
+    removals
+}
+
+/// When every import of a file is removed, an external module that augments the global
+/// scope (`declare global`, `declare module "..."`) would silently become a script and
+/// fail to type-check. Return the statement that has to keep the file a module: the last
+/// removed import, which is rewritten instead of deleted.
+fn module_marker_anchor(context: &Context<'_, '_>, removals: &BTreeSet<usize>) -> Option<usize> {
+    if !augments_module_scope(context) {
+        return None;
+    }
+    let mut anchor = None;
+    for statement in &context.program.body {
+        if let Statement::ImportDeclaration(declaration) = statement {
+            let start = declaration.span.start as usize;
+            if removals.contains(&start) {
+                anchor = Some(start);
+                continue;
+            }
+        }
+        if is_module_indicator(statement) {
+            return None;
+        }
+    }
+    anchor
+}
+
+/// Whether the file contains module-scoped augmentations that only type-check inside an
+/// external module.
+fn augments_module_scope(context: &Context<'_, '_>) -> bool {
+    context.program.body.iter().any(|statement| {
+        matches!(
+            statement,
+            Statement::TSGlobalDeclaration(_) | Statement::TSExternalModuleDeclaration(_)
+        )
+    })
+}
+
+fn is_module_indicator(statement: &Statement<'_>) -> bool {
+    matches!(
+        statement,
+        Statement::ImportDeclaration(_)
+            | Statement::TSImportEqualsDeclaration(_)
+            | Statement::ExportAllDeclaration(_)
+            | Statement::ExportDefaultDeclaration(_)
+            | Statement::ExportDeclaration(_)
+            | Statement::ExportFromDeclaration(_)
+            | Statement::ExportNamedDeclaration(_)
+            | Statement::TSExportAssignment(_)
+            | Statement::TSNamespaceExportDeclaration(_)
+    )
+}
+
 fn analyze_declaration<'a, 'p>(
     context: &Context<'a, 'p>,
     declaration: &'p ImportDeclaration<'a>,
     protected: &BTreeSet<String>,
+    marker: Option<usize>,
     analysis: &mut ImportAnalysis,
 ) {
     let start = declaration.span.start as usize;
@@ -300,8 +395,12 @@ fn analyze_declaration<'a, 'p>(
                 && context.tsconfig.elides_unused_imports()
                 && source_is_declaration_module(context, declaration));
         if declaration_module {
-            let (start, end) = context.statement_edit(start, end);
-            Edit::delete(start, end)
+            if marker == Some(start) {
+                Edit::replace(start, end, "export {};")
+            } else {
+                let (start, end) = context.statement_edit(start, end);
+                Edit::delete(start, end)
+            }
         } else {
             let suffix = &context.text[source_span.start as usize..end];
             Edit::replace(start, end, format!("import {suffix}"))

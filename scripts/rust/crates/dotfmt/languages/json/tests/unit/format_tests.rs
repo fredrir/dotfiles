@@ -198,3 +198,127 @@ fn a_json_file_with_comments_keeps_them_unless_its_dialect_was_chosen() {
     assert_eq!(chosen.text, "{\n  \"a\": 1,\n  \"b\": 2\n}\n");
     assert_eq!(chosen.repairs.of(Repair::Comment), 1);
 }
+
+fn written_with_repairs(body: &str) -> String {
+    format(
+        Path::new("stdin"),
+        body.as_bytes(),
+        &Config::default(),
+        true,
+        Dialect::Json,
+    )
+    .unwrap_or_else(|message| panic!("{message}"))
+    .text
+}
+
+#[test]
+fn every_member_of_an_object_is_written_out_even_when_a_key_repeats() {
+    assert_eq!(
+        written("{\"a\":1,\"a\":2}"),
+        "{\n  \"a\": 1,\n  \"a\": 2\n}\n"
+    );
+    assert_eq!(
+        written("{\"a\":{\"x\":1},\"a\":[2],\"b\":null,\"a\":\"three\"}"),
+        "{\n  \"a\": {\n    \"x\": 1\n  },\n  \"a\": [\n    2\n  ],\n  \"b\": null,\n  \"a\": \"three\"\n}\n"
+    );
+    assert_eq!(
+        jsonl(
+            "{\"a\":1,\"b\":[2],\"a\":3}\n{\"a\":4,\"a\":5}\n",
+            &Config::default(),
+            false
+        ),
+        Ok("{\"a\":1,\"b\":[2],\"a\":3}\n{\"a\":4,\"a\":5}\n".to_owned())
+    );
+}
+
+#[test]
+fn a_repeated_key_survives_a_repair_run_as_well() {
+    let formatted = format(
+        Path::new("stdin"),
+        b"{a: 1, a: 2, 'a': 3,}\n",
+        &Config::default(),
+        true,
+        Dialect::Json,
+    )
+    .expect("the body reads with the flag");
+
+    assert_eq!(
+        formatted.text,
+        "{\n  \"a\": 1,\n  \"a\": 2,\n  \"a\": 3\n}\n"
+    );
+    assert_eq!(formatted.repairs.of(Repair::Key), 2);
+    assert_eq!(formatted.repairs.of(Repair::Quote), 1);
+    assert_eq!(formatted.repairs.of(Repair::Comma), 1);
+}
+
+#[test]
+fn an_extreme_exponent_is_written_and_settles_on_what_it_wrote() {
+    for literal in [
+        "1e9223372036854775807",
+        "1e-9223372036854775807",
+        "1e309",
+        "1E+400",
+    ] {
+        let body = format!("[{literal}]");
+        let once = written(&body);
+        assert_eq!(written(&once), once, "{literal} does not settle");
+    }
+    assert_eq!(
+        written("[1e9223372036854775807,1e-9223372036854775807]"),
+        "[\n  1E+9223372036854775807,\n  1E-9223372036854775807\n]\n"
+    );
+}
+
+#[test]
+fn a_negative_zero_keeps_its_sign_when_a_hex_number_is_repaired() {
+    assert_eq!(
+        written_with_repairs("[-0x0, 0x0, -0x10]"),
+        "[\n  -0,\n  0,\n  -16\n]\n"
+    );
+}
+
+fn auto(path: &str, body: &str, repair: bool) -> Result<String, String> {
+    format(
+        Path::new(path),
+        body.as_bytes(),
+        &Config::default(),
+        repair,
+        Dialect::Auto,
+    )
+    .map(|formatted| formatted.text)
+    .map_err(|message| message.to_string())
+}
+
+#[test]
+fn a_json_file_with_comments_is_jsonc_whatever_repair_says() {
+    for repair in [true, false] {
+        assert_eq!(
+            auto("settings.json", "// c\n{\"a\": 1}\n", repair),
+            Ok("// c\n{\n  \"a\": 1\n}\n".to_owned()),
+            "repair {repair}"
+        );
+        assert_eq!(
+            auto("settings.json", "/* b */ {\"a\":1}\n", repair),
+            Ok("/* b */ {\n  \"a\": 1\n}\n".to_owned()),
+            "repair {repair}"
+        );
+        assert_eq!(
+            auto("settings.json", "{\"a\": 1, // t\n}\n", repair),
+            Ok("{\n  \"a\": 1, // t\n}\n".to_owned()),
+            "repair {repair} keeps the trailing comma JSONC allows"
+        );
+    }
+}
+
+#[test]
+fn a_comment_marker_inside_a_string_does_not_make_a_file_jsonc() {
+    assert_eq!(
+        auto("settings.json", "{\"u\":\"http://x\"}\n", false),
+        Ok("{\n  \"u\": \"http://x\"\n}\n".to_owned())
+    );
+    assert_eq!(
+        auto("settings.json", "{\"u\":\"http://x\",}\n", false),
+        Err("settings.json:1:17: stray comma".to_owned()),
+        "with repairs off a trailing comma is still JSON's business"
+    );
+}

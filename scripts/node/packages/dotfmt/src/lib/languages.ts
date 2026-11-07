@@ -3,7 +3,6 @@ import type * as vscode from "vscode";
 export const SECTION = "dotfmt";
 export const CONFIG_NAME = "dotfmt.dotfile";
 
-/** Language ids dotfmt can format; untitled buffers use their VS Code language. */
 export const LANGUAGES: readonly string[] = [
   "astro",
   "bibtex",
@@ -39,7 +38,6 @@ export const LANGUAGES: readonly string[] = [
   "yaml",
 ];
 
-/** Dotfmt language names mapped to the VS Code language ids they format. */
 const LANGUAGE_IDS: Record<string, readonly string[]> = {
   bib: ["bibtex"],
   conf: ["dotfile", "properties"],
@@ -59,12 +57,6 @@ const LANGUAGE_IDS: Record<string, readonly string[]> = {
   html: ["html", "vue", "svelte", "astro"],
 };
 
-/** The shipped dotfmt default set; JavaScript is opt-in. */
-export const FALLBACK_FORMATTER_LANGUAGES: readonly string[] = LANGUAGES.filter(
-  (language) => language !== "javascript" && language !== "javascriptreact",
-);
-
-/** Intersects enabled dotfmt names with the language ids this VS Code install has. */
 export function enabledFormatterLanguages(
   enabled: readonly string[],
   available: readonly string[],
@@ -79,20 +71,12 @@ export function enabledFormatterLanguages(
       }
     }
   }
-  return LANGUAGES.filter((language) => selected.has(language));
+  return [
+    ...LANGUAGES.filter((language) => selected.has(language)),
+    ...[...selected].filter((language) => !LANGUAGES.includes(language)),
+  ];
 }
 
-/** The static fallback used when the language server cannot answer. */
-export function fallbackFormatterLanguages(
-  available: readonly string[],
-): string[] {
-  const installed = new Set(available);
-  return FALLBACK_FORMATTER_LANGUAGES.filter((language) =>
-    installed.has(language),
-  );
-}
-
-// Mirrors Language::for_path in dotfmt-core, for files VS Code gives another language.
 const PATTERNS = [
   "**/*.{astro,bib,conf,config,dotfile,env,gitignore,gitattributes,ignore,ini,service,timer,path,socket,target,mount,automount,swap,slice,scope,device,network,netdev,link,json,jsonc,hujson,jwcc,jsonl,ndjson,jsonlines,tex,ltx,latex,sty,cls,dtx,ins,def,clo,lco,fd,bbx,cbx,lbx,pgf,tikz,ctx,mkii,mkiv,mkvi,mkxl,lua,luau,md,markdown,mdown,mkd,plist,toml,yaml,yml,ts,tsx,mts,cts,js,jsx,mjs,cjs,css,scss,sass,less,pcss,html,htm,xhtml,vue,svelte}",
   "**/{.env,env,.gitignore,.ignore,ignore,.prettierignore,.vscodeignore,.gitattributes,.gitconfig,.gitmodules,.editorconfig,ssh_config,sshd_config}",

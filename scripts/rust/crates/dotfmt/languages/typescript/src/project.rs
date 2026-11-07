@@ -1,4 +1,3 @@
-
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
@@ -734,6 +733,9 @@ impl Graph {
                     continue;
                 }
                 if !self.modules.contains_key(&target) {
+                    if is_leaf_target(&target) {
+                        continue;
+                    }
                     if !target.starts_with(root)
                         || is_declaration_file(&target)
                         || local_specifier(&mut resolver, root, &importer, &edge.specifier)
@@ -759,12 +761,24 @@ impl Graph {
 
 fn graph_truncated(root: &Path) -> bool {
     let workspace = is_workspace_root(root);
+    let home = home_directory();
     for ancestor in root.ancestors().skip(1) {
         if !crate::tsconfig::configs_in(ancestor).is_empty()
             || is_workspace_root(ancestor)
             || (!workspace && ancestor.join("package.json").is_file())
         {
             return true;
+        }
+        if !workspace {
+            if home.as_deref() == Some(ancestor) || temporary_boundary(ancestor) {
+                break;
+            }
+            if enclosing_sources(ancestor) {
+                return true;
+            }
+            if ancestor.join(".git").exists() {
+                break;
+            }
         }
     }
     let probe = root.join("__dotfmt_probe.ts");
@@ -776,6 +790,47 @@ fn graph_truncated(root: &Path) -> bool {
         .references
         .iter()
         .any(|reference| !reference.starts_with(root))
+}
+
+fn home_directory() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+/// Temporary roots are boundaries: unrelated scratch files in `/tmp` or the
+/// system temporary directory must not turn a project below them into an
+/// incomplete graph.
+fn temporary_boundary(path: &Path) -> bool {
+    path == std::env::temp_dir()
+        || path == Path::new("/tmp")
+        || path == Path::new("/private/tmp")
+        || path == Path::new("/var/tmp")
+}
+
+/// A package nested below a directory that holds source files of its own may be
+/// imported from outside the scanned tree, so export removal cannot be proven
+/// safe there.
+fn enclosing_sources(directory: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            return false;
+        }
+        let path = entry.path();
+        is_source_file(&path) || is_consumer_file(&path)
+    })
+}
+
+/// Resolved imports of files the graph never indexes (assets such as JSON, CSS,
+/// images and fonts) are leaves, not unknown modules.
+fn is_leaf_target(path: &Path) -> bool {
+    path.extension().is_some()
+        && !is_source_file(path)
+        && !is_consumer_file(path)
+        && !is_declaration_file(path)
 }
 
 fn inside_node_modules(path: &Path) -> bool {

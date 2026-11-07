@@ -254,6 +254,76 @@ fn local_patterns_override_earlier_patterns_and_empty_blocks_reset() {
 }
 
 #[test]
+fn patterns_do_not_apply_outside_their_configuration_root() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("project");
+    let elsewhere = root.path().join("elsewhere");
+    config(&project, "markdown {}\njson {}\nexcluded_files { notes }\n");
+    let effective = resolver(&project).for_directory(&project).unwrap();
+    assert_eq!(
+        effective.select(&project.join("notes/a.md"), None).unwrap(),
+        None
+    );
+    assert_eq!(
+        effective
+            .select(&project.join("notes2/a.md"), None)
+            .unwrap(),
+        Some(Language::Markdown)
+    );
+    assert_eq!(
+        effective
+            .select(&elsewhere.join("notes/a.md"), None)
+            .unwrap(),
+        Some(Language::Markdown)
+    );
+}
+
+#[test]
+fn installed_patterns_use_the_invocation_directory_as_their_root() {
+    let root = tempfile::tempdir().unwrap();
+    let installed = root.path().join("installed");
+    let work = root.path().join("work");
+    let elsewhere = root.path().join("elsewhere");
+    config(
+        &installed,
+        "markdown {}\njson {}\nexcluded_files { notes }\n",
+    );
+    fs::create_dir_all(&work).unwrap();
+    let resolver = Resolver::with_paths(work.clone(), Some(installed.join(CONFIG_NAME)));
+    let effective = resolver.for_directory(&work).unwrap();
+    assert_eq!(
+        effective.select(&work.join("notes/a.md"), None).unwrap(),
+        None
+    );
+    assert_eq!(
+        effective
+            .select(&elsewhere.join("notes/a.md"), None)
+            .unwrap(),
+        Some(Language::Markdown)
+    );
+}
+
+#[test]
+fn ancestor_patterns_apply_to_nested_directories_and_negation_still_works() {
+    let root = tempfile::tempdir().unwrap();
+    let nested = root.path().join("a/b");
+    config(
+        root.path(),
+        "markdown {}\njson {}\nexcluded_files { *.md\n !keep.md }\n",
+    );
+    fs::create_dir_all(&nested).unwrap();
+    let effective = resolver(&nested).for_directory(&nested).unwrap();
+    assert_eq!(
+        effective.select(&nested.join("drop.md"), None).unwrap(),
+        None
+    );
+    assert_eq!(
+        effective.select(&nested.join("keep.md"), None).unwrap(),
+        Some(Language::Markdown)
+    );
+}
+
+#[test]
 fn excluded_parent_cannot_be_reopened_by_a_negated_file_pattern() {
     let root = tempfile::tempdir().unwrap();
     config(
@@ -324,6 +394,33 @@ fn gitignore_escaped_characters_and_quoted_settings_are_preserved() {
     assert_eq!(
         effective.settings(Language::Conf)["quote_style"].value,
         "double"
+    );
+}
+
+#[test]
+fn a_leading_byte_order_mark_is_ignored() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "\u{feff}{\n width = 100\n}\njson {}\n");
+    let effective = resolver(root.path()).for_directory(root.path()).unwrap();
+    assert_eq!(effective.settings(Language::Json)["width"].value, "100");
+    assert_eq!(
+        effective.select(&root.path().join("a.json"), None).unwrap(),
+        Some(Language::Json)
+    );
+}
+
+#[test]
+fn a_byte_order_mark_inside_a_value_is_not_stripped() {
+    let root = tempfile::tempdir().unwrap();
+    config(root.path(), "{ width = 80\u{feff} }\n");
+    let error = resolver(root.path())
+        .for_directory(root.path())
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("width must be a positive integer"),
+        "{error}"
     );
 }
 

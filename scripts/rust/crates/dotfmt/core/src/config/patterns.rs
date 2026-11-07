@@ -61,7 +61,7 @@ impl Patterns {
                 break;
             }
             let result = self.0.iter().rev().find_map(|layer| {
-                if candidate == layer.root || layer.root.starts_with(candidate) {
+                if candidate == layer.root || !candidate.starts_with(&layer.root) {
                     return None;
                 }
                 let result = layer.matcher.matched(candidate, depth != 0);

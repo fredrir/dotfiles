@@ -73,13 +73,22 @@ impl Dialect {
     }
 
     pub fn for_path(path: &Path) -> Option<Self> {
+        // Angular component templates are named `<name>.component.html`; only the
+        // final extension is visible to `Path::extension`. The suffix match is
+        // case-insensitive, and a bare `component.html` is too ambiguous to
+        // claim for Angular.
+        if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+            let name = name.to_ascii_lowercase();
+            if name.ends_with(".component.html") {
+                return Some(Self::Angular);
+            }
+        }
         let extension = path.extension()?.to_str()?.to_ascii_lowercase();
         match extension.as_str() {
             "html" | "htm" | "xhtml" => Some(Self::Html),
             "vue" => Some(Self::Vue),
             "svelte" => Some(Self::Svelte),
             "astro" => Some(Self::Astro),
-            "component.html" => Some(Self::Angular),
             "xml" | "svg" | "xsd" | "xsl" | "xslt" => Some(Self::Xml),
             _ => None,
         }

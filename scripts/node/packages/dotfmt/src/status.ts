@@ -37,6 +37,12 @@ export class Status implements vscode.Disposable {
     void this.refresh();
   }
 
+  public setError(failure: string): void {
+    this.generation += 1;
+    this.item.busy = false;
+    this.fail(failure);
+  }
+
   public async refresh(): Promise<void> {
     const generation = ++this.generation;
     const document = vscode.window.activeTextEditor?.document;

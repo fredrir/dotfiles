@@ -171,7 +171,7 @@ pub struct Server {
     logged_configuration_errors: Mutex<HashMap<PathBuf, HashSet<String>>>,
     capabilities: EditCapabilities,
     in_flight: Mutex<HashMap<RequestId, Arc<RequestState>>>,
-    queued: Mutex<HashMap<(Uri, &'static str), RequestId>>,
+    queued: Mutex<HashMap<CoalesceKey, RequestId>>,
     requests: crossbeam_channel::Sender<RequestJob>,
     request_jobs: crossbeam_channel::Receiver<RequestJob>,
     watchers_registered: AtomicBool,
@@ -212,8 +212,10 @@ impl RequestState {
 struct RequestJob {
     request: Request,
     state: Arc<RequestState>,
-    queued: Option<(Uri, &'static str)>,
+    queued: Option<CoalesceKey>,
 }
+
+type CoalesceKey = (Uri, String);
 
 impl Server {
     fn new(sender: crossbeam_channel::Sender<Message>, params: &InitializeParams) -> Self {
@@ -289,6 +291,7 @@ impl Server {
             Arc::clone(&documents),
             Arc::clone(&workspace),
         ));
+        diagnostics.attach_tsc(&tsc);
         let workspace_edit = params
             .capabilities
             .workspace
@@ -411,6 +414,10 @@ impl Server {
         } else {
             FixMode::Safe
         };
+        // Project-wide removal only sees the on-disk project, so it is applied when the
+        // buffer matches disk and the user asked for it while trusted.
+        let project_analysis = selection.remove_unused_exports
+            && matches!(std::fs::read_to_string(path), Ok(disk) if disk == text);
         let mut current = text.to_owned();
         let mut formatted_any = false;
         for _ in 0..3 {
@@ -424,7 +431,7 @@ impl Server {
                     unsafe_fixes: mode == FixMode::Unsafe,
                     type_aware: false,
                     organize: selection.organize_imports,
-                    project_analysis: false,
+                    project_analysis,
                     type_diagnostics: Vec::new(),
                 },
             ) {
@@ -642,7 +649,7 @@ impl Server {
                 continue;
             }
             if let Some(path) = analysis::buffer_path(uri, document.language()) {
-                self.diagnostics.schedule(document, path, uri.clone());
+                self.diagnostics.schedule(document, path, uri.clone(), false);
             }
             self.schedule_tsc(uri.clone());
         }
@@ -670,7 +677,7 @@ impl Server {
                 continue;
             }
             if let Some(path) = analysis::buffer_path(uri, document.language()) {
-                self.diagnostics.schedule(document, path, uri.clone());
+                self.diagnostics.schedule(document, path, uri.clone(), false);
             }
             self.schedule_tsc(uri.clone());
         }
@@ -825,7 +832,7 @@ impl Server {
         self.client.sender()
     }
 
-    fn finish(&self, id: &RequestId, queued: Option<&(Uri, &'static str)>) {
+    fn finish(&self, id: &RequestId, queued: Option<&CoalesceKey>) {
         self.in_flight
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -1049,6 +1056,11 @@ impl Server {
         let mut session = session.lock().unwrap_or_else(|error| error.into_inner());
         let mut source = document.text().to_owned();
         let mut on_save_fixes = false;
+        if self.trusted()
+            && let Some(root) = dotfmt_typescript::project::discover_root(&path)
+        {
+            dotfmt_typescript::project::invalidate_root(&root);
+        }
         if mode != FixesOnSave::Off {
             let fix = match mode {
                 FixesOnSave::Off => unreachable!(),
@@ -1056,12 +1068,14 @@ impl Server {
                 FixesOnSave::Unsafe if self.trusted() => FixMode::Unsafe,
                 FixesOnSave::Unsafe => FixMode::Safe,
             };
-            let inspection = match analysis::inspect(
+            let project_analysis = self.project_analysis_for_save(&path, document.text(), fix);
+            let inspection = match analysis::inspect_with_project(
                 &mut session,
                 &path,
                 document.text(),
                 languages.clone(),
                 fix,
+                project_analysis,
             ) {
                 Ok(inspection) => inspection,
                 Err(errors) => {
@@ -1072,17 +1086,14 @@ impl Server {
             source = inspection.after;
             on_save_fixes = true;
         }
-        if self.trusted()
-            && let Some(root) = dotfmt_typescript::project::discover_root(&path)
-        {
-            dotfmt_typescript::project::invalidate_root(&root);
-        }
         let formatted = match analysis::format(
             &mut session,
             &path,
             &source,
             languages.clone(),
-            self.trusted(),
+            // A selected save mode is authoritative: the inspection already applied its
+            // fixes, so the final format must not re-apply the dotfile's fix selection.
+            mode == FixesOnSave::Off && self.trusted(),
         ) {
             Ok(text) => text,
             Err(errors) => {
@@ -1105,6 +1116,18 @@ impl Server {
         }
         self.ensure_current(uri, document.version)?;
         Ok(edits::whole(document, &formatted))
+    }
+
+    /// Project-wide analysis only sees on-disk sources, so it is applied just when
+    /// the buffer matches disk and the effective save mode may remove exports.
+    fn project_analysis_for_save(&self, path: &Path, text: &str, fix: FixMode) -> bool {
+        fix == FixMode::Unsafe
+            && self.trusted()
+            && matches!(std::fs::read_to_string(path), Ok(disk) if disk == text)
+            && self
+                .typescript_config(path)
+                .and_then(|config| config.requested_fix_selection(FixMode::Unsafe))
+                .is_some_and(|selection| selection.remove_unused_exports)
     }
 
     fn code_actions(
@@ -1469,8 +1492,9 @@ impl Server {
                         return;
                     }
                     let path = self.document_path(&item.uri, &document);
+                    self.diagnostics.forget(item.uri.clone());
                     self.diagnostics
-                        .schedule(&document, path.clone(), item.uri.clone());
+                        .schedule(&document, path.clone(), item.uri.clone(), false);
                     self.schedule_tsc(item.uri);
                     if let Some(root) = self.workspace.containing_root(&path)
                         && (!self.settings.has_folder(&root)
@@ -1517,25 +1541,16 @@ impl Server {
                         None => {}
                         Some(Err(current)) => {
                             self.log(format!(
-                                "ignoring out-of-order didChange for {} version {version} (current version {current}); marking it desynchronised",
+                                "ignoring didChange for {} version {version} that does not advance the current version {current}",
                                 uri.as_str()
                             ));
-                            if let Some(document) = self
-                                .documents
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner())
-                                .get_mut(&uri)
-                            {
-                                document.mark_desynchronised();
-                            }
-                            self.diagnostics.clear(uri.clone());
-                            self.diagnostics.clear_tsc_uri(uri);
                         }
                         Some(Ok((_, true))) => {
                             self.log(format!(
                                 "incremental didChange for {} could not be applied; document is desynchronised until reopen",
                                 uri.as_str()
                             ));
+                            self.diagnostics.clear(uri.clone());
                             self.diagnostics.clear_tsc_uri(uri);
                         }
                         Some(Ok((snapshot, false))) => {
@@ -1543,7 +1558,7 @@ impl Server {
                             if supported(&uri, snapshot.language())
                                 && let Some(path) = analysis::buffer_path(&uri, snapshot.language())
                             {
-                                self.diagnostics.schedule(&snapshot, path, uri);
+                                self.diagnostics.schedule(&snapshot, path, uri, true);
                             }
                         }
                     }
@@ -1590,7 +1605,7 @@ impl Server {
                         && let Some(path) = analysis::buffer_path(&uri, snapshot.language())
                     {
                         self.diagnostics
-                            .schedule(&snapshot, path.clone(), uri.clone());
+                            .schedule(&snapshot, path.clone(), uri.clone(), false);
                         if let Some(root) = dotfmt_typescript::project::discover_root(&path) {
                             dotfmt_typescript::project::invalidate_root(&root);
                         }
@@ -2041,10 +2056,21 @@ fn parse<T: DeserializeOwned>(value: &Value) -> std::result::Result<T, RpcError>
         .map_err(|error| RpcError::invalid_params(error.to_string()))
 }
 
-fn coalesce_key(method: &str, params: &Value) -> Option<(Uri, &'static str)> {
-    let family = match method {
-        Formatting::METHOD | RangeFormatting::METHOD | RangesFormatting::METHOD => "format",
-        OnTypeFormatting::METHOD => "onType",
+fn coalesce_key(method: &str, params: &Value) -> Option<CoalesceKey> {
+    let target = match method {
+        Formatting::METHOD => "format".to_owned(),
+        RangeFormatting::METHOD => {
+            format!("rangeFormat:{}", params.get("range").map(Value::to_string)?)
+        }
+        RangesFormatting::METHOD => {
+            format!(
+                "rangesFormat:{}",
+                params.get("ranges").map(Value::to_string)?
+            )
+        }
+        OnTypeFormatting::METHOD => {
+            format!("onType:{}", params.get("position").map(Value::to_string)?)
+        }
         _ => return None,
     };
     let uri = params
@@ -2052,7 +2078,7 @@ fn coalesce_key(method: &str, params: &Value) -> Option<(Uri, &'static str)> {
         .and_then(|document| document.get("uri"))
         .and_then(Value::as_str)
         .and_then(|uri| uri.parse().ok())?;
-    Some((uri, family))
+    Some((uri, target))
 }
 
 fn supported(uri: &Uri, language_id: &str) -> bool {
@@ -2360,6 +2386,41 @@ mod tests {
                 }
                 Message::Response(_) | Message::Notification(_) | Message::Request(_) => continue,
             }
+        }
+    }
+
+    fn receive_publish(
+        receiver: &crossbeam_channel::Receiver<Message>,
+        uri: &Uri,
+        predicate: impl Fn(usize) -> bool,
+    ) -> (Option<i32>, Vec<String>) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("published diagnostics");
+            let message = receiver
+                .recv_timeout(remaining)
+                .expect("diagnostics message");
+            let Message::Notification(notification) = message else {
+                continue;
+            };
+            if notification.method != "textDocument/publishDiagnostics" {
+                continue;
+            }
+            let params: lsp_types::PublishDiagnosticsParams =
+                serde_json::from_value(notification.params).unwrap();
+            if params.uri != *uri || !predicate(params.diagnostics.len()) {
+                continue;
+            }
+            return (
+                params.version,
+                params
+                    .diagnostics
+                    .into_iter()
+                    .map(|diagnostic| diagnostic.message)
+                    .collect(),
+            );
         }
     }
 
@@ -3246,6 +3307,175 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_and_stale_did_change_versions_are_ignored() {
+        let temporary = tempfile::tempdir().unwrap();
+        let server = test_server(temporary.path());
+        let path = temporary.path().join("a.json");
+        let uri = uri::from_path(&path);
+        server.documents.lock().unwrap().open(
+            uri.clone(),
+            Document::new("{\"a\":1}\n".into(), "json".into(), 1),
+        );
+        let formats = || {
+            server
+                .handle(
+                    Formatting::METHOD,
+                    &json!({
+                        "textDocument": { "uri": uri },
+                        "options": { "tabSize": 2, "insertSpaces": true }
+                    }),
+                    &RequestState::default(),
+                )
+                .expect("formatting after didChange")
+        };
+        let change = |version: i32, changes: Value| {
+            Notification::new(
+                DidChangeTextDocument::METHOD.into(),
+                json!({
+                    "textDocument": { "uri": uri, "version": version },
+                    "contentChanges": changes
+                }),
+            )
+        };
+        let text = || {
+            server
+                .document(&uri)
+                .expect("open document")
+                .text()
+                .to_owned()
+        };
+        let version = || server.document(&uri).expect("open document").version;
+
+        server.notify(change(2, json!([{ "text": "{\"one\":1}\n" }])));
+        assert_eq!(text(), "{\"one\":1}\n");
+        formats();
+
+        server.notify(change(2, json!([{ "text": "{\"two\":2}\n" }])));
+        assert_eq!(text(), "{\"one\":1}\n", "duplicate version replaced text");
+        formats();
+
+        server.notify(change(
+            2,
+            json!([{
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 5 }
+                },
+                "text": "{}"
+            }]),
+        ));
+        assert_eq!(text(), "{\"one\":1}\n", "duplicate version applied a range");
+        formats();
+
+        server.notify(change(1, json!([{ "text": "{\"stale\":1}\n" }])));
+        assert_eq!(text(), "{\"one\":1}\n", "stale version replaced text");
+        assert_eq!(version(), 2);
+        assert!(!server.document(&uri).unwrap().is_desynchronised());
+        formats();
+
+        server.notify(change(3, json!([{ "text": "{\"three\":3}\n" }])));
+        assert_eq!(text(), "{\"three\":3}\n");
+        assert_eq!(version(), 3);
+        formats();
+    }
+
+    #[test]
+    fn reopening_at_a_lower_version_recovers_a_desynchronised_document() {
+        let temporary = tempfile::tempdir().unwrap();
+        let server = test_server(temporary.path());
+        let path = temporary.path().join("a.json");
+        let uri = uri::from_path(&path);
+        server.documents.lock().unwrap().open(
+            uri.clone(),
+            Document::new("{\"a\":1}\n".into(), "json".into(), 5),
+        );
+        server.notify(Notification::new(
+            DidChangeTextDocument::METHOD.into(),
+            json!({
+                "textDocument": { "uri": uri, "version": 6 },
+                "contentChanges": [{
+                    "range": {
+                        "start": { "line": 99, "character": 0 },
+                        "end": { "line": 99, "character": 1 }
+                    },
+                    "text": "x"
+                }]
+            }),
+        ));
+        assert!(server.document(&uri).is_err());
+
+        server.notify(Notification::new(
+            DidOpenTextDocument::METHOD.into(),
+            json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "json",
+                    "version": 1,
+                    "text": "{\"b\":2}\n"
+                }
+            }),
+        ));
+        let document = server.document(&uri).expect("reopened document");
+        assert!(!document.is_desynchronised());
+        assert_eq!(document.version, 1);
+        assert_eq!(document.text(), "{\"b\":2}\n");
+        let edits = server
+            .handle(
+                Formatting::METHOD,
+                &json!({
+                    "textDocument": { "uri": uri },
+                    "options": { "tabSize": 2, "insertSpaces": true }
+                }),
+                &RequestState::default(),
+            )
+            .expect("formatting after reopening");
+        assert!(edits.is_array());
+    }
+
+    #[test]
+    fn an_unapplyable_change_clears_stale_syntax_diagnostics() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(root.join("dotfmt.dotfile"), "typescript {}\n").unwrap();
+        let path = root.join("a.ts");
+        let text = "const x = ;\n";
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let (server, receiver) =
+            server_with_options(root, json!({ "diagnostics": { "debounceMs": 50 } }));
+        server.notify(Notification::new(
+            DidOpenTextDocument::METHOD.into(),
+            json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "typescript",
+                    "version": 1,
+                    "text": text
+                }
+            }),
+        ));
+        let (_, before) = receive_publish(&receiver, &uri, |count| count > 0);
+        assert!(!before.is_empty());
+
+        server.notify(Notification::new(
+            DidChangeTextDocument::METHOD.into(),
+            json!({
+                "textDocument": { "uri": uri, "version": 2 },
+                "contentChanges": [{
+                    "range": {
+                        "start": { "line": 99, "character": 0 },
+                        "end": { "line": 99, "character": 1 }
+                    },
+                    "text": "x"
+                }]
+            }),
+        ));
+        let (version, after) = receive_publish(&receiver, &uri, |count| count == 0);
+        assert!(after.is_empty(), "stale syntax diagnostics: {after:?}");
+        assert_eq!(version, None, "a desynchronised document has no version");
+    }
+
+    #[test]
     fn unknown_cancel_does_not_create_in_flight_state() {
         let temporary = tempfile::tempdir().unwrap();
         let server = test_server(temporary.path());
@@ -3299,6 +3529,29 @@ mod tests {
         assert!(superseded(1));
         assert!(!superseded(2));
         assert!(!superseded(3));
+
+        let range_formatting = |id: i32, start: u32, end: u32| {
+            Request::new(
+                RequestId::from(id),
+                RangeFormatting::METHOD.into(),
+                json!({
+                    "textDocument": { "uri": first },
+                    "range": {
+                        "start": { "line": start, "character": 0 },
+                        "end": { "line": end, "character": 0 }
+                    },
+                    "options": { "tabSize": 2, "insertSpaces": true }
+                }),
+            )
+        };
+        server.dispatch(range_formatting(10, 0, 1));
+        server.dispatch(range_formatting(11, 2, 3));
+        assert!(!superseded(10), "different ranges superseded each other");
+        assert!(!superseded(11));
+        assert!(!superseded(3));
+        server.dispatch(range_formatting(12, 0, 1));
+        assert!(superseded(10), "identical ranges did not coalesce");
+        assert!(!superseded(11));
 
         server.dispatch(Request::new(
             RequestId::from(4),
@@ -3663,7 +3916,7 @@ mod tests {
     }
 
     #[test]
-    fn out_of_order_change_is_logged() {
+    fn out_of_order_change_is_logged_and_ignored() {
         let temporary = tempfile::tempdir().unwrap();
         let (server, receiver) = server_with_options(temporary.path(), Value::Null);
         let path = temporary.path().join("a.json");
@@ -3679,10 +3932,9 @@ mod tests {
                 "contentChanges": [{ "text": "{\"b\":2}\n" }]
             }),
         ));
-        assert_eq!(
-            server.document(&uri).unwrap_err().code,
-            ErrorCode::ContentModified as i32
-        );
+        let document = server.document(&uri).expect("document stays usable");
+        assert_eq!(document.version, 5);
+        assert_eq!(document.text(), "{\"a\":1}\n");
         loop {
             let message = receiver
                 .recv_timeout(Duration::from_secs(2))
@@ -3691,7 +3943,7 @@ mod tests {
                 && notification.method == "window/logMessage"
                 && notification.params["message"]
                     .as_str()
-                    .is_some_and(|message| message.contains("out-of-order didChange"))
+                    .is_some_and(|message| message.contains("does not advance the current version"))
             {
                 break;
             }
@@ -4119,6 +4371,32 @@ fi"#,
         );
     }
 
+    #[test]
+    fn doctor_ignores_null_only_format_settings() {
+        let temporary = tempfile::tempdir().unwrap();
+        let generated = json!({
+            "format": {
+                "global": { "width": null },
+                "typescript": { "quote_style": null },
+            }
+        });
+        let (server, _receiver) = server_with_options(temporary.path(), generated);
+        let value = server
+            .handle(DOCTOR_REQUEST, &Value::Null, &RequestState::default())
+            .unwrap();
+        assert_eq!(value["default"]["hasFormat"], json!(false));
+        assert_eq!(value["folders"][0]["hasFormat"], json!(false));
+
+        let (server, _receiver) = server_with_options(
+            temporary.path(),
+            json!({ "format": { "global": { "width": 80 } } }),
+        );
+        let value = server
+            .handle(DOCTOR_REQUEST, &Value::Null, &RequestState::default())
+            .unwrap();
+        assert_eq!(value["default"]["hasFormat"], json!(true));
+    }
+
     #[cfg(unix)]
     #[test]
     fn doctor_lists_referenced_project_configs() {
@@ -4352,6 +4630,53 @@ fi"#,
 
     #[cfg(unix)]
     #[test]
+    fn full_document_formatting_removes_unused_exports_only_when_trusted() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let (_path, uri, text) = unused_export_project(root);
+        let document = Document::new(text.clone(), "typescript".into(), 1);
+
+        let untrusted = test_server(root);
+        untrusted
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let edits = untrusted
+            .format_document(&uri, &document, &[], true, None)
+            .unwrap();
+        assert!(
+            apply_edits(&text, &edits).contains("export "),
+            "untrusted formatting removed an unused export"
+        );
+
+        let (trusted, _receiver) = server_with_options(root, json!({ "trusted": true }));
+        trusted
+            .documents
+            .lock()
+            .unwrap()
+            .open(uri.clone(), document.clone());
+        let range = document.lsp_range(&document.line_range(0, 0));
+        let edits = trusted
+            .format_document(&uri, &document, &[range], false, None)
+            .unwrap();
+        assert!(
+            apply_edits(&text, &edits).contains("export "),
+            "range formatting removed a project-wide unused export"
+        );
+
+        let edits = trusted
+            .format_document(&uri, &document, &[], true, None)
+            .unwrap();
+        let formatted = apply_edits(&text, &edits);
+        assert!(
+            !formatted.contains("export "),
+            "trusted full-document formatting kept the unused export: {formatted}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn will_save_applies_configured_fixes_only_when_trusted() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path();
@@ -4388,6 +4713,61 @@ fi"#,
         assert!(
             !apply_edits(text, &edits).contains("unused"),
             "trusted will-save did not apply configured fixes"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn will_save_modes_cap_configured_fixes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        std::fs::write(
+            root.join("dotfmt.dotfile"),
+            "typescript { fixes = unsafe\n type_aware = false\n remove_unused_locals = true }\n",
+        )
+        .unwrap();
+        let text = "const unusedLocal = 1;\nexport const keep = 2;\n";
+        let path = root.join("src/a.ts");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let uri = uri::from_path(&path);
+        let document = Document::new(text.into(), "typescript".into(), 1);
+        let saved = |trusted: bool, mode: &str| {
+            let options = if trusted {
+                json!({ "trusted": true, "fixes": { "onSave": mode } })
+            } else {
+                json!({ "fixes": { "onSave": mode } })
+            };
+            let (server, _receiver) = server_with_options(root, options);
+            server
+                .documents
+                .lock()
+                .unwrap()
+                .open(uri.clone(), document.clone());
+            apply_edits(text, &server.fix_on_save(&uri, &document).unwrap())
+        };
+
+        let safe = saved(true, "safe");
+        assert!(
+            safe.contains("unusedLocal"),
+            "onSave=safe applied an unsafe fix: {safe}"
+        );
+        let safe_untrusted = saved(false, "safe");
+        assert!(safe_untrusted.contains("unusedLocal"));
+        let unsafe_untrusted = saved(false, "unsafe");
+        assert!(
+            unsafe_untrusted.contains("unusedLocal"),
+            "untrusted onSave=unsafe applied an unsafe fix: {unsafe_untrusted}"
+        );
+        let unsafe_trusted = saved(true, "unsafe");
+        assert!(
+            !unsafe_trusted.contains("unusedLocal"),
+            "trusted onSave=unsafe kept the unused local: {unsafe_trusted}"
+        );
+        let off = saved(true, "off");
+        assert!(
+            !off.contains("unusedLocal"),
+            "onSave=off skipped the configured dotfile fixes: {off}"
         );
     }
 

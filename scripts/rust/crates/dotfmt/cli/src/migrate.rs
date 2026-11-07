@@ -218,7 +218,16 @@ fn render(config: &Map<String, Value>, warnings: &mut Vec<String>) -> String {
         "  quotes = {}\n",
         if single { "single" } else { "double" }
     ));
-    output.push_str("}\n");
+    output.push_str("}\n\n");
+    output
+        .push_str("# An explicit language block selects the legacy subset, so keep the shipped\n");
+    output.push_str("# default languages enabled. JavaScript stays opt-in.\n");
+    for language in [
+        "bib", "conf", "env", "ignore", "ini", "json", "latex", "lua", "markdown", "plist", "toml",
+        "yaml",
+    ] {
+        output.push_str(&format!("{language} {{}}\n"));
+    }
     output
 }
 

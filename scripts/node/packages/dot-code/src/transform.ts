@@ -154,7 +154,6 @@ async function copy(): Promise<string> {
 
 async function paste(text: string): Promise<void> {
   await vscode.env.clipboard.writeText(text);
-  // an empty paste may be ignored, so cut to clear the selection
   await vscode.commands.executeCommand(
     text
       ? "editor.action.clipboardPasteAction"

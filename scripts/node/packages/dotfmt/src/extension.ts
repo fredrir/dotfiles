@@ -53,8 +53,13 @@ export function activate(context: vscode.ExtensionContext): void {
       ) {
         void client.restart().then(
           () => status.invalidate(),
-          (error: unknown) =>
-            log.error(`server restart failed: ${message(error)}`),
+          (error: unknown) => {
+            log.error(`server restart failed: ${message(error)}`);
+            status.setError(`server failed to restart: ${message(error)}`);
+            void vscode.window.showErrorMessage(
+              `dotfmt language server failed to restart: ${message(error)}`,
+            );
+          },
         );
       } else if (event.affectsConfiguration(SECTION)) {
         status.invalidate();
@@ -63,8 +68,13 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidGrantWorkspaceTrust(() => {
       void client.restart().then(
         () => status.invalidate(),
-        (error: unknown) =>
-          log.error(`server restart failed: ${message(error)}`),
+        (error: unknown) => {
+          log.error(`server restart failed: ${message(error)}`);
+          status.setError(`server failed to restart: ${message(error)}`);
+          void vscode.window.showErrorMessage(
+            `dotfmt language server failed to restart: ${message(error)}`,
+          );
+        },
       );
     }),
   );
@@ -78,7 +88,12 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
   client.start().catch((error: unknown) => {
-    log.error(`language server failed to start: ${message(error)}`);
+    const failure = `${tildify(client.serverPath())}: ${message(error)}`;
+    log.error(`language server failed to start: ${failure}`);
+    status.setError(`server failed to start: ${message(error)}`);
+    void vscode.window.showErrorMessage(
+      `dotfmt language server failed to start (${failure}). Set "dotfmt.server.path" to a working binary or run "dotfmt: Doctor".`,
+    );
   });
   void status.refresh();
 }

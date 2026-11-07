@@ -27,8 +27,48 @@ pub(crate) fn syntax_diagnostic(text: &str, error: &OxcDiagnostic) -> Diagnostic
     }
 }
 
-const NESTING_LIMIT: usize = 8192;
+const NESTING_LIMIT: usize = 1024;
 const MAX_ANGLE_LOOKAHEAD: usize = 4 * 1024 * 1024;
+/// Total bytes the `<` heuristics may inspect per input byte, per call.
+const ANGLE_SCAN_PER_BYTE: usize = 8;
+const MIN_ANGLE_SCAN_BUDGET: usize = 64 * 1024;
+
+/// Bounds the lookahead spent on `<` disambiguation so adversarial input stays
+/// linear instead of rescanning the rest of the file for every `<`.
+struct AngleBudget {
+    remaining: usize,
+    scanned: usize,
+}
+
+impl AngleBudget {
+    fn new(len: usize) -> Self {
+        Self {
+            remaining: len
+                .saturating_mul(ANGLE_SCAN_PER_BYTE)
+                .max(MIN_ANGLE_SCAN_BUDGET),
+            scanned: 0,
+        }
+    }
+
+    fn spend(&mut self, bytes: usize) -> bool {
+        self.scanned += bytes;
+        if self.remaining < bytes {
+            self.remaining = 0;
+            return false;
+        }
+        self.remaining -= bytes;
+        true
+    }
+
+    fn exhausted(&self) -> bool {
+        self.remaining == 0
+    }
+
+    #[cfg(test)]
+    fn scanned(&self) -> usize {
+        self.scanned
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
@@ -47,6 +87,17 @@ enum Angle {
 }
 
 pub(crate) fn nesting_exceeded(text: &str) -> bool {
+    scan_nesting(text, &mut AngleBudget::new(text.len()))
+}
+
+#[cfg(test)]
+fn nesting_exceeded_scanned(text: &str) -> (bool, usize) {
+    let mut budget = AngleBudget::new(text.len());
+    let exceeded = scan_nesting(text, &mut budget);
+    (exceeded, budget.scanned())
+}
+
+fn scan_nesting(text: &str, budget: &mut AngleBudget) -> bool {
     let bytes = text.as_bytes();
     let mut modes = vec![Mode::Code];
     let mut braces = Vec::new();
@@ -135,8 +186,13 @@ pub(crate) fn nesting_exceeded(text: &str) -> bool {
                         index += 1;
                     }
                     b'<' => {
-                        match classify_code_angle(bytes, index, generic_depth, expression_expected)
-                        {
+                        match classify_code_angle(
+                            bytes,
+                            index,
+                            generic_depth,
+                            expression_expected,
+                            budget,
+                        ) {
                             Angle::Generic => {
                                 generic_depth += 1;
                                 if generic_depth > NESTING_LIMIT {
@@ -295,6 +351,7 @@ fn classify_code_angle(
     index: usize,
     generic_depth: usize,
     expression_expected: bool,
+    budget: &mut AngleBudget,
 ) -> Angle {
     let next = bytes.get(index + 1).copied();
     if generic_depth > 0 {
@@ -308,14 +365,16 @@ fn classify_code_angle(
         Some(b'/') => Angle::ClosingTag,
         Some(b'>') => Angle::Fragment,
         Some(byte) if is_ident_start(byte) => {
-            let Some(end) = generic_end(bytes, index) else {
-                return if byte.is_ascii_lowercase() && expression_expected {
-                    Angle::OpeningTag
-                } else {
-                    Angle::Ignore
-                };
+            let Some(end) = generic_end(bytes, index, budget) else {
+                if budget.exhausted() || !(byte.is_ascii_lowercase() && expression_expected) {
+                    return Angle::Ignore;
+                }
+                return Angle::OpeningTag;
             };
-            if angle_is_generic(bytes, index, end) {
+            if !budget.spend(end - index) {
+                return Angle::Ignore;
+            }
+            if angle_is_generic(bytes, index, end, budget) {
                 Angle::Generic
             } else {
                 Angle::OpeningTag
@@ -325,14 +384,19 @@ fn classify_code_angle(
     }
 }
 
-fn generic_end(text: &[u8], start: usize) -> Option<usize> {
+fn generic_end(text: &[u8], start: usize, budget: &mut AngleBudget) -> Option<usize> {
     let mut index = start + 1;
     let limit = text.len().min(start.saturating_add(MAX_ANGLE_LOOKAHEAD));
     let mut angles = 1usize;
     let mut parens = 0usize;
     let mut brackets = 0usize;
     let mut braces = 0usize;
+    let mut charged = start;
     while index < limit {
+        if !budget.spend(index - charged) {
+            return None;
+        }
+        charged = index;
         let byte = text[index];
         if byte == b'/' && text.get(index + 1) == Some(&b'/') {
             index = skip_line_comment(text, index);
@@ -377,7 +441,7 @@ fn generic_end(text: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-fn angle_is_generic(text: &[u8], start: usize, end: usize) -> bool {
+fn angle_is_generic(text: &[u8], start: usize, end: usize, budget: &mut AngleBudget) -> bool {
     let content = &text[start + 1..end];
     let Some(first) = content.iter().position(|byte| !byte.is_ascii_whitespace()) else {
         return false;
@@ -524,7 +588,7 @@ fn angle_is_generic(text: &[u8], start: usize, end: usize) -> bool {
     {
         name_end += 1;
     }
-    let has_close = has_matching_closing_tag(text, next, &text[name_start..name_end]);
+    let has_close = has_matching_closing_tag(text, next, &text[name_start..name_end], budget);
     if matches!(next_byte, Some(b'{')) {
         return !has_close;
     }
@@ -534,7 +598,12 @@ fn angle_is_generic(text: &[u8], start: usize, end: usize) -> bool {
     true
 }
 
-fn has_matching_closing_tag(text: &[u8], start: usize, name: &[u8]) -> bool {
+fn has_matching_closing_tag(
+    text: &[u8],
+    start: usize,
+    name: &[u8],
+    budget: &mut AngleBudget,
+) -> bool {
     const MAX_CLOSING_TAG_LOOKAHEAD: usize = 64 * 1024;
     if name.is_empty() {
         return false;
@@ -543,7 +612,12 @@ fn has_matching_closing_tag(text: &[u8], start: usize, name: &[u8]) -> bool {
         .len()
         .min(start.saturating_add(MAX_CLOSING_TAG_LOOKAHEAD));
     let mut index = start;
+    let mut charged = start;
     while index + 1 < end {
+        if !budget.spend(index - charged) {
+            return false;
+        }
+        charged = index;
         if text[index] == b';' {
             return false;
         }
@@ -699,7 +773,7 @@ fn is_generic_keyword(word: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::nesting_exceeded;
+    use super::{NESTING_LIMIT, nesting_exceeded, nesting_exceeded_scanned};
 
     const FLAT: usize = 8193;
 
@@ -732,17 +806,17 @@ mod tests {
 
     #[test]
     fn nested_jsx_respects_the_limit() {
-        let allowed = nested_jsx(8192);
+        let allowed = nested_jsx(NESTING_LIMIT);
         assert!(!nesting_exceeded(&allowed));
-        let rejected = nested_jsx(8193);
+        let rejected = nested_jsx(NESTING_LIMIT + 1);
         assert!(nesting_exceeded(&rejected));
     }
 
     #[test]
     fn nested_parentheses_respect_the_limit() {
-        let allowed = format!("const x = {}1{};\n", "(".repeat(8192), ")".repeat(8192));
+        let allowed = format!("const x = {}1{};\n", "(".repeat(NESTING_LIMIT), ")".repeat(NESTING_LIMIT));
         assert!(!nesting_exceeded(&allowed));
-        let rejected = format!("const x = {}1{};\n", "(".repeat(8193), ")".repeat(8193));
+        let rejected = format!("const x = {}1{};\n", "(".repeat(NESTING_LIMIT + 1), ")".repeat(NESTING_LIMIT + 1));
         assert!(nesting_exceeded(&rejected));
     }
 
@@ -771,11 +845,47 @@ mod tests {
     #[test]
     fn nested_generic_angles_are_rejected() {
         let mut input = String::from("type X = ");
-        input.push_str(&"A<".repeat(8193));
+        input.push_str(&"A<".repeat(NESTING_LIMIT + 1));
         input.push('B');
-        input.push_str(&">".repeat(8193));
+        input.push_str(&">".repeat(NESTING_LIMIT + 1));
         input.push_str(";\n");
         assert!(nesting_exceeded(&input));
+    }
+
+    #[test]
+    fn pathological_angle_scans_are_bounded_per_input_byte() {
+        // Every `<` used to rescan the rest of the file because nothing closes or
+        // terminates the angle: 121 KB took 0.19s and 480 KB took 4.66s.
+        let comparisons = "if(a0<b0){a0++}".repeat(32_000);
+        assert!(comparisons.len() > 400 * 1024);
+        let (exceeded, scanned) = nesting_exceeded_scanned(&comparisons);
+        assert!(!exceeded);
+        assert!(
+            scanned <= comparisons.len() * 8 + 64 * 1024,
+            "scanned {scanned} bytes for {} input bytes",
+            comparisons.len()
+        );
+
+        let angles = format!("const x = {}>;", "<a ".repeat(4_000));
+        let (_, scanned) = nesting_exceeded_scanned(&angles);
+        assert!(
+            scanned <= angles.len() * 8 + 64 * 1024,
+            "scanned {scanned} bytes for {} input bytes",
+            angles.len()
+        );
+    }
+
+    #[test]
+    fn closing_tag_lookahead_is_bounded() {
+        // `<b>` keeps looking for a matching closing tag; a long tail without a
+        // statement terminator used to be rescanned once per angle.
+        let input = "a<b>c".repeat(40_000);
+        let (_, scanned) = nesting_exceeded_scanned(&input);
+        assert!(
+            scanned <= input.len() * 10 + 128 * 1024,
+            "scanned {scanned} bytes for {} input bytes",
+            input.len()
+        );
     }
 
     fn nested_jsx(depth: usize) -> String {

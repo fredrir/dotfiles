@@ -738,7 +738,7 @@
           "spaces",
           "tabs"
         ],
-        "default": "spaces",
+        "defaultDescription": "the dialect's own indentation",
         "description": "Indentation character at the start of a line."
       },
       "line_endings": {
@@ -870,7 +870,10 @@
         "type": "string",
         "enum": [
           "double",
-          "single"
+          "single",
+          "auto",
+          "auto-prefer-double",
+          "auto-prefer-single"
         ],
         "default": "double",
         "description": "Quote character for string literals."
@@ -1375,10 +1378,13 @@
           "auto",
           "commonmark",
           "gfm",
-          "obsidian"
+          "github",
+          "github-flavored-markdown",
+          "obsidian",
+          "obsidian-markdown"
         ],
         "default": "auto",
-        "description": "Markdown flavor; `auto` detects GFM and Obsidian from the vault ancestry. Aliases `github` and `obsidian-markdown` are accepted."
+        "description": "Markdown flavor; `auto` detects GFM and Obsidian from the vault ancestry. Aliases `github`, `github-flavored-markdown` and `obsidian-markdown` are accepted."
       },
       "width": {
         "type": "integer",

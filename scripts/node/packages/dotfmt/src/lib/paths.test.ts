@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, test } from "bun:test";
-import { findConfig, isWithin } from "./paths";
+import { expandHome, findConfig, isWithin, resolveBinary } from "./paths";
 
 describe("isWithin", () => {
   test("accepts the root and its children", () => {
@@ -25,6 +25,41 @@ describe("isWithin", () => {
     expect(
       isWithin("/workspace/project", "/workspace/project/..notes/a.ts"),
     ).toBe(true);
+  });
+});
+
+describe("resolveBinary", () => {
+  test("prefers a configured path and expands its home directory", () => {
+    expect(
+      resolveBinary(
+        " ~/bin/dotfmt-lsp ",
+        "/app/bin/dotfmt-lsp",
+        "dotfmt-lsp",
+        () => true,
+      ),
+    ).toBe(expandHome("~/bin/dotfmt-lsp"));
+    expect(
+      resolveBinary(
+        "~/bin/dotfmt-lsp",
+        "/app/bin/dotfmt-lsp",
+        "dotfmt-lsp",
+        () => true,
+      ),
+    ).toBe(expandHome("~/bin/dotfmt-lsp"));
+  });
+
+  test("uses the bundled binary when it exists", () => {
+    expect(
+      resolveBinary("", "/app/bin/dotfmt-lsp", "dotfmt-lsp", (file) =>
+        file.endsWith("dotfmt-lsp"),
+      ),
+    ).toBe("/app/bin/dotfmt-lsp");
+  });
+
+  test("falls back to PATH when the bundled binary is missing", () => {
+    expect(
+      resolveBinary("", "/app/bin/dotfmt-lsp", "dotfmt-lsp", () => false),
+    ).toBe("dotfmt-lsp");
   });
 });
 

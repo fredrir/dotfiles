@@ -9,7 +9,6 @@ export interface Explanation {
   error?: string;
 }
 
-/** The server's view of the language, dialect and configuration chain for a buffer. */
 export function explain(
   client: Client,
   uri: vscode.Uri,

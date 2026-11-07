@@ -1,13 +1,21 @@
 
 pub fn canonical(literal: &str) -> Option<String> {
     let digits = Digits::read(literal)?;
-    Some(digits.write())
+    match digits.write() {
+        Some(written) => Some(written),
+        // An exponent too large to place on a point is kept as it was written:
+        // guessing at it would change the value and break the promise that
+        // laying the text out again leaves it alone.
+        None if strict(literal.as_bytes()) => Some(literal.to_string()),
+        None => None,
+    }
 }
 
 struct Digits {
     negative: bool,
     digits: String,
-    exponent: i64,
+    /// `None` when the literal named an exponent wider than this type holds.
+    exponent: Option<i128>,
 }
 
 impl Digits {
@@ -38,7 +46,7 @@ impl Digits {
             return None;
         }
 
-        let mut power = 0;
+        let mut power = Some(0);
         if matches!(bytes.get(at), Some(b'e' | b'E')) {
             at += 1;
             let mut behind = false;
@@ -50,11 +58,7 @@ impl Digits {
             if exponent.is_empty() {
                 return None;
             }
-            power = if behind {
-                -power_of(&exponent)
-            } else {
-                power_of(&exponent)
-            };
+            power = power_of(&exponent).map(|value| if behind { -value } else { value });
         }
         if at != bytes.len() {
             return None;
@@ -73,25 +77,28 @@ impl Digits {
         Some(Digits {
             negative,
             digits,
-            exponent: power.saturating_sub(fraction.len() as i64),
+            exponent: power.and_then(|power| power.checked_sub(fraction.len() as i128)),
         })
     }
 
-    fn write(&self) -> String {
+    fn write(&self) -> Option<String> {
+        let exponent = self.exponent?;
         let sign = if self.negative { "-" } else { "" };
-        let places = self.digits.len() as i64;
-        let point = places + self.exponent;
-        let adjusted = point - 1;
-        if self.exponent <= 0 && adjusted >= -6 {
-            if self.exponent == 0 {
-                return format!("{sign}{}", self.digits);
+        // Widened on purpose: the exponent is whatever the literal named, all
+        // the way past `i64::MAX`, and `places + exponent` must not overflow.
+        let places = self.digits.len() as i128;
+        let point = places.checked_add(exponent)?;
+        let adjusted = point.checked_sub(1)?;
+        if exponent <= 0 && adjusted >= -6 {
+            if exponent == 0 {
+                return Some(format!("{sign}{}", self.digits));
             }
             if point > 0 {
                 let (whole, fraction) = self.digits.split_at(point as usize);
-                return format!("{sign}{whole}.{fraction}");
+                return Some(format!("{sign}{whole}.{fraction}"));
             }
             let zeros = "0".repeat((-point) as usize);
-            return format!("{sign}0.{zeros}{}", self.digits);
+            return Some(format!("{sign}0.{zeros}{}", self.digits));
         }
 
         let (lead, rest) = self.digits.split_at(1);
@@ -101,7 +108,7 @@ impl Digits {
             format!("{lead}.{rest}")
         };
         let marker = if adjusted < 0 { '-' } else { '+' };
-        format!("{sign}{coefficient}E{marker}{}", adjusted.abs())
+        Some(format!("{sign}{coefficient}E{marker}{}", adjusted.abs()))
     }
 }
 
@@ -156,12 +163,12 @@ fn digits_at(literal: &str, at: &mut usize) -> String {
     literal[start..*at].to_string()
 }
 
-fn power_of(digits: &str) -> i64 {
-    let mut value: i64 = 0;
+fn power_of(digits: &str) -> Option<i128> {
+    let mut value: i128 = 0;
     for byte in digits.bytes() {
         value = value
-            .saturating_mul(10)
-            .saturating_add(i64::from(byte - b'0'));
+            .checked_mul(10)?
+            .checked_add(i128::from(byte - b'0'))?;
     }
-    value
+    Some(value)
 }
